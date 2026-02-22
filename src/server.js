@@ -5,6 +5,7 @@ const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
 const { Strategy: GoogleStrategy } = require('passport-google-oauth20');
+const heicConvert = require('heic-convert');
 const {
   initDb,
   addEntries,
@@ -80,6 +81,37 @@ app.use(passport.session());
 
 function todayIsoString() {
   return new Date().toISOString();
+}
+
+function parseImageDataUrl(imageDataUrl) {
+  const match = String(imageDataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/s);
+  if (!match) {
+    return null;
+  }
+  return {
+    mimeType: String(match[1] || '').toLowerCase(),
+    base64Payload: String(match[2] || '')
+  };
+}
+
+function isHeicMimeType(mimeType) {
+  const value = String(mimeType || '').toLowerCase();
+  return value === 'image/heic' || value === 'image/heif' || value === 'image/heic-sequence' || value === 'image/heif-sequence';
+}
+
+async function convertHeicDataUrlToJpegDataUrl(imageDataUrl) {
+  const parsed = parseImageDataUrl(imageDataUrl);
+  if (!parsed) {
+    throw new Error('Invalid image format. Use an image file.');
+  }
+  const inputBuffer = Buffer.from(parsed.base64Payload, 'base64');
+  const output = await heicConvert({
+    buffer: inputBuffer,
+    format: 'JPEG',
+    quality: 0.9
+  });
+  const outputBuffer = Buffer.isBuffer(output) ? output : Buffer.from(output);
+  return 'data:image/jpeg;base64,' + outputBuffer.toString('base64');
 }
 
 function userIdFromReq(req) {
@@ -205,31 +237,45 @@ app.post('/api/parse-meal', async (req, res) => {
   try {
     const consumedAt = req.body.consumedAt || todayIsoString();
     const text = typeof req.body.text === 'string' ? req.body.text : '';
-    const imageDataUrl = typeof req.body.imageDataUrl === 'string' ? req.body.imageDataUrl : '';
-    hasImage = Boolean(imageDataUrl);
+    const rawImageDataUrl = typeof req.body.imageDataUrl === 'string' ? req.body.imageDataUrl : '';
+    hasImage = Boolean(rawImageDataUrl);
+    let imageDataUrl = rawImageDataUrl;
 
-    if (!text.trim() && !imageDataUrl) {
+    if (!text.trim() && !rawImageDataUrl) {
       return res.status(400).json({ error: 'Add a description, a photo, or both.' });
     }
 
-    if (imageDataUrl) {
-      const imageMatch = imageDataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/);
-      if (!imageMatch) {
+    if (rawImageDataUrl) {
+      const parsedImage = parseImageDataUrl(rawImageDataUrl);
+      if (!parsedImage) {
         return res.status(400).json({ error: 'Invalid image format. Use an image file.' });
       }
-      const mimeType = String(imageMatch[1] || '').toLowerCase();
-      const allowedMimeTypes = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']);
+      const mimeType = parsedImage.mimeType;
+      const allowedMimeTypes = new Set([
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/webp',
+        'image/gif',
+        'image/heic',
+        'image/heif',
+        'image/heic-sequence',
+        'image/heif-sequence'
+      ]);
       if (!allowedMimeTypes.has(mimeType)) {
         return res.status(400).json({
-          error: 'Unsupported image type. Use JPEG, PNG, WEBP, or GIF (iPhone HEIC is not supported).'
+          error: 'Unsupported image type. Use JPEG, PNG, WEBP, GIF, or HEIC.'
         });
       }
 
       const maxImageBytes = 6 * 1024 * 1024;
-      const base64Payload = imageDataUrl.split(',', 2)[1] || '';
-      const estimatedBytes = Math.floor((base64Payload.length * 3) / 4);
+      const estimatedBytes = Math.floor((parsedImage.base64Payload.length * 3) / 4);
       if (estimatedBytes > maxImageBytes) {
         return res.status(400).json({ error: 'Image is too large. Please use an image under 6MB.' });
+      }
+
+      if (isHeicMimeType(mimeType)) {
+        imageDataUrl = await convertHeicDataUrlToJpegDataUrl(rawImageDataUrl);
       }
     }
 
@@ -244,7 +290,7 @@ app.post('/api/parse-meal', async (req, res) => {
     const message = String(error?.message || 'Request failed');
     if (hasImage && message.includes('did not match the expected pattern')) {
       return res.status(400).json({
-        error: 'Photo format was not accepted. Try a JPEG/PNG photo (HEIC may fail), or include a short description too.'
+        error: 'Photo format was not accepted. Please retry with a JPEG/PNG image or add a short description.'
       });
     }
     res.status(400).json({ error: error.message });
