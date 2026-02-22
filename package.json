@@ -7,15 +7,18 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "check": "node -e \"require('./src/db').initDb(); console.log('DB initialized')\""
+    "check": "node -e \"require('./src/db').initDb().then(() => console.log('DB initialized')).catch((err) => { console.error(err.message); process.exit(1); })\"",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f db"
   },
   "dependencies": {
-    "better-sqlite3": "^11.8.1",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
     "openai": "^4.86.1",
     "passport": "^0.7.0",
-    "passport-google-oauth20": "^2.0.0"
+    "passport-google-oauth20": "^2.0.0",
+    "pg": "^8.18.0"
   }
 }

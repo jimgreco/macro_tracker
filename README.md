@@ -1,7 +1,7 @@
 # Macro Tracker Web App
 
 A web app for tracking macros with:
-- SQLite database backend
+- PostgreSQL database backend
 - ChatGPT natural-language meal parsing
 - Quick-add saved items/meals
 - Daily grouping and totals
@@ -11,28 +11,32 @@ A web app for tracking macros with:
 
 ## Requirements
 - Node.js 18+
+- Docker Desktop (for local PostgreSQL)
 - Google OAuth credentials (Client ID + Client Secret)
 
-## Setup
+## Local Setup
 1. Install dependencies:
    ```bash
    npm install
    ```
-2. Create env file:
+2. Start local PostgreSQL:
+   ```bash
+   npm run db:up
+   ```
+3. Create env file:
    ```bash
    cp .env.example .env
    ```
-3. Configure `.env` values:
+4. Configure `.env` values:
    - `OPENAI_API_KEY`
    - `SESSION_SECRET`
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`
    - `GOOGLE_CALLBACK_URL` (default: `http://localhost:3000/auth/google/callback`)
 
-4. In Google Cloud Console:
-   - Create an OAuth Client ID (Web application)
-   - Add Authorized redirect URI:
-     - `http://localhost:3000/auth/google/callback`
+   Optional DB overrides (defaults already work with `npm run db:up`):
+   - `DATABASE_URL` (default fallback: `postgres://postgres:postgres@localhost:5432/macro_tracker`)
+   - `PGSSL` (`false` locally; set `true` in cloud environments)
 
 5. Start the app:
    ```bash
@@ -40,11 +44,22 @@ A web app for tracking macros with:
    ```
 6. Open [http://localhost:3000](http://localhost:3000)
 
+## Useful Commands
+- Start DB: `npm run db:up`
+- Stop DB: `npm run db:down`
+- Tail DB logs: `npm run db:logs`
+- Validate DB init: `npm run check`
+
+## Cloud Setup Notes
+For AWS/RDS deployments set:
+- `DATABASE_URL` to your RDS connection string
+- `PGSSL=true`
+
 ## Notes
 - Login is required for all app/API usage.
 - If Google OAuth env vars are missing, login will show an auth configuration error.
 - If `OPENAI_API_KEY` is missing, parsing works in fallback mode with placeholder macros.
-- Data is stored in `data/macros.db`.
+- Data is stored in PostgreSQL.
 
 ## API Endpoints
 - `GET /api/me`

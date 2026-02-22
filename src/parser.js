@@ -61,7 +61,7 @@ async function parseMealText({ text, consumedAt, imageDataUrl }) {
       {
         role: 'system',
         content:
-          'You extract nutrition logs from user input that may include meal text, a meal photo, or both. Return strict JSON only. Break meals into itemized foods with estimated macros per consumed amount. Use grams for protein/carbs/fat and kcal for calories. If uncertain, provide best estimate and confidence. If text and photo conflict, use the text as primary and photo as supporting context.'
+          'You extract nutrition logs from user input that may include meal text, a meal photo, or both. Return strict JSON only. Break meals into itemized foods with estimated macros per consumed amount. Use grams for protein/carbs/fat and kcal for calories. Prefer practical food units from user language (egg, bottle, can, slice, cup, serving) over tiny base units like 1 ml or 1 g when a practical unit is implied. If the user says a fractional container (like half bottle), keep quantity fractional with that container unit (quantity 0.5, unit bottle). If uncertain, provide best estimate and confidence. If text and photo conflict, use the text as primary and photo as supporting context.'
       },
       {
         role: 'user',

@@ -29,7 +29,7 @@ const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
 const oauthCallbackUrl =
   process.env.GOOGLE_CALLBACK_URL || `http://localhost:${port}/auth/google/callback`;
 
-initDb();
+
 
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
@@ -235,7 +235,7 @@ app.post('/api/parse-meal', async (req, res) => {
   }
 });
 
-app.post('/api/entries/bulk', (req, res) => {
+app.post('/api/entries/bulk', async (req, res) => {
   try {
     const consumedAt = req.body.consumedAt || todayIsoString();
     const rows = validateItems(req.body.items, consumedAt);
@@ -245,12 +245,12 @@ app.post('/api/entries/bulk', (req, res) => {
     }
 
     const userId = userIdFromReq(req);
-    addEntries(userId, rows);
+    await addEntries(userId, rows);
 
     const saveItems = Array.isArray(req.body.saveItems) ? req.body.saveItems : [];
     const savedIds = [];
     for (const saveItem of saveItems) {
-      const id = addSavedItem(userId, validateSavedItemBody(saveItem));
+      const id = await addSavedItem(userId, validateSavedItemBody(saveItem));
       savedIds.push(id);
     }
 
@@ -260,7 +260,7 @@ app.post('/api/entries/bulk', (req, res) => {
   }
 });
 
-app.put('/api/entries/:id', (req, res) => {
+app.put('/api/entries/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -268,7 +268,7 @@ app.put('/api/entries/:id', (req, res) => {
     }
 
     const payload = validateEntryBody(req.body || {});
-    const changes = updateEntry(userIdFromReq(req), id, payload);
+    const changes = await updateEntry(userIdFromReq(req), id, payload);
 
     if (!changes) {
       return res.status(404).json({ error: 'Entry not found.' });
@@ -280,14 +280,14 @@ app.put('/api/entries/:id', (req, res) => {
   }
 });
 
-app.delete('/api/entries/:id', (req, res) => {
+app.delete('/api/entries/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid entry id.' });
     }
 
-    const changes = deleteEntry(userIdFromReq(req), id);
+    const changes = await deleteEntry(userIdFromReq(req), id);
     if (!changes) {
       return res.status(404).json({ error: 'Entry not found.' });
     }
@@ -298,20 +298,25 @@ app.delete('/api/entries/:id', (req, res) => {
   }
 });
 
-app.get('/api/saved-items', (req, res) => {
-  res.json(listSavedItems(userIdFromReq(req)));
+app.get('/api/saved-items', async (req, res) => {
+  try {
+    const items = await listSavedItems(userIdFromReq(req));
+    res.json(items);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
-app.post('/api/saved-items', (req, res) => {
+app.post('/api/saved-items', async (req, res) => {
   try {
-    const id = addSavedItem(userIdFromReq(req), validateSavedItemBody(req.body || {}));
+    const id = await addSavedItem(userIdFromReq(req), validateSavedItemBody(req.body || {}));
     res.json({ id });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-app.put('/api/saved-items/:id', (req, res) => {
+app.put('/api/saved-items/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -319,7 +324,7 @@ app.put('/api/saved-items/:id', (req, res) => {
     }
 
     const payload = validateSavedItemBody(req.body || {});
-    const changes = updateSavedItem(userIdFromReq(req), id, payload);
+    const changes = await updateSavedItem(userIdFromReq(req), id, payload);
 
     if (!changes) {
       return res.status(404).json({ error: 'Saved item not found.' });
@@ -331,14 +336,14 @@ app.put('/api/saved-items/:id', (req, res) => {
   }
 });
 
-app.delete('/api/saved-items/:id', (req, res) => {
+app.delete('/api/saved-items/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid saved item id.' });
     }
 
-    const changes = deleteSavedItem(userIdFromReq(req), id);
+    const changes = await deleteSavedItem(userIdFromReq(req), id);
     if (!changes) {
       return res.status(404).json({ error: 'Saved item not found.' });
     }
@@ -349,10 +354,10 @@ app.delete('/api/saved-items/:id', (req, res) => {
   }
 });
 
-app.post('/api/quick-add', (req, res) => {
+app.post('/api/quick-add', async (req, res) => {
   try {
     const consumedAt = req.body.consumedAt || todayIsoString();
-    const entry = quickAddFromSaved(
+    const entry = await quickAddFromSaved(
       userIdFromReq(req),
       req.body.savedItemId,
       req.body.multiplier,
@@ -369,18 +374,22 @@ app.post('/api/quick-add', (req, res) => {
   }
 });
 
-app.post('/api/claim-legacy-data', (req, res) => {
+app.post('/api/claim-legacy-data', async (req, res) => {
   try {
-    const result = claimLegacyData(userIdFromReq(req));
+    const result = await claimLegacyData(userIdFromReq(req));
     return res.json({ ok: true, ...result });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-app.get('/api/dashboard', (req, res) => {
-  const data = getDashboard(userIdFromReq(req), req.query.date);
-  res.json(data);
+app.get('/api/dashboard', async (req, res) => {
+  try {
+    const data = await getDashboard(userIdFromReq(req), req.query.date);
+    res.json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
 app.use(requireAuth);
@@ -390,7 +399,18 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
-app.listen(port, () => {
-  // eslint-disable-next-line no-console
-  console.log(`Macro tracker listening on http://localhost:${port}`);
-});
+async function startServer() {
+  try {
+    await initDb();
+    app.listen(port, () => {
+      // eslint-disable-next-line no-console
+      console.log(`Macro tracker listening on http://localhost:${port}`);
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to initialize Postgres:', error);
+    process.exit(1);
+  }
+}
+
+startServer();

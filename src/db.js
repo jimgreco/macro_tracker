@@ -1,190 +1,70 @@
-const path = require('path');
-const Database = require('better-sqlite3');
+const { Pool } = require('pg');
 
-const dbPath = path.join(process.cwd(), 'data', 'macros.db');
-const db = new Database(dbPath);
+const databaseUrl = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/macro_tracker';
 
-db.pragma('journal_mode = WAL');
-
-function columnExists(tableName, columnName) {
-  return db
-    .prepare(`PRAGMA table_info(${tableName})`)
-    .all()
-    .some((col) => col.name === columnName);
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL is required for Postgres.');
 }
 
-function migrateEntriesUserColumn() {
-  if (columnExists('entries', 'user_id')) {
-    return;
-  }
+const useSsl =
+  process.env.PGSSL === 'true' ||
+  process.env.NODE_ENV === 'production' ||
+  databaseUrl.includes('rds.amazonaws.com');
 
-  db.exec(`
-    BEGIN TRANSACTION;
+const pool = new Pool({
+  connectionString: databaseUrl,
+  ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+  max: Number(process.env.PG_POOL_MAX || 10)
+});
 
-    CREATE TABLE entries_new (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id TEXT NOT NULL,
-      item_name TEXT NOT NULL,
-      quantity REAL NOT NULL,
-      unit TEXT,
-      calories REAL NOT NULL,
-      protein REAL NOT NULL,
-      carbs REAL NOT NULL,
-      fat REAL NOT NULL,
-      consumed_at TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    INSERT INTO entries_new (
-      id,
-      user_id,
-      item_name,
-      quantity,
-      unit,
-      calories,
-      protein,
-      carbs,
-      fat,
-      consumed_at,
-      created_at
-    )
-    SELECT
-      id,
-      'legacy-local-user',
-      item_name,
-      quantity,
-      unit,
-      calories,
-      protein,
-      carbs,
-      fat,
-      consumed_at,
-      created_at
-    FROM entries;
-
-    DROP TABLE entries;
-    ALTER TABLE entries_new RENAME TO entries;
-
-    COMMIT;
-  `);
-}
-
-function migrateSavedItemsUsageCount() {
-  if (columnExists('saved_items', 'usage_count')) {
-    return;
-  }
-
-  db.exec(`ALTER TABLE saved_items ADD COLUMN usage_count INTEGER NOT NULL DEFAULT 0`);
-}
-
-function migrateSavedItemsUserColumn() {
-  if (columnExists('saved_items', 'user_id')) {
-    return;
-  }
-
-  db.exec(`
-    BEGIN TRANSACTION;
-
-    CREATE TABLE saved_items_new (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      quantity REAL NOT NULL,
-      unit TEXT,
-      calories REAL NOT NULL,
-      protein REAL NOT NULL,
-      carbs REAL NOT NULL,
-      fat REAL NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    INSERT INTO saved_items_new (
-      id,
-      user_id,
-      name,
-      quantity,
-      unit,
-      calories,
-      protein,
-      carbs,
-      fat,
-      created_at
-    )
-    SELECT
-      id,
-      'legacy-local-user',
-      name,
-      quantity,
-      unit,
-      calories,
-      protein,
-      carbs,
-      fat,
-      created_at
-    FROM saved_items;
-
-    DROP TABLE saved_items;
-    ALTER TABLE saved_items_new RENAME TO saved_items;
-
-    COMMIT;
-  `);
-}
-
-function initDb() {
-  db.exec(`
+async function initDb() {
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS entries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id BIGSERIAL PRIMARY KEY,
       user_id TEXT NOT NULL,
       item_name TEXT NOT NULL,
-      quantity REAL NOT NULL,
+      quantity DOUBLE PRECISION NOT NULL,
       unit TEXT,
-      calories REAL NOT NULL,
-      protein REAL NOT NULL,
-      carbs REAL NOT NULL,
-      fat REAL NOT NULL,
-      consumed_at TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS saved_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      quantity REAL NOT NULL,
-      unit TEXT,
-      calories REAL NOT NULL,
-      protein REAL NOT NULL,
-      carbs REAL NOT NULL,
-      fat REAL NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      calories DOUBLE PRECISION NOT NULL,
+      protein DOUBLE PRECISION NOT NULL,
+      carbs DOUBLE PRECISION NOT NULL,
+      fat DOUBLE PRECISION NOT NULL,
+      consumed_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
 
-  const hasMealNameColumn = db
-    .prepare(`PRAGMA table_info(entries)`)
-    .all()
-    .some((col) => col.name === 'meal_name');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS saved_items (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      quantity DOUBLE PRECISION NOT NULL,
+      unit TEXT,
+      calories DOUBLE PRECISION NOT NULL,
+      protein DOUBLE PRECISION NOT NULL,
+      carbs DOUBLE PRECISION NOT NULL,
+      fat DOUBLE PRECISION NOT NULL,
+      usage_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
 
-  if (hasMealNameColumn) {
-    db.exec(`
-      BEGIN TRANSACTION;
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_entries_user_consumed ON entries(user_id, consumed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_saved_items_user_name ON saved_items(user_id, lower(name));
+  `);
+}
 
-      CREATE TABLE entries_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        item_name TEXT NOT NULL,
-        quantity REAL NOT NULL,
-        unit TEXT,
-        calories REAL NOT NULL,
-        protein REAL NOT NULL,
-        carbs REAL NOT NULL,
-        fat REAL NOT NULL,
-        consumed_at TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
+async function addEntries(userId, entries) {
+  if (!entries.length) return;
 
-      INSERT INTO entries_new (
-        id,
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const query = `
+      INSERT INTO entries (
         user_id,
         item_name,
         quantity,
@@ -193,205 +73,217 @@ function initDb() {
         protein,
         carbs,
         fat,
-        consumed_at,
-        created_at
-      )
-      SELECT
-        id,
-        'legacy-local-user',
-        item_name,
-        quantity,
-        unit,
-        calories,
-        protein,
-        carbs,
-        fat,
-        consumed_at,
-        created_at
-      FROM entries;
+        consumed_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    `;
 
-      DROP TABLE entries;
-      ALTER TABLE entries_new RENAME TO entries;
-
-      COMMIT;
-    `);
-  }
-
-  migrateEntriesUserColumn();
-  migrateSavedItemsUserColumn();
-  migrateSavedItemsUsageCount();
-
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_entries_user_consumed ON entries(user_id, consumed_at);
-    CREATE INDEX IF NOT EXISTS idx_saved_items_user_name ON saved_items(user_id, name);
-  `);
-}
-
-function addEntries(userId, entries) {
-  const stmt = db.prepare(`
-    INSERT INTO entries (
-      user_id,
-      item_name,
-      quantity,
-      unit,
-      calories,
-      protein,
-      carbs,
-      fat,
-      consumed_at
-    ) VALUES (
-      @userId,
-      @itemName,
-      @quantity,
-      @unit,
-      @calories,
-      @protein,
-      @carbs,
-      @fat,
-      @consumedAt
-    )
-  `);
-
-  const transaction = db.transaction((rows) => {
-    for (const row of rows) {
-      stmt.run({ userId, ...row });
+    for (const row of entries) {
+      await client.query(query, [
+        userId,
+        row.itemName,
+        Number(row.quantity || 0),
+        row.unit || null,
+        Number(row.calories || 0),
+        Number(row.protein || 0),
+        Number(row.carbs || 0),
+        Number(row.fat || 0),
+        new Date(row.consumedAt)
+      ]);
     }
-  });
 
-  transaction(entries);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
-function updateEntry(userId, id, entry) {
-  const stmt = db.prepare(`
-    UPDATE entries
-    SET
-      item_name = @itemName,
-      quantity = @quantity,
-      unit = @unit,
-      calories = @calories,
-      protein = @protein,
-      carbs = @carbs,
-      fat = @fat,
-      consumed_at = @consumedAt
-    WHERE id = @id
-      AND user_id = @userId
-  `);
+async function updateEntry(userId, id, entry) {
+  const result = await pool.query(
+    `UPDATE entries
+     SET
+       item_name = $1,
+       quantity = $2,
+       unit = $3,
+       calories = $4,
+       protein = $5,
+       carbs = $6,
+       fat = $7,
+       consumed_at = $8
+     WHERE id = $9 AND user_id = $10`,
+    [
+      entry.itemName,
+      Number(entry.quantity || 0),
+      entry.unit || null,
+      Number(entry.calories || 0),
+      Number(entry.protein || 0),
+      Number(entry.carbs || 0),
+      Number(entry.fat || 0),
+      new Date(entry.consumedAt),
+      id,
+      userId
+    ]
+  );
 
-  const result = stmt.run({ id, userId, ...entry });
-  return result.changes;
+  return result.rowCount || 0;
 }
 
-function deleteEntry(userId, id) {
-  const stmt = db.prepare(`DELETE FROM entries WHERE id = ? AND user_id = ?`);
-  const result = stmt.run(id, userId);
-  return result.changes;
+async function deleteEntry(userId, id) {
+  const result = await pool.query('DELETE FROM entries WHERE id = $1 AND user_id = $2', [id, userId]);
+  return result.rowCount || 0;
 }
 
-function addSavedItem(userId, item) {
-  const stmt = db.prepare(`
-    INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat)
-    VALUES (@userId, @name, @quantity, @unit, @calories, @protein, @carbs, @fat)
-  `);
+async function addSavedItem(userId, item) {
+  const result = await pool.query(
+    `INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     RETURNING id`,
+    [
+      userId,
+      item.name,
+      Number(item.quantity || 1),
+      item.unit || null,
+      Number(item.calories || 0),
+      Number(item.protein || 0),
+      Number(item.carbs || 0),
+      Number(item.fat || 0)
+    ]
+  );
 
-  const result = stmt.run({ userId, ...item });
-  return result.lastInsertRowid;
+  return Number(result.rows[0].id);
 }
 
-function updateSavedItem(userId, id, item) {
-  const stmt = db.prepare(`
-    UPDATE saved_items
-    SET
-      name = @name,
-      quantity = @quantity,
-      unit = @unit,
-      calories = @calories,
-      protein = @protein,
-      carbs = @carbs,
-      fat = @fat
-    WHERE id = @id
-      AND user_id = @userId
-  `);
+async function updateSavedItem(userId, id, item) {
+  const result = await pool.query(
+    `UPDATE saved_items
+     SET
+       name = $1,
+       quantity = $2,
+       unit = $3,
+       calories = $4,
+       protein = $5,
+       carbs = $6,
+       fat = $7
+     WHERE id = $8 AND user_id = $9`,
+    [
+      item.name,
+      Number(item.quantity || 1),
+      item.unit || null,
+      Number(item.calories || 0),
+      Number(item.protein || 0),
+      Number(item.carbs || 0),
+      Number(item.fat || 0),
+      id,
+      userId
+    ]
+  );
 
-  const result = stmt.run({ userId, id, ...item });
-  return result.changes;
+  return result.rowCount || 0;
 }
 
-function deleteSavedItem(userId, id) {
-  const stmt = db.prepare(`DELETE FROM saved_items WHERE id = ? AND user_id = ?`);
-  const result = stmt.run(id, userId);
-  return result.changes;
+async function deleteSavedItem(userId, id) {
+  const result = await pool.query('DELETE FROM saved_items WHERE id = $1 AND user_id = $2', [id, userId]);
+  return result.rowCount || 0;
 }
 
-function listSavedItems(userId) {
-  return db
-    .prepare(
-      `SELECT id, name, quantity, unit, calories, protein, carbs, fat, usage_count AS usageCount
-       FROM saved_items
-       WHERE user_id = ?
-       ORDER BY name COLLATE NOCASE ASC`
-    )
-    .all(userId);
+async function listSavedItems(userId) {
+  const result = await pool.query(
+    `SELECT id, name, quantity, unit, calories, protein, carbs, fat, usage_count AS "usageCount"
+     FROM saved_items
+     WHERE user_id = $1
+     ORDER BY lower(name) ASC`,
+    [userId]
+  );
+
+  return result.rows.map((row) => ({
+    ...row,
+    id: Number(row.id),
+    quantity: Number(row.quantity || 0),
+    calories: Number(row.calories || 0),
+    protein: Number(row.protein || 0),
+    carbs: Number(row.carbs || 0),
+    fat: Number(row.fat || 0),
+    usageCount: Number(row.usageCount || 0)
+  }));
 }
 
-function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
-  const saved = db
-    .prepare(
+async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const savedResult = await client.query(
       `SELECT id, name, quantity, unit, calories, protein, carbs, fat
        FROM saved_items
-       WHERE id = ?
-         AND user_id = ?`
-    )
-    .get(savedItemId, userId);
+       WHERE id = $1 AND user_id = $2
+       FOR UPDATE`,
+      [savedItemId, userId]
+    );
 
-  if (!saved) {
-    return null;
+    const saved = savedResult.rows[0];
+    if (!saved) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    await client.query(
+      `UPDATE saved_items
+       SET usage_count = usage_count + 1
+       WHERE id = $1 AND user_id = $2`,
+      [savedItemId, userId]
+    );
+
+    const quantityMultiplier = Number(multiplier) || 1;
+    const entry = {
+      itemName: saved.name,
+      quantity: Number(saved.quantity) * quantityMultiplier,
+      unit: saved.unit,
+      calories: Number(saved.calories) * quantityMultiplier,
+      protein: Number(saved.protein) * quantityMultiplier,
+      carbs: Number(saved.carbs) * quantityMultiplier,
+      fat: Number(saved.fat) * quantityMultiplier,
+      consumedAt
+    };
+
+    await client.query(
+      `INSERT INTO entries (
+         user_id,
+         item_name,
+         quantity,
+         unit,
+         calories,
+         protein,
+         carbs,
+         fat,
+         consumed_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        userId,
+        entry.itemName,
+        entry.quantity,
+        entry.unit || null,
+        entry.calories,
+        entry.protein,
+        entry.carbs,
+        entry.fat,
+        new Date(consumedAt)
+      ]
+    );
+
+    await client.query('COMMIT');
+    return entry;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
-
-  db.prepare(
-    `UPDATE saved_items
-     SET usage_count = usage_count + 1
-     WHERE id = ?
-       AND user_id = ?`
-  ).run(savedItemId, userId);
-
-  const quantityMultiplier = Number(multiplier) || 1;
-  const entry = {
-    itemName: saved.name,
-    quantity: Number(saved.quantity) * quantityMultiplier,
-    unit: saved.unit,
-    calories: Number(saved.calories) * quantityMultiplier,
-    protein: Number(saved.protein) * quantityMultiplier,
-    carbs: Number(saved.carbs) * quantityMultiplier,
-    fat: Number(saved.fat) * quantityMultiplier,
-    consumedAt
-  };
-
-  addEntries(userId, [entry]);
-  return entry;
 }
 
-function claimLegacyData(userId) {
-  const updateEntries = db.prepare(`
-    UPDATE entries
-    SET user_id = @userId
-    WHERE user_id = 'legacy-local-user'
-  `);
-  const updateSavedItems = db.prepare(`
-    UPDATE saved_items
-    SET user_id = @userId
-    WHERE user_id = 'legacy-local-user'
-  `);
-
-  const runClaim = db.transaction(() => {
-    const entriesResult = updateEntries.run({ userId });
-    const savedItemsResult = updateSavedItems.run({ userId });
-    return {
-      claimedEntries: entriesResult.changes,
-      claimedSavedItems: savedItemsResult.changes
-    };
-  });
-
-  return runClaim();
+async function claimLegacyData() {
+  return { claimedEntries: 0, claimedSavedItems: 0 };
 }
 
 function normalizeDate(inputDate) {
@@ -406,24 +298,32 @@ function toIsoDate(date) {
   return date.toISOString().slice(0, 10);
 }
 
-function getDashboard(userId, dateInput) {
+async function getDashboard(userId, dateInput) {
   const baseDate = normalizeDate(dateInput);
   const baseDay = toIsoDate(baseDate);
 
-  const dailyTotalsStmt = db.prepare(`
-    SELECT
-      substr(consumed_at, 1, 10) AS day,
-      ROUND(SUM(calories), 1) AS calories,
-      ROUND(SUM(protein), 1) AS protein,
-      ROUND(SUM(carbs), 1) AS carbs,
-      ROUND(SUM(fat), 1) AS fat
-    FROM entries
-    WHERE user_id = ?
-    GROUP BY day
-    ORDER BY day DESC
-  `);
+  const dailyTotalsResult = await pool.query(
+    `SELECT
+       (consumed_at AT TIME ZONE 'UTC')::date::text AS day,
+       ROUND(SUM(calories)::numeric, 1) AS calories,
+       ROUND(SUM(protein)::numeric, 1) AS protein,
+       ROUND(SUM(carbs)::numeric, 1) AS carbs,
+       ROUND(SUM(fat)::numeric, 1) AS fat
+     FROM entries
+     WHERE user_id = $1
+     GROUP BY day
+     ORDER BY day DESC`,
+    [userId]
+  );
 
-  const allDailyTotals = dailyTotalsStmt.all(userId);
+  const allDailyTotals = dailyTotalsResult.rows.map((row) => ({
+    day: row.day,
+    calories: Number(row.calories || 0),
+    protein: Number(row.protein || 0),
+    carbs: Number(row.carbs || 0),
+    fat: Number(row.fat || 0)
+  }));
+
   const currentDayTotals =
     allDailyTotals.find((row) => row.day === baseDay) ||
     { day: baseDay, calories: 0, protein: 0, carbs: 0, fat: 0 };
@@ -433,23 +333,22 @@ function getDashboard(userId, dateInput) {
   const sevenDayStart = new Date(baseDate);
   sevenDayStart.setDate(sevenDayStart.getDate() - 7);
 
-  const sevenDayRows = db
-    .prepare(
-      `SELECT
-         substr(consumed_at, 1, 10) AS day,
-         SUM(calories) AS calories,
-         SUM(protein) AS protein,
-         SUM(carbs) AS carbs,
-         SUM(fat) AS fat
-       FROM entries
-       WHERE user_id = ?
-         AND substr(consumed_at, 1, 10) >= ?
-         AND substr(consumed_at, 1, 10) < ?
-       GROUP BY day`
-    )
-    .all(userId, toIsoDate(sevenDayStart), baseDay);
+  const sevenDayRowsResult = await pool.query(
+    `SELECT
+       (consumed_at AT TIME ZONE 'UTC')::date::text AS day,
+       SUM(calories) AS calories,
+       SUM(protein) AS protein,
+       SUM(carbs) AS carbs,
+       SUM(fat) AS fat
+     FROM entries
+     WHERE user_id = $1
+       AND (consumed_at AT TIME ZONE 'UTC')::date::text >= $2
+       AND (consumed_at AT TIME ZONE 'UTC')::date::text < $3
+     GROUP BY day`,
+    [userId, toIsoDate(sevenDayStart), baseDay]
+  );
 
-  const totals = sevenDayRows.reduce(
+  const totals = sevenDayRowsResult.rows.reduce(
     (acc, row) => {
       acc.calories += Number(row.calories || 0);
       acc.protein += Number(row.protein || 0);
@@ -461,31 +360,41 @@ function getDashboard(userId, dateInput) {
   );
 
   const sevenDayAverage = {
-    daysWithData: sevenDayRows.length,
+    daysWithData: sevenDayRowsResult.rows.length,
     calories: Number((totals.calories / 7).toFixed(1)),
     protein: Number((totals.protein / 7).toFixed(1)),
     carbs: Number((totals.carbs / 7).toFixed(1)),
     fat: Number((totals.fat / 7).toFixed(1))
   };
 
-  const entries = db
-    .prepare(
-      `SELECT
-         id,
-         item_name AS itemName,
-         quantity,
-         unit,
-         calories,
-         protein,
-         carbs,
-         fat,
-         consumed_at AS consumedAt,
-         substr(consumed_at, 1, 10) AS day
-       FROM entries
-       WHERE user_id = ?
-       ORDER BY consumed_at DESC, id DESC`
-    )
-    .all(userId);
+  const entriesResult = await pool.query(
+    `SELECT
+       id,
+       item_name AS "itemName",
+       quantity,
+       unit,
+       calories,
+       protein,
+       carbs,
+       fat,
+       consumed_at AS "consumedAt",
+       (consumed_at AT TIME ZONE 'UTC')::date::text AS day
+     FROM entries
+     WHERE user_id = $1
+     ORDER BY consumed_at DESC, id DESC`,
+    [userId]
+  );
+
+  const entries = entriesResult.rows.map((row) => ({
+    ...row,
+    id: Number(row.id),
+    quantity: Number(row.quantity || 0),
+    calories: Number(row.calories || 0),
+    protein: Number(row.protein || 0),
+    carbs: Number(row.carbs || 0),
+    fat: Number(row.fat || 0),
+    consumedAt: new Date(row.consumedAt).toISOString()
+  }));
 
   return {
     currentDayTotals,

@@ -43,6 +43,7 @@ const weekProteinEl = document.getElementById('week-protein');
 const weekCarbsEl = document.getElementById('week-carbs');
 const weekFatEl = document.getElementById('week-fat');
 const trendCanvasEl = document.getElementById('trend-canvas');
+const trendTooltipEl = document.getElementById('trend-tooltip');
 const previousDaysEl = document.getElementById('previous-days');
 const entriesByDayEl = document.getElementById('entries-by-day');
 const entriesPrevDayBtnEl = document.getElementById('entries-prev-day-btn');
@@ -113,10 +114,122 @@ function formatIsoDayLabel(isoDay) {
   });
 }
 
+let actionBannerTimer = null;
+let trendPointCoords = [];
+let trendInteractionsBound = false;
+
 function setActionBanner(message, type = 'success') {
+  if (actionBannerTimer) {
+    clearTimeout(actionBannerTimer);
+    actionBannerTimer = null;
+  }
+
   actionBannerEl.textContent = message;
   actionBannerEl.className = 'action-banner ' + type;
   actionBannerEl.hidden = !message;
+
+  if (message) {
+    actionBannerTimer = setTimeout(() => {
+      actionBannerEl.hidden = true;
+      actionBannerTimer = null;
+    }, 3200);
+  }
+}
+
+
+function hideTrendTooltip() {
+  if (!trendTooltipEl) {
+    return;
+  }
+  trendTooltipEl.hidden = true;
+}
+
+function showTrendTooltipFromClient(clientX, clientY, persist = false) {
+  if (!trendCanvasEl || !trendTooltipEl || !trendPointCoords.length) {
+    return;
+  }
+
+  const rect = trendCanvasEl.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return;
+  }
+
+  const scaleX = trendCanvasEl.width / rect.width;
+  const scaleY = trendCanvasEl.height / rect.height;
+  const x = (clientX - rect.left) * scaleX;
+  const y = (clientY - rect.top) * scaleY;
+
+  let nearest = null;
+  let minDist = Number.POSITIVE_INFINITY;
+  for (const point of trendPointCoords) {
+    const dx = point.x - x;
+    const dy = point.y - y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = point;
+    }
+  }
+
+  const threshold = persist ? 42 : 20;
+  if (!nearest || minDist > threshold) {
+    hideTrendTooltip();
+    return;
+  }
+
+  trendTooltipEl.textContent = `${formatIsoDayLabel(nearest.day)}: ${fmtNumber(nearest.value)} kcal`;
+  trendTooltipEl.hidden = false;
+
+  const wrap = trendCanvasEl.parentElement;
+  if (!wrap) {
+    return;
+  }
+
+  const wrapRect = wrap.getBoundingClientRect();
+  const canvasOffsetX = rect.left - wrapRect.left;
+  const canvasOffsetY = rect.top - wrapRect.top;
+  const cssX = nearest.x / scaleX;
+  const cssY = nearest.y / scaleY;
+
+  const tipW = trendTooltipEl.offsetWidth || 0;
+  const tipH = trendTooltipEl.offsetHeight || 0;
+  const minLeft = tipW / 2 + 8;
+  const maxLeft = wrap.clientWidth - tipW / 2 - 8;
+
+  const left = Math.min(Math.max(canvasOffsetX + cssX, minLeft), maxLeft);
+  const top = Math.max(canvasOffsetY + cssY, tipH + 10);
+
+  trendTooltipEl.style.left = `${left}px`;
+  trendTooltipEl.style.top = `${top}px`;
+}
+
+function bindTrendInteractions() {
+  if (!trendCanvasEl || trendInteractionsBound) {
+    return;
+  }
+
+  trendCanvasEl.addEventListener('mousemove', (event) => {
+    showTrendTooltipFromClient(event.clientX, event.clientY);
+  });
+
+  trendCanvasEl.addEventListener('mouseleave', () => {
+    hideTrendTooltip();
+  });
+
+  trendCanvasEl.addEventListener('click', (event) => {
+    showTrendTooltipFromClient(event.clientX, event.clientY, true);
+  });
+
+  trendCanvasEl.addEventListener('touchstart', (event) => {
+    const touch = event.touches && event.touches[0];
+    if (!touch) {
+      return;
+    }
+    showTrendTooltipFromClient(touch.clientX, touch.clientY, true);
+    event.preventDefault();
+  }, { passive: false });
+
+  trendInteractionsBound = true;
 }
 
 function readFileAsDataUrl(file) {
@@ -643,6 +756,9 @@ function drawTrend(currentDayTotals, previousDays) {
     ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  trendPointCoords = coords;
+  bindTrendInteractions();
 }
 
 function renderDashboard(data) {
@@ -788,17 +904,50 @@ saveParsedBtnEl.addEventListener('click', async () => {
     consumedAt
   }));
 
+  const mealTextLower = String(mealTextEl.value || '').toLowerCase();
+
   const saveItems = saveChecks
     .filter((box) => box.checked)
     .map((box) => {
       const parsedItem = editedItems[Number(box.dataset.index)] || state.parsedMeal.items[Number(box.dataset.index)];
-      const divisor = Number(parsedItem.quantity) > 0 ? Number(parsedItem.quantity) : 1;
-      const perUnit = (value) => Number((Number(value || 0) / divisor).toFixed(2));
+
+      const rawQuantity = Number(parsedItem.quantity) > 0 ? Number(parsedItem.quantity) : 1;
+      const unitRaw = String(parsedItem.unit || 'serving').trim() || 'serving';
+      const unitLower = unitRaw.toLowerCase();
+      const nameLower = String(parsedItem.itemName || '').toLowerCase();
+
+      let baseQuantity = 1;
+      let baseUnit = unitRaw;
+      let divisor = rawQuantity;
+
+      const isMlUnit = ['ml', 'milliliter', 'milliliters'].includes(unitLower);
+      const isBottleMentioned = /\bbottle(s)?\b/.test(mealTextLower) || /\bbottle(s)?\b/.test(nameLower);
+      const isWineLike = /(wine|cabernet|merlot|pinot|chardonnay|sauvignon|riesling|malbec|prosecco|champagne)/.test(nameLower);
+
+      if (isMlUnit && isBottleMentioned) {
+        const bottleSizeMl = isWineLike ? 750 : 500;
+        const bottleQty = rawQuantity / bottleSizeMl;
+
+        if (bottleQty > 0.1 && bottleQty <= 4) {
+          baseQuantity = 1;
+          baseUnit = 'bottle';
+          divisor = bottleQty;
+        }
+      } else {
+        const tinyBaseUnits = new Set(['ml', 'milliliter', 'milliliters', 'g', 'gram', 'grams']);
+        if (tinyBaseUnits.has(unitLower) && rawQuantity >= 50) {
+          baseQuantity = rawQuantity;
+          baseUnit = unitRaw;
+          divisor = 1;
+        }
+      }
+
+      const perUnit = (value) => Number((Number(value || 0) / (divisor || 1)).toFixed(2));
 
       return {
         name: parsedItem.itemName,
-        quantity: 1,
-        unit: parsedItem.unit,
+        quantity: Number(baseQuantity.toFixed(2)),
+        unit: baseUnit,
         calories: perUnit(parsedItem.calories),
         protein: perUnit(parsedItem.protein),
         carbs: perUnit(parsedItem.carbs),
