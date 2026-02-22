@@ -117,6 +117,7 @@ function formatIsoDayLabel(isoDay) {
 let actionBannerTimer = null;
 let trendPointCoords = [];
 let trendInteractionsBound = false;
+let trendResizeBound = false;
 
 function setActionBanner(message, type = 'success') {
   if (actionBannerTimer) {
@@ -694,6 +695,16 @@ function renderEditRow(entry) {
 }
 
 function drawTrend(currentDayTotals, previousDays) {
+  if (!trendCanvasEl) {
+    return;
+  }
+  const cssWidth = Math.max(1, Math.floor(trendCanvasEl.clientWidth || 0));
+  const cssHeight = 120;
+  if (cssWidth > 0 && (trendCanvasEl.width !== cssWidth || trendCanvasEl.height !== cssHeight)) {
+    trendCanvasEl.width = cssWidth;
+    trendCanvasEl.height = cssHeight;
+  }
+
   const ctx = trendCanvasEl.getContext('2d');
   const w = trendCanvasEl.width;
   const h = trendCanvasEl.height;
@@ -759,6 +770,21 @@ function drawTrend(currentDayTotals, previousDays) {
 
   trendPointCoords = coords;
   bindTrendInteractions();
+}
+
+function bindTrendResize() {
+  if (trendResizeBound) {
+    return;
+  }
+
+  window.addEventListener('resize', () => {
+    if (!state.dashboardData) {
+      return;
+    }
+    drawTrend(state.dashboardData.currentDayTotals, state.dashboardData.previousDays);
+  });
+
+  trendResizeBound = true;
 }
 
 function renderDashboard(data) {
@@ -854,6 +880,7 @@ async function refreshDashboard() {
   renderProfile(me.user || null);
   renderSavedItems();
   renderDashboard(dashboard);
+  bindTrendResize();
 }
 
 parseBtnEl.addEventListener('click', async () => {

@@ -140,6 +140,7 @@ body {
 .column-right {
   display: grid;
   gap: 1rem;
+  min-width: 0;
 }
 
 .panel {
@@ -499,6 +500,7 @@ button[disabled] {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(243, 249, 255, 0.88));
   padding: 0.45rem;
   margin-bottom: 0.7rem;
+  min-width: 0;
 }
 
 #trend-canvas {
