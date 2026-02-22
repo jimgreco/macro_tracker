@@ -22,6 +22,7 @@ const { parseMealText } = require('./parser');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
+app.set('trust proxy', 1);
 
 const sessionSecret = process.env.SESSION_SECRET || 'dev-session-secret-change-me';
 const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
