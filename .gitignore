@@ -1,0 +1,16 @@
+# Node dependencies
+node_modules/
+
+# Local env/secrets
+.env
+
+# Local database/runtime files
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# OS files
+.DS_Store
+
+# Runtime data
+data/

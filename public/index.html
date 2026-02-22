@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Macro Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+
+    <main class="app-shell">
+      <div id="action-banner" class="action-banner" role="status" aria-live="polite" hidden></div>
+      <header class="topbar">
+        <div>
+          <h1 class="brand-lockup" aria-label="Macro tracker">
+            <svg class="brand-logo" viewBox="0 0 64 64" role="img" aria-hidden="true" focusable="false">
+              <defs>
+                <linearGradient id="brand-grad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#0f5fce" />
+                  <stop offset="100%" stop-color="#0a8a66" />
+                </linearGradient>
+              </defs>
+              <rect x="6" y="6" width="52" height="52" rx="14" fill="url(#brand-grad)" />
+              <path d="M18 42V22h6l8 11 8-11h6v20h-6V31l-8 10-8-10v11z" fill="#fff" />
+              <circle cx="50" cy="14" r="4" fill="#d5ffe7" />
+            </svg>
+            <span class="brand-wordmark">MacroFlow</span>
+          </h1>
+        </div>
+        <div class="topbar-right">
+          <div class="today-strip" aria-label="Today's macros">
+            <div class="strip-item">
+              <span class="label">Calories</span>
+              <strong id="today-calories">0</strong>
+            </div>
+            <div class="strip-item">
+              <span class="label">Protein</span>
+              <strong id="today-protein">0g</strong>
+            </div>
+            <div class="strip-item">
+              <span class="label">Carbs</span>
+              <strong id="today-carbs">0g</strong>
+            </div>
+            <div class="strip-item">
+              <span class="label">Fat</span>
+              <strong id="today-fat">0g</strong>
+            </div>
+          </div>
+
+          <div id="profile-menu" class="profile-menu" aria-label="Signed in user">
+            <button
+              id="profile-chip"
+              class="profile-chip"
+              type="button"
+              aria-label="Open account menu"
+              aria-haspopup="true"
+              aria-expanded="false"
+            >
+              <img id="profile-avatar" alt="Profile" />
+            </button>
+            <div id="profile-popover" class="profile-popover" hidden>
+              <strong id="profile-name">Signed in</strong>
+              <small id="profile-email"></small>
+              <button id="logout-btn" type="button" class="btn-secondary">Log out</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid-main">
+        <div class="column-left">
+          <section id="log-section" aria-labelledby="log-meal-heading" class="panel glass">
+            <div class="section-head-row">
+              <h2 id="log-meal-heading">Log Meal</h2>
+              <div class="consumed-inline">
+                <input id="consumed-at" type="datetime-local" />
+              </div>
+            </div>
+            <textarea
+              id="meal-text"
+              rows="3"
+              placeholder="Example: two 1/2 cup containers of Fage yogurt and one banana"
+            ></textarea>
+
+
+            <div class="row parse-actions">
+              <button id="add-photo-btn" class="meal-media-btn" type="button" aria-label="Add photo" title="Add photo">
+                <svg class="meal-media-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+                  <circle cx="9" cy="10" r="1.6"></circle>
+                  <path d="M4.5 17l5-5 3.2 3.2 2.6-2.6 4.2 4.4"></path>
+                </svg>
+              </button>
+              <button id="use-camera-btn" class="meal-media-btn" type="button" aria-label="Use camera" title="Use camera">
+                <svg class="meal-media-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M4 8h3l1.2-2h7.6L17 8h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z"></path>
+                  <circle cx="12" cy="13" r="3.3"></circle>
+                </svg>
+              </button>
+              <button id="parse-btn" type="button">Parse Meal</button>
+              <button id="save-parsed-btn" type="button" disabled>Save</button>
+              <input id="meal-photo-input" type="file" accept="image/*" hidden />
+              <input id="meal-camera-input" type="file" accept="image/*" capture="environment" hidden />
+            </div>
+
+            <p id="parse-note" role="status" aria-live="polite"></p>
+            <div id="parsed-items-container" class="parsed-items"></div>
+          </section>
+
+          <section id="quick-section" aria-labelledby="quick-add-heading" class="panel glass">
+            <h2 id="quick-add-heading">Quick Add</h2>
+            <div class="row no-wrap quick-top-row">
+              <select id="saved-item-select" aria-label="Saved item"></select>
+              <div class="quick-inline-controls">
+                <label for="quick-multiplier" class="sr-only">Multiplier</label>
+                <input id="quick-multiplier" type="number" min="0.1" step="0.1" value="1" />
+                <button id="quick-add-btn" type="button">Add</button>
+                <button id="quick-save-btn" type="button" class="btn-success">Save</button>
+                <button id="quick-edit-toggle-btn" type="button" class="btn-warning">Edit</button>
+                <button id="quick-delete-btn" type="button" class="btn-danger">Delete</button>
+              </div>
+            </div>
+
+            <div id="quick-favorites" class="quick-favorites" aria-label="Most used quick add items"></div>
+
+            <div id="quick-add-editor" class="quick-edit-row" aria-label="Edit selected quick add item" hidden>
+              <label for="quick-edit-name">Name</label>
+              <input id="quick-edit-name" type="text" placeholder="Name" />
+
+              <label for="quick-edit-quantity">Quantity</label>
+              <input id="quick-edit-quantity" type="number" step="0.1" min="0" placeholder="Qty" />
+
+              <label for="quick-edit-unit">Unit</label>
+              <input id="quick-edit-unit" type="text" placeholder="Unit" />
+
+              <label for="quick-edit-calories">Calories</label>
+              <input id="quick-edit-calories" type="number" step="0.1" min="0" placeholder="Cal" />
+
+              <label for="quick-edit-protein">Protein</label>
+              <input id="quick-edit-protein" type="number" step="0.1" min="0" placeholder="P" />
+
+              <label for="quick-edit-carbs">Carbs</label>
+              <input id="quick-edit-carbs" type="number" step="0.1" min="0" placeholder="C" />
+
+              <label for="quick-edit-fat">Fat</label>
+              <input id="quick-edit-fat" type="number" step="0.1" min="0" placeholder="F" />
+            </div>
+          </section>
+        </div>
+
+        <div class="column-right">
+          <section id="today-section" aria-labelledby="stats-heading" class="panel glass">
+            <h2 id="stats-heading">Weekly Snapshot</h2>
+            <div class="cards stats-cards">
+              <article class="card metric">
+                <span class="metric-label">Calories</span>
+                <strong class="metric-value" id="week-calories">0</strong>
+              </article>
+              <article class="card metric">
+                <span class="metric-label">Protein</span>
+                <strong class="metric-value" id="week-protein">0g</strong>
+              </article>
+              <article class="card metric">
+                <span class="metric-label">Carbs</span>
+                <strong class="metric-value" id="week-carbs">0g</strong>
+              </article>
+              <article class="card metric">
+                <span class="metric-label">Fat</span>
+                <strong class="metric-value" id="week-fat">0g</strong>
+              </article>
+            </div>
+            <div class="trend-wrap">
+              <canvas id="trend-canvas" width="560" height="120" aria-label="7-day calorie trend"></canvas>
+            </div>
+
+            <h3>Previous Days</h3>
+            <div id="previous-days"></div>
+          </section>
+
+          <section id="entries-section" aria-labelledby="entries-heading" class="panel glass">
+            <h2 id="entries-heading">Logged Entries</h2>
+            <div class="entries-nav" aria-label="Logged entries day navigation">
+              <button id="entries-prev-day-btn" class="entries-day-btn" type="button" aria-label="Previous day">‹</button>
+              <div id="entries-day-label" class="entries-day-label" aria-live="polite"></div>
+              <button id="entries-next-day-btn" class="entries-day-btn" type="button" aria-label="Next day">›</button>
+            </div>
+            <div id="entries-by-day"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <nav class="mobile-nav" aria-label="Mobile quick actions">
+      <button type="button" class="mobile-nav-btn" data-nav-target="log-section" aria-label="Go to Log">✍<span>Log</span></button>
+      <button type="button" class="mobile-nav-btn" data-nav-target="quick-section" aria-label="Go to Quick Add">⊕<span>Quick</span></button>
+      <button type="button" class="mobile-nav-btn" data-nav-target="today-section" aria-label="Go to Snapshot stats">◔<span>Snapshot</span></button>
+    </nav>
+
+    <script src="/script.js"></script>
+  </body>
+</html>
