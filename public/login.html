@@ -95,6 +95,14 @@
         color: #a12f2f;
         font-size: 0.9rem;
       }
+
+      .version {
+        margin-top: 0.8rem;
+        margin-bottom: 0;
+        font-size: 0.74rem;
+        color: #6a7890;
+        text-align: center;
+      }
     </style>
   </head>
   <body>
@@ -118,6 +126,7 @@
         Continue with Google
       </button>
       <p id="error" class="error" hidden>Google sign-in failed. Please try again.</p>
+      <p id="login-version" class="version" hidden></p>
     </main>
 
     <script>
@@ -125,6 +134,39 @@
       if (params.get('error')) {
         document.getElementById('error').hidden = false;
       }
+
+      (async () => {
+        try {
+          const res = await fetch('/version', { cache: 'no-store' });
+          if (!res.ok) {
+            return;
+          }
+          const data = await res.json();
+          const el = document.getElementById('login-version');
+          const build = String(data.appBuild || '').trim();
+          const startedAt = String(data.startedAt || '').trim();
+          if (!build && !startedAt) {
+            return;
+          }
+          let text = '';
+          if (build) {
+            text += `Build ${build}`;
+          }
+          if (startedAt) {
+            const ts = new Date(startedAt);
+            if (!Number.isNaN(ts.getTime())) {
+              text += (text ? ' • ' : '') + ts.toLocaleString();
+            }
+          }
+          if (!text) {
+            return;
+          }
+          el.textContent = text;
+          el.hidden = false;
+        } catch (_error) {
+          // Keep login UI clean if version fetch fails.
+        }
+      })();
     </script>
   </body>
 </html>
