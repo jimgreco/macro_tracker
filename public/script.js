@@ -268,11 +268,6 @@ function readFileAsDataUrl(file) {
   });
 }
 
-function getDataUrlMimeType(dataUrl) {
-  const match = String(dataUrl || '').match(/^data:([^;,]+)[;,]/i);
-  return match ? String(match[1] || '').toLowerCase() : '';
-}
-
 function isHeicLikeFile(file) {
   const mimeType = String(file?.type || '').toLowerCase();
   if (mimeType === 'image/heic' || mimeType === 'image/heif' || mimeType === 'image/heic-sequence' || mimeType === 'image/heif-sequence') {
@@ -280,35 +275,6 @@ function isHeicLikeFile(file) {
   }
   const name = String(file?.name || '').toLowerCase();
   return name.endsWith('.heic') || name.endsWith('.heif');
-}
-
-function readBlobAsDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('Unable to read converted image.'));
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function convertHeicFileToJpegDataUrl(file) {
-  const heicConverter = window.heic2any;
-  if (typeof heicConverter !== 'function') {
-    throw new Error('HEIC converter unavailable. Please retry, or set iPhone camera format to Most Compatible (JPEG).');
-  }
-
-  let converted = await heicConverter({
-    blob: file,
-    toType: 'image/jpeg',
-    quality: 0.92
-  });
-  if (Array.isArray(converted)) {
-    converted = converted[0];
-  }
-  if (!(converted instanceof Blob)) {
-    throw new Error('Unable to convert HEIC photo. Please try another image.');
-  }
-  return readBlobAsDataUrl(converted);
 }
 
 async function handleMealImageSelect(event, sourceLabel) {
@@ -320,19 +286,12 @@ async function handleMealImageSelect(event, sourceLabel) {
   state.mealImageLoading = true;
   setActionBanner('Processing selected photo...', 'info');
   try {
-    let dataUrl = '';
+    const dataUrl = await readFileAsDataUrl(file);
     let selectedMessage = sourceLabel + ' selected.';
     if (isHeicLikeFile(file)) {
-      dataUrl = await convertHeicFileToJpegDataUrl(file);
-      const baseName = String(file.name || sourceLabel + ' image').replace(/\.(heic|heif)$/i, '');
-      state.mealImageName = baseName + '.jpg';
-      selectedMessage = sourceLabel + ' selected and converted from HEIC/HEIF to JPEG.';
+      state.mealImageName = file.name || sourceLabel + ' image';
+      selectedMessage = sourceLabel + ' selected (HEIC/HEIF). It will be converted on the server.';
     } else {
-      dataUrl = await readFileAsDataUrl(file);
-      const mimeType = getDataUrlMimeType(dataUrl);
-      if (mimeType === 'image/heic' || mimeType === 'image/heif') {
-        throw new Error('HEIC photo detected but conversion failed. Please retry or use JPEG/PNG.');
-      }
       state.mealImageName = file.name || sourceLabel + ' image';
       selectedMessage = sourceLabel + ' selected: ' + state.mealImageName + '.';
     }
