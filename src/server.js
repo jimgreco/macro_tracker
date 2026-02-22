@@ -20,10 +20,13 @@ const {
   getDashboard
 } = require('./db');
 const { parseMealText } = require('./parser');
+const packageJson = require('../package.json');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 app.set('trust proxy', 1);
+const appBuild = process.env.APP_BUILD || 'c24d664';
+const startedAtIso = new Date().toISOString();
 
 const sessionSecret = process.env.SESSION_SECRET || 'dev-session-secret-change-me';
 const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
@@ -228,6 +231,24 @@ app.post('/auth/logout', (req, res) => {
 
 app.get('/api/me', requireAuth, (req, res) => {
   res.json({ user: req.user || null });
+});
+
+function getVersionPayload() {
+  return {
+    appBuild,
+    packageVersion: packageJson.version,
+    nodeVersion: process.version,
+    startedAt: startedAtIso,
+    heicServerConversion: true
+  };
+}
+
+app.get('/version', (req, res) => {
+  res.json(getVersionPayload());
+});
+
+app.get('/api/version', (req, res) => {
+  res.json(getVersionPayload());
 });
 
 app.use('/api', requireAuth);
