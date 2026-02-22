@@ -506,7 +506,7 @@ function renderProfile(user) {
 }
 
 function formatMacros(item) {
-  return `${fmtNumber(item.calories)} kcal | P ${fmtNumber(item.protein)}g | C ${fmtNumber(item.carbs)}g | F ${fmtNumber(item.fat)}g`;
+  return `${fmtNumber(item.calories)} cal | P ${fmtNumber(item.protein)}g | C ${fmtNumber(item.carbs)}g | F ${fmtNumber(item.fat)}g`;
 }
 
 function isCompactMobileView() {
@@ -521,7 +521,7 @@ function formatSavedItemOption(item) {
   const maxName = 22;
   const name = String(item.name || 'Item');
   const compactName = name.length > maxName ? `${name.slice(0, maxName - 1)}…` : name;
-  return `${compactName} (${fmtNumber(item.calories)}kcal/${fmtNumber(item.protein)}P/${fmtNumber(item.carbs)}C/${fmtNumber(item.fat)}F)`;
+  return `${compactName} (${fmtNumber(item.calories)}cal/${fmtNumber(item.protein)}P/${fmtNumber(item.carbs)}C/${fmtNumber(item.fat)}F)`;
 }
 
 async function api(path, options = {}) {
