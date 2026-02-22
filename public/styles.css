@@ -395,6 +395,53 @@ button[disabled] {
   flex: 0 0 auto;
 }
 
+.meal-text-wrap {
+  position: relative;
+}
+
+.meal-photo-preview {
+  position: absolute;
+  right: 0.55rem;
+  bottom: 0.55rem;
+  width: 88px;
+  height: 88px;
+  border-radius: 10px;
+  transform: rotate(5deg);
+  box-shadow: 0 8px 22px rgba(16, 31, 58, 0.22);
+  z-index: 3;
+}
+
+.meal-photo-preview img {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid #c9d8ef;
+  background: #eaf2ff;
+}
+
+.meal-photo-remove {
+  position: absolute;
+  left: -0.38rem;
+  top: -0.38rem;
+  width: 1.3rem;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid #c6d7ef;
+  background: #fff;
+  color: #334861;
+  font-size: 0.95rem;
+  line-height: 1;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 10px rgba(16, 31, 58, 0.2);
+  z-index: 4;
+}
+
 .quick-edit-row input {
   width: 5.1rem;
   min-width: 5.1rem;
@@ -853,6 +900,20 @@ button[disabled] {
   .parse-actions .meal-media-btn {
     flex: 0 0 auto;
     min-width: auto;
+  }
+
+  .meal-photo-preview {
+    width: 72px;
+    height: 72px;
+    right: 0.45rem;
+    bottom: 0.45rem;
+  }
+
+  .meal-photo-remove {
+    width: 1.18rem;
+    min-width: 1.18rem;
+    height: 1.18rem;
+    font-size: 0.88rem;
   }
 
   .app-shell {

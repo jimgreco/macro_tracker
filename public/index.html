@@ -65,11 +65,17 @@
                 <input id="consumed-at" type="datetime-local" />
               </div>
             </div>
-            <textarea
-              id="meal-text"
-              rows="3"
-              placeholder="Example: two 1/2 cup containers of Fage yogurt and one banana"
-            ></textarea>
+            <div class="meal-text-wrap">
+              <textarea
+                id="meal-text"
+                rows="3"
+                placeholder="Example: two 1/2 cup containers of Fage yogurt and one banana"
+              ></textarea>
+              <div id="meal-photo-preview-wrap" class="meal-photo-preview" hidden>
+                <button id="remove-photo-btn" type="button" class="meal-photo-remove" aria-label="Remove attached photo">×</button>
+                <img id="meal-photo-preview-image" alt="Attached meal photo preview" />
+              </div>
+            </div>
 
 
             <div class="row parse-actions">
@@ -91,7 +97,6 @@
               <input id="meal-photo-input" type="file" accept="image/*" hidden />
               <input id="meal-camera-input" type="file" accept="image/*" capture="environment" hidden />
             </div>
-
             <p id="parse-note" role="status" aria-live="polite"></p>
             <div id="parsed-items-container" class="parsed-items"></div>
           </section>

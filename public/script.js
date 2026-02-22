@@ -19,6 +19,9 @@ const addPhotoBtnEl = document.getElementById('add-photo-btn');
 const useCameraBtnEl = document.getElementById('use-camera-btn');
 const mealPhotoInputEl = document.getElementById('meal-photo-input');
 const mealCameraInputEl = document.getElementById('meal-camera-input');
+const mealPhotoPreviewWrapEl = document.getElementById('meal-photo-preview-wrap');
+const mealPhotoPreviewImageEl = document.getElementById('meal-photo-preview-image');
+const removePhotoBtnEl = document.getElementById('remove-photo-btn');
 const parseNoteEl = document.getElementById('parse-note');
 const parsedItemsContainerEl = document.getElementById('parsed-items-container');
 const savedSelectEl = document.getElementById('saved-item-select');
@@ -61,6 +64,7 @@ const profileNameEl = document.getElementById('profile-name');
 const profileEmailEl = document.getElementById('profile-email');
 const logoutBtnEl = document.getElementById('logout-btn');
 const mobileNavButtons = Array.from(document.querySelectorAll('.mobile-nav-btn'));
+const defaultMealTextPlaceholder = mealTextEl ? mealTextEl.placeholder : '';
 
 function toDateTimeLocalValue(date = new Date()) {
   const offset = date.getTimezoneOffset();
@@ -273,14 +277,55 @@ async function handleMealImageSelect(event, sourceLabel) {
     const dataUrl = await readFileAsDataUrl(file);
     state.mealImageDataUrl = dataUrl;
     state.mealImageName = file.name || sourceLabel + ' image';
-    setActionBanner(sourceLabel + ' selected: ' + state.mealImageName + '. Ready to parse with your description.', 'info');
+    renderMealImagePreview();
+    setActionBanner(sourceLabel + ' selected: ' + state.mealImageName + '. You can add an optional description.', 'info');
   } catch (error) {
     setActionBanner(error.message, 'error');
   }
 }
 
+function applyMealInputMode() {
+  if (!mealTextEl) {
+    return;
+  }
+  mealTextEl.disabled = false;
+  mealTextEl.placeholder = state.mealImageDataUrl
+    ? 'Optional: add a description, or parse from photo only.'
+    : defaultMealTextPlaceholder;
+}
+
+function renderMealImagePreview() {
+  const hasImage = Boolean(state.mealImageDataUrl);
+  if (mealPhotoPreviewWrapEl) {
+    mealPhotoPreviewWrapEl.hidden = !hasImage;
+  }
+  if (hasImage) {
+    if (mealPhotoPreviewImageEl) {
+      mealPhotoPreviewImageEl.src = state.mealImageDataUrl;
+    }
+  } else {
+    if (mealPhotoPreviewImageEl) {
+      mealPhotoPreviewImageEl.removeAttribute('src');
+    }
+  }
+  applyMealInputMode();
+}
+
+function clearMealImageSelection() {
+  state.mealImageDataUrl = '';
+  state.mealImageName = '';
+  if (mealPhotoInputEl) {
+    mealPhotoInputEl.value = '';
+  }
+  if (mealCameraInputEl) {
+    mealCameraInputEl.value = '';
+  }
+  renderMealImagePreview();
+}
+
 
 consumedAtEl.value = toDateTimeLocalValue();
+renderMealImagePreview();
 
 if (addPhotoBtnEl && mealPhotoInputEl) {
   addPhotoBtnEl.addEventListener('click', () => {
@@ -299,6 +344,13 @@ if (useCameraBtnEl && mealCameraInputEl) {
 
   mealCameraInputEl.addEventListener('change', (event) => {
     handleMealImageSelect(event, 'Camera');
+  });
+}
+
+if (removePhotoBtnEl) {
+  removePhotoBtnEl.addEventListener('click', () => {
+    clearMealImageSelection();
+    setActionBanner('Attached photo removed.', 'info');
   });
 }
 
@@ -1267,14 +1319,7 @@ saveParsedBtnEl.addEventListener('click', async () => {
     setActionBanner('Saved parsed items.', 'success');
     mealTextEl.value = '';
     state.parsedMeal = null;
-    state.mealImageDataUrl = '';
-    state.mealImageName = '';
-    if (mealPhotoInputEl) {
-      mealPhotoInputEl.value = '';
-    }
-    if (mealCameraInputEl) {
-      mealCameraInputEl.value = '';
-    }
+    clearMealImageSelection();
     parsedItemsContainerEl.innerHTML = '';
     saveParsedBtnEl.disabled = true;
     await refreshDashboard();
