@@ -87,14 +87,27 @@ function todayIsoString() {
 }
 
 function parseImageDataUrl(imageDataUrl) {
-  const match = String(imageDataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/s);
+  const match = String(imageDataUrl || '').match(/^data:([^;,]+)((?:;[^,]*)*),(.*)$/s);
   if (!match) {
     return null;
   }
+  const mimeType = String(match[1] || '').toLowerCase();
+  const flags = String(match[2] || '').toLowerCase();
+  if (!flags.includes(';base64')) {
+    return null;
+  }
   return {
-    mimeType: String(match[1] || '').toLowerCase(),
-    base64Payload: String(match[2] || '')
+    mimeType,
+    base64Payload: String(match[3] || '').replace(/\s+/g, '')
   };
+}
+
+function normalizeOpenAiImageMimeType(mimeType) {
+  const value = String(mimeType || '').toLowerCase();
+  if (value === 'image/jpg') {
+    return 'image/jpeg';
+  }
+  return value;
 }
 
 function isHeicMimeType(mimeType) {
@@ -271,10 +284,9 @@ app.post('/api/parse-meal', async (req, res) => {
       if (!parsedImage) {
         return res.status(400).json({ error: 'Invalid image format. Use an image file.' });
       }
-      const mimeType = parsedImage.mimeType;
+      const mimeType = normalizeOpenAiImageMimeType(parsedImage.mimeType);
       const allowedMimeTypes = new Set([
         'image/jpeg',
-        'image/jpg',
         'image/png',
         'image/webp',
         'image/gif',
@@ -297,6 +309,14 @@ app.post('/api/parse-meal', async (req, res) => {
 
       if (isHeicMimeType(mimeType)) {
         imageDataUrl = await convertHeicDataUrlToJpegDataUrl(rawImageDataUrl);
+      } else {
+        imageDataUrl = `data:${mimeType};base64,${parsedImage.base64Payload}`;
+      }
+
+      const normalizedImage = parseImageDataUrl(imageDataUrl);
+      const normalizedEstimatedBytes = Math.floor((String(normalizedImage?.base64Payload || '').length * 3) / 4);
+      if (normalizedEstimatedBytes > maxImageBytes) {
+        return res.status(400).json({ error: 'Image is too large after processing. Please use a smaller photo.' });
       }
     }
 
