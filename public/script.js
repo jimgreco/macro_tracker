@@ -5,6 +5,7 @@ const state = {
   editingEntryId: null,
   quickEditMode: false,
   mealImageDataUrl: '',
+  mealImagePreviewUrl: '',
   mealImageName: '',
   mealImageLoading: false,
   selectedEntriesDay: '',
@@ -287,6 +288,14 @@ async function handleMealImageSelect(event, sourceLabel) {
   setActionBanner('Processing selected photo...', 'info');
   try {
     const dataUrl = await readFileAsDataUrl(file);
+    if (state.mealImagePreviewUrl && state.mealImagePreviewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(state.mealImagePreviewUrl);
+    }
+    try {
+      state.mealImagePreviewUrl = URL.createObjectURL(file);
+    } catch (_error) {
+      state.mealImagePreviewUrl = '';
+    }
     let selectedMessage = sourceLabel + ' selected.';
     if (isHeicLikeFile(file)) {
       state.mealImageName = file.name || sourceLabel + ' image';
@@ -322,7 +331,11 @@ function renderMealImagePreview() {
   }
   if (hasImage) {
     if (mealPhotoPreviewImageEl) {
-      mealPhotoPreviewImageEl.src = state.mealImageDataUrl;
+      try {
+        mealPhotoPreviewImageEl.src = state.mealImagePreviewUrl || state.mealImageDataUrl;
+      } catch (_error) {
+        mealPhotoPreviewImageEl.removeAttribute('src');
+      }
     }
   } else {
     if (mealPhotoPreviewImageEl) {
@@ -333,7 +346,11 @@ function renderMealImagePreview() {
 }
 
 function clearMealImageSelection() {
+  if (state.mealImagePreviewUrl && state.mealImagePreviewUrl.startsWith('blob:')) {
+    URL.revokeObjectURL(state.mealImagePreviewUrl);
+  }
   state.mealImageDataUrl = '';
+  state.mealImagePreviewUrl = '';
   state.mealImageName = '';
   state.mealImageLoading = false;
   if (mealPhotoInputEl) {
