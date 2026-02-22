@@ -268,6 +268,48 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function getDataUrlMimeType(dataUrl) {
+  const match = String(dataUrl || '').match(/^data:([^;,]+)[;,]/i);
+  return match ? String(match[1] || '').toLowerCase() : '';
+}
+
+function isHeicLikeMime(mimeType) {
+  return mimeType === 'image/heic' || mimeType === 'image/heif' || mimeType === 'image/heic-sequence' || mimeType === 'image/heif-sequence';
+}
+
+function toJpegDataUrlFromImage(image, quality = 0.92) {
+  const width = image.naturalWidth || image.width || 0;
+  const height = image.naturalHeight || image.height || 0;
+  if (!width || !height) {
+    throw new Error('Unable to read image dimensions for conversion.');
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Unable to create image conversion context.');
+  }
+  ctx.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL('image/jpeg', quality);
+}
+
+function convertDataUrlToJpeg(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const jpegDataUrl = toJpegDataUrlFromImage(image);
+        resolve(jpegDataUrl);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    image.onerror = () => reject(new Error('Unable to decode HEIC/HEIF image for conversion.'));
+    image.src = dataUrl;
+  });
+}
+
 async function handleMealImageSelect(event, sourceLabel) {
   const file = event.target?.files?.[0];
   if (!file) {
@@ -277,11 +319,21 @@ async function handleMealImageSelect(event, sourceLabel) {
   state.mealImageLoading = true;
   setActionBanner('Processing selected photo...', 'info');
   try {
-    const dataUrl = await readFileAsDataUrl(file);
+    let dataUrl = await readFileAsDataUrl(file);
+    const mimeType = getDataUrlMimeType(dataUrl);
+    let selectedMessage = '';
+    if (isHeicLikeMime(mimeType)) {
+      dataUrl = await convertDataUrlToJpeg(dataUrl);
+      const baseName = String(file.name || sourceLabel + ' image').replace(/\.(heic|heif)$/i, '');
+      state.mealImageName = baseName + '.jpg';
+      selectedMessage = sourceLabel + ' selected and converted from HEIC/HEIF to JPEG.';
+    } else {
+      state.mealImageName = file.name || sourceLabel + ' image';
+      selectedMessage = sourceLabel + ' selected: ' + state.mealImageName + '.';
+    }
     state.mealImageDataUrl = dataUrl;
-    state.mealImageName = file.name || sourceLabel + ' image';
     renderMealImagePreview();
-    setActionBanner(sourceLabel + ' selected: ' + state.mealImageName + '. You can add an optional description.', 'info');
+    setActionBanner(selectedMessage + ' You can add an optional description.', 'info');
   } catch (error) {
     setActionBanner(error.message, 'error');
   } finally {

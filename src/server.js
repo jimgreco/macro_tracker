@@ -201,19 +201,28 @@ app.get('/api/me', requireAuth, (req, res) => {
 app.use('/api', requireAuth);
 
 app.post('/api/parse-meal', async (req, res) => {
+  let hasImage = false;
   try {
     const consumedAt = req.body.consumedAt || todayIsoString();
     const text = typeof req.body.text === 'string' ? req.body.text : '';
     const imageDataUrl = typeof req.body.imageDataUrl === 'string' ? req.body.imageDataUrl : '';
+    hasImage = Boolean(imageDataUrl);
 
     if (!text.trim() && !imageDataUrl) {
       return res.status(400).json({ error: 'Add a description, a photo, or both.' });
     }
 
     if (imageDataUrl) {
-      const isImageDataUrl = imageDataUrl.startsWith('data:image/') && imageDataUrl.includes(';base64,');
-      if (!isImageDataUrl) {
+      const imageMatch = imageDataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/);
+      if (!imageMatch) {
         return res.status(400).json({ error: 'Invalid image format. Use an image file.' });
+      }
+      const mimeType = String(imageMatch[1] || '').toLowerCase();
+      const allowedMimeTypes = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']);
+      if (!allowedMimeTypes.has(mimeType)) {
+        return res.status(400).json({
+          error: 'Unsupported image type. Use JPEG, PNG, WEBP, or GIF (iPhone HEIC is not supported).'
+        });
       }
 
       const maxImageBytes = 6 * 1024 * 1024;
@@ -232,6 +241,12 @@ app.post('/api/parse-meal', async (req, res) => {
 
     res.json(parsed);
   } catch (error) {
+    const message = String(error?.message || 'Request failed');
+    if (hasImage && message.includes('did not match the expected pattern')) {
+      return res.status(400).json({
+        error: 'Photo format was not accepted. Try a JPEG/PNG photo (HEIC may fail), or include a short description too.'
+      });
+    }
     res.status(400).json({ error: error.message });
   }
 });
