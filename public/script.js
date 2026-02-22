@@ -425,14 +425,19 @@ function renderParsedItems(parsedMeal) {
     const details = document.createElement('p');
     details.textContent = 'Edit values before saving. Confidence: ' + item.confidence;
 
-    const grid = document.createElement('div');
-    grid.className = 'parsed-edit-grid';
+    const table = document.createElement('table');
+    table.className = 'parsed-edit-table';
+    const tbody = document.createElement('tbody');
 
-    function addField(field, value, options = {}) {
+    function addField(labelText, field, value, options = {}) {
+      const row = document.createElement('tr');
+      const labelCell = document.createElement('th');
+      labelCell.scope = 'row';
+      labelCell.textContent = labelText;
+      const valueCell = document.createElement('td');
       const input = document.createElement('input');
       input.dataset.parseIndex = String(index);
       input.dataset.parseField = field;
-      input.className = options.className || '';
       input.type = options.type || 'text';
       if (options.step) {
         input.step = options.step;
@@ -442,16 +447,20 @@ function renderParsedItems(parsedMeal) {
       }
       input.placeholder = options.placeholder || field;
       input.value = value ?? '';
-      grid.appendChild(input);
+      valueCell.appendChild(input);
+      row.appendChild(labelCell);
+      row.appendChild(valueCell);
+      tbody.appendChild(row);
     }
 
-    addField('itemName', item.itemName, { className: 'parsed-name', placeholder: 'Item' });
-    addField('quantity', item.quantity, { type: 'number', step: '0.1', min: 0, placeholder: 'Qty' });
-    addField('unit', item.unit || '', { placeholder: 'Unit' });
-    addField('calories', item.calories, { type: 'number', step: '0.1', min: 0, placeholder: 'Cal' });
-    addField('protein', item.protein, { type: 'number', step: '0.1', min: 0, placeholder: 'P' });
-    addField('carbs', item.carbs, { type: 'number', step: '0.1', min: 0, placeholder: 'C' });
-    addField('fat', item.fat, { type: 'number', step: '0.1', min: 0, placeholder: 'F' });
+    addField('Item', 'itemName', item.itemName, { placeholder: 'Item' });
+    addField('Quantity', 'quantity', item.quantity, { type: 'number', step: '0.1', min: 0, placeholder: 'Qty' });
+    addField('Unit', 'unit', item.unit || '', { placeholder: 'Unit' });
+    addField('Calories', 'calories', item.calories, { type: 'number', step: '0.1', min: 0, placeholder: 'Cal' });
+    addField('Protein', 'protein', item.protein, { type: 'number', step: '0.1', min: 0, placeholder: 'P' });
+    addField('Carbs', 'carbs', item.carbs, { type: 'number', step: '0.1', min: 0, placeholder: 'C' });
+    addField('Fat', 'fat', item.fat, { type: 'number', step: '0.1', min: 0, placeholder: 'F' });
+    table.appendChild(tbody);
 
     const label = document.createElement('label');
     label.className = 'inline-check';
@@ -467,7 +476,7 @@ function renderParsedItems(parsedMeal) {
     label.appendChild(text);
 
     wrapper.appendChild(details);
-    wrapper.appendChild(grid);
+    wrapper.appendChild(table);
     wrapper.appendChild(label);
     parsedItemsContainerEl.appendChild(wrapper);
   });
