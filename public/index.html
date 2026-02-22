@@ -36,25 +36,6 @@
           </h1>
         </div>
         <div class="topbar-right">
-          <div class="today-strip" aria-label="Today's macros">
-            <div class="strip-item">
-              <span class="label">Calories</span>
-              <strong id="today-calories">0</strong>
-            </div>
-            <div class="strip-item">
-              <span class="label">Protein</span>
-              <strong id="today-protein">0g</strong>
-            </div>
-            <div class="strip-item">
-              <span class="label">Carbs</span>
-              <strong id="today-carbs">0g</strong>
-            </div>
-            <div class="strip-item">
-              <span class="label">Fat</span>
-              <strong id="today-fat">0g</strong>
-            </div>
-          </div>
-
           <div id="profile-menu" class="profile-menu" aria-label="Signed in user">
             <button
               id="profile-chip"
@@ -157,35 +138,6 @@
         </div>
 
         <div class="column-right">
-          <section id="today-section" aria-labelledby="stats-heading" class="panel glass">
-            <h2 id="stats-heading">Weekly Snapshot</h2>
-            <div class="cards stats-cards">
-              <article class="card metric">
-                <span class="metric-label">Calories</span>
-                <strong class="metric-value" id="week-calories">0</strong>
-              </article>
-              <article class="card metric">
-                <span class="metric-label">Protein</span>
-                <strong class="metric-value" id="week-protein">0g</strong>
-              </article>
-              <article class="card metric">
-                <span class="metric-label">Carbs</span>
-                <strong class="metric-value" id="week-carbs">0g</strong>
-              </article>
-              <article class="card metric">
-                <span class="metric-label">Fat</span>
-                <strong class="metric-value" id="week-fat">0g</strong>
-              </article>
-            </div>
-            <div class="trend-wrap">
-              <canvas id="trend-canvas" height="120" aria-label="7-day calorie trend"></canvas>
-              <div id="trend-tooltip" class="trend-tooltip" hidden></div>
-            </div>
-
-            <h3>Previous Days</h3>
-            <div id="previous-days"></div>
-          </section>
-
           <section id="entries-section" aria-labelledby="entries-heading" class="panel glass">
             <h2 id="entries-heading">Logged Entries</h2>
             <div class="entries-nav" aria-label="Logged entries day navigation">
@@ -193,7 +145,53 @@
               <div id="entries-day-label" class="entries-day-label" aria-live="polite"></div>
               <button id="entries-next-day-btn" class="entries-day-btn" type="button" aria-label="Next day">›</button>
             </div>
+            <div class="cards stats-cards entries-totals" aria-label="Selected day totals">
+              <article class="card metric">
+                <span class="metric-label">Calories</span>
+                <strong class="metric-value" id="today-calories">0</strong>
+              </article>
+              <article class="card metric">
+                <span class="metric-label">Protein</span>
+                <strong class="metric-value" id="today-protein">0g</strong>
+              </article>
+              <article class="card metric">
+                <span class="metric-label">Carbs</span>
+                <strong class="metric-value" id="today-carbs">0g</strong>
+              </article>
+              <article class="card metric">
+                <span class="metric-label">Fat</span>
+                <strong class="metric-value" id="today-fat">0g</strong>
+              </article>
+            </div>
             <div id="entries-by-day"></div>
+          </section>
+
+          <section id="today-section" aria-labelledby="stats-heading" class="panel glass">
+            <h2 id="stats-heading">Weekly Snapshot</h2>
+            <div class="trend-wrap">
+              <canvas id="trend-canvas" height="120" aria-label="7-day calorie trend"></canvas>
+              <div id="trend-tooltip" class="trend-tooltip" hidden></div>
+            </div>
+
+            <div id="weekly-avg-cards" class="cards stats-cards avg-cards" aria-label="Weekly running average macros">
+              <article class="card metric trend-macro-card is-active" data-trend-macro="calories" role="button" tabindex="0" aria-pressed="true">
+                <span class="metric-label">Calories</span>
+                <strong class="metric-value" id="avg-calories">0</strong>
+              </article>
+              <article class="card metric trend-macro-card" data-trend-macro="protein" role="button" tabindex="0" aria-pressed="false">
+                <span class="metric-label">Protein</span>
+                <strong class="metric-value" id="avg-protein">0g</strong>
+              </article>
+              <article class="card metric trend-macro-card" data-trend-macro="carbs" role="button" tabindex="0" aria-pressed="false">
+                <span class="metric-label">Carbs</span>
+                <strong class="metric-value" id="avg-carbs">0g</strong>
+              </article>
+              <article class="card metric trend-macro-card" data-trend-macro="fat" role="button" tabindex="0" aria-pressed="false">
+                <span class="metric-label">Fat</span>
+                <strong class="metric-value" id="avg-fat">0g</strong>
+              </article>
+            </div>
+            <p id="weekly-avg-note" class="avg-note"></p>
           </section>
         </div>
       </section>
@@ -202,6 +200,7 @@
     <nav class="mobile-nav" aria-label="Mobile quick actions">
       <button type="button" class="mobile-nav-btn" data-nav-target="log-section" aria-label="Go to Log">✍<span>Log</span></button>
       <button type="button" class="mobile-nav-btn" data-nav-target="quick-section" aria-label="Go to Quick Add">⊕<span>Quick</span></button>
+      <button type="button" class="mobile-nav-btn" data-nav-target="entries-section" aria-label="Go to Logged Entries">☰<span>Entries</span></button>
       <button type="button" class="mobile-nav-btn" data-nav-target="today-section" aria-label="Go to Snapshot stats">◔<span>Snapshot</span></button>
     </nav>
 

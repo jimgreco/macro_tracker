@@ -1,12 +1,14 @@
 const state = {
   parsedMeal: null,
   savedItems: [],
+  historyQuickItems: [],
   editingEntryId: null,
   quickEditMode: false,
   mealImageDataUrl: '',
   mealImageName: '',
   selectedEntriesDay: '',
-  dashboardData: null
+  dashboardData: null,
+  selectedTrendMacro: 'calories'
 };
 
 const mealTextEl = document.getElementById('meal-text');
@@ -38,13 +40,14 @@ const todayCaloriesEl = document.getElementById('today-calories');
 const todayProteinEl = document.getElementById('today-protein');
 const todayCarbsEl = document.getElementById('today-carbs');
 const todayFatEl = document.getElementById('today-fat');
-const weekCaloriesEl = document.getElementById('week-calories');
-const weekProteinEl = document.getElementById('week-protein');
-const weekCarbsEl = document.getElementById('week-carbs');
-const weekFatEl = document.getElementById('week-fat');
+const avgCaloriesEl = document.getElementById('avg-calories');
+const avgProteinEl = document.getElementById('avg-protein');
+const avgCarbsEl = document.getElementById('avg-carbs');
+const avgFatEl = document.getElementById('avg-fat');
+const weeklyAvgNoteEl = document.getElementById('weekly-avg-note');
+const trendMacroCards = Array.from(document.querySelectorAll('.trend-macro-card'));
 const trendCanvasEl = document.getElementById('trend-canvas');
 const trendTooltipEl = document.getElementById('trend-tooltip');
-const previousDaysEl = document.getElementById('previous-days');
 const entriesByDayEl = document.getElementById('entries-by-day');
 const entriesPrevDayBtnEl = document.getElementById('entries-prev-day-btn');
 const entriesNextDayBtnEl = document.getElementById('entries-next-day-btn');
@@ -85,6 +88,12 @@ function fmtNumber(value) {
   return Number(value || 0).toFixed(1).replace('.0', '');
 }
 
+function setText(el, value) {
+  if (el) {
+    el.textContent = value;
+  }
+}
+
 function getLocalIsoDay(dateLike = new Date()) {
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
   const year = d.getFullYear();
@@ -118,6 +127,17 @@ let actionBannerTimer = null;
 let trendPointCoords = [];
 let trendInteractionsBound = false;
 let trendResizeBound = false;
+let trendMacroBound = false;
+
+function getTrendMacroConfig(macro = state.selectedTrendMacro) {
+  const configs = {
+    calories: { label: 'Calories', unit: 'kcal' },
+    protein: { label: 'Protein', unit: 'g' },
+    carbs: { label: 'Carbs', unit: 'g' },
+    fat: { label: 'Fat', unit: 'g' }
+  };
+  return configs[macro] || configs.calories;
+}
 
 function setActionBanner(message, type = 'success') {
   if (actionBannerTimer) {
@@ -178,7 +198,8 @@ function showTrendTooltipFromClient(clientX, clientY, persist = false) {
     return;
   }
 
-  trendTooltipEl.textContent = `${formatIsoDayLabel(nearest.day)}: ${fmtNumber(nearest.value)} kcal`;
+  const trendMacro = getTrendMacroConfig();
+  trendTooltipEl.textContent = `${formatIsoDayLabel(nearest.day)}: ${fmtNumber(nearest.value)} ${trendMacro.unit}`;
   trendTooltipEl.hidden = false;
 
   const wrap = trendCanvasEl.parentElement;
@@ -486,8 +507,41 @@ function collectParsedItemsFromUi() {
 }
 
 function getSelectedSavedItem() {
-  const id = Number(savedSelectEl.value);
+  const raw = String(savedSelectEl.value || '');
+  if (!raw.startsWith('saved:')) {
+    return null;
+  }
+  const id = Number(raw.slice('saved:'.length));
   return state.savedItems.find((item) => item.id === id) || null;
+}
+
+function getSelectedQuickTemplate() {
+  const raw = String(savedSelectEl.value || '');
+  if (raw.startsWith('saved:')) {
+    const item = getSelectedSavedItem();
+    if (!item) {
+      return null;
+    }
+    return {
+      type: 'saved',
+      key: raw,
+      id: item.id,
+      name: item.name,
+      quantity: Number(item.quantity || 0),
+      unit: item.unit || 'serving',
+      calories: Number(item.calories || 0),
+      protein: Number(item.protein || 0),
+      carbs: Number(item.carbs || 0),
+      fat: Number(item.fat || 0),
+      usageCount: Number(item.usageCount || 0),
+      count: Number(item.usageCount || 0),
+      lastUsedAt: ''
+    };
+  }
+  if (raw.startsWith('entry:')) {
+    return state.historyQuickItems.find((item) => item.key === raw) || null;
+  }
+  return null;
 }
 
 function setQuickEditMode(isEditing) {
@@ -499,11 +553,52 @@ function setQuickEditMode(isEditing) {
 }
 
 function getTopQuickFavorites() {
-  return [...state.savedItems]
+  const historyByName = new Map();
+  for (const item of state.historyQuickItems) {
+    historyByName.set(String(item.name || '').toLowerCase(), item);
+  }
+
+  const merged = [];
+  const seenNames = new Set();
+
+  for (const item of state.savedItems) {
+    const nameKey = String(item.name || '').toLowerCase();
+    const history = historyByName.get(nameKey);
+    merged.push({
+      type: 'saved',
+      key: 'saved:' + item.id,
+      id: item.id,
+      name: item.name,
+      quantity: Number(item.quantity || 0),
+      unit: item.unit || 'serving',
+      calories: Number(item.calories || 0),
+      protein: Number(item.protein || 0),
+      carbs: Number(item.carbs || 0),
+      fat: Number(item.fat || 0),
+      usageCount: Number(item.usageCount || 0),
+      count: Math.max(Number(item.usageCount || 0), Number(history?.count || 0)),
+      lastUsedAt: history?.lastUsedAt || ''
+    });
+    seenNames.add(nameKey);
+  }
+
+  for (const item of state.historyQuickItems) {
+    const nameKey = String(item.name || '').toLowerCase();
+    if (seenNames.has(nameKey)) {
+      continue;
+    }
+    merged.push(item);
+  }
+
+  return merged
     .sort((a, b) => {
-      const usageDiff = Number(b.usageCount || 0) - Number(a.usageCount || 0);
+      const usageDiff = Number(b.count || 0) - Number(a.count || 0);
       if (usageDiff !== 0) {
         return usageDiff;
+      }
+      const lastDiff = new Date(b.lastUsedAt || 0).getTime() - new Date(a.lastUsedAt || 0).getTime();
+      if (lastDiff !== 0) {
+        return lastDiff;
       }
       return String(a.name || '').localeCompare(String(b.name || ''));
     })
@@ -519,6 +614,79 @@ function quickAddById(savedItemId) {
       consumedAt: asIso(consumedAtEl.value)
     })
   });
+}
+
+function quickAddByTemplate(template) {
+  const multiplier = Number(quickMultiplierEl.value || 1);
+  const consumedAt = asIso(consumedAtEl.value);
+  return api('/api/entries/bulk', {
+    method: 'POST',
+    body: JSON.stringify({
+      consumedAt,
+      items: [
+        {
+          itemName: template.name,
+          quantity: Number(template.quantity || 0) * multiplier,
+          unit: template.unit || 'serving',
+          calories: Number(template.calories || 0) * multiplier,
+          protein: Number(template.protein || 0) * multiplier,
+          carbs: Number(template.carbs || 0) * multiplier,
+          fat: Number(template.fat || 0) * multiplier,
+          consumedAt
+        }
+      ]
+    })
+  });
+}
+
+function buildHistoryQuickItems(entries) {
+  const historyBySignature = new Map();
+  for (const entry of entries || []) {
+    const signature = [
+      String(entry.itemName || '').trim().toLowerCase(),
+      String(entry.unit || 'serving').trim().toLowerCase(),
+      Number(entry.quantity || 0).toFixed(3),
+      Number(entry.calories || 0).toFixed(3),
+      Number(entry.protein || 0).toFixed(3),
+      Number(entry.carbs || 0).toFixed(3),
+      Number(entry.fat || 0).toFixed(3)
+    ].join('|');
+    const existing = historyBySignature.get(signature);
+    if (existing) {
+      existing.count += 1;
+      if (new Date(entry.consumedAt).getTime() > new Date(existing.lastUsedAt).getTime()) {
+        existing.lastUsedAt = entry.consumedAt;
+      }
+      continue;
+    }
+    historyBySignature.set(signature, {
+      type: 'entry',
+      key: 'entry:' + encodeURIComponent(signature),
+      name: entry.itemName,
+      quantity: Number(entry.quantity || 0),
+      unit: entry.unit || 'serving',
+      calories: Number(entry.calories || 0),
+      protein: Number(entry.protein || 0),
+      carbs: Number(entry.carbs || 0),
+      fat: Number(entry.fat || 0),
+      count: 1,
+      lastUsedAt: entry.consumedAt
+    });
+  }
+
+  return Array.from(historyBySignature.values())
+    .sort((a, b) => {
+      const countDiff = Number(b.count || 0) - Number(a.count || 0);
+      if (countDiff !== 0) {
+        return countDiff;
+      }
+      const timeDiff = new Date(b.lastUsedAt || 0).getTime() - new Date(a.lastUsedAt || 0).getTime();
+      if (timeDiff !== 0) {
+        return timeDiff;
+      }
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    })
+    .slice(0, 60);
 }
 
 function renderQuickFavorites() {
@@ -540,7 +708,7 @@ function renderQuickFavorites() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'quick-favorite-btn';
-    btn.dataset.savedItemId = String(item.id);
+    btn.dataset.quickKey = String(item.key);
     btn.textContent = item.name;
     quickFavoritesEl.appendChild(btn);
   }
@@ -571,10 +739,10 @@ function renderSavedItems() {
   const selectedBefore = savedSelectEl.value;
   savedSelectEl.innerHTML = '';
 
-  if (!state.savedItems.length) {
+  if (!state.savedItems.length && !state.historyQuickItems.length) {
     const option = document.createElement('option');
     option.value = '';
-    option.textContent = 'No saved items yet';
+    option.textContent = 'No quick add history yet';
     savedSelectEl.appendChild(option);
     quickAddBtnEl.disabled = true;
     quickEditToggleBtnEl.disabled = true;
@@ -593,16 +761,34 @@ function renderSavedItems() {
 
   for (const item of state.savedItems) {
     const option = document.createElement('option');
-    option.value = String(item.id);
+    option.value = 'saved:' + String(item.id);
     option.textContent = formatSavedItemOption(item);
     savedSelectEl.appendChild(option);
   }
 
-  if (state.savedItems.some((item) => String(item.id) === selectedBefore)) {
+  if (state.historyQuickItems.length && state.savedItems.length) {
+    const divider = document.createElement('option');
+    divider.disabled = true;
+    divider.textContent = '--- Recent from previous days ---';
+    savedSelectEl.appendChild(divider);
+  }
+  for (const item of state.historyQuickItems) {
+    const option = document.createElement('option');
+    option.value = item.key;
+    option.textContent = formatSavedItemOption(item);
+    savedSelectEl.appendChild(option);
+  }
+
+  const validValues = new Set([
+    ...state.savedItems.map((item) => 'saved:' + String(item.id)),
+    ...state.historyQuickItems.map((item) => item.key)
+  ]);
+  if (validValues.has(selectedBefore)) {
     savedSelectEl.value = selectedBefore;
   }
 
   const selected = getSelectedSavedItem();
+  const selectedTemplate = getSelectedQuickTemplate();
   quickAddBtnEl.disabled = false;
   quickEditToggleBtnEl.disabled = !selected;
   quickSaveBtnEl.disabled = !selected;
@@ -614,7 +800,7 @@ function renderSavedItems() {
     setQuickEditMode(false);
   }
 
-  fillQuickEditor(selected);
+  fillQuickEditor(selected || selectedTemplate);
   renderQuickFavorites();
 }
 
@@ -694,7 +880,7 @@ function renderEditRow(entry) {
   `;
 }
 
-function drawTrend(currentDayTotals, previousDays) {
+function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   if (!trendCanvasEl) {
     return;
   }
@@ -710,15 +896,15 @@ function drawTrend(currentDayTotals, previousDays) {
   const h = trendCanvasEl.height;
   ctx.clearRect(0, 0, w, h);
 
-  const map = new Map(previousDays.map((d) => [d.day, Number(d.calories || 0)]));
-  map.set(currentDayTotals.day, Number(currentDayTotals.calories || 0));
+  const map = new Map();
+  for (const entry of entries || []) {
+    const day = getLocalIsoDay(entry.consumedAt);
+    map.set(day, Number(map.get(day) || 0) + Number(entry[state.selectedTrendMacro] || 0));
+  }
 
   const points = [];
-  const baseDate = new Date(currentDayTotals.day + 'T00:00:00Z');
   for (let i = 6; i >= 0; i -= 1) {
-    const d = new Date(baseDate);
-    d.setUTCDate(d.getUTCDate() - i);
-    const day = d.toISOString().slice(0, 10);
+    const day = shiftIsoDay(baseIsoDay, -i);
     points.push({ day, value: map.get(day) || 0 });
   }
 
@@ -769,6 +955,10 @@ function drawTrend(currentDayTotals, previousDays) {
   }
 
   trendPointCoords = coords;
+  if (trendCanvasEl) {
+    const trendMacro = getTrendMacroConfig();
+    trendCanvasEl.setAttribute('aria-label', `7-day ${trendMacro.label.toLowerCase()} trend`);
+  }
   bindTrendInteractions();
 }
 
@@ -781,47 +971,104 @@ function bindTrendResize() {
     if (!state.dashboardData) {
       return;
     }
-    drawTrend(state.dashboardData.currentDayTotals, state.dashboardData.previousDays);
+    drawTrend(state.dashboardData.entries);
   });
 
   trendResizeBound = true;
 }
 
-function renderDashboard(data) {
-  const today = data.currentDayTotals;
-  const avg = data.sevenDayAverage;
-
-  todayCaloriesEl.textContent = fmtNumber(today.calories);
-  todayProteinEl.textContent = `${fmtNumber(today.protein)}g`;
-  todayCarbsEl.textContent = `${fmtNumber(today.carbs)}g`;
-  todayFatEl.textContent = `${fmtNumber(today.fat)}g`;
-
-  weekCaloriesEl.textContent = fmtNumber(avg.calories);
-  weekProteinEl.textContent = `${fmtNumber(avg.protein)}g`;
-  weekCarbsEl.textContent = `${fmtNumber(avg.carbs)}g`;
-  weekFatEl.textContent = `${fmtNumber(avg.fat)}g`;
-
-  drawTrend(today, data.previousDays);
-
-  previousDaysEl.innerHTML = '';
-  if (!data.previousDays.length) {
-    previousDaysEl.textContent = 'No previous day totals yet.';
-  } else {
-    const table = document.createElement('table');
-    table.className = 'table';
-    table.innerHTML =
-      '<thead><tr><th>Date</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th></tr></thead>';
-
-    const tbody = document.createElement('tbody');
-    for (const day of data.previousDays) {
-      const row = document.createElement('tr');
-      row.innerHTML = `<td data-label="Date">${day.day}</td><td data-label="Calories">${fmtNumber(day.calories)}</td><td data-label="Protein">${fmtNumber(day.protein)}</td><td data-label="Carbs">${fmtNumber(day.carbs)}</td><td data-label="Fat">${fmtNumber(day.fat)}</td>`;
-      tbody.appendChild(row);
-    }
-
-    table.appendChild(tbody);
-    previousDaysEl.appendChild(table);
+function syncTrendMacroCards() {
+  for (const card of trendMacroCards) {
+    const isActive = card.dataset.trendMacro === state.selectedTrendMacro;
+    card.classList.toggle('is-active', isActive);
+    card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   }
+}
+
+function setTrendMacro(macro) {
+  const allowed = new Set(['calories', 'protein', 'carbs', 'fat']);
+  if (!allowed.has(macro) || state.selectedTrendMacro === macro) {
+    return;
+  }
+  state.selectedTrendMacro = macro;
+  syncTrendMacroCards();
+  hideTrendTooltip();
+  if (state.dashboardData) {
+    drawTrend(state.dashboardData.entries);
+  }
+}
+
+function bindTrendMacroCards() {
+  if (trendMacroBound) {
+    return;
+  }
+
+  for (const card of trendMacroCards) {
+    card.addEventListener('click', () => {
+      setTrendMacro(card.dataset.trendMacro || '');
+    });
+    card.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+      event.preventDefault();
+      setTrendMacro(card.dataset.trendMacro || '');
+    });
+  }
+
+  syncTrendMacroCards();
+  trendMacroBound = true;
+}
+
+function renderDashboard(data) {
+  const compactMobile = isCompactMobileView();
+
+  drawTrend(data.entries);
+
+  const avgBaseDay = shiftIsoDay(getLocalIsoDay(), -1);
+  const avgWindowDays = new Set(Array.from({ length: 7 }, (_, i) => shiftIsoDay(avgBaseDay, -i)));
+  const avgTotalsByDay = new Map();
+  for (const entry of data.entries) {
+    const day = getLocalIsoDay(entry.consumedAt);
+    if (!avgWindowDays.has(day)) {
+      continue;
+    }
+    const current = avgTotalsByDay.get(day) || { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    current.calories += Number(entry.calories || 0);
+    current.protein += Number(entry.protein || 0);
+    current.carbs += Number(entry.carbs || 0);
+    current.fat += Number(entry.fat || 0);
+    avgTotalsByDay.set(day, current);
+  }
+
+  const daysWithData = avgTotalsByDay.size;
+  let avgCalories = 0;
+  let avgProtein = 0;
+  let avgCarbs = 0;
+  let avgFat = 0;
+  if (daysWithData > 0) {
+    for (const totals of avgTotalsByDay.values()) {
+      avgCalories += totals.calories;
+      avgProtein += totals.protein;
+      avgCarbs += totals.carbs;
+      avgFat += totals.fat;
+    }
+    avgCalories /= daysWithData;
+    avgProtein /= daysWithData;
+    avgCarbs /= daysWithData;
+    avgFat /= daysWithData;
+  }
+
+  setText(avgCaloriesEl, fmtNumber(avgCalories));
+  setText(avgProteinEl, `${fmtNumber(avgProtein)}g`);
+  setText(avgCarbsEl, `${fmtNumber(avgCarbs)}g`);
+  setText(avgFatEl, `${fmtNumber(avgFat)}g`);
+  setText(
+    weeklyAvgNoteEl,
+    daysWithData > 0
+      ? `Based on ${daysWithData} day${daysWithData === 1 ? '' : 's'} with entries in the last 7 days.`
+      : 'No entries in the last 7 days.'
+  );
 
   const baseDay = getLocalIsoDay();
   if (!state.selectedEntriesDay) {
@@ -841,6 +1088,18 @@ function renderDashboard(data) {
   const dayItems = data.entries
     .filter((entry) => getLocalIsoDay(entry.consumedAt) === state.selectedEntriesDay)
     .sort((a, b) => new Date(b.consumedAt).getTime() - new Date(a.consumedAt).getTime());
+  const dayTotals = dayItems.reduce((acc, entry) => {
+    acc.calories += Number(entry.calories || 0);
+    acc.protein += Number(entry.protein || 0);
+    acc.carbs += Number(entry.carbs || 0);
+    acc.fat += Number(entry.fat || 0);
+    return acc;
+  }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+  setText(todayCaloriesEl, fmtNumber(dayTotals.calories));
+  setText(todayProteinEl, `${fmtNumber(dayTotals.protein)}g`);
+  setText(todayCarbsEl, `${fmtNumber(dayTotals.carbs)}g`);
+  setText(todayFatEl, `${fmtNumber(dayTotals.fat)}g`);
 
   if (state.editingEntryId && !dayItems.some((entry) => entry.id === state.editingEntryId)) {
     state.editingEntryId = null;
@@ -854,8 +1113,9 @@ function renderDashboard(data) {
 
   const table = document.createElement('table');
   table.className = 'table';
-  table.innerHTML =
-    '<thead><tr><th>Item</th><th>Quantity</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Time</th><th>Actions</th></tr></thead>';
+  table.innerHTML = compactMobile
+    ? '<thead><tr><th>Item</th><th>Qty</th><th>Cal</th><th>P</th><th>C</th><th>F</th><th>Time</th><th>Act</th></tr></thead>'
+    : '<thead><tr><th>Item</th><th>Quantity</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Time</th><th>Actions</th></tr></thead>';
 
   const tbody = document.createElement('tbody');
   for (const item of dayItems) {
@@ -876,11 +1136,13 @@ async function refreshDashboard() {
     api('/api/me')
   ]);
   state.savedItems = saved;
+  state.historyQuickItems = buildHistoryQuickItems(dashboard.entries);
   state.dashboardData = dashboard;
   renderProfile(me.user || null);
   renderSavedItems();
   renderDashboard(dashboard);
   bindTrendResize();
+  bindTrendMacroCards();
 }
 
 parseBtnEl.addEventListener('click', async () => {
@@ -1014,14 +1276,17 @@ saveParsedBtnEl.addEventListener('click', async () => {
 });
 
 quickAddBtnEl.addEventListener('click', async () => {
-  const savedItemId = Number(savedSelectEl.value);
-
-  if (!savedItemId) {
+  const selectedTemplate = getSelectedQuickTemplate();
+  if (!selectedTemplate) {
     return;
   }
 
   try {
-    await quickAddById(savedItemId);
+    if (selectedTemplate.type === 'saved') {
+      await quickAddById(selectedTemplate.id);
+    } else {
+      await quickAddByTemplate(selectedTemplate);
+    }
     setActionBanner('Quick add logged.', 'success');
     await refreshDashboard();
   } catch (error) {
@@ -1032,7 +1297,8 @@ quickAddBtnEl.addEventListener('click', async () => {
 
 savedSelectEl.addEventListener('change', () => {
   const selected = getSelectedSavedItem();
-  fillQuickEditor(selected);
+  const selectedTemplate = getSelectedQuickTemplate();
+  fillQuickEditor(selected || selectedTemplate);
   if (!selected) {
     setQuickEditMode(false);
   }
@@ -1057,13 +1323,23 @@ quickFavoritesEl.addEventListener('click', async (event) => {
     return;
   }
 
-  const savedItemId = Number(target.dataset.savedItemId);
-  if (!savedItemId) {
+  const quickKey = String(target.dataset.quickKey || '');
+  if (!quickKey) {
+    return;
+  }
+  const template =
+    (quickKey.startsWith('saved:') && getTopQuickFavorites().find((item) => item.key === quickKey)) ||
+    state.historyQuickItems.find((item) => item.key === quickKey);
+  if (!template) {
     return;
   }
 
   try {
-    await quickAddById(savedItemId);
+    if (template.type === 'saved') {
+      await quickAddById(template.id);
+    } else {
+      await quickAddByTemplate(template);
+    }
     setActionBanner('Quick add logged.', 'success');
     await refreshDashboard();
   } catch (error) {

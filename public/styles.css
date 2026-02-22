@@ -147,6 +147,7 @@ body {
   border-radius: var(--radius);
   border: 1px solid var(--line);
   padding: 1rem;
+  min-width: 0;
 }
 
 .glass {
@@ -501,6 +502,7 @@ button[disabled] {
   padding: 0.45rem;
   margin-bottom: 0.7rem;
   min-width: 0;
+  max-width: 100%;
 }
 
 #trend-canvas {
@@ -522,7 +524,9 @@ button[disabled] {
   padding: 0.24rem 0.42rem;
   font-size: 0.74rem;
   font-weight: 600;
-  white-space: nowrap;
+  white-space: normal;
+  max-width: min(78vw, 220px);
+  text-align: center;
   box-shadow: 0 7px 18px rgba(16, 31, 58, 0.25);
 }
 
@@ -576,6 +580,36 @@ button[disabled] {
   justify-content: center;
   font-size: 1.1rem;
   line-height: 1;
+}
+
+.entries-totals {
+  margin-bottom: 0.65rem;
+}
+
+.avg-cards {
+  margin-bottom: 0.4rem;
+}
+
+.avg-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.trend-macro-card {
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 120ms ease;
+}
+
+.trend-macro-card:focus-visible {
+  outline: none;
+  border-color: #0f5fce;
+  box-shadow: 0 0 0 3px rgba(15, 95, 206, 0.14);
+}
+
+.trend-macro-card.is-active {
+  border-color: #8fb6ef;
+  background: linear-gradient(180deg, #f7fbff, #edf5ff);
 }
 
 .day-group {
@@ -1004,6 +1038,17 @@ button[disabled] {
     font-size: 0.78rem;
   }
 
+  #previous-days .table th,
+  #entries-by-day .table th {
+    letter-spacing: -0.01em;
+  }
+
+  #entries-by-day .table th,
+  #entries-by-day .table td {
+    padding: 0.26rem 0.28rem;
+    font-size: 0.75rem;
+  }
+
   #previous-days .table td::before,
   #entries-by-day .table td::before {
     content: none;
@@ -1088,9 +1133,9 @@ button[disabled] {
     bottom: calc(0.5rem + env(safe-area-inset-bottom));
     z-index: 7;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.2rem;
     padding: 0.32rem;
     border-radius: 14px;
     border: 1px solid #cfdbee;
