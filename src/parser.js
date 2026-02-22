@@ -110,6 +110,7 @@ async function parseMealText({ text, consumedAt, imageDataUrl }) {
         format: {
           type: 'json_schema',
           name: 'meal_parse',
+          strict: true,
           schema: {
             type: 'object',
             additionalProperties: false,
@@ -151,8 +152,7 @@ async function parseMealText({ text, consumedAt, imageDataUrl }) {
               }
             }
           }
-        },
-        strict: true
+        }
       }
     });
 
