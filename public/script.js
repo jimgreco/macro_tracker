@@ -260,13 +260,44 @@ function bindTrendInteractions() {
   trendInteractionsBound = true;
 }
 
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('Unable to read selected image.'));
-    reader.readAsDataURL(file);
-  });
+function inferImageMimeType(file) {
+  const rawType = String(file?.type || '').toLowerCase();
+  if (rawType.startsWith('image/')) {
+    return rawType;
+  }
+
+  const name = String(file?.name || '').toLowerCase();
+  if (name.endsWith('.heic')) return 'image/heic';
+  if (name.endsWith('.heif')) return 'image/heif';
+  if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
+  if (name.endsWith('.png')) return 'image/png';
+  if (name.endsWith('.webp')) return 'image/webp';
+  if (name.endsWith('.gif')) return 'image/gif';
+  return '';
+}
+
+function bytesToBase64(bytes) {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+async function readFileAsDataUrl(file) {
+  try {
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    const mimeType = inferImageMimeType(file);
+    if (!mimeType) {
+      throw new Error('Unsupported image type. Use JPEG, PNG, WEBP, GIF, or HEIC.');
+    }
+    return `data:${mimeType};base64,${bytesToBase64(bytes)}`;
+  } catch (_error) {
+    throw new Error('Unable to read selected image.');
+  }
 }
 
 function isHeicLikeFile(file) {
