@@ -6,6 +6,7 @@ const state = {
   quickEditMode: false,
   mealImageDataUrl: '',
   mealImageName: '',
+  mealImageLoading: false,
   selectedEntriesDay: '',
   dashboardData: null,
   selectedTrendMacro: 'calories'
@@ -273,6 +274,8 @@ async function handleMealImageSelect(event, sourceLabel) {
     return;
   }
 
+  state.mealImageLoading = true;
+  setActionBanner('Processing selected photo...', 'info');
   try {
     const dataUrl = await readFileAsDataUrl(file);
     state.mealImageDataUrl = dataUrl;
@@ -281,6 +284,8 @@ async function handleMealImageSelect(event, sourceLabel) {
     setActionBanner(sourceLabel + ' selected: ' + state.mealImageName + '. You can add an optional description.', 'info');
   } catch (error) {
     setActionBanner(error.message, 'error');
+  } finally {
+    state.mealImageLoading = false;
   }
 }
 
@@ -314,6 +319,7 @@ function renderMealImagePreview() {
 function clearMealImageSelection() {
   state.mealImageDataUrl = '';
   state.mealImageName = '';
+  state.mealImageLoading = false;
   if (mealPhotoInputEl) {
     mealPhotoInputEl.value = '';
   }
@@ -1207,6 +1213,13 @@ async function refreshDashboard() {
 }
 
 parseBtnEl.addEventListener('click', async () => {
+  if (state.mealImageLoading) {
+    const message = 'Photo is still processing. Please wait a moment and try again.';
+    parseNoteEl.textContent = message;
+    setActionBanner(message, 'info');
+    return;
+  }
+
   parseNoteEl.textContent = 'Parsing meal...';
   setActionBanner('Parsing meal...', 'info');
 
