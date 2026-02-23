@@ -353,18 +353,10 @@ button[disabled] {
 
 .quick-edit-row {
   margin-top: 0.45rem;
-  display: flex;
-  gap: 0.24rem;
-  align-items: center;
-  flex-wrap: nowrap;
-  overflow-x: auto;
+  display: block;
 }
 
 .quick-edit-row[hidden] {
-  display: none;
-}
-
-.quick-edit-row label {
   display: none;
 }
 
@@ -442,21 +434,22 @@ button[disabled] {
   z-index: 4;
 }
 
-.quick-edit-row input {
-  width: 5.1rem;
-  min-width: 5.1rem;
+.quick-edit-table {
+  margin-top: 0;
+}
+
+.quick-edit-table label {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #4d5c72;
+  font-weight: 700;
+}
+
+.quick-edit-table td input {
+  width: 100%;
+  min-width: 0;
   margin-bottom: 0;
-  padding: 0.38rem 0.42rem;
-}
-
-#quick-edit-name {
-  width: 8.4rem;
-  min-width: 8.4rem;
-}
-
-#quick-edit-unit {
-  width: 4.8rem;
-  min-width: 4.8rem;
+  padding: 0.35rem 0.42rem;
 }
 
 
@@ -662,6 +655,36 @@ button[disabled] {
   margin-bottom: 0.65rem;
 }
 
+.macro-progress-card {
+  --macro-progress: 0%;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  background-image: linear-gradient(
+    90deg,
+    rgba(15, 95, 206, 0.18) 0,
+    rgba(15, 95, 206, 0.18) var(--macro-progress),
+    rgba(255, 255, 255, 0) var(--macro-progress),
+    rgba(255, 255, 255, 0) 100%
+  );
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 120ms ease;
+}
+
+.macro-target-card:focus-visible,
+.trend-macro-card:focus-visible {
+  outline: none;
+  border-color: #0f5fce;
+  box-shadow: 0 0 0 3px rgba(15, 95, 206, 0.14);
+}
+
+.metric-target {
+  display: block;
+  margin-top: 0.14rem;
+  font-size: 0.7rem;
+  color: #4a617d;
+  line-height: 1.15;
+}
+
 .avg-cards {
   margin-bottom: 0.4rem;
 }
@@ -677,15 +700,9 @@ button[disabled] {
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 120ms ease;
 }
 
-.trend-macro-card:focus-visible {
-  outline: none;
-  border-color: #0f5fce;
-  box-shadow: 0 0 0 3px rgba(15, 95, 206, 0.14);
-}
-
 .trend-macro-card.is-active {
   border-color: #8fb6ef;
-  background: linear-gradient(180deg, #f7fbff, #edf5ff);
+  box-shadow: inset 0 0 0 1px rgba(143, 182, 239, 0.55);
 }
 
 .day-group {
@@ -1000,22 +1017,14 @@ button[disabled] {
   }
 
   .quick-edit-row {
-    display: grid;
-    grid-template-columns: 4.8rem minmax(0, 1fr);
-    gap: 0.28rem 0.42rem;
-    align-items: center;
     overflow: visible;
   }
 
-  .quick-edit-row label {
-    display: block;
-    margin: 0;
+  .quick-edit-table label {
     font-size: 0.72rem;
   }
 
-  .quick-edit-row input {
-    min-width: 0;
-    width: 100%;
+  .quick-edit-table td input {
     min-height: 36px;
     padding: 0.34rem 0.4rem;
   }

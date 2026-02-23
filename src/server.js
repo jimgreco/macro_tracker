@@ -17,7 +17,8 @@ const {
   listSavedItems,
   quickAddFromSaved,
   claimLegacyData,
-  getDashboard
+  getDashboard,
+  setMacroTarget
 } = require('./db');
 const { parseMealText } = require('./parser');
 const packageJson = require('../package.json');
@@ -481,6 +482,17 @@ app.post('/api/claim-legacy-data', async (req, res) => {
   try {
     const result = await claimLegacyData(userIdFromReq(req));
     return res.json({ ok: true, ...result });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+app.put('/api/macro-targets/:macro', async (req, res) => {
+  try {
+    const macro = String(req.params.macro || '').toLowerCase();
+    const target = Number(req.body?.target);
+    const updated = await setMacroTarget(userIdFromReq(req), macro, target);
+    return res.json({ ok: true, ...updated });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }

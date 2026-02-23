@@ -51,9 +51,28 @@ async function initDb() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS macro_targets (
+      user_id TEXT NOT NULL,
+      macro TEXT NOT NULL,
+      target DOUBLE PRECISION NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, macro)
+    );
+  `);
+
+  await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_entries_user_consumed ON entries(user_id, consumed_at DESC);
     CREATE INDEX IF NOT EXISTS idx_saved_items_user_name ON saved_items(user_id, lower(name));
+    CREATE INDEX IF NOT EXISTS idx_macro_targets_user ON macro_targets(user_id);
   `);
+}
+
+function normalizeMacroName(macro) {
+  const value = String(macro || '').toLowerCase();
+  if (!['calories', 'protein', 'carbs', 'fat'].includes(value)) {
+    throw new Error('Invalid macro. Use calories, protein, carbs, or fat.');
+  }
+  return value;
 }
 
 async function addEntries(userId, entries) {
@@ -286,6 +305,47 @@ async function claimLegacyData() {
   return { claimedEntries: 0, claimedSavedItems: 0 };
 }
 
+async function getMacroTargets(userId) {
+  const result = await pool.query(
+    `SELECT macro, target
+     FROM macro_targets
+     WHERE user_id = $1`,
+    [userId]
+  );
+
+  const defaults = {
+    calories: 0,
+    protein: 0,
+    carbs: 0,
+    fat: 0
+  };
+
+  for (const row of result.rows) {
+    const macro = normalizeMacroName(row.macro);
+    defaults[macro] = Number(row.target || 0);
+  }
+
+  return defaults;
+}
+
+async function setMacroTarget(userId, macro, target) {
+  const normalizedMacro = normalizeMacroName(macro);
+  const normalizedTarget = Number(target);
+  if (!Number.isFinite(normalizedTarget) || normalizedTarget < 0) {
+    throw new Error('Target must be a number greater than or equal to 0.');
+  }
+
+  await pool.query(
+    `INSERT INTO macro_targets (user_id, macro, target, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (user_id, macro)
+     DO UPDATE SET target = EXCLUDED.target, updated_at = NOW()`,
+    [userId, normalizedMacro, normalizedTarget]
+  );
+
+  return { macro: normalizedMacro, target: normalizedTarget };
+}
+
 function normalizeDate(inputDate) {
   const date = inputDate ? new Date(inputDate) : new Date();
   if (Number.isNaN(date.getTime())) {
@@ -396,11 +456,14 @@ async function getDashboard(userId, dateInput) {
     consumedAt: new Date(row.consumedAt).toISOString()
   }));
 
+  const targets = await getMacroTargets(userId);
+
   return {
     currentDayTotals,
     previousDays,
     sevenDayAverage,
-    entries
+    entries,
+    targets
   };
 }
 
@@ -415,5 +478,7 @@ module.exports = {
   listSavedItems,
   quickAddFromSaved,
   claimLegacyData,
-  getDashboard
+  getDashboard,
+  getMacroTargets,
+  setMacroTarget
 };

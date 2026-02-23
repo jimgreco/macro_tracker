@@ -45,12 +45,22 @@ const todayCaloriesEl = document.getElementById('today-calories');
 const todayProteinEl = document.getElementById('today-protein');
 const todayCarbsEl = document.getElementById('today-carbs');
 const todayFatEl = document.getElementById('today-fat');
+const todayCaloriesTargetEl = document.getElementById('today-calories-target');
+const todayProteinTargetEl = document.getElementById('today-protein-target');
+const todayCarbsTargetEl = document.getElementById('today-carbs-target');
+const todayFatTargetEl = document.getElementById('today-fat-target');
+const macroTargetCards = Array.from(document.querySelectorAll('.macro-target-card'));
 const avgCaloriesEl = document.getElementById('avg-calories');
 const avgProteinEl = document.getElementById('avg-protein');
 const avgCarbsEl = document.getElementById('avg-carbs');
 const avgFatEl = document.getElementById('avg-fat');
+const avgCaloriesTargetEl = document.getElementById('avg-calories-target');
+const avgProteinTargetEl = document.getElementById('avg-protein-target');
+const avgCarbsTargetEl = document.getElementById('avg-carbs-target');
+const avgFatTargetEl = document.getElementById('avg-fat-target');
 const weeklyAvgNoteEl = document.getElementById('weekly-avg-note');
 const trendMacroCards = Array.from(document.querySelectorAll('.trend-macro-card'));
+const macroProgressCards = Array.from(document.querySelectorAll('.macro-progress-card'));
 const trendCanvasEl = document.getElementById('trend-canvas');
 const trendTooltipEl = document.getElementById('trend-tooltip');
 const entriesByDayEl = document.getElementById('entries-by-day');
@@ -134,6 +144,7 @@ let trendPointCoords = [];
 let trendInteractionsBound = false;
 let trendResizeBound = false;
 let trendMacroBound = false;
+let macroTargetBound = false;
 
 function getTrendMacroConfig(macro = state.selectedTrendMacro) {
   const configs = {
@@ -161,6 +172,134 @@ function setActionBanner(message, type = 'success') {
       actionBannerTimer = null;
     }, 3200);
   }
+}
+
+function macroUnit(macro) {
+  return macro === 'calories' ? 'cal' : 'g';
+}
+
+function getMacroTargetElements() {
+  return {
+    calories: todayCaloriesTargetEl,
+    protein: todayProteinTargetEl,
+    carbs: todayCarbsTargetEl,
+    fat: todayFatTargetEl
+  };
+}
+
+function applyMacroProgressCard(macro, currentValue, targetValue) {
+  const card = macroProgressCards.find((item) => item.dataset.progressMacro === macro);
+  if (!card) {
+    return;
+  }
+
+  const target = Number(targetValue || 0);
+  const current = Number(currentValue || 0);
+  const progress = target > 0 ? Math.max(0, Math.min(100, (current / target) * 100)) : 0;
+
+  card.style.setProperty('--macro-progress', `${progress}%`);
+}
+
+function renderMacroTargets(dayTotals, targets) {
+  const targetMap = targets || {};
+  const labelEls = getMacroTargetElements();
+  for (const macro of ['calories', 'protein', 'carbs', 'fat']) {
+    const target = Number(targetMap[macro] || 0);
+    const labelEl = labelEls[macro];
+    if (labelEl) {
+      if (target > 0) {
+        labelEl.textContent = `Target: ${fmtNumber(target)} ${macroUnit(macro)}`;
+      } else {
+        labelEl.textContent = 'Target: none';
+      }
+    }
+    applyMacroProgressCard(macro, Number(dayTotals[macro] || 0), target);
+  }
+}
+
+function renderWeeklyTargets(weeklyAverages, targets) {
+  const targetMap = targets || {};
+  const labelEls = {
+    calories: avgCaloriesTargetEl,
+    protein: avgProteinTargetEl,
+    carbs: avgCarbsTargetEl,
+    fat: avgFatTargetEl
+  };
+
+  for (const macro of ['calories', 'protein', 'carbs', 'fat']) {
+    const target = Number(targetMap[macro] || 0);
+    const labelEl = labelEls[macro];
+    if (labelEl) {
+      if (target > 0) {
+        labelEl.textContent = `Target: ${fmtNumber(target)} ${macroUnit(macro)}`;
+      } else {
+        labelEl.textContent = 'Target: none';
+      }
+    }
+    applyMacroProgressCard(macro, Number(weeklyAverages[macro] || 0), target);
+  }
+}
+
+async function promptAndSaveMacroTarget(macro) {
+  const current = Number(state.dashboardData?.targets?.[macro] || 0);
+  const unit = macroUnit(macro);
+  const input = window.prompt(
+    `Set ${macro} target (${unit}). Leave blank to clear target.`,
+    current > 0 ? String(current) : ''
+  );
+
+  if (input === null) {
+    return;
+  }
+
+  const trimmed = String(input).trim();
+  const nextTarget = trimmed ? Number(trimmed) : 0;
+  if (!Number.isFinite(nextTarget) || nextTarget < 0) {
+    setActionBanner('Target must be a number greater than or equal to 0.', 'error');
+    return;
+  }
+
+  try {
+    await api(`/api/macro-targets/${macro}`, {
+      method: 'PUT',
+      body: JSON.stringify({ target: nextTarget })
+    });
+    if (state.dashboardData) {
+      state.dashboardData.targets = state.dashboardData.targets || {};
+      state.dashboardData.targets[macro] = nextTarget;
+      renderDashboard(state.dashboardData);
+    }
+    setActionBanner('Macro target updated.', 'success');
+  } catch (error) {
+    setActionBanner(error.message, 'error');
+  }
+}
+
+function bindMacroTargetCards() {
+  if (macroTargetBound) {
+    return;
+  }
+
+  for (const card of macroTargetCards) {
+    const macro = String(card.dataset.targetMacro || '');
+    if (!macro) {
+      continue;
+    }
+
+    card.addEventListener('click', () => {
+      promptAndSaveMacroTarget(macro);
+    });
+
+    card.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+      event.preventDefault();
+      promptAndSaveMacroTarget(macro);
+    });
+  }
+
+  macroTargetBound = true;
 }
 
 
@@ -530,9 +669,19 @@ async function api(path, options = {}) {
     ...options
   });
 
-  const body = await res.json();
+  const raw = await res.text();
+  let body = {};
+  if (raw) {
+    try {
+      body = JSON.parse(raw);
+    } catch (_error) {
+      body = {};
+    }
+  }
+
   if (!res.ok) {
-    throw new Error(body.error || 'Request failed');
+    const fallback = `Request failed (${res.status})`;
+    throw new Error(body.error || fallback);
   }
   return body;
 }
@@ -670,17 +819,47 @@ function getSelectedQuickTemplate() {
     };
   }
   if (raw.startsWith('entry:')) {
-    return state.historyQuickItems.find((item) => item.key === raw) || null;
+    const exact = state.historyQuickItems.find((item) => item.key === raw);
+    if (exact) {
+      return exact;
+    }
+
+    const safeDecode = (value) => {
+      try {
+        return decodeURIComponent(value);
+      } catch (_error) {
+        return value;
+      }
+    };
+
+    const rawSuffix = raw.slice('entry:'.length);
+    const decodedRawSuffix = safeDecode(rawSuffix);
+    return state.historyQuickItems.find((item) => {
+      if (!String(item.key || '').startsWith('entry:')) {
+        return false;
+      }
+      const keySuffix = String(item.key).slice('entry:'.length);
+      const decodedKeySuffix = safeDecode(keySuffix);
+      return (
+        keySuffix === rawSuffix ||
+        keySuffix === decodedRawSuffix ||
+        decodedKeySuffix === rawSuffix ||
+        decodedKeySuffix === decodedRawSuffix
+      );
+    }) || null;
   }
   return null;
 }
 
 function setQuickEditMode(isEditing) {
+  const selected = getSelectedSavedItem();
+  const selectedTemplate = getSelectedQuickTemplate();
+  const hasSelection = Boolean(selectedTemplate);
   state.quickEditMode = isEditing;
   quickEditorEl.hidden = !isEditing;
   quickEditToggleBtnEl.textContent = isEditing ? 'Cancel' : 'Edit';
-  quickSaveBtnEl.classList.toggle('is-visible', Boolean(isEditing));
-  quickDeleteBtnEl.classList.toggle('is-visible', Boolean(isEditing));
+  quickSaveBtnEl.classList.toggle('is-visible', Boolean(isEditing && hasSelection));
+  quickDeleteBtnEl.classList.toggle('is-visible', Boolean(isEditing && selected));
 }
 
 function getTopQuickFavorites() {
@@ -921,13 +1100,13 @@ function renderSavedItems() {
   const selected = getSelectedSavedItem();
   const selectedTemplate = getSelectedQuickTemplate();
   quickAddBtnEl.disabled = false;
-  quickEditToggleBtnEl.disabled = !selected;
-  quickSaveBtnEl.disabled = !selected;
-  quickSaveBtnEl.classList.toggle('is-visible', Boolean(selected && state.quickEditMode));
+  quickEditToggleBtnEl.disabled = !selectedTemplate;
+  quickSaveBtnEl.disabled = !selectedTemplate;
+  quickSaveBtnEl.classList.toggle('is-visible', Boolean(selectedTemplate && state.quickEditMode));
   quickDeleteBtnEl.disabled = !selected;
   quickDeleteBtnEl.classList.toggle('is-visible', Boolean(selected && state.quickEditMode));
 
-  if (!selected) {
+  if (!selectedTemplate) {
     setQuickEditMode(false);
   }
 
@@ -983,32 +1162,7 @@ function renderEditRowMobile(entry) {
 }
 
 function renderEditRow(entry) {
-  if (isCompactMobileView()) {
-    return renderEditRowMobile(entry);
-  }
-
-  const consumedAtValue = isoToLocalInputValue(entry.consumedAt);
-  return `
-    <td data-label="Item"><input data-field="itemName" value="${entry.itemName}" /></td>
-    <td data-label="Qty/Unit">
-      <div class="edit-grid">
-        <input type="number" step="0.1" data-field="quantity" value="${entry.quantity}" />
-        <input data-field="unit" value="${entry.unit || ''}" />
-      </div>
-    </td>
-    <td data-label="Calories"><input type="number" step="0.1" data-field="calories" value="${entry.calories}" /></td>
-    <td data-label="Protein"><input type="number" step="0.1" data-field="protein" value="${entry.protein}" /></td>
-    <td data-label="Carbs"><input type="number" step="0.1" data-field="carbs" value="${entry.carbs}" /></td>
-    <td data-label="Fat"><input type="number" step="0.1" data-field="fat" value="${entry.fat}" /></td>
-    <td data-label="Time"><input type="datetime-local" data-field="consumedAt" value="${consumedAtValue}" /></td>
-    <td data-label="Actions">
-      <div class="action-row">
-        <button type="button" class="btn-success table-action-btn" data-action="save" data-id="${entry.id}">Save</button>
-        <button type="button" class="btn-warning table-action-btn" data-action="cancel" data-id="${entry.id}">Cancel</button>
-        <button type="button" class="btn-danger table-action-btn" data-action="delete" data-id="${entry.id}">Delete</button>
-      </div>
-    </td>
-  `;
+  return renderEditRowMobile(entry);
 }
 
 function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
@@ -1039,7 +1193,9 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
     points.push({ day, value: map.get(day) || 0 });
   }
 
-  const max = Math.max(...points.map((p) => p.value), 1);
+  const selectedMacroTarget = Number(state.dashboardData?.targets?.[state.selectedTrendMacro] || 0);
+  const targetValue = selectedMacroTarget > 0 ? selectedMacroTarget : 0;
+  const max = Math.max(...points.map((p) => p.value), targetValue, 1);
   const min = Math.min(...points.map((p) => p.value), 0);
   const range = Math.max(max - min, 1);
 
@@ -1057,6 +1213,26 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   const grad = ctx.createLinearGradient(0, 0, 0, h);
   grad.addColorStop(0, 'rgba(15,95,206,0.32)');
   grad.addColorStop(1, 'rgba(15,95,206,0.03)');
+
+  if (targetValue > 0) {
+    const targetY = padY + ((max - targetValue) / range) * usableH;
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([5, 4]);
+    ctx.moveTo(padX, targetY);
+    ctx.lineTo(w - padX, targetY);
+    ctx.strokeStyle = 'rgba(231, 122, 49, 0.9)';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(231, 122, 49, 0.95)';
+    ctx.font = '11px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    const trendMacro = getTrendMacroConfig();
+    ctx.fillText(`Target ${fmtNumber(targetValue)} ${trendMacro.unit}`, w - padX, Math.max(12, targetY - 3));
+    ctx.restore();
+  }
 
   ctx.beginPath();
   ctx.moveTo(coords[0].x, coords[0].y);
@@ -1194,6 +1370,15 @@ function renderDashboard(data) {
   setText(avgProteinEl, `${fmtNumber(avgProtein)}g`);
   setText(avgCarbsEl, `${fmtNumber(avgCarbs)}g`);
   setText(avgFatEl, `${fmtNumber(avgFat)}g`);
+  renderWeeklyTargets(
+    {
+      calories: avgCalories,
+      protein: avgProtein,
+      carbs: avgCarbs,
+      fat: avgFat
+    },
+    data.targets || {}
+  );
   setText(
     weeklyAvgNoteEl,
     daysWithData > 0
@@ -1231,6 +1416,7 @@ function renderDashboard(data) {
   setText(todayProteinEl, `${fmtNumber(dayTotals.protein)}g`);
   setText(todayCarbsEl, `${fmtNumber(dayTotals.carbs)}g`);
   setText(todayFatEl, `${fmtNumber(dayTotals.fat)}g`);
+  renderMacroTargets(dayTotals, data.targets || {});
 
   if (state.editingEntryId && !dayItems.some((entry) => entry.id === state.editingEntryId)) {
     state.editingEntryId = null;
@@ -1274,6 +1460,7 @@ async function refreshDashboard() {
   renderDashboard(dashboard);
   bindTrendResize();
   bindTrendMacroCards();
+  bindMacroTargetCards();
 }
 
 parseBtnEl.addEventListener('click', async () => {
@@ -1436,15 +1623,15 @@ savedSelectEl.addEventListener('change', () => {
 });
 
 quickEditToggleBtnEl.addEventListener('click', () => {
-  const selected = getSelectedSavedItem();
-  if (!selected) {
+  const selectedTemplate = getSelectedQuickTemplate();
+  if (!selectedTemplate) {
     return;
   }
 
   const willEdit = !state.quickEditMode;
   setQuickEditMode(willEdit);
   if (willEdit) {
-    fillQuickEditor(selected);
+    fillQuickEditor(selectedTemplate);
   }
 });
 
@@ -1503,8 +1690,11 @@ quickDeleteBtnEl.addEventListener('click', async () => {
 
 quickSaveBtnEl.addEventListener('click', async () => {
   const selected = getSelectedSavedItem();
+  const selectedTemplate = getSelectedQuickTemplate();
   if (!selected) {
-    return;
+    if (!selectedTemplate) {
+      return;
+    }
   }
 
   const payload = {
@@ -1518,13 +1708,22 @@ quickSaveBtnEl.addEventListener('click', async () => {
   };
 
   try {
-    await api(`/api/saved-items/${selected.id}`, {
-      method: 'PUT',
-      body: JSON.stringify(payload)
-    });
+    if (selected) {
+      await api(`/api/saved-items/${selected.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+      parseNoteEl.textContent = 'Quick add item updated.';
+      setActionBanner('Quick add item updated.', 'success');
+    } else {
+      await api('/api/saved-items', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      parseNoteEl.textContent = 'Quick add item saved.';
+      setActionBanner('Quick add item saved.', 'success');
+    }
 
-    parseNoteEl.textContent = 'Quick add item updated.';
-    setActionBanner('Quick add item updated.', 'success');
     setQuickEditMode(false);
     await refreshDashboard();
   } catch (error) {
