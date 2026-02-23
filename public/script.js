@@ -49,6 +49,10 @@ const todayCaloriesTargetEl = document.getElementById('today-calories-target');
 const todayProteinTargetEl = document.getElementById('today-protein-target');
 const todayCarbsTargetEl = document.getElementById('today-carbs-target');
 const todayFatTargetEl = document.getElementById('today-fat-target');
+const todayCaloriesProgressEl = document.getElementById('today-calories-progress');
+const todayProteinProgressEl = document.getElementById('today-protein-progress');
+const todayCarbsProgressEl = document.getElementById('today-carbs-progress');
+const todayFatProgressEl = document.getElementById('today-fat-progress');
 const macroTargetCards = Array.from(document.querySelectorAll('.macro-target-card'));
 const avgCaloriesEl = document.getElementById('avg-calories');
 const avgProteinEl = document.getElementById('avg-protein');
@@ -58,6 +62,10 @@ const avgCaloriesTargetEl = document.getElementById('avg-calories-target');
 const avgProteinTargetEl = document.getElementById('avg-protein-target');
 const avgCarbsTargetEl = document.getElementById('avg-carbs-target');
 const avgFatTargetEl = document.getElementById('avg-fat-target');
+const avgCaloriesProgressEl = document.getElementById('avg-calories-progress');
+const avgProteinProgressEl = document.getElementById('avg-protein-progress');
+const avgCarbsProgressEl = document.getElementById('avg-carbs-progress');
+const avgFatProgressEl = document.getElementById('avg-fat-progress');
 const weeklyAvgNoteEl = document.getElementById('weekly-avg-note');
 const trendMacroCards = Array.from(document.querySelectorAll('.trend-macro-card'));
 const macroProgressCards = Array.from(document.querySelectorAll('.macro-progress-card'));
@@ -187,6 +195,15 @@ function getMacroTargetElements() {
   };
 }
 
+function getDayProgressElements() {
+  return {
+    calories: todayCaloriesProgressEl,
+    protein: todayProteinProgressEl,
+    carbs: todayCarbsProgressEl,
+    fat: todayFatProgressEl
+  };
+}
+
 function applyMacroProgressCard(macro, currentValue, targetValue) {
   const card = macroProgressCards.find((item) => item.dataset.progressMacro === macro);
   if (!card) {
@@ -203,9 +220,12 @@ function applyMacroProgressCard(macro, currentValue, targetValue) {
 function renderMacroTargets(dayTotals, targets) {
   const targetMap = targets || {};
   const labelEls = getMacroTargetElements();
+  const progressEls = getDayProgressElements();
   for (const macro of ['calories', 'protein', 'carbs', 'fat']) {
     const target = Number(targetMap[macro] || 0);
+    const current = Number(dayTotals[macro] || 0);
     const labelEl = labelEls[macro];
+    const progressEl = progressEls[macro];
     if (labelEl) {
       if (target > 0) {
         labelEl.textContent = `Target: ${fmtNumber(target)} ${macroUnit(macro)}`;
@@ -213,7 +233,15 @@ function renderMacroTargets(dayTotals, targets) {
         labelEl.textContent = 'Target: none';
       }
     }
-    applyMacroProgressCard(macro, Number(dayTotals[macro] || 0), target);
+    if (progressEl) {
+      if (target > 0) {
+        const pct = Math.max(0, Math.min(999, (current / target) * 100));
+        progressEl.textContent = `${Math.round(pct)}%`;
+      } else {
+        progressEl.textContent = '';
+      }
+    }
+    applyMacroProgressCard(macro, current, target);
   }
 }
 
@@ -225,10 +253,18 @@ function renderWeeklyTargets(weeklyAverages, targets) {
     carbs: avgCarbsTargetEl,
     fat: avgFatTargetEl
   };
+  const progressEls = {
+    calories: avgCaloriesProgressEl,
+    protein: avgProteinProgressEl,
+    carbs: avgCarbsProgressEl,
+    fat: avgFatProgressEl
+  };
 
   for (const macro of ['calories', 'protein', 'carbs', 'fat']) {
     const target = Number(targetMap[macro] || 0);
+    const current = Number(weeklyAverages[macro] || 0);
     const labelEl = labelEls[macro];
+    const progressEl = progressEls[macro];
     if (labelEl) {
       if (target > 0) {
         labelEl.textContent = `Target: ${fmtNumber(target)} ${macroUnit(macro)}`;
@@ -236,7 +272,15 @@ function renderWeeklyTargets(weeklyAverages, targets) {
         labelEl.textContent = 'Target: none';
       }
     }
-    applyMacroProgressCard(macro, Number(weeklyAverages[macro] || 0), target);
+    if (progressEl) {
+      if (target > 0) {
+        const pct = Math.max(0, Math.min(999, (current / target) * 100));
+        progressEl.textContent = `${Math.round(pct)}%`;
+      } else {
+        progressEl.textContent = '';
+      }
+    }
+    applyMacroProgressCard(macro, current, target);
   }
 }
 
@@ -1199,7 +1243,7 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   const min = Math.min(...points.map((p) => p.value), 0);
   const range = Math.max(max - min, 1);
 
-  const padX = 18;
+  const padX = 34;
   const padY = 14;
   const usableW = w - padX * 2;
   const usableH = h - padY * 2;
@@ -1213,6 +1257,33 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   const grad = ctx.createLinearGradient(0, 0, 0, h);
   grad.addColorStop(0, 'rgba(15,95,206,0.32)');
   grad.addColorStop(1, 'rgba(15,95,206,0.03)');
+
+  const tickCount = 4;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(53, 81, 114, 0.16)';
+  ctx.fillStyle = 'rgba(53, 81, 114, 0.72)';
+  ctx.lineWidth = 1;
+  ctx.font = '10px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+
+  for (let i = 0; i <= tickCount; i += 1) {
+    const ratio = i / tickCount;
+    const value = max - ratio * range;
+    const y = padY + ratio * usableH;
+    ctx.beginPath();
+    ctx.moveTo(padX, y);
+    ctx.lineTo(w - padX, y);
+    ctx.stroke();
+    ctx.fillText(fmtNumber(value), padX - 6, y);
+  }
+
+  ctx.strokeStyle = 'rgba(53, 81, 114, 0.28)';
+  ctx.beginPath();
+  ctx.moveTo(padX, padY);
+  ctx.lineTo(padX, h - padY);
+  ctx.stroke();
+  ctx.restore();
 
   if (targetValue > 0) {
     const targetY = padY + ((max - targetValue) / range) * usableH;
