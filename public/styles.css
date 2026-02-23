@@ -689,6 +689,7 @@ button[disabled] {
   display: flex;
   align-items: baseline;
   gap: 0.36rem;
+  flex-wrap: nowrap;
 }
 
 .metric-progress-inline {
@@ -697,6 +698,7 @@ button[disabled] {
   line-height: 1;
   color: #6f8299;
   opacity: 0.9;
+  white-space: nowrap;
 }
 
 .avg-cards {
@@ -1184,6 +1186,8 @@ button[disabled] {
   .card.metric {
     display: block;
     padding: 0.62rem;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.82);
   }
 
   .metric-label {
@@ -1194,6 +1198,15 @@ button[disabled] {
 
   .metric-value {
     font-size: 1.05rem;
+  }
+
+  .metric-target {
+    font-size: 0.7rem;
+    margin-top: 0.14rem;
+  }
+
+  .metric-progress-inline {
+    font-size: 0.66rem;
   }
 
   .parsed-edit-table th {

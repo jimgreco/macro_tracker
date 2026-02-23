@@ -1258,33 +1258,6 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   grad.addColorStop(0, 'rgba(15,95,206,0.32)');
   grad.addColorStop(1, 'rgba(15,95,206,0.03)');
 
-  const tickCount = 4;
-  ctx.save();
-  ctx.strokeStyle = 'rgba(53, 81, 114, 0.16)';
-  ctx.fillStyle = 'rgba(53, 81, 114, 0.72)';
-  ctx.lineWidth = 1;
-  ctx.font = '10px system-ui, -apple-system, sans-serif';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-
-  for (let i = 0; i <= tickCount; i += 1) {
-    const ratio = i / tickCount;
-    const value = max - ratio * range;
-    const y = padY + ratio * usableH;
-    ctx.beginPath();
-    ctx.moveTo(padX, y);
-    ctx.lineTo(w - padX, y);
-    ctx.stroke();
-    ctx.fillText(fmtNumber(value), padX - 6, y);
-  }
-
-  ctx.strokeStyle = 'rgba(53, 81, 114, 0.28)';
-  ctx.beginPath();
-  ctx.moveTo(padX, padY);
-  ctx.lineTo(padX, h - padY);
-  ctx.stroke();
-  ctx.restore();
-
   if (targetValue > 0) {
     const targetY = padY + ((max - targetValue) / range) * usableH;
     ctx.save();
@@ -1331,6 +1304,33 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
     ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  const tickCount = 4;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(53, 81, 114, 0.22)';
+  ctx.fillStyle = 'rgba(40, 63, 92, 0.9)';
+  ctx.lineWidth = 1;
+  ctx.font = '11px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+
+  for (let i = 0; i <= tickCount; i += 1) {
+    const ratio = i / tickCount;
+    const value = max - ratio * range;
+    const y = padY + ratio * usableH;
+    ctx.beginPath();
+    ctx.moveTo(padX, y);
+    ctx.lineTo(w - padX, y);
+    ctx.stroke();
+    ctx.fillText(fmtNumber(value), padX - 6, y);
+  }
+
+  ctx.strokeStyle = 'rgba(53, 81, 114, 0.45)';
+  ctx.beginPath();
+  ctx.moveTo(padX, padY);
+  ctx.lineTo(padX, h - padY);
+  ctx.stroke();
+  ctx.restore();
 
   trendPointCoords = coords;
   if (trendCanvasEl) {
