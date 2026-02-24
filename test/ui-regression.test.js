@@ -61,7 +61,8 @@ test('weight entries support inline edit and delete actions', () => {
   assert.equal(script.includes('data-weight-action="edit"'), true);
   assert.equal(script.includes('data-weight-action="save"'), true);
   assert.equal(script.includes('data-weight-action="delete"'), true);
-  assert.equal(script.includes('/api/weights/${entryId}'), true);
+  assert.equal(script.includes('/api/weights/${entryId}/delete'), true);
   assert.equal(server.includes("app.put('/api/weights/:id'"), true);
   assert.equal(server.includes("app.delete('/api/weights/:id'"), true);
+  assert.equal(server.includes("app.post('/api/weights/:id/delete'"), true);
 });

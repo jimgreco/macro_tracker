@@ -1235,7 +1235,8 @@ button[disabled] {
 
   /* Compact mobile tables for previous days + logged entries */
   #previous-days,
-  #entries-by-day {
+  #entries-by-day,
+  #weight-log-list {
     overflow-x: auto;
   }
 
@@ -1255,18 +1256,21 @@ button[disabled] {
   }
 
   #previous-days .table,
-  #entries-by-day .table {
+  #entries-by-day .table,
+  #weight-log-list .table {
     border-collapse: collapse;
     border-spacing: 0;
   }
 
   #previous-days .table thead,
-  #entries-by-day .table thead {
+  #entries-by-day .table thead,
+  #weight-log-list .table thead {
     display: table-header-group;
   }
 
   #previous-days .table tr,
-  #entries-by-day .table tr {
+  #entries-by-day .table tr,
+  #weight-log-list .table tr {
     display: table-row;
     border: 0;
     border-radius: 0;
@@ -1277,7 +1281,9 @@ button[disabled] {
   #previous-days .table th,
   #previous-days .table td,
   #entries-by-day .table th,
-  #entries-by-day .table td {
+  #entries-by-day .table td,
+  #weight-log-list .table th,
+  #weight-log-list .table td {
     display: table-cell;
     padding: 0.3rem 0.35rem;
     white-space: nowrap;
@@ -1286,23 +1292,28 @@ button[disabled] {
   }
 
   #previous-days .table th,
-  #entries-by-day .table th {
+  #entries-by-day .table th,
+  #weight-log-list .table th {
     letter-spacing: -0.01em;
   }
 
   #entries-by-day .table th,
-  #entries-by-day .table td {
+  #entries-by-day .table td,
+  #weight-log-list .table th,
+  #weight-log-list .table td {
     padding: 0.26rem 0.28rem;
     font-size: 0.75rem;
   }
 
   #previous-days .table td::before,
-  #entries-by-day .table td::before {
+  #entries-by-day .table td::before,
+  #weight-log-list .table td::before {
     content: none;
     display: none;
   }
 
-  #entries-by-day .table td .action-row {
+  #entries-by-day .table td .action-row,
+  #weight-log-list .table td .action-row {
     width: auto;
     justify-content: flex-start;
   }

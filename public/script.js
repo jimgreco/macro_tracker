@@ -36,7 +36,6 @@ const quickEditToggleBtnEl = document.getElementById('quick-edit-toggle-btn');
 const quickSaveBtnEl = document.getElementById('quick-save-btn');
 const quickDeleteBtnEl = document.getElementById('quick-delete-btn');
 const quickEditorEl = document.getElementById('quick-add-editor');
-const quickFavoritesEl = document.getElementById('quick-favorites');
 const quickEditNameEl = document.getElementById('quick-edit-name');
 const quickEditQuantityEl = document.getElementById('quick-edit-quantity');
 const quickEditUnitEl = document.getElementById('quick-edit-unit');
@@ -904,59 +903,6 @@ function setQuickEditMode(isEditing) {
   quickDeleteBtnEl.classList.toggle('is-visible', Boolean(isEditing && selected));
 }
 
-function getTopQuickFavorites() {
-  const historyByName = new Map();
-  for (const item of state.historyQuickItems) {
-    historyByName.set(String(item.name || '').toLowerCase(), item);
-  }
-
-  const merged = [];
-  const seenNames = new Set();
-
-  for (const item of state.savedItems) {
-    const nameKey = String(item.name || '').toLowerCase();
-    const history = historyByName.get(nameKey);
-    merged.push({
-      type: 'saved',
-      key: 'saved:' + item.id,
-      id: item.id,
-      name: item.name,
-      quantity: Number(item.quantity || 0),
-      unit: item.unit || 'serving',
-      calories: Number(item.calories || 0),
-      protein: Number(item.protein || 0),
-      carbs: Number(item.carbs || 0),
-      fat: Number(item.fat || 0),
-      usageCount: Number(item.usageCount || 0),
-      count: Math.max(Number(item.usageCount || 0), Number(history?.count || 0)),
-      lastUsedAt: history?.lastUsedAt || ''
-    });
-    seenNames.add(nameKey);
-  }
-
-  for (const item of state.historyQuickItems) {
-    const nameKey = String(item.name || '').toLowerCase();
-    if (seenNames.has(nameKey)) {
-      continue;
-    }
-    merged.push(item);
-  }
-
-  return merged
-    .sort((a, b) => {
-      const usageDiff = Number(b.count || 0) - Number(a.count || 0);
-      if (usageDiff !== 0) {
-        return usageDiff;
-      }
-      const lastDiff = new Date(b.lastUsedAt || 0).getTime() - new Date(a.lastUsedAt || 0).getTime();
-      if (lastDiff !== 0) {
-        return lastDiff;
-      }
-      return String(a.name || '').localeCompare(String(b.name || ''));
-    })
-    .slice(0, 10);
-}
-
 function quickAddById(savedItemId) {
   return api('/api/quick-add', {
     method: 'POST',
@@ -1041,31 +987,6 @@ function buildHistoryQuickItems(entries) {
     .slice(0, 60);
 }
 
-function renderQuickFavorites() {
-  if (!quickFavoritesEl) {
-    return;
-  }
-
-  quickFavoritesEl.innerHTML = '';
-  const favorites = getTopQuickFavorites();
-
-  if (!favorites.length) {
-    quickFavoritesEl.hidden = true;
-    return;
-  }
-
-  quickFavoritesEl.hidden = false;
-
-  for (const item of favorites) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'quick-favorite-btn';
-    btn.dataset.quickKey = String(item.key);
-    btn.textContent = item.name;
-    quickFavoritesEl.appendChild(btn);
-  }
-}
-
 function fillQuickEditor(item) {
   if (!item) {
     quickEditNameEl.value = '';
@@ -1104,10 +1025,6 @@ function renderSavedItems() {
     quickDeleteBtnEl.classList.remove('is-visible');
     setQuickEditMode(false);
     fillQuickEditor(null);
-    if (quickFavoritesEl) {
-      quickFavoritesEl.innerHTML = '';
-      quickFavoritesEl.hidden = true;
-    }
     return;
   }
 
@@ -1153,7 +1070,6 @@ function renderSavedItems() {
   }
 
   fillQuickEditor(selected || selectedTemplate);
-  renderQuickFavorites();
 }
 
 function renderReadOnlyRow(entry) {
@@ -1303,48 +1219,28 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
     ctx.fill();
   }
 
-  // Overlay a simple best-fit trendline to show weekly direction.
+  // Show a horizontal weekly average line using days that have logged data.
   const trendSource = points.filter((p) => p.hasData);
-  if (trendSource.length >= 2) {
-    const n = trendSource.length;
-    let sumX = 0;
-    let sumY = 0;
-    let sumXY = 0;
-    let sumX2 = 0;
-    for (let i = 0; i < n; i += 1) {
-      const x = i;
-      const y = trendSource[i].value;
-      sumX += x;
-      sumY += y;
-      sumXY += x * y;
-      sumX2 += x * x;
-    }
-    const denominator = n * sumX2 - sumX * sumX;
-    if (Math.abs(denominator) > 0.000001) {
-      const slope = (n * sumXY - sumX * sumY) / denominator;
-      const intercept = (sumY - slope * sumX) / n;
-      const startValue = intercept;
-      const endValue = slope * (n - 1) + intercept;
-      const firstDay = trendSource[0].day;
-      const lastDay = trendSource[n - 1].day;
-      const firstCoord = coords.find((c) => c.day === firstDay);
-      const lastCoord = coords.find((c) => c.day === lastDay);
-      if (firstCoord && lastCoord) {
-        const startY = padY + ((max - startValue) / range) * usableH;
-        const endY = padY + ((max - endValue) / range) * usableH;
+  if (trendSource.length >= 1) {
+    const average = trendSource.reduce((sum, point) => sum + point.value, 0) / trendSource.length;
+    const avgY = padY + ((max - average) / range) * usableH;
 
-        ctx.save();
-        ctx.beginPath();
-        ctx.setLineDash([5, 4]);
-        ctx.moveTo(firstCoord.x, startY);
-        ctx.lineTo(lastCoord.x, endY);
-        ctx.strokeStyle = 'rgba(231, 122, 49, 0.95)';
-        ctx.lineWidth = 1.8;
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.restore();
-      }
-    }
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([5, 4]);
+    ctx.moveTo(padX, avgY);
+    ctx.lineTo(w - padX, avgY);
+    ctx.strokeStyle = 'rgba(231, 122, 49, 0.95)';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const trendMacro = getTrendMacroConfig();
+    ctx.fillStyle = 'rgba(231, 122, 49, 0.95)';
+    ctx.font = '11px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`Avg ${fmtNumber(average)} ${trendMacro.unit}`, w - padX, Math.max(12, avgY - 3));
+    ctx.restore();
   }
 
   const tickCount = 4;
@@ -1748,36 +1644,6 @@ quickEditToggleBtnEl.addEventListener('click', () => {
   }
 });
 
-quickFavoritesEl.addEventListener('click', async (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) {
-    return;
-  }
-
-  const quickKey = String(target.dataset.quickKey || '');
-  if (!quickKey) {
-    return;
-  }
-  const template =
-    (quickKey.startsWith('saved:') && getTopQuickFavorites().find((item) => item.key === quickKey)) ||
-    state.historyQuickItems.find((item) => item.key === quickKey);
-  if (!template) {
-    return;
-  }
-
-  try {
-    if (template.type === 'saved') {
-      await quickAddById(template.id);
-    } else {
-      await quickAddByTemplate(template);
-    }
-    setActionBanner('Quick add logged.', 'success');
-    await refreshDashboard();
-  } catch (error) {
-    setActionBanner(error.message, 'error');
-  }
-});
-
 quickDeleteBtnEl.addEventListener('click', async () => {
   const selected = getSelectedSavedItem();
   if (!selected) {
@@ -2105,7 +1971,6 @@ function renderWeightReadOnlyRow(entry) {
     <td data-label="Actions">
       <div class="action-row">
         <button type="button" class="btn-warning table-action-btn" data-weight-action="edit" data-weight-id="${entry.id}">Edit</button>
-        <button type="button" class="btn-danger table-action-btn" data-weight-action="delete" data-weight-id="${entry.id}">Delete</button>
       </div>
     </td>
   `;
@@ -2180,6 +2045,17 @@ async function refreshWeightData() {
     });
   } catch (error) {
     weightNoteEl.textContent = error.message;
+  }
+}
+
+async function deleteWeightEntryApi(entryId) {
+  try {
+    await api(`/api/weights/${entryId}/delete`, { method: 'POST' });
+  } catch (error) {
+    if (!String(error?.message || '').includes('Request failed (404)')) {
+      throw error;
+    }
+    await api(`/api/weights/${entryId}`, { method: 'DELETE' });
   }
 }
 
@@ -2312,7 +2188,7 @@ if (weightLogListEl) {
       }
 
       try {
-        await api(`/api/weights/${entryId}`, { method: 'DELETE' });
+        await deleteWeightEntryApi(entryId);
         state.weightEditingEntryId = null;
         weightNoteEl.textContent = 'Weight entry deleted.';
         setActionBanner('Weight entry deleted.', 'success');
