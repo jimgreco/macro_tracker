@@ -591,6 +591,37 @@ async function addWorkoutEntry(userId, payload) {
   );
 }
 
+async function updateWorkoutEntry(userId, id, payload) {
+  const description = String(payload.description || '').trim();
+  if (!description) {
+    throw new Error('Workout description is required.');
+  }
+  const durationHours = Number(payload.durationHours);
+  const caloriesBurned = Number(payload.caloriesBurned);
+  if (!Number.isFinite(durationHours) || durationHours <= 0) {
+    throw new Error('Workout duration must be greater than 0 hours.');
+  }
+  if (!Number.isFinite(caloriesBurned) || caloriesBurned < 0) {
+    throw new Error('Calories burned must be 0 or greater.');
+  }
+  const loggedAt = new Date(payload.loggedAt || new Date().toISOString());
+  if (Number.isNaN(loggedAt.getTime())) {
+    throw new Error('Invalid workout loggedAt value.');
+  }
+
+  const result = await pool.query(
+    `UPDATE workout_entries
+     SET description = $3,
+         duration_hours = $4,
+         calories_burned = $5,
+         logged_at = $6
+     WHERE user_id = $1 AND id = $2`,
+    [userId, id, description, durationHours, caloriesBurned, loggedAt]
+  );
+
+  return result.rowCount;
+}
+
 async function listWorkoutEntries(userId) {
   const rowsResult = await pool.query(
     `SELECT id, description, duration_hours AS "durationHours", calories_burned AS "caloriesBurned", logged_at AS "loggedAt"
@@ -646,5 +677,6 @@ module.exports = {
   deleteWeightEntry,
   listWeightEntries,
   addWorkoutEntry,
+  updateWorkoutEntry,
   listWorkoutEntries
 };

@@ -13,6 +13,7 @@ const state = {
   selectedTrendMacro: 'calories',
   selectedPage: 'macros',
   weightEditingEntryId: null,
+  workoutEditingEntryId: null,
   pendingWorkout: null
 };
 
@@ -105,6 +106,7 @@ const workoutEditorEl = document.getElementById('workout-editor');
 const workoutDescriptionEl = document.getElementById('workout-description');
 const workoutHoursEl = document.getElementById('workout-hours');
 const workoutCaloriesEl = document.getElementById('workout-calories');
+const workoutLoggedAtEl = document.getElementById('workout-logged-at');
 const saveWorkoutBtnEl = document.getElementById('save-workout-btn');
 const workoutQuickListEl = document.getElementById('workout-quick-list');
 const workoutLogListEl = document.getElementById('workout-log-list');
@@ -2094,6 +2096,70 @@ function renderWeightEditRow(entry) {
   `;
 }
 
+function renderWorkoutReadOnlyRow(entry) {
+  const loggedAt = new Date(entry.loggedAt);
+  const dateText = loggedAt.toLocaleDateString();
+  return `
+    <td data-label="Dt">${dateText}</td>
+    <td data-label="Desc">${entry.description}</td>
+    <td data-label="Dur">${fmtNumber(entry.durationHours)} hr</td>
+    <td data-label="Cal">${fmtNumber(entry.caloriesBurned)}</td>
+    <td data-label="Act">
+      <div class="action-row">
+        <button type="button" class="btn-warning table-action-btn" data-workout-action="edit" data-workout-id="${entry.id}">Edit</button>
+      </div>
+    </td>
+  `;
+}
+
+function renderWorkoutEditRow(entry) {
+  const loggedAtDate = new Date(entry.loggedAt).toISOString().slice(0, 10);
+  return `
+    <td data-label="Edit" colspan="5">
+      <table class="edit-vertical-table">
+        <tbody>
+          <tr><th>Date</th><td><input type="date" data-workout-field="loggedAtDate" value="${loggedAtDate}" /></td></tr>
+          <tr><th>Description</th><td><input data-workout-field="description" value="${entry.description}" /></td></tr>
+          <tr><th>Hours</th><td><input type="number" step="0.25" min="0" data-workout-field="durationHours" value="${entry.durationHours}" data-base-duration-hours="${entry.durationHours}" data-base-calories-burned="${entry.caloriesBurned}" /></td></tr>
+          <tr><th>Calories</th><td><input type="number" step="1" min="0" data-workout-field="caloriesBurned" value="${entry.caloriesBurned}" /></td></tr>
+          <tr>
+            <th>Actions</th>
+            <td>
+              <div class="edit-vertical-actions">
+                <button type="button" class="btn-success table-action-btn" data-workout-action="save" data-workout-id="${entry.id}">Save</button>
+                <button type="button" class="btn-warning table-action-btn" data-workout-action="cancel" data-workout-id="${entry.id}">Cancel</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </td>
+  `;
+}
+
+function syncWorkoutCaloriesWithDuration(row, durationInput) {
+  if (!row || !durationInput) {
+    return;
+  }
+
+  const nextDuration = Number(durationInput.value || 0);
+  const baseDuration = Number(durationInput.dataset.baseDurationHours || 0);
+  const baseCalories = Number(durationInput.dataset.baseCaloriesBurned || 0);
+  if (!Number.isFinite(nextDuration) || nextDuration < 0) {
+    return;
+  }
+  if (!Number.isFinite(baseDuration) || baseDuration <= 0 || !Number.isFinite(baseCalories) || baseCalories < 0) {
+    return;
+  }
+
+  const factor = nextDuration / baseDuration;
+  const caloriesInput = row.querySelector('[data-workout-field="caloriesBurned"]');
+  if (!(caloriesInput instanceof HTMLInputElement)) {
+    return;
+  }
+  caloriesInput.value = String(Math.round(baseCalories * factor));
+}
+
 async function refreshWeightData() {
   if (!weightLogListEl) {
     return;
@@ -2166,6 +2232,23 @@ async function deleteWeightEntryApi(entryId) {
   }
 }
 
+async function updateWorkoutEntryApi(entryId, payload) {
+  try {
+    await api(`/api/workouts/${entryId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    if (!String(error?.message || '').includes('Request failed (404)')) {
+      throw error;
+    }
+    await api(`/api/workouts/${entryId}`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+}
+
 function estimateWorkoutCalories(text, hours) {
   const lower = String(text || '').toLowerCase();
   if (lower.includes('run') || lower.includes('cycling') || lower.includes('bike')) {
@@ -2175,6 +2258,65 @@ function estimateWorkoutCalories(text, hours) {
     return Math.round(hours * 420);
   }
   return Math.round(hours * 500);
+}
+
+function normalizeWorkoutDescription(text) {
+  const cleaned = String(text || '')
+    .replace(/\bwork\s*out\b/gi, 'workout')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned;
+}
+
+function parseWorkoutInput(text) {
+  const raw = String(text || '').trim();
+  if (!raw) {
+    return { description: '', durationHours: 1 };
+  }
+
+  let durationHours = 0;
+  let description = raw;
+
+  // Pattern: "1.5 Leg work out"
+  const leadingHoursWithUnit = raw.match(/^(\d+(?:\.\d+)?)\s*(?:h|hr|hour)s?\b\s+(.+)$/i);
+  if (leadingHoursWithUnit) {
+    const parsedHours = Number(leadingHoursWithUnit[1]);
+    if (Number.isFinite(parsedHours) && parsedHours > 0) {
+      durationHours = parsedHours;
+      description = leadingHoursWithUnit[2];
+    }
+  }
+
+  const leadingHours = raw.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
+  if (leadingHours) {
+    const parsedHours = Number(leadingHours[1]);
+    if (!durationHours && Number.isFinite(parsedHours) && parsedHours > 0) {
+      durationHours = parsedHours;
+      description = leadingHours[2];
+    }
+  }
+
+  // Pattern: "Leg workout 1.5h"
+  if (!durationHours) {
+    const inlineHours = raw.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hour)s?\b/i);
+    if (inlineHours) {
+      const parsedHours = Number(inlineHours[1]);
+      if (Number.isFinite(parsedHours) && parsedHours > 0) {
+        durationHours = parsedHours;
+        description = raw.replace(inlineHours[0], ' ');
+      }
+    }
+  }
+
+  if (!durationHours) {
+    durationHours = 1;
+  }
+
+  const normalizedDescription = normalizeWorkoutDescription(description || raw);
+  return {
+    description: normalizedDescription || normalizeWorkoutDescription(raw),
+    durationHours
+  };
 }
 
 function renderWorkoutQuickAdds(entries) {
@@ -2201,7 +2343,29 @@ async function refreshWorkoutData() {
     const entries = Array.isArray(data.entries) ? data.entries : [];
     const dailyCalories = Array.isArray(data.dailyCalories) ? data.dailyCalories : [];
 
-    workoutLogListEl.innerHTML = entries.map((entry) => `<div class="simple-log-item"><strong>${entry.description}</strong><span>${fmtNumber(entry.caloriesBurned)} cal</span></div>`).join('') || '<p class="empty-note">No workouts logged yet.</p>';
+    workoutLogListEl.innerHTML = entries.length
+      ? `
+        <table class="table" aria-label="Logged workout entries">
+          <thead>
+            <tr>
+              <th>Dt</th>
+              <th>Desc</th>
+              <th>Dur</th>
+              <th>Cal</th>
+              <th>Act</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${entries.map((entry) => {
+              const rowHtml = state.workoutEditingEntryId === entry.id
+                ? renderWorkoutEditRow(entry)
+                : renderWorkoutReadOnlyRow(entry);
+              return `<tr data-workout-row-id="${entry.id}">${rowHtml}</tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      `
+      : '<p class="empty-note">No workouts logged yet.</p>';
 
     renderWorkoutQuickAdds(entries);
     const chartRows = dailyCalories.map((row) => ({ label: row.day, value: row.calories }));
@@ -2342,18 +2506,30 @@ if (parseWorkoutBtnEl) {
       setActionBanner('Add a workout description first.', 'error');
       return;
     }
-    const hoursMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hour)/i);
-    const defaultHours = hoursMatch ? Number(hoursMatch[1]) : 1;
-    const estimatedCalories = estimateWorkoutCalories(text, defaultHours);
-    state.pendingWorkout = { description: text, durationHours: defaultHours, caloriesBurned: estimatedCalories };
+    const parsed = parseWorkoutInput(text);
+    const estimatedCalories = estimateWorkoutCalories(parsed.description, parsed.durationHours);
+    state.pendingWorkout = {
+      description: parsed.description,
+      durationHours: parsed.durationHours,
+      caloriesBurned: estimatedCalories
+    };
     if (workoutDescriptionEl) workoutDescriptionEl.value = state.pendingWorkout.description;
     if (workoutHoursEl) workoutHoursEl.value = String(state.pendingWorkout.durationHours);
     if (workoutCaloriesEl) workoutCaloriesEl.value = String(state.pendingWorkout.caloriesBurned);
     if (workoutEditorEl) workoutEditorEl.hidden = false;
+    if (saveWorkoutBtnEl) saveWorkoutBtnEl.disabled = false;
   });
 }
 
 if (saveWorkoutBtnEl) {
+  saveWorkoutBtnEl.disabled = true;
+  if (workoutEditorEl) {
+    workoutEditorEl.hidden = true;
+  }
+  if (workoutLoggedAtEl) {
+    workoutLoggedAtEl.value = toDateTimeLocalValue();
+  }
+
   saveWorkoutBtnEl.addEventListener('click', async () => {
     try {
       await api('/api/workouts', {
@@ -2362,15 +2538,88 @@ if (saveWorkoutBtnEl) {
           description: String(workoutDescriptionEl?.value || '').trim(),
           durationHours: Number(workoutHoursEl?.value || 1),
           caloriesBurned: Number(workoutCaloriesEl?.value || 0),
-          loggedAt: new Date().toISOString()
+          loggedAt: asIso(workoutLoggedAtEl?.value || toDateTimeLocalValue())
         })
       });
       if (workoutTextEl) workoutTextEl.value = '';
       if (workoutEditorEl) workoutEditorEl.hidden = true;
+      saveWorkoutBtnEl.disabled = true;
+      state.pendingWorkout = null;
+      state.workoutEditingEntryId = null;
       setActionBanner('Workout logged.', 'success');
       await refreshWorkoutData();
     } catch (error) {
       setActionBanner(error.message, 'error');
+    }
+  });
+}
+
+if (workoutLogListEl) {
+  workoutLogListEl.addEventListener('input', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    if (target.dataset.workoutField !== 'durationHours') {
+      return;
+    }
+
+    const row = target.closest('tr[data-workout-row-id]');
+    if (!row) {
+      return;
+    }
+    syncWorkoutCaloriesWithDuration(row, target);
+  });
+
+  workoutLogListEl.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const action = target.dataset.workoutAction;
+    const entryId = Number(target.dataset.workoutId);
+    if (!action || !entryId) {
+      return;
+    }
+
+    if (action === 'edit') {
+      state.workoutEditingEntryId = entryId;
+      await refreshWorkoutData();
+      return;
+    }
+
+    if (action === 'cancel') {
+      state.workoutEditingEntryId = null;
+      await refreshWorkoutData();
+      return;
+    }
+
+    if (action === 'save') {
+      const row = target.closest('tr[data-workout-row-id]');
+      if (!row) {
+        return;
+      }
+
+      const loggedAtDate = String(row.querySelector('[data-workout-field="loggedAtDate"]')?.value || '').trim();
+      const description = String(row.querySelector('[data-workout-field="description"]')?.value || '').trim();
+      const durationHours = Number(row.querySelector('[data-workout-field="durationHours"]')?.value || 0);
+      const caloriesBurned = Number(row.querySelector('[data-workout-field="caloriesBurned"]')?.value || 0);
+      const loggedAt = loggedAtDate ? new Date(`${loggedAtDate}T09:00:00`).toISOString() : new Date().toISOString();
+
+      try {
+        await updateWorkoutEntryApi(entryId, {
+          description,
+          durationHours,
+          caloriesBurned,
+          loggedAt
+        });
+        state.workoutEditingEntryId = null;
+        setActionBanner('Workout updated.', 'success');
+        await refreshWorkoutData();
+      } catch (error) {
+        setActionBanner(error.message, 'error');
+      }
     }
   });
 }

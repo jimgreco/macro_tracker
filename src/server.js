@@ -24,6 +24,7 @@ const {
   deleteWeightEntry,
   listWeightEntries,
   addWorkoutEntry,
+  updateWorkoutEntry,
   listWorkoutEntries
 } = require('./db');
 const { parseMealText } = require('./parser');
@@ -612,6 +613,42 @@ app.post('/api/workouts', async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+app.put('/api/workouts/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid workout entry id.' });
+    }
+
+    const changes = await updateWorkoutEntry(userIdFromReq(req), id, req.body || {});
+    if (!changes) {
+      return res.status(404).json({ error: 'Workout entry not found.' });
+    }
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/workouts/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid workout entry id.' });
+    }
+
+    const changes = await updateWorkoutEntry(userIdFromReq(req), id, req.body || {});
+    if (!changes) {
+      return res.status(404).json({ error: 'Workout entry not found.' });
+    }
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
   }
 });
 app.get('/api/dashboard', async (req, res) => {

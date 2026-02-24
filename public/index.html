@@ -231,10 +231,14 @@
 
       <section id="weight-page" class="app-page" hidden>
         <section id="weight-log-section" class="panel glass">
-          <h2>Log Weight</h2>
+          <div class="section-head-row">
+            <h2>Log Weight</h2>
+            <div class="consumed-inline">
+              <input id="weight-logged-at" type="datetime-local" />
+            </div>
+          </div>
           <div class="weight-log-inputs">
             <input id="weight-value" type="number" step="0.1" min="0" placeholder="Weight" />
-            <input id="weight-logged-at" type="datetime-local" />
           </div>
           <button id="save-weight-btn" type="button">Save Weight</button>
           <p id="weight-note" role="status" aria-live="polite"></p>
@@ -255,26 +259,43 @@
 
       <section id="workout-page" class="app-page" hidden>
         <section class="panel glass">
-          <h2>Workout Tracker</h2>
-          <textarea id="workout-text" rows="3" placeholder="Example: 45 min run and 20 min core workout"></textarea>
-          <div class="row workout-submit-row">
-            <button id="parse-workout-btn" type="button">Submit Workout</button>
-          </div>
-          <div id="workout-editor" class="workout-editor" hidden>
-            <input id="workout-description" type="text" placeholder="Workout description" />
-            <div class="row">
-              <input id="workout-hours" type="number" step="0.25" min="0" value="1" />
-              <input id="workout-calories" type="number" step="1" min="0" value="0" />
-              <button id="save-workout-btn" type="button">Log Workout</button>
+          <div class="section-head-row">
+            <h2>Log Workout</h2>
+            <div class="consumed-inline">
+              <input id="workout-logged-at" type="datetime-local" />
             </div>
           </div>
-          <h3>Quick Adds</h3>
-          <div id="workout-quick-list" class="quick-favorites"></div>
-          <h3>Workout Log</h3>
-          <div id="workout-log-list" class="simple-log-list"></div>
-          <div class="trend-wrap">
-            <canvas id="workout-canvas" height="130" aria-label="Workout calories by day"></canvas>
+          <textarea id="workout-text" rows="3" placeholder="Example: 45 min run and 20 min core workout"></textarea>
+          <div class="row workout-submit-row">
+            <button id="parse-workout-btn" type="button">Parse Workout</button>
+            <button id="save-workout-btn" type="button" disabled>Save</button>
           </div>
+          <div id="workout-editor" class="workout-editor" hidden>
+            <div class="parsed-item">
+              <p>Edit values before saving.</p>
+              <table class="edit-vertical-table">
+                <tbody>
+                  <tr>
+                    <th><label for="workout-description">Description</label></th>
+                    <td><input id="workout-description" type="text" placeholder="Workout description" /></td>
+                  </tr>
+                  <tr>
+                    <th><label for="workout-hours">Hours</label></th>
+                    <td><input id="workout-hours" type="number" step="0.25" min="0" value="1" /></td>
+                  </tr>
+                  <tr>
+                    <th><label for="workout-calories">Calories</label></th>
+                    <td><input id="workout-calories" type="number" step="1" min="0" value="0" /></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel glass">
+          <h2>Logged Entries</h2>
+          <div id="workout-log-list" class="simple-log-list"></div>
         </section>
       </section>
     </main>

@@ -157,9 +157,14 @@ body {
   gap: 1rem;
 }
 
+.app-page#workout-page:not([hidden]) {
+  display: grid;
+  gap: 1rem;
+}
+
 .weight-log-inputs {
   display: grid;
-  grid-template-columns: minmax(7rem, 9rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.52rem;
 }
 
@@ -171,6 +176,7 @@ body {
 #weight-logged-at {
   width: 100%;
   min-width: 0;
+  margin-bottom: 0;
 }
 
 #save-weight-btn {
@@ -207,6 +213,22 @@ body {
   margin-top: 0.55rem;
   display: grid;
   gap: 0.45rem;
+}
+
+.workout-editor[hidden] {
+  display: none;
+}
+
+.row.workout-submit-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.52rem;
+  align-items: stretch;
+}
+
+.row.workout-submit-row button {
+  width: 100%;
+  margin-bottom: 0;
 }
 
 .chip-action {
@@ -317,7 +339,9 @@ h2 {
   font-size: 0.76rem;
 }
 
-#consumed-at {
+#consumed-at,
+#weight-logged-at,
+#workout-logged-at {
   width: 100%;
   margin-bottom: 0;
 }
@@ -1113,7 +1137,9 @@ button[disabled] {
     font-size: 0.7rem;
   }
 
-  #consumed-at {
+  #consumed-at,
+  #weight-logged-at,
+  #workout-logged-at {
     padding: 0.36rem 0.42rem;
     font-size: 0.82rem;
   }
@@ -1242,7 +1268,8 @@ button[disabled] {
   /* Compact mobile tables for previous days + logged entries */
   #previous-days,
   #entries-by-day,
-  #weight-log-list {
+  #weight-log-list,
+  #workout-log-list {
     overflow-x: auto;
   }
 
@@ -1263,20 +1290,23 @@ button[disabled] {
 
   #previous-days .table,
   #entries-by-day .table,
-  #weight-log-list .table {
+  #weight-log-list .table,
+  #workout-log-list .table {
     border-collapse: collapse;
     border-spacing: 0;
   }
 
   #previous-days .table thead,
   #entries-by-day .table thead,
-  #weight-log-list .table thead {
+  #weight-log-list .table thead,
+  #workout-log-list .table thead {
     display: table-header-group;
   }
 
   #previous-days .table tr,
   #entries-by-day .table tr,
-  #weight-log-list .table tr {
+  #weight-log-list .table tr,
+  #workout-log-list .table tr {
     display: table-row;
     border: 0;
     border-radius: 0;
@@ -1289,7 +1319,9 @@ button[disabled] {
   #entries-by-day .table th,
   #entries-by-day .table td,
   #weight-log-list .table th,
-  #weight-log-list .table td {
+  #weight-log-list .table td,
+  #workout-log-list .table th,
+  #workout-log-list .table td {
     display: table-cell;
     padding: 0.3rem 0.35rem;
     white-space: nowrap;
@@ -1299,27 +1331,32 @@ button[disabled] {
 
   #previous-days .table th,
   #entries-by-day .table th,
-  #weight-log-list .table th {
+  #weight-log-list .table th,
+  #workout-log-list .table th {
     letter-spacing: -0.01em;
   }
 
   #entries-by-day .table th,
   #entries-by-day .table td,
   #weight-log-list .table th,
-  #weight-log-list .table td {
+  #weight-log-list .table td,
+  #workout-log-list .table th,
+  #workout-log-list .table td {
     padding: 0.26rem 0.28rem;
     font-size: 0.75rem;
   }
 
   #previous-days .table td::before,
   #entries-by-day .table td::before,
-  #weight-log-list .table td::before {
+  #weight-log-list .table td::before,
+  #workout-log-list .table td::before {
     content: none;
     display: none;
   }
 
   #entries-by-day .table td .action-row,
-  #weight-log-list .table td .action-row {
+  #weight-log-list .table td .action-row,
+  #workout-log-list .table td .action-row {
     width: auto;
     justify-content: flex-start;
   }
