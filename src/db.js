@@ -61,9 +61,33 @@ async function initDb() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS weight_entries (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      weight DOUBLE PRECISION NOT NULL,
+      logged_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workout_entries (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      description TEXT NOT NULL,
+      duration_hours DOUBLE PRECISION NOT NULL,
+      calories_burned DOUBLE PRECISION NOT NULL,
+      logged_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_entries_user_consumed ON entries(user_id, consumed_at DESC);
     CREATE INDEX IF NOT EXISTS idx_saved_items_user_name ON saved_items(user_id, lower(name));
     CREATE INDEX IF NOT EXISTS idx_macro_targets_user ON macro_targets(user_id);
+    CREATE INDEX IF NOT EXISTS idx_weight_entries_user_logged ON weight_entries(user_id, logged_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workout_entries_user_logged ON workout_entries(user_id, logged_at DESC);
   `);
 }
 
@@ -467,6 +491,140 @@ async function getDashboard(userId, dateInput) {
   };
 }
 
+
+
+function parseScopeDays(scope) {
+  if (scope === 'year') return 365;
+  if (scope === 'month') return 30;
+  return 7;
+}
+
+async function addWeightEntry(userId, payload) {
+  const weight = Number(payload.weight);
+  if (!Number.isFinite(weight) || weight <= 0) {
+    throw new Error('Weight must be greater than 0.');
+  }
+  const loggedAt = new Date(payload.loggedAt || new Date().toISOString());
+  if (Number.isNaN(loggedAt.getTime())) {
+    throw new Error('Invalid loggedAt value.');
+  }
+
+  await pool.query(
+    `INSERT INTO weight_entries (user_id, weight, logged_at)
+     VALUES ($1, $2, $3)`,
+    [userId, weight, loggedAt]
+  );
+}
+
+async function updateWeightEntry(userId, id, payload) {
+  const weight = Number(payload.weight);
+  if (!Number.isFinite(weight) || weight <= 0) {
+    throw new Error('Weight must be greater than 0.');
+  }
+  const loggedAt = new Date(payload.loggedAt || new Date().toISOString());
+  if (Number.isNaN(loggedAt.getTime())) {
+    throw new Error('Invalid loggedAt value.');
+  }
+
+  const result = await pool.query(
+    `UPDATE weight_entries
+     SET weight = $3, logged_at = $4
+     WHERE user_id = $1 AND id = $2`,
+    [userId, id, weight, loggedAt]
+  );
+
+  return result.rowCount;
+}
+
+async function deleteWeightEntry(userId, id) {
+  const result = await pool.query(
+    `DELETE FROM weight_entries
+     WHERE user_id = $1 AND id = $2`,
+    [userId, id]
+  );
+
+  return result.rowCount;
+}
+
+async function listWeightEntries(userId, scope = 'week') {
+  const days = parseScopeDays(scope);
+  const result = await pool.query(
+    `SELECT id, weight, logged_at AS "loggedAt"
+     FROM weight_entries
+     WHERE user_id = $1
+       AND logged_at >= NOW() - ($2::text || ' days')::interval
+     ORDER BY logged_at DESC`,
+    [userId, String(days)]
+  );
+
+  return result.rows.map((row) => ({
+    id: Number(row.id),
+    weight: Number(row.weight || 0),
+    loggedAt: new Date(row.loggedAt).toISOString()
+  }));
+}
+
+async function addWorkoutEntry(userId, payload) {
+  const description = String(payload.description || '').trim();
+  if (!description) {
+    throw new Error('Workout description is required.');
+  }
+  const durationHours = Number(payload.durationHours);
+  const caloriesBurned = Number(payload.caloriesBurned);
+  if (!Number.isFinite(durationHours) || durationHours <= 0) {
+    throw new Error('Workout duration must be greater than 0 hours.');
+  }
+  if (!Number.isFinite(caloriesBurned) || caloriesBurned < 0) {
+    throw new Error('Calories burned must be 0 or greater.');
+  }
+  const loggedAt = new Date(payload.loggedAt || new Date().toISOString());
+  if (Number.isNaN(loggedAt.getTime())) {
+    throw new Error('Invalid workout loggedAt value.');
+  }
+
+  await pool.query(
+    `INSERT INTO workout_entries (user_id, description, duration_hours, calories_burned, logged_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [userId, description, durationHours, caloriesBurned, loggedAt]
+  );
+}
+
+async function listWorkoutEntries(userId) {
+  const rowsResult = await pool.query(
+    `SELECT id, description, duration_hours AS "durationHours", calories_burned AS "caloriesBurned", logged_at AS "loggedAt"
+     FROM workout_entries
+     WHERE user_id = $1
+     ORDER BY logged_at DESC, id DESC
+     LIMIT 100`,
+    [userId]
+  );
+
+  const dailyResult = await pool.query(
+    `SELECT (logged_at AT TIME ZONE 'UTC')::date::text AS day,
+            ROUND(SUM(calories_burned)::numeric, 1) AS calories
+     FROM workout_entries
+     WHERE user_id = $1
+       AND logged_at >= NOW() - INTERVAL '30 days'
+     GROUP BY day
+     ORDER BY day ASC`,
+    [userId]
+  );
+
+  return {
+    entries: rowsResult.rows.map((row) => ({
+      id: Number(row.id),
+      description: row.description,
+      durationHours: Number(row.durationHours || 0),
+      caloriesBurned: Number(row.caloriesBurned || 0),
+      loggedAt: new Date(row.loggedAt).toISOString()
+    })),
+    dailyCalories: dailyResult.rows.map((row) => ({
+      day: row.day,
+      calories: Number(row.calories || 0)
+    }))
+  };
+}
+
 module.exports = {
   initDb,
   addEntries,
@@ -480,5 +638,11 @@ module.exports = {
   claimLegacyData,
   getDashboard,
   getMacroTargets,
-  setMacroTarget
+  setMacroTarget,
+  addWeightEntry,
+  updateWeightEntry,
+  deleteWeightEntry,
+  listWeightEntries,
+  addWorkoutEntry,
+  listWorkoutEntries
 };

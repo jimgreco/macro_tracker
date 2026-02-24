@@ -19,8 +19,8 @@
     <main class="app-shell">
       <div id="action-banner" class="action-banner" role="status" aria-live="polite" hidden></div>
       <header class="topbar">
-        <div>
-          <h1 class="brand-lockup" aria-label="Macro tracker">
+        <div class="brand-menu">
+          <button id="brand-menu-btn" class="brand-lockup brand-menu-btn" type="button" aria-label="Open page menu" aria-haspopup="true" aria-expanded="false">
             <svg class="brand-logo" viewBox="0 0 64 64" role="img" aria-hidden="true" focusable="false">
               <defs>
                 <linearGradient id="brand-grad" x1="0" y1="0" x2="1" y2="1">
@@ -33,7 +33,12 @@
               <circle cx="50" cy="14" r="4" fill="#d5ffe7" />
             </svg>
             <span class="brand-wordmark">MacroFlow</span>
-          </h1>
+          </button>
+          <div id="brand-menu-popover" class="brand-menu-popover" hidden>
+            <button type="button" class="brand-menu-item is-active" data-page="macros">Macro Tracker</button>
+            <button type="button" class="brand-menu-item" data-page="weight">Weight Tracker</button>
+            <button type="button" class="brand-menu-item" data-page="workout">Workout Tracker</button>
+          </div>
         </div>
         <div class="topbar-right">
           <div id="profile-menu" class="profile-menu" aria-label="Signed in user">
@@ -56,6 +61,7 @@
         </div>
       </header>
 
+      <section id="macros-page" class="app-page is-active">
       <section class="grid-main">
         <div class="column-left">
           <section id="log-section" aria-labelledby="log-meal-heading" class="panel glass">
@@ -223,14 +229,57 @@
           </section>
         </div>
       </section>
-    </main>
+      </section>
 
-    <nav class="mobile-nav" aria-label="Mobile quick actions">
-      <button type="button" class="mobile-nav-btn" data-nav-target="log-section" aria-label="Go to Log">✍<span>Log</span></button>
-      <button type="button" class="mobile-nav-btn" data-nav-target="quick-section" aria-label="Go to Quick Add">⊕<span>Quick</span></button>
-      <button type="button" class="mobile-nav-btn" data-nav-target="entries-section" aria-label="Go to Logged Entries">☰<span>Entries</span></button>
-      <button type="button" class="mobile-nav-btn" data-nav-target="today-section" aria-label="Go to Snapshot stats">◔<span>Snapshot</span></button>
-    </nav>
+      <section id="weight-page" class="app-page" hidden>
+        <section id="weight-log-section" class="panel glass">
+          <h2>Log Weight</h2>
+          <div class="weight-log-inputs">
+            <input id="weight-value" type="number" step="0.1" min="0" placeholder="Weight" />
+            <input id="weight-logged-at" type="datetime-local" />
+          </div>
+          <button id="save-weight-btn" type="button">Save Weight</button>
+          <p id="weight-note" role="status" aria-live="polite"></p>
+        </section>
+
+        <section id="weight-entries-section" class="panel glass">
+          <h2>Logged Entries</h2>
+          <div id="weight-log-list" class="simple-log-list"></div>
+        </section>
+
+        <section id="weight-snapshot-section" class="panel glass">
+          <h2>Weekly Snapshot</h2>
+          <div class="trend-wrap">
+            <canvas id="weight-canvas" height="130" aria-label="Weekly weight trend graph"></canvas>
+          </div>
+        </section>
+      </section>
+
+      <section id="workout-page" class="app-page" hidden>
+        <section class="panel glass">
+          <h2>Workout Tracker</h2>
+          <textarea id="workout-text" rows="3" placeholder="Example: 45 min run and 20 min core workout"></textarea>
+          <div class="row workout-submit-row">
+            <button id="parse-workout-btn" type="button">Submit Workout</button>
+          </div>
+          <div id="workout-editor" class="workout-editor" hidden>
+            <input id="workout-description" type="text" placeholder="Workout description" />
+            <div class="row">
+              <input id="workout-hours" type="number" step="0.25" min="0" value="1" />
+              <input id="workout-calories" type="number" step="1" min="0" value="0" />
+              <button id="save-workout-btn" type="button">Log Workout</button>
+            </div>
+          </div>
+          <h3>Quick Adds</h3>
+          <div id="workout-quick-list" class="quick-favorites"></div>
+          <h3>Workout Log</h3>
+          <div id="workout-log-list" class="simple-log-list"></div>
+          <div class="trend-wrap">
+            <canvas id="workout-canvas" height="130" aria-label="Workout calories by day"></canvas>
+          </div>
+        </section>
+      </section>
+    </main>
 
     <script src="/script.js"></script>
   </body>

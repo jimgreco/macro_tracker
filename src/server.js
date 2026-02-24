@@ -18,7 +18,13 @@ const {
   quickAddFromSaved,
   claimLegacyData,
   getDashboard,
-  setMacroTarget
+  setMacroTarget,
+  addWeightEntry,
+  updateWeightEntry,
+  deleteWeightEntry,
+  listWeightEntries,
+  addWorkoutEntry,
+  listWorkoutEntries
 } = require('./db');
 const { parseMealText } = require('./parser');
 const packageJson = require('../package.json');
@@ -498,6 +504,80 @@ app.put('/api/macro-targets/:macro', async (req, res) => {
   }
 });
 
+
+
+app.get('/api/weights', async (req, res) => {
+  try {
+    const scope = String(req.query.scope || 'week').toLowerCase();
+    const entries = await listWeightEntries(userIdFromReq(req), scope);
+    res.json({ entries });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/weights', async (req, res) => {
+  try {
+    await addWeightEntry(userIdFromReq(req), req.body || {});
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.put('/api/weights/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid weight entry id.' });
+    }
+
+    const changes = await updateWeightEntry(userIdFromReq(req), id, req.body || {});
+    if (!changes) {
+      return res.status(404).json({ error: 'Weight entry not found.' });
+    }
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/weights/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid weight entry id.' });
+    }
+
+    const changes = await deleteWeightEntry(userIdFromReq(req), id);
+    if (!changes) {
+      return res.status(404).json({ error: 'Weight entry not found.' });
+    }
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/workouts', async (req, res) => {
+  try {
+    const data = await listWorkoutEntries(userIdFromReq(req));
+    res.json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/workouts', async (req, res) => {
+  try {
+    await addWorkoutEntry(userIdFromReq(req), req.body || {});
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
 app.get('/api/dashboard', async (req, res) => {
   try {
     const data = await getDashboard(userIdFromReq(req), req.query.date);

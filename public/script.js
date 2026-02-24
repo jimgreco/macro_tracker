@@ -10,7 +10,10 @@ const state = {
   mealImageLoading: false,
   selectedEntriesDay: '',
   dashboardData: null,
-  selectedTrendMacro: 'calories'
+  selectedTrendMacro: 'calories',
+  selectedPage: 'macros',
+  weightEditingEntryId: null,
+  pendingWorkout: null
 };
 
 const mealTextEl = document.getElementById('meal-text');
@@ -83,7 +86,30 @@ const profileAvatarEl = document.getElementById('profile-avatar');
 const profileNameEl = document.getElementById('profile-name');
 const profileEmailEl = document.getElementById('profile-email');
 const logoutBtnEl = document.getElementById('logout-btn');
-const mobileNavButtons = Array.from(document.querySelectorAll('.mobile-nav-btn'));
+const brandMenuBtnEl = document.getElementById('brand-menu-btn');
+const brandMenuPopoverEl = document.getElementById('brand-menu-popover');
+const pageMenuItems = Array.from(document.querySelectorAll('.brand-menu-item'));
+const appPages = {
+  macros: document.getElementById('macros-page'),
+  weight: document.getElementById('weight-page'),
+  workout: document.getElementById('workout-page')
+};
+const weightLoggedAtEl = document.getElementById('weight-logged-at');
+const weightValueEl = document.getElementById('weight-value');
+const saveWeightBtnEl = document.getElementById('save-weight-btn');
+const weightNoteEl = document.getElementById('weight-note');
+const weightCanvasEl = document.getElementById('weight-canvas');
+const weightLogListEl = document.getElementById('weight-log-list');
+const workoutTextEl = document.getElementById('workout-text');
+const parseWorkoutBtnEl = document.getElementById('parse-workout-btn');
+const workoutEditorEl = document.getElementById('workout-editor');
+const workoutDescriptionEl = document.getElementById('workout-description');
+const workoutHoursEl = document.getElementById('workout-hours');
+const workoutCaloriesEl = document.getElementById('workout-calories');
+const saveWorkoutBtnEl = document.getElementById('save-workout-btn');
+const workoutQuickListEl = document.getElementById('workout-quick-list');
+const workoutLogListEl = document.getElementById('workout-log-list');
+const workoutCanvasEl = document.getElementById('workout-canvas');
 const defaultMealTextPlaceholder = mealTextEl ? mealTextEl.placeholder : '';
 
 function toDateTimeLocalValue(date = new Date()) {
@@ -606,34 +632,6 @@ if (removePhotoBtnEl) {
     setActionBanner('Attached photo removed.', 'info');
   });
 }
-
-function setActiveMobileNav(targetId) {
-  for (const btn of mobileNavButtons) {
-    btn.classList.toggle('is-active', btn.dataset.navTarget === targetId);
-  }
-}
-
-function scrollToSection(sectionId) {
-  const section = document.getElementById(sectionId);
-  if (!section) {
-    return;
-  }
-
-  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  setActiveMobileNav(sectionId);
-}
-
-for (const btn of mobileNavButtons) {
-  btn.addEventListener('click', () => {
-    const targetId = btn.dataset.navTarget;
-    if (!targetId) {
-      return;
-    }
-    scrollToSection(targetId);
-  });
-}
-
-setActiveMobileNav('log-section');
 
 if (entriesPrevDayBtnEl) {
   entriesPrevDayBtnEl.addEventListener('click', () => {
@@ -1234,7 +1232,7 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   const points = [];
   for (let i = 6; i >= 0; i -= 1) {
     const day = shiftIsoDay(baseIsoDay, -i);
-    points.push({ day, value: map.get(day) || 0 });
+    points.push({ day, value: map.get(day) || 0, hasData: map.has(day) });
   }
 
   const selectedMacroTarget = Number(state.dashboardData?.targets?.[state.selectedTrendMacro] || 0);
@@ -1303,6 +1301,50 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
     ctx.beginPath();
     ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  // Overlay a simple best-fit trendline to show weekly direction.
+  const trendSource = points.filter((p) => p.hasData);
+  if (trendSource.length >= 2) {
+    const n = trendSource.length;
+    let sumX = 0;
+    let sumY = 0;
+    let sumXY = 0;
+    let sumX2 = 0;
+    for (let i = 0; i < n; i += 1) {
+      const x = i;
+      const y = trendSource[i].value;
+      sumX += x;
+      sumY += y;
+      sumXY += x * y;
+      sumX2 += x * x;
+    }
+    const denominator = n * sumX2 - sumX * sumX;
+    if (Math.abs(denominator) > 0.000001) {
+      const slope = (n * sumXY - sumX * sumY) / denominator;
+      const intercept = (sumY - slope * sumX) / n;
+      const startValue = intercept;
+      const endValue = slope * (n - 1) + intercept;
+      const firstDay = trendSource[0].day;
+      const lastDay = trendSource[n - 1].day;
+      const firstCoord = coords.find((c) => c.day === firstDay);
+      const lastCoord = coords.find((c) => c.day === lastDay);
+      if (firstCoord && lastCoord) {
+        const startY = padY + ((max - startValue) / range) * usableH;
+        const endY = padY + ((max - endValue) / range) * usableH;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.setLineDash([5, 4]);
+        ctx.moveTo(firstCoord.x, startY);
+        ctx.lineTo(lastCoord.x, endY);
+        ctx.strokeStyle = 'rgba(231, 122, 49, 0.95)';
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
   }
 
   const tickCount = 4;
@@ -1881,6 +1923,499 @@ entriesByDayEl.addEventListener('click', async (event) => {
   }
 });
 
+
+
+function setBrandMenuOpen(isOpen) {
+  if (!brandMenuPopoverEl || !brandMenuBtnEl) {
+    return;
+  }
+  const open = Boolean(isOpen);
+  brandMenuPopoverEl.hidden = !open;
+  brandMenuBtnEl.setAttribute('aria-expanded', String(open));
+}
+
+function renderActivePage(pageKey) {
+  state.selectedPage = pageKey;
+  for (const [key, section] of Object.entries(appPages)) {
+    if (!section) {
+      continue;
+    }
+    const active = key === pageKey;
+    section.hidden = !active;
+    section.classList.toggle('is-active', active);
+  }
+  for (const item of pageMenuItems) {
+    item.classList.toggle('is-active', item.dataset.page === pageKey);
+  }
+}
+
+function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
+  if (!canvasEl) {
+    return;
+  }
+  const ctx = canvasEl.getContext('2d');
+  if (!ctx) {
+    return;
+  }
+  const baseline = options.baseline === 'range' ? 'range' : 'zero';
+  const showYAxis = Boolean(options.showYAxis);
+  const showXAxisLabels = options.showXAxisLabels !== false;
+  const yTickCount = Math.max(2, Number(options.yTickCount || 4));
+  const showTrendLine = options.showTrendLine !== false;
+  const dpr = window.devicePixelRatio || 1;
+  const width = Math.max(
+    200,
+    Math.floor(canvasEl.clientWidth || canvasEl.parentElement?.clientWidth || 0)
+  );
+  const height = 130;
+  canvasEl.style.width = `${width}px`;
+  canvasEl.style.height = `${height}px`;
+  canvasEl.width = width * dpr;
+  canvasEl.height = height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  if (!rows.length) {
+    ctx.fillStyle = '#6e819e';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('No data yet', 12, 24);
+    return;
+  }
+
+  const pad = {
+    top: 16,
+    right: 14,
+    bottom: showXAxisLabels ? 24 : 10,
+    left: showYAxis ? 48 : 30
+  };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const values = rows.map((row) => Number(row[valueKey] || 0));
+  const maxValue = Math.max(...values, 1);
+  const minValue = Math.min(...values);
+  const yMin = baseline === 'range' ? minValue : 0;
+  const yMax = baseline === 'range' ? maxValue : maxValue;
+  const hasFlatRange = baseline === 'range' && Math.abs(yMax - yMin) < 0.0001;
+  const ySpan = hasFlatRange ? 1 : Math.max(yMax - yMin, 1);
+
+  if (showYAxis) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(53, 81, 114, 0.22)';
+    ctx.fillStyle = 'rgba(40, 63, 92, 0.9)';
+    ctx.lineWidth = 1;
+    ctx.font = '11px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+
+    for (let i = 0; i <= yTickCount; i += 1) {
+      const ratio = i / yTickCount;
+      const tickValue = yMax - ratio * ySpan;
+      const y = pad.top + ratio * plotH;
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(pad.left + plotW, y);
+      ctx.stroke();
+      ctx.fillText(fmtNumber(tickValue), pad.left - 6, y);
+    }
+
+    ctx.strokeStyle = 'rgba(53, 81, 114, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(pad.left, pad.top);
+    ctx.lineTo(pad.left, pad.top + plotH);
+    ctx.stroke();
+    ctx.restore();
+  } else {
+    ctx.strokeStyle = '#d7e2f2';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, pad.top);
+    ctx.lineTo(pad.left, pad.top + plotH);
+    ctx.lineTo(pad.left + plotW, pad.top + plotH);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = '#0f5fce';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  rows.forEach((row, index) => {
+    const x = pad.left + (index / Math.max(rows.length - 1, 1)) * plotW;
+    const value = Number(row[valueKey] || 0);
+    const y = hasFlatRange
+      ? pad.top + plotH / 2
+      : pad.top + plotH - ((value - yMin) / ySpan) * plotH;
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  if (showTrendLine && rows.length >= 2) {
+    const n = rows.length;
+    let sumX = 0;
+    let sumY = 0;
+    let sumXY = 0;
+    let sumX2 = 0;
+    for (let i = 0; i < n; i += 1) {
+      const x = i;
+      const y = Number(rows[i][valueKey] || 0);
+      sumX += x;
+      sumY += y;
+      sumXY += x * y;
+      sumX2 += x * x;
+    }
+    const denominator = n * sumX2 - sumX * sumX;
+    if (Math.abs(denominator) > 0.000001) {
+      const slope = (n * sumXY - sumX * sumY) / denominator;
+      const intercept = (sumY - slope * sumX) / n;
+      const startValue = intercept;
+      const endValue = slope * (n - 1) + intercept;
+      const startY = hasFlatRange
+        ? pad.top + plotH / 2
+        : pad.top + plotH - ((startValue - yMin) / ySpan) * plotH;
+      const endY = hasFlatRange
+        ? pad.top + plotH / 2
+        : pad.top + plotH - ((endValue - yMin) / ySpan) * plotH;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([5, 4]);
+      ctx.moveTo(pad.left, startY);
+      ctx.lineTo(pad.left + plotW, endY);
+      ctx.strokeStyle = 'rgba(231, 122, 49, 0.95)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+  }
+
+  if (showXAxisLabels) {
+    ctx.fillStyle = '#6e819e';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(String(rows[0][labelKey] || ''), pad.left, height - 6);
+    ctx.textAlign = 'right';
+    ctx.fillText(String(rows[rows.length - 1][labelKey] || ''), width - pad.right, height - 6);
+    ctx.textAlign = 'left';
+  }
+}
+
+function renderWeightReadOnlyRow(entry) {
+  return `
+    <td data-label="Date/Time">${new Date(entry.loggedAt).toLocaleString()}</td>
+    <td data-label="Weight">${fmtNumber(entry.weight)}</td>
+    <td data-label="Actions">
+      <div class="action-row">
+        <button type="button" class="btn-warning table-action-btn" data-weight-action="edit" data-weight-id="${entry.id}">Edit</button>
+        <button type="button" class="btn-danger table-action-btn" data-weight-action="delete" data-weight-id="${entry.id}">Delete</button>
+      </div>
+    </td>
+  `;
+}
+
+function renderWeightEditRow(entry) {
+  const loggedAtValue = isoToLocalInputValue(entry.loggedAt);
+  return `
+    <td data-label="Edit" colspan="3">
+      <table class="edit-vertical-table">
+        <tbody>
+          <tr><th>Logged At</th><td><input type="datetime-local" data-weight-field="loggedAt" value="${loggedAtValue}" /></td></tr>
+          <tr><th>Weight</th><td><input type="number" step="0.1" min="0" data-weight-field="weight" value="${entry.weight}" /></td></tr>
+          <tr>
+            <th>Actions</th>
+            <td>
+              <div class="edit-vertical-actions">
+                <button type="button" class="btn-success table-action-btn" data-weight-action="save" data-weight-id="${entry.id}">Save</button>
+                <button type="button" class="btn-warning table-action-btn" data-weight-action="cancel" data-weight-id="${entry.id}">Cancel</button>
+                <button type="button" class="btn-danger table-action-btn" data-weight-action="delete" data-weight-id="${entry.id}">Delete</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </td>
+  `;
+}
+
+async function refreshWeightData() {
+  if (!weightLogListEl) {
+    return;
+  }
+  try {
+    const response = await api('/api/weights?scope=week');
+    const entries = Array.isArray(response.entries) ? response.entries : [];
+
+    if (!entries.length) {
+      weightLogListEl.innerHTML = '<p class="empty-note">No weight entries yet.</p>';
+    } else {
+      weightLogListEl.innerHTML = `
+        <table class="table" aria-label="Past week logged weight entries">
+          <thead>
+            <tr>
+              <th>Date/Time</th>
+              <th>Weight</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${entries.map((entry) => {
+              const rowHtml = state.weightEditingEntryId === entry.id
+                ? renderWeightEditRow(entry)
+                : renderWeightReadOnlyRow(entry);
+              return `<tr data-weight-row-id="${entry.id}">${rowHtml}</tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    const sorted = entries.slice().reverse().map((entry) => ({
+      label: new Date(entry.loggedAt).toLocaleDateString(),
+      value: Number(entry.weight || 0)
+    }));
+    drawSimpleLineChart(weightCanvasEl, sorted, 'label', 'value', {
+      baseline: 'range',
+      showYAxis: true,
+      showXAxisLabels: false,
+      yTickCount: 4,
+      showTrendLine: true
+    });
+  } catch (error) {
+    weightNoteEl.textContent = error.message;
+  }
+}
+
+function estimateWorkoutCalories(text, hours) {
+  const lower = String(text || '').toLowerCase();
+  if (lower.includes('run') || lower.includes('cycling') || lower.includes('bike')) {
+    return Math.round(hours * 650);
+  }
+  if (lower.includes('lift') || lower.includes('strength')) {
+    return Math.round(hours * 420);
+  }
+  return Math.round(hours * 500);
+}
+
+function renderWorkoutQuickAdds(entries) {
+  if (!workoutQuickListEl) {
+    return;
+  }
+  const map = new Map();
+  for (const item of entries) {
+    const key = item.description.trim().toLowerCase();
+    if (!key || map.has(key)) continue;
+    map.set(key, item);
+    if (map.size >= 6) break;
+  }
+  const quickItems = Array.from(map.values());
+  workoutQuickListEl.innerHTML = quickItems.map((item) => `<button type="button" class="chip-action" data-workout-quick='${JSON.stringify({description:item.description,durationHours:item.durationHours,caloriesBurned:item.caloriesBurned}).replace(/'/g, '&apos;')}' >${item.description}</button>`).join('') || '<p class="empty-note">No quick workouts yet.</p>';
+}
+
+async function refreshWorkoutData() {
+  if (!workoutLogListEl) {
+    return;
+  }
+  try {
+    const data = await api('/api/workouts');
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    const dailyCalories = Array.isArray(data.dailyCalories) ? data.dailyCalories : [];
+
+    workoutLogListEl.innerHTML = entries.map((entry) => `<div class="simple-log-item"><strong>${entry.description}</strong><span>${fmtNumber(entry.caloriesBurned)} cal</span></div>`).join('') || '<p class="empty-note">No workouts logged yet.</p>';
+
+    renderWorkoutQuickAdds(entries);
+    const chartRows = dailyCalories.map((row) => ({ label: row.day, value: row.calories }));
+    drawSimpleLineChart(workoutCanvasEl, chartRows, 'label', 'value');
+  } catch (error) {
+    setActionBanner(error.message, 'error');
+  }
+}
+
+if (brandMenuBtnEl) {
+  brandMenuBtnEl.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setBrandMenuOpen(brandMenuPopoverEl.hidden);
+  });
+}
+
+for (const item of pageMenuItems) {
+  item.addEventListener('click', async () => {
+    const page = item.dataset.page;
+    if (!page) {
+      return;
+    }
+    renderActivePage(page);
+    setBrandMenuOpen(false);
+    if (page === 'weight') {
+      await refreshWeightData();
+    }
+    if (page === 'workout') {
+      await refreshWorkoutData();
+    }
+  });
+}
+
+if (saveWeightBtnEl) {
+  if (weightLoggedAtEl) {
+    weightLoggedAtEl.value = toDateTimeLocalValue();
+  }
+
+  saveWeightBtnEl.addEventListener('click', async () => {
+    try {
+      await api('/api/weights', {
+        method: 'POST',
+        body: JSON.stringify({
+          loggedAt: asIso(weightLoggedAtEl?.value || toDateTimeLocalValue()),
+          weight: Number(weightValueEl?.value || 0)
+        })
+      });
+      state.weightEditingEntryId = null;
+      weightNoteEl.textContent = 'Weight saved.';
+      if (weightValueEl) {
+        weightValueEl.value = '';
+      }
+      setActionBanner('Weight saved.', 'success');
+      await refreshWeightData();
+    } catch (error) {
+      weightNoteEl.textContent = error.message;
+      setActionBanner(error.message, 'error');
+    }
+  });
+}
+
+if (weightLogListEl) {
+  weightLogListEl.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const action = target.dataset.weightAction;
+    const entryId = Number(target.dataset.weightId);
+    if (!action || !entryId) {
+      return;
+    }
+
+    if (action === 'edit') {
+      state.weightEditingEntryId = entryId;
+      await refreshWeightData();
+      return;
+    }
+
+    if (action === 'cancel') {
+      state.weightEditingEntryId = null;
+      await refreshWeightData();
+      return;
+    }
+
+    if (action === 'delete') {
+      const confirmed = window.confirm('Delete this weight entry?');
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await api(`/api/weights/${entryId}`, { method: 'DELETE' });
+        state.weightEditingEntryId = null;
+        weightNoteEl.textContent = 'Weight entry deleted.';
+        setActionBanner('Weight entry deleted.', 'success');
+        await refreshWeightData();
+      } catch (error) {
+        weightNoteEl.textContent = error.message;
+        setActionBanner(error.message, 'error');
+      }
+      return;
+    }
+
+    if (action === 'save') {
+      const row = target.closest('tr');
+      if (!row) {
+        return;
+      }
+
+      const payload = {
+        weight: Number(row.querySelector('[data-weight-field="weight"]')?.value || 0),
+        loggedAt: asIso(row.querySelector('[data-weight-field="loggedAt"]')?.value || toDateTimeLocalValue())
+      };
+
+      try {
+        await api(`/api/weights/${entryId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload)
+        });
+        state.weightEditingEntryId = null;
+        weightNoteEl.textContent = 'Weight entry updated.';
+        setActionBanner('Weight entry updated.', 'success');
+        await refreshWeightData();
+      } catch (error) {
+        weightNoteEl.textContent = error.message;
+        setActionBanner(error.message, 'error');
+      }
+    }
+  });
+}
+
+if (parseWorkoutBtnEl) {
+  parseWorkoutBtnEl.addEventListener('click', () => {
+    const text = String(workoutTextEl?.value || '').trim();
+    if (!text) {
+      setActionBanner('Add a workout description first.', 'error');
+      return;
+    }
+    const hoursMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hour)/i);
+    const defaultHours = hoursMatch ? Number(hoursMatch[1]) : 1;
+    const estimatedCalories = estimateWorkoutCalories(text, defaultHours);
+    state.pendingWorkout = { description: text, durationHours: defaultHours, caloriesBurned: estimatedCalories };
+    if (workoutDescriptionEl) workoutDescriptionEl.value = state.pendingWorkout.description;
+    if (workoutHoursEl) workoutHoursEl.value = String(state.pendingWorkout.durationHours);
+    if (workoutCaloriesEl) workoutCaloriesEl.value = String(state.pendingWorkout.caloriesBurned);
+    if (workoutEditorEl) workoutEditorEl.hidden = false;
+  });
+}
+
+if (saveWorkoutBtnEl) {
+  saveWorkoutBtnEl.addEventListener('click', async () => {
+    try {
+      await api('/api/workouts', {
+        method: 'POST',
+        body: JSON.stringify({
+          description: String(workoutDescriptionEl?.value || '').trim(),
+          durationHours: Number(workoutHoursEl?.value || 1),
+          caloriesBurned: Number(workoutCaloriesEl?.value || 0),
+          loggedAt: new Date().toISOString()
+        })
+      });
+      if (workoutTextEl) workoutTextEl.value = '';
+      if (workoutEditorEl) workoutEditorEl.hidden = true;
+      setActionBanner('Workout logged.', 'success');
+      await refreshWorkoutData();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+}
+
+if (workoutQuickListEl) {
+  workoutQuickListEl.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const payload = target.dataset.workoutQuick;
+    if (!payload) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(payload.replace(/&apos;/g, "'"));
+      if (workoutDescriptionEl) workoutDescriptionEl.value = parsed.description || '';
+      if (workoutHoursEl) workoutHoursEl.value = String(parsed.durationHours || 1);
+      if (workoutCaloriesEl) workoutCaloriesEl.value = String(parsed.caloriesBurned || 0);
+      if (workoutEditorEl) workoutEditorEl.hidden = false;
+    } catch (_error) {
+      setActionBanner('Could not load quick workout.', 'error');
+    }
+  });
+}
+
+renderActivePage('macros');
+
 refreshDashboard().catch((error) => {
   parseNoteEl.textContent = error.message;
     setActionBanner(error.message, 'error');
@@ -1894,11 +2429,11 @@ if (profileChipEl) {
 }
 
 document.addEventListener('click', (event) => {
-  if (!profileMenuEl || profilePopoverEl.hidden) {
-    return;
+  if (brandMenuPopoverEl && !brandMenuPopoverEl.hidden && !brandMenuPopoverEl.contains(event.target) && !brandMenuBtnEl?.contains(event.target)) {
+    setBrandMenuOpen(false);
   }
 
-  if (!profileMenuEl.contains(event.target)) {
+  if (profileMenuEl && !profilePopoverEl.hidden && !profileMenuEl.contains(event.target)) {
     setProfileMenuOpen(false);
   }
 });

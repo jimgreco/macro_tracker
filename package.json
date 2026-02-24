@@ -10,7 +10,9 @@
     "check": "node -e \"require('./src/db').initDb().then(() => console.log('DB initialized')).catch((err) => { console.error(err.message); process.exit(1); })\"",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
-    "db:logs": "docker compose logs -f db"
+    "db:logs": "docker compose logs -f db",
+    "test": "node --test test/*.test.js",
+    "test:check": "node --check public/script.js && node --check src/server.js && npm test"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

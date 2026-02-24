@@ -50,6 +50,19 @@ A web app for tracking macros with:
 - Tail DB logs: `npm run db:logs`
 - Validate DB init: `npm run check`
 
+## Test Environment
+Use a fast local test path that does **not** require Postgres or OAuth:
+
+```bash
+npm run test:check
+```
+
+What it runs:
+- JS syntax checks for `public/script.js` and `src/server.js`
+- Regression tests that verify the removed mobile bottom nav does not reappear in markup, styles, or script wiring
+
+If you want a full runtime test, start Postgres first (`npm run db:up`) and then run `npm start`.
+
 ## Cloud Setup Notes
 For AWS/RDS deployments set:
 - `DATABASE_URL` to your RDS connection string
