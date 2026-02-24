@@ -579,6 +579,24 @@ app.post('/api/weights/:id/delete', async (req, res) => {
   }
 });
 
+app.post('/api/weights/delete', async (req, res) => {
+  try {
+    const id = Number(req.body?.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid weight entry id.' });
+    }
+
+    const changes = await deleteWeightEntry(userIdFromReq(req), id);
+    if (!changes) {
+      return res.status(404).json({ error: 'Weight entry not found.' });
+    }
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
 app.get('/api/workouts', async (req, res) => {
   try {
     const data = await listWorkoutEntries(userIdFromReq(req));

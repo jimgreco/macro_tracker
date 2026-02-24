@@ -137,6 +137,12 @@ function fmtNumber(value) {
   return Number(value || 0).toFixed(1).replace('.0', '');
 }
 
+function parseWeightInputValue(value) {
+  const normalized = String(value ?? '').trim().replace(',', '.');
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : 0;
+}
+
 function setText(el, value) {
   if (el) {
     el.textContent = value;
@@ -1828,6 +1834,7 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   const showXAxisLabels = options.showXAxisLabels !== false;
   const yTickCount = Math.max(2, Number(options.yTickCount || 4));
   const showTrendLine = options.showTrendLine !== false;
+  const trendLineMode = options.trendLineMode === 'average' ? 'average' : 'regression';
   const dpr = window.devicePixelRatio || 1;
   const width = Math.max(
     200,
@@ -1915,6 +1922,30 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   ctx.stroke();
 
   if (showTrendLine && rows.length >= 2) {
+    if (trendLineMode === 'average') {
+      const average = rows.reduce((sum, row) => sum + Number(row[valueKey] || 0), 0) / rows.length;
+      const avgY = hasFlatRange
+        ? pad.top + plotH / 2
+        : pad.top + plotH - ((average - yMin) / ySpan) * plotH;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([5, 4]);
+      ctx.moveTo(pad.left, avgY);
+      ctx.lineTo(pad.left + plotW, avgY);
+      ctx.strokeStyle = 'rgba(231, 122, 49, 0.95)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(231, 122, 49, 0.95)';
+      ctx.font = '11px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(`Avg ${fmtNumber(average)}`, width - pad.right, Math.max(12, avgY - 3));
+      ctx.restore();
+      return;
+    }
+
     const n = rows.length;
     let sumX = 0;
     let sumY = 0;
@@ -2041,7 +2072,8 @@ async function refreshWeightData() {
       showYAxis: true,
       showXAxisLabels: false,
       yTickCount: 4,
-      showTrendLine: true
+      showTrendLine: true,
+      trendLineMode: 'average'
     });
   } catch (error) {
     weightNoteEl.textContent = error.message;
@@ -2052,10 +2084,22 @@ async function deleteWeightEntryApi(entryId) {
   try {
     await api(`/api/weights/${entryId}/delete`, { method: 'POST' });
   } catch (error) {
-    if (!String(error?.message || '').includes('Request failed (404)')) {
+    const firstNotFound = String(error?.message || '').includes('Request failed (404)');
+    if (!firstNotFound) {
       throw error;
     }
-    await api(`/api/weights/${entryId}`, { method: 'DELETE' });
+    try {
+      await api(`/api/weights/${entryId}`, { method: 'DELETE' });
+    } catch (deleteError) {
+      const secondNotFound = String(deleteError?.message || '').includes('Request failed (404)');
+      if (!secondNotFound) {
+        throw deleteError;
+      }
+      await api('/api/weights/delete', {
+        method: 'POST',
+        body: JSON.stringify({ id: entryId })
+      });
+    }
   }
 }
 
@@ -2139,7 +2183,7 @@ if (saveWeightBtnEl) {
         method: 'POST',
         body: JSON.stringify({
           loggedAt: asIso(weightLoggedAtEl?.value || toDateTimeLocalValue()),
-          weight: Number(weightValueEl?.value || 0)
+          weight: parseWeightInputValue(weightValueEl?.value)
         })
       });
       state.weightEditingEntryId = null;
@@ -2207,7 +2251,7 @@ if (weightLogListEl) {
       }
 
       const payload = {
-        weight: Number(row.querySelector('[data-weight-field="weight"]')?.value || 0),
+        weight: parseWeightInputValue(row.querySelector('[data-weight-field="weight"]')?.value),
         loggedAt: asIso(row.querySelector('[data-weight-field="loggedAt"]')?.value || toDateTimeLocalValue())
       };
 

@@ -159,12 +159,18 @@ body {
 
 .weight-log-inputs {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(7rem, 9rem) minmax(0, 1fr);
   gap: 0.52rem;
 }
 
 .weight-log-inputs input {
   margin-bottom: 0;
+  min-width: 0;
+}
+
+#weight-logged-at {
+  width: 100%;
+  min-width: 0;
 }
 
 #save-weight-btn {

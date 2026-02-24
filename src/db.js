@@ -500,7 +500,8 @@ function parseScopeDays(scope) {
 }
 
 async function addWeightEntry(userId, payload) {
-  const weight = Number(payload.weight);
+  const rawWeight = String(payload.weight ?? '').trim().replace(',', '.');
+  const weight = Number(rawWeight);
   if (!Number.isFinite(weight) || weight <= 0) {
     throw new Error('Weight must be greater than 0.');
   }
@@ -517,7 +518,8 @@ async function addWeightEntry(userId, payload) {
 }
 
 async function updateWeightEntry(userId, id, payload) {
-  const weight = Number(payload.weight);
+  const rawWeight = String(payload.weight ?? '').trim().replace(',', '.');
+  const weight = Number(rawWeight);
   if (!Number.isFinite(weight) || weight <= 0) {
     throw new Error('Weight must be greater than 0.');
   }
