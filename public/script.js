@@ -1102,7 +1102,7 @@ function renderEditRowMobile(entry) {
       <table class="edit-vertical-table">
         <tbody>
           <tr><th>Item</th><td><input data-field="itemName" value="${entry.itemName}" /></td></tr>
-          <tr><th>Quantity</th><td><input type="number" step="0.1" data-field="quantity" value="${entry.quantity}" /></td></tr>
+          <tr><th>Quantity</th><td><input type="number" step="0.1" data-field="quantity" value="${entry.quantity}" data-base-quantity="${entry.quantity}" data-base-calories="${entry.calories}" data-base-protein="${entry.protein}" data-base-carbs="${entry.carbs}" data-base-fat="${entry.fat}" /></td></tr>
           <tr><th>Unit</th><td><input data-field="unit" value="${entry.unit || ''}" /></td></tr>
           <tr><th>Calories</th><td><input type="number" step="0.1" data-field="calories" value="${entry.calories}" /></td></tr>
           <tr><th>Protein</th><td><input type="number" step="0.1" data-field="protein" value="${entry.protein}" /></td></tr>
@@ -1127,6 +1127,36 @@ function renderEditRowMobile(entry) {
 
 function renderEditRow(entry) {
   return renderEditRowMobile(entry);
+}
+
+function formatScaledMacroValue(value) {
+  if (!Number.isFinite(value)) {
+    return '0';
+  }
+  return (Math.round(value * 100) / 100).toString();
+}
+
+function syncEditMacrosWithQuantity(row, quantityInput) {
+  if (!row || !quantityInput) {
+    return;
+  }
+
+  const nextQuantity = Number(quantityInput.value || 0);
+  const baseQuantity = Number(quantityInput.dataset.baseQuantity || 0);
+  if (!Number.isFinite(nextQuantity) || nextQuantity < 0 || !Number.isFinite(baseQuantity) || baseQuantity <= 0) {
+    return;
+  }
+
+  const factor = nextQuantity / baseQuantity;
+  const macroFields = ['calories', 'protein', 'carbs', 'fat'];
+  for (const field of macroFields) {
+    const input = row.querySelector(`[data-field="${field}"]`);
+    if (!(input instanceof HTMLInputElement)) {
+      continue;
+    }
+    const baseValue = Number(quantityInput.dataset[`base${field.charAt(0).toUpperCase()}${field.slice(1)}`] || 0);
+    input.value = formatScaledMacroValue(baseValue * factor);
+  }
 }
 
 function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
@@ -1162,6 +1192,7 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   const max = Math.max(...points.map((p) => p.value), targetValue, 1);
   const min = Math.min(...points.map((p) => p.value), 0);
   const range = Math.max(max - min, 1);
+  const trendMacro = getTrendMacroConfig();
 
   const padX = 34;
   const padY = 14;
@@ -1178,8 +1209,9 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   grad.addColorStop(0, 'rgba(15,95,206,0.32)');
   grad.addColorStop(1, 'rgba(15,95,206,0.03)');
 
+  let targetY = null;
   if (targetValue > 0) {
-    const targetY = padY + ((max - targetValue) / range) * usableH;
+    targetY = padY + ((max - targetValue) / range) * usableH;
     ctx.save();
     ctx.beginPath();
     ctx.setLineDash([5, 4]);
@@ -1189,12 +1221,6 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
     ctx.lineWidth = 1.6;
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(231, 122, 49, 0.95)';
-    ctx.font = '11px system-ui, -apple-system, sans-serif';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    const trendMacro = getTrendMacroConfig();
-    ctx.fillText(`Target ${fmtNumber(targetValue)} ${trendMacro.unit}`, w - padX, Math.max(12, targetY - 3));
     ctx.restore();
   }
 
@@ -1226,10 +1252,12 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   }
 
   // Show a horizontal weekly average line using days that have logged data.
+  let avgY = null;
+  let average = 0;
   const trendSource = points.filter((p) => p.hasData);
   if (trendSource.length >= 1) {
-    const average = trendSource.reduce((sum, point) => sum + point.value, 0) / trendSource.length;
-    const avgY = padY + ((max - average) / range) * usableH;
+    average = trendSource.reduce((sum, point) => sum + point.value, 0) / trendSource.length;
+    avgY = padY + ((max - average) / range) * usableH;
 
     ctx.save();
     ctx.beginPath();
@@ -1240,14 +1268,33 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
     ctx.lineWidth = 1.8;
     ctx.stroke();
     ctx.setLineDash([]);
-    const trendMacro = getTrendMacroConfig();
-    ctx.fillStyle = 'rgba(231, 122, 49, 0.95)';
-    ctx.font = '11px system-ui, -apple-system, sans-serif';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(`Avg ${fmtNumber(average)} ${trendMacro.unit}`, w - padX, Math.max(12, avgY - 3));
     ctx.restore();
   }
+
+  const minLabelY = 12;
+  const maxLabelY = h - 2;
+  let targetLabelY = targetY === null ? null : Math.min(maxLabelY, Math.max(minLabelY, targetY - 3));
+  let avgLabelY = avgY === null ? null : Math.min(maxLabelY, Math.max(minLabelY, avgY - 3));
+  if (targetLabelY !== null && avgLabelY !== null) {
+    const minGap = 12;
+    if (Math.abs(targetLabelY - avgLabelY) < minGap) {
+      avgLabelY = Math.min(maxLabelY, avgLabelY + minGap);
+    }
+  }
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(231, 122, 49, 0.95)';
+  ctx.font = '11px system-ui, -apple-system, sans-serif';
+  ctx.textBaseline = 'bottom';
+  if (avgLabelY !== null) {
+    ctx.textAlign = 'left';
+    ctx.fillText(`Avg ${fmtNumber(average)} ${trendMacro.unit}`, padX + 2, avgLabelY);
+  }
+  if (targetLabelY !== null) {
+    ctx.textAlign = 'right';
+    ctx.fillText(`Target ${fmtNumber(targetValue)} ${trendMacro.unit}`, w - padX, targetLabelY);
+  }
+  ctx.restore();
 
   const tickCount = 4;
   ctx.save();
@@ -1762,7 +1809,7 @@ entriesByDayEl.addEventListener('click', async (event) => {
   }
 
   if (action === 'save') {
-    const row = target.closest('tr');
+    const row = target.closest('tr[data-entry-id]');
     if (!row) {
       return;
     }
@@ -1793,6 +1840,22 @@ entriesByDayEl.addEventListener('click', async (event) => {
     setActionBanner(error.message, 'error');
     }
   }
+});
+
+entriesByDayEl.addEventListener('input', (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) {
+    return;
+  }
+  if (target.dataset.field !== 'quantity') {
+    return;
+  }
+
+  const row = target.closest('tr[data-entry-id]');
+  if (!row) {
+    return;
+  }
+  syncEditMacrosWithQuantity(row, target);
 });
 
 
@@ -2245,7 +2308,7 @@ if (weightLogListEl) {
     }
 
     if (action === 'save') {
-      const row = target.closest('tr');
+      const row = target.closest('tr[data-weight-row-id]');
       if (!row) {
         return;
       }
