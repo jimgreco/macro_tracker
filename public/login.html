@@ -122,51 +122,13 @@
         <span class="login-brand-wordmark">MacroFlow</span>
       </div>
       <p>Continue with your Google account to use the app.</p>
-      <button class="google-btn" type="button" onclick="window.location.href='/auth/google'">
+      <button id="google-login-btn" class="google-btn" type="button">
         Continue with Google
       </button>
       <p id="error" class="error" hidden>Google sign-in failed. Please try again.</p>
       <p id="login-version" class="version" hidden></p>
     </main>
 
-    <script>
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('error')) {
-        document.getElementById('error').hidden = false;
-      }
-
-      (async () => {
-        try {
-          const res = await fetch('/version', { cache: 'no-store' });
-          if (!res.ok) {
-            return;
-          }
-          const data = await res.json();
-          const el = document.getElementById('login-version');
-          const build = String(data.appBuild || '').trim();
-          const startedAt = String(data.startedAt || '').trim();
-          if (!build && !startedAt) {
-            return;
-          }
-          let text = '';
-          if (build) {
-            text += `Build ${build}`;
-          }
-          if (startedAt) {
-            const ts = new Date(startedAt);
-            if (!Number.isNaN(ts.getTime())) {
-              text += (text ? ' • ' : '') + ts.toLocaleString();
-            }
-          }
-          if (!text) {
-            return;
-          }
-          el.textContent = text;
-          el.hidden = false;
-        } catch (_error) {
-          // Keep login UI clean if version fetch fails.
-        }
-      })();
-    </script>
+    <script src="/login.js"></script>
   </body>
 </html>

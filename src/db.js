@@ -1,19 +1,48 @@
+const fs = require('fs');
 const { Pool } = require('pg');
 
-const databaseUrl = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/macro_tracker';
+const isProduction = process.env.NODE_ENV === 'production';
+const databaseUrl = process.env.DATABASE_URL || (!isProduction ? 'postgres://postgres:postgres@localhost:5432/macro_tracker' : '');
 
 if (!databaseUrl) {
   throw new Error('DATABASE_URL is required for Postgres.');
 }
 
-const useSsl =
-  process.env.PGSSL === 'true' ||
-  process.env.NODE_ENV === 'production' ||
-  databaseUrl.includes('rds.amazonaws.com');
+function toBoolean(value, defaultValue) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  return defaultValue;
+}
+
+function buildSslConfig(connectionString) {
+  const useSsl =
+    process.env.PGSSL === 'true' ||
+    process.env.PGSSL === 'require' ||
+    isProduction ||
+    String(connectionString || '').includes('rds.amazonaws.com');
+
+  if (!useSsl) {
+    return undefined;
+  }
+
+  const rejectUnauthorized = toBoolean(process.env.PGSSL_REJECT_UNAUTHORIZED, true);
+  const ssl = { rejectUnauthorized };
+  const caInline = String(process.env.PGSSL_CA_CERT || '').trim();
+  const caFile = String(process.env.PGSSL_CA_FILE || '').trim();
+
+  if (caInline) {
+    ssl.ca = caInline;
+  } else if (caFile) {
+    ssl.ca = fs.readFileSync(caFile, 'utf8');
+  }
+
+  return ssl;
+}
 
 const pool = new Pool({
   connectionString: databaseUrl,
-  ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+  ssl: buildSslConfig(databaseUrl),
   max: Number(process.env.PG_POOL_MAX || 10)
 });
 

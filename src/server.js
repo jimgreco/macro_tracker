@@ -35,12 +35,116 @@ const port = Number(process.env.PORT) || 3000;
 app.set('trust proxy', 1);
 const appBuild = process.env.APP_BUILD || 'c24d664';
 const startedAtIso = new Date().toISOString();
+const isProduction = process.env.NODE_ENV === 'production';
 
 const sessionSecret = process.env.SESSION_SECRET || 'dev-session-secret-change-me';
 const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
 const oauthCallbackUrl =
   process.env.GOOGLE_CALLBACK_URL || `http://localhost:${port}/auth/google/callback`;
+
+if (isProduction && sessionSecret === 'dev-session-secret-change-me') {
+  throw new Error('SESSION_SECRET must be set to a strong value in production.');
+}
+
+function parsePositiveIntegerEnv(name, fallbackValue) {
+  const raw = Number(process.env[name]);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return fallbackValue;
+  }
+  return Math.floor(raw);
+}
+
+function getAllowedOrigins() {
+  const origins = new Set();
+  const appBaseUrl = String(process.env.APP_BASE_URL || '').trim();
+  if (appBaseUrl) {
+    try {
+      origins.add(new URL(appBaseUrl).origin);
+    } catch (error) {
+      // Ignore invalid APP_BASE_URL values.
+    }
+  }
+  if (!isProduction) {
+    origins.add(`http://localhost:${port}`);
+    origins.add('http://127.0.0.1:3000');
+  }
+  return origins;
+}
+
+const allowedOrigins = getAllowedOrigins();
+
+function securityHeaders(req, res, next) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+  if (isProduction) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+}
+
+function isAllowedSource(rawSource, req) {
+  if (!rawSource) return true;
+  try {
+    const origin = new URL(rawSource).origin;
+    if (allowedOrigins.size > 0 && allowedOrigins.has(origin)) {
+      return true;
+    }
+    const host = req.get('host');
+    if (host && origin === `${req.protocol}://${host}`) {
+      return true;
+    }
+    return false;
+  } catch (error) {
+    return false;
+  }
+}
+
+function enforceApiSource(req, res, next) {
+  const method = String(req.method || '').toUpperCase();
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    return next();
+  }
+
+  const origin = req.get('origin');
+  const referer = req.get('referer');
+  const source = origin || referer || '';
+  if (!isAllowedSource(source, req)) {
+    return res.status(403).json({ error: 'Forbidden request origin.' });
+  }
+  return next();
+}
+
+function createRateLimiter({ windowMs, maxRequests }) {
+  const hits = new Map();
+
+  return (req, res, next) => {
+    const now = Date.now();
+    const key = `${req.ip}:${req.path}`;
+    const current = hits.get(key);
+
+    if (!current || now > current.expiresAt) {
+      hits.set(key, { count: 1, expiresAt: now + windowMs });
+      return next();
+    }
+
+    current.count += 1;
+    if (current.count > maxRequests) {
+      const retryAfterSeconds = Math.ceil((current.expiresAt - now) / 1000);
+      res.setHeader('Retry-After', String(Math.max(retryAfterSeconds, 1)));
+      return res.status(429).json({ error: 'Too many requests. Please retry shortly.' });
+    }
+
+    return next();
+  };
+}
+
+app.use(securityHeaders);
 
 
 
@@ -74,16 +178,17 @@ if (googleClientId && googleClientSecret) {
 app.use(express.json({ limit: '10mb' }));
 app.use(
   session({
+    name: isProduction ? '__Host-macro.sid' : 'macro.sid',
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     rolling: true,
+    proxy: isProduction,
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      // Effectively no timeout for normal usage (~30 years).
-      maxAge: 1000 * 60 * 60 * 24 * 365 * 30
+      secure: isProduction,
+      maxAge: 1000 * 60 * 60 * 24 * parsePositiveIntegerEnv('SESSION_TTL_DAYS', 30)
     }
   })
 );
@@ -220,6 +325,12 @@ app.get('/login', (req, res) => {
   return res.sendFile(path.join(process.cwd(), 'public', 'login.html'));
 });
 
+app.get('/login.js', (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'login.js'));
+});
+
+app.use('/auth', createRateLimiter({ windowMs: 15 * 60 * 1000, maxRequests: 30 }));
+
 app.get('/auth/google', (req, res, next) => {
   if (!isAuthConfigured()) {
     return res.status(500).send('Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.');
@@ -273,6 +384,8 @@ app.get('/api/version', (req, res) => {
 });
 
 app.use('/api', requireAuth);
+app.use('/api', enforceApiSource);
+app.use('/api/parse-meal', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 15 }));
 
 app.post('/api/parse-meal', async (req, res) => {
   let hasImage = false;
