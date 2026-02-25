@@ -74,6 +74,8 @@ const trendMacroCards = Array.from(document.querySelectorAll('.trend-macro-card'
 const macroProgressCards = Array.from(document.querySelectorAll('.macro-progress-card'));
 const trendCanvasEl = document.getElementById('trend-canvas');
 const trendTooltipEl = document.getElementById('trend-tooltip');
+const trendAverageValueEl = document.getElementById('trend-average-value');
+const trendTargetValueEl = document.getElementById('trend-target-value');
 const entriesByDayEl = document.getElementById('entries-by-day');
 const entriesPrevDayBtnEl = document.getElementById('entries-prev-day-btn');
 const entriesNextDayBtnEl = document.getElementById('entries-next-day-btn');
@@ -189,7 +191,7 @@ let macroTargetBound = false;
 
 function getTrendMacroConfig(macro = state.selectedTrendMacro) {
   const configs = {
-    calories: { label: 'Calories', unit: 'kcal' },
+    calories: { label: 'Calories', unit: 'cal' },
     protein: { label: 'Protein', unit: 'g' },
     carbs: { label: 'Carbs', unit: 'g' },
     fat: { label: 'Fat', unit: 'g' }
@@ -1138,6 +1140,15 @@ function formatScaledMacroValue(value) {
   return (Math.round(value * 100) / 100).toString();
 }
 
+function updateTrendLegend(average, hasAverage, targetValue, hasTarget, unit) {
+  if (trendAverageValueEl) {
+    trendAverageValueEl.textContent = hasAverage ? `${fmtNumber(average)} ${unit}` : 'none';
+  }
+  if (trendTargetValueEl) {
+    trendTargetValueEl.textContent = hasTarget ? `${fmtNumber(targetValue)} ${unit}` : 'none';
+  }
+}
+
 function syncEditMacrosWithQuantity(row, quantityInput) {
   if (!row || !quantityInput) {
     return;
@@ -1165,6 +1176,8 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   if (!trendCanvasEl) {
     return;
   }
+  const targetLineColor = 'rgba(231, 122, 49, 0.95)';
+  const averageLineColor = 'rgba(10, 138, 102, 0.95)';
   const cssWidth = Math.max(1, Math.floor(trendCanvasEl.clientWidth || 0));
   const cssHeight = 120;
   if (cssWidth > 0 && (trendCanvasEl.width !== cssWidth || trendCanvasEl.height !== cssHeight)) {
@@ -1219,7 +1232,7 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
     ctx.setLineDash([5, 4]);
     ctx.moveTo(padX, targetY);
     ctx.lineTo(w - padX, targetY);
-    ctx.strokeStyle = 'rgba(231, 122, 49, 0.9)';
+    ctx.strokeStyle = targetLineColor;
     ctx.lineWidth = 1.6;
     ctx.stroke();
     ctx.setLineDash([]);
@@ -1256,8 +1269,10 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   // Show a horizontal weekly average line using days that have logged data.
   let avgY = null;
   let average = 0;
+  let hasAverage = false;
   const trendSource = points.filter((p) => p.hasData);
   if (trendSource.length >= 1) {
+    hasAverage = true;
     average = trendSource.reduce((sum, point) => sum + point.value, 0) / trendSource.length;
     avgY = padY + ((max - average) / range) * usableH;
 
@@ -1266,37 +1281,13 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
     ctx.setLineDash([5, 4]);
     ctx.moveTo(padX, avgY);
     ctx.lineTo(w - padX, avgY);
-    ctx.strokeStyle = 'rgba(231, 122, 49, 0.95)';
+    ctx.strokeStyle = averageLineColor;
     ctx.lineWidth = 1.8;
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
   }
-
-  const minLabelY = 12;
-  const maxLabelY = h - 2;
-  let targetLabelY = targetY === null ? null : Math.min(maxLabelY, Math.max(minLabelY, targetY - 3));
-  let avgLabelY = avgY === null ? null : Math.min(maxLabelY, Math.max(minLabelY, avgY - 3));
-  if (targetLabelY !== null && avgLabelY !== null) {
-    const minGap = 12;
-    if (Math.abs(targetLabelY - avgLabelY) < minGap) {
-      avgLabelY = Math.min(maxLabelY, avgLabelY + minGap);
-    }
-  }
-
-  ctx.save();
-  ctx.fillStyle = 'rgba(231, 122, 49, 0.95)';
-  ctx.font = '11px system-ui, -apple-system, sans-serif';
-  ctx.textBaseline = 'bottom';
-  if (avgLabelY !== null) {
-    ctx.textAlign = 'left';
-    ctx.fillText(`Avg ${fmtNumber(average)} ${trendMacro.unit}`, padX + 2, avgLabelY);
-  }
-  if (targetLabelY !== null) {
-    ctx.textAlign = 'right';
-    ctx.fillText(`Target ${fmtNumber(targetValue)} ${trendMacro.unit}`, w - padX, targetLabelY);
-  }
-  ctx.restore();
+  updateTrendLegend(average, hasAverage, targetValue, targetValue > 0, trendMacro.unit);
 
   const tickCount = 4;
   ctx.save();

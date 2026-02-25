@@ -187,6 +187,16 @@
             <div class="trend-wrap">
               <canvas id="trend-canvas" height="120" aria-label="7-day calorie trend"></canvas>
               <div id="trend-tooltip" class="trend-tooltip" hidden></div>
+              <div class="trend-legend" aria-live="polite">
+                <span class="trend-legend-item">
+                  <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
+                  Average: <span id="trend-average-value">none</span>
+                </span>
+                <span class="trend-legend-item">
+                  <span class="trend-legend-swatch trend-legend-swatch-target" aria-hidden="true"></span>
+                  Target: <span id="trend-target-value">none</span>
+                </span>
+              </div>
             </div>
 
             <div id="weekly-avg-cards" class="cards stats-cards avg-cards" aria-label="Weekly running average macros">
