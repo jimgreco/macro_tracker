@@ -263,6 +263,12 @@
           <h2>Weekly Snapshot</h2>
           <div class="trend-wrap">
             <canvas id="weight-canvas" height="130" aria-label="Weekly weight trend graph"></canvas>
+            <div class="trend-legend" aria-live="polite">
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
+                Average: <span id="weight-average-value">none</span>
+              </span>
+            </div>
           </div>
         </section>
       </section>
@@ -296,6 +302,16 @@
                   <tr>
                     <th><label for="workout-calories">Calories</label></th>
                     <td><input id="workout-calories" type="number" step="1" min="0" value="0" /></td>
+                  </tr>
+                  <tr>
+                    <th><label for="workout-intensity">Intensity</label></th>
+                    <td>
+                      <select id="workout-intensity">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </td>
                   </tr>
                 </tbody>
               </table>

@@ -104,11 +104,17 @@ async function initDb() {
       id BIGSERIAL PRIMARY KEY,
       user_id TEXT NOT NULL,
       description TEXT NOT NULL,
+      intensity TEXT NOT NULL DEFAULT 'medium',
       duration_hours DOUBLE PRECISION NOT NULL,
       calories_burned DOUBLE PRECISION NOT NULL,
       logged_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE workout_entries
+      ADD COLUMN IF NOT EXISTS intensity TEXT NOT NULL DEFAULT 'medium';
   `);
 
   await pool.query(`
@@ -528,6 +534,17 @@ function parseScopeDays(scope) {
   return 7;
 }
 
+function normalizeWorkoutIntensity(intensity) {
+  const normalized = String(intensity || '').trim().toLowerCase();
+  if (!normalized) {
+    return 'medium';
+  }
+  if (!['low', 'medium', 'high'].includes(normalized)) {
+    throw new Error('Workout intensity must be low, medium, or high.');
+  }
+  return normalized;
+}
+
 async function addWeightEntry(userId, payload) {
   const rawWeight = String(payload.weight ?? '').trim().replace(',', '.');
   const weight = Number(rawWeight);
@@ -600,6 +617,7 @@ async function addWorkoutEntry(userId, payload) {
   if (!description) {
     throw new Error('Workout description is required.');
   }
+  const intensity = normalizeWorkoutIntensity(payload.intensity);
   const durationHours = Number(payload.durationHours);
   const caloriesBurned = Number(payload.caloriesBurned);
   if (!Number.isFinite(durationHours) || durationHours <= 0) {
@@ -614,9 +632,9 @@ async function addWorkoutEntry(userId, payload) {
   }
 
   await pool.query(
-    `INSERT INTO workout_entries (user_id, description, duration_hours, calories_burned, logged_at)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [userId, description, durationHours, caloriesBurned, loggedAt]
+    `INSERT INTO workout_entries (user_id, description, intensity, duration_hours, calories_burned, logged_at)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [userId, description, intensity, durationHours, caloriesBurned, loggedAt]
   );
 }
 
@@ -625,6 +643,7 @@ async function updateWorkoutEntry(userId, id, payload) {
   if (!description) {
     throw new Error('Workout description is required.');
   }
+  const intensity = normalizeWorkoutIntensity(payload.intensity);
   const durationHours = Number(payload.durationHours);
   const caloriesBurned = Number(payload.caloriesBurned);
   if (!Number.isFinite(durationHours) || durationHours <= 0) {
@@ -641,11 +660,12 @@ async function updateWorkoutEntry(userId, id, payload) {
   const result = await pool.query(
     `UPDATE workout_entries
      SET description = $3,
-         duration_hours = $4,
-         calories_burned = $5,
-         logged_at = $6
+         intensity = $4,
+         duration_hours = $5,
+         calories_burned = $6,
+         logged_at = $7
      WHERE user_id = $1 AND id = $2`,
-    [userId, id, description, durationHours, caloriesBurned, loggedAt]
+    [userId, id, description, intensity, durationHours, caloriesBurned, loggedAt]
   );
 
   return result.rowCount;
@@ -653,7 +673,7 @@ async function updateWorkoutEntry(userId, id, payload) {
 
 async function listWorkoutEntries(userId) {
   const rowsResult = await pool.query(
-    `SELECT id, description, duration_hours AS "durationHours", calories_burned AS "caloriesBurned", logged_at AS "loggedAt"
+    `SELECT id, description, intensity, duration_hours AS "durationHours", calories_burned AS "caloriesBurned", logged_at AS "loggedAt"
      FROM workout_entries
      WHERE user_id = $1
      ORDER BY logged_at DESC, id DESC
@@ -676,6 +696,7 @@ async function listWorkoutEntries(userId) {
     entries: rowsResult.rows.map((row) => ({
       id: Number(row.id),
       description: row.description,
+      intensity: normalizeWorkoutIntensity(row.intensity),
       durationHours: Number(row.durationHours || 0),
       caloriesBurned: Number(row.caloriesBurned || 0),
       loggedAt: new Date(row.loggedAt).toISOString()

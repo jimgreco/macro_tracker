@@ -27,7 +27,7 @@ const {
   updateWorkoutEntry,
   listWorkoutEntries
 } = require('./db');
-const { parseMealText } = require('./parser');
+const { parseMealText, parseWorkoutText } = require('./parser');
 const packageJson = require('../package.json');
 
 const app = express();
@@ -386,6 +386,7 @@ app.get('/api/version', (req, res) => {
 app.use('/api', requireAuth);
 app.use('/api', enforceApiSource);
 app.use('/api/parse-meal', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 15 }));
+app.use('/api/parse-workout', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30 }));
 
 app.post('/api/parse-meal', async (req, res) => {
   let hasImage = false;
@@ -456,6 +457,21 @@ app.post('/api/parse-meal', async (req, res) => {
       });
     }
     res.status(400).json({ error: error.message });
+  }
+});
+
+
+app.post('/api/parse-workout', async (req, res) => {
+  try {
+    const text = typeof req.body?.text === 'string' ? req.body.text : '';
+    if (!text.trim()) {
+      return res.status(400).json({ error: 'Add a workout description first.' });
+    }
+
+    const parsed = await parseWorkoutText({ text });
+    return res.json(parsed);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
   }
 });
 

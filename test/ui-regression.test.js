@@ -68,3 +68,13 @@ test('weight entries support inline edit and delete actions', () => {
   assert.equal(server.includes("app.post('/api/weights/:id/delete'"), true);
   assert.equal(server.includes("app.post('/api/weights/delete'"), true);
 });
+
+
+test('workout parser uses server endpoint with local fallback', () => {
+  const script = read('public/script.js');
+  const server = read('src/server.js');
+
+  assert.equal(script.includes("/api/parse-workout"), true);
+  assert.equal(script.includes('Used fallback workout parsing'), true);
+  assert.equal(server.includes("app.post('/api/parse-workout'"), true);
+});

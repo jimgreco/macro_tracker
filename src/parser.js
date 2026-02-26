@@ -175,6 +175,197 @@ async function parseMealText({ text, consumedAt, imageDataUrl }) {
   }
 }
 
+
+function normalizeWorkoutDescription(text) {
+  return String(text || '')
+    .replace(/\bwork\s*out\b/gi, 'workout')
+    .replace(/\b(?:high|low|medium|moderate|intense|intensity|vigorous|light|easy|recovery|hiit)\b/gi, ' ')
+    .replace(/\b(?:workout|training|session)\b/gi, ' ')
+    .replace(/\bof\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeWorkoutIntensity(intensity, fallback = 'medium') {
+  const normalized = String(intensity || '').trim().toLowerCase();
+  if (['low', 'medium', 'high'].includes(normalized)) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function parseWorkoutIntensityFallback(text) {
+  const lower = String(text || '').toLowerCase();
+  if (/\b(high|vigorous|intense|hiit)\b/.test(lower)) {
+    return 'high';
+  }
+  if (/\b(low|light|easy|recovery)\b/.test(lower)) {
+    return 'low';
+  }
+  if (/\b(medium|moderate)\b/.test(lower)) {
+    return 'medium';
+  }
+  return 'medium';
+}
+
+function parseWorkoutInputFallback(text) {
+  const raw = String(text || '').trim();
+  if (!raw) {
+    return { description: '', durationHours: 1 };
+  }
+
+  let durationHours = 0;
+  let description = raw;
+
+  const leadingHoursWithUnit = raw.match(/^(\d+(?:\.\d+)?)\s*(?:h|hr|hour)s?\b\s+(.+)$/i);
+  if (leadingHoursWithUnit) {
+    const parsedHours = Number(leadingHoursWithUnit[1]);
+    if (Number.isFinite(parsedHours) && parsedHours > 0) {
+      durationHours = parsedHours;
+      description = leadingHoursWithUnit[2];
+    }
+  }
+
+  const leadingMinutesWithUnit = raw.match(/^(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute)s?\b\s+(.+)$/i);
+  if (leadingMinutesWithUnit) {
+    const parsedMinutes = Number(leadingMinutesWithUnit[1]);
+    if (!durationHours && Number.isFinite(parsedMinutes) && parsedMinutes > 0) {
+      durationHours = parsedMinutes / 60;
+      description = leadingMinutesWithUnit[2];
+    }
+  }
+
+  const leadingHours = raw.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
+  if (leadingHours) {
+    const parsedHours = Number(leadingHours[1]);
+    if (!durationHours && Number.isFinite(parsedHours) && parsedHours > 0 && parsedHours <= 12) {
+      durationHours = parsedHours;
+      description = leadingHours[2];
+    }
+  }
+
+  if (!durationHours) {
+    const inlineHours = raw.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hour)s?\b/i);
+    if (inlineHours) {
+      const parsedHours = Number(inlineHours[1]);
+      if (Number.isFinite(parsedHours) && parsedHours > 0) {
+        durationHours = parsedHours;
+        description = raw.replace(inlineHours[0], ' ');
+      }
+    }
+  }
+
+  if (!durationHours) {
+    const inlineMinutes = raw.match(/(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute)s?\b/i);
+    if (inlineMinutes) {
+      const parsedMinutes = Number(inlineMinutes[1]);
+      if (Number.isFinite(parsedMinutes) && parsedMinutes > 0) {
+        durationHours = parsedMinutes / 60;
+        description = raw.replace(inlineMinutes[0], ' ');
+      }
+    }
+  }
+
+  if (!durationHours) {
+    durationHours = 1;
+  }
+
+  const normalizedDescription = normalizeWorkoutDescription(description || raw);
+  return {
+    description: normalizedDescription || normalizeWorkoutDescription(raw) || 'General',
+    durationHours
+  };
+}
+
+function estimateWorkoutCalories(text, hours) {
+  const lower = String(text || '').toLowerCase();
+  if (lower.includes('run') || lower.includes('cycling') || lower.includes('bike')) {
+    return Math.round(hours * 650);
+  }
+  if (lower.includes('lift') || lower.includes('strength')) {
+    return Math.round(hours * 420);
+  }
+  return Math.round(hours * 500);
+}
+
+function sanitizeWorkoutParse(parsed, rawText) {
+  const fallback = parseWorkoutInputFallback(rawText);
+  const description = normalizeWorkoutDescription(parsed?.description || fallback.description || rawText) || 'General';
+  const intensity = normalizeWorkoutIntensity(parsed?.intensity, parseWorkoutIntensityFallback(rawText));
+
+  const rawHours = Number(parsed?.durationHours);
+  let durationHours = Number.isFinite(rawHours) && rawHours > 0 ? rawHours : fallback.durationHours;
+  durationHours = Math.max(0.1, Math.min(12, durationHours));
+  durationHours = Math.round(durationHours * 100) / 100;
+
+  const rawCalories = Number(parsed?.caloriesBurned);
+  const caloriesBurned = Number.isFinite(rawCalories) && rawCalories >= 0
+    ? Math.round(rawCalories)
+    : estimateWorkoutCalories(description, durationHours);
+
+  return {
+    description,
+    intensity,
+    durationHours,
+    caloriesBurned
+  };
+}
+
+async function parseWorkoutText({ text }) {
+  const normalizedText = String(text || '').trim();
+  if (!normalizedText) {
+    throw new Error('Workout text is required.');
+  }
+
+  if (!hasApiKey()) {
+    return sanitizeWorkoutParse({}, normalizedText);
+  }
+
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const response = await client.responses.create({
+    model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+    input: [
+      {
+        role: 'system',
+        content: 'You extract structured workout logs from natural language. Return strict JSON only. Infer description, intensity, total duration in hours, and estimated calories burned. Allowed intensity values are low, medium, high. Use medium if not provided. Parse minute inputs correctly (e.g., 45 min = 0.75 hours). Keep durationHours realistic between 0.1 and 12. Description should be only the activity/focus and must omit intensity words plus generic words like workout, training, or session.'
+      },
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: normalizedText }]
+      }
+    ],
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'workout_parse',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['description', 'intensity', 'durationHours', 'caloriesBurned'],
+          properties: {
+            description: { type: 'string' },
+            intensity: { type: 'string', enum: ['low', 'medium', 'high'] },
+            durationHours: { type: 'number' },
+            caloriesBurned: { type: 'number' }
+          }
+        }
+      }
+    }
+  });
+
+  const content = response.output_text || '{}';
+  let parsed = {};
+  try {
+    parsed = JSON.parse(content);
+  } catch (_error) {
+    parsed = {};
+  }
+
+  return sanitizeWorkoutParse(parsed, normalizedText);
+}
+
 module.exports = {
-  parseMealText
+  parseMealText,
+  parseWorkoutText
 };

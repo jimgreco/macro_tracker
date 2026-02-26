@@ -14,7 +14,9 @@ const state = {
   selectedPage: 'macros',
   weightEditingEntryId: null,
   workoutEditingEntryId: null,
-  pendingWorkout: null
+  pendingWorkout: null,
+  weightChartRows: [],
+  workoutChartRows: []
 };
 
 const mealTextEl = document.getElementById('meal-text');
@@ -101,6 +103,7 @@ const weightValueEl = document.getElementById('weight-value');
 const saveWeightBtnEl = document.getElementById('save-weight-btn');
 const weightNoteEl = document.getElementById('weight-note');
 const weightCanvasEl = document.getElementById('weight-canvas');
+const weightAverageValueEl = document.getElementById('weight-average-value');
 const weightLogListEl = document.getElementById('weight-log-list');
 const workoutTextEl = document.getElementById('workout-text');
 const parseWorkoutBtnEl = document.getElementById('parse-workout-btn');
@@ -108,6 +111,7 @@ const workoutEditorEl = document.getElementById('workout-editor');
 const workoutDescriptionEl = document.getElementById('workout-description');
 const workoutHoursEl = document.getElementById('workout-hours');
 const workoutCaloriesEl = document.getElementById('workout-calories');
+const workoutIntensityEl = document.getElementById('workout-intensity');
 const workoutLoggedAtEl = document.getElementById('workout-logged-at');
 const saveWorkoutBtnEl = document.getElementById('save-workout-btn');
 const workoutQuickListEl = document.getElementById('workout-quick-list');
@@ -188,6 +192,8 @@ let trendInteractionsBound = false;
 let trendResizeBound = false;
 let trendMacroBound = false;
 let macroTargetBound = false;
+let pageChartsResizeBound = false;
+let pageChartsResizeTimer = null;
 
 function getTrendMacroConfig(macro = state.selectedTrendMacro) {
   const configs = {
@@ -1891,13 +1897,14 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   const yTickCount = Math.max(2, Number(options.yTickCount || 4));
   const showTrendLine = options.showTrendLine !== false;
   const trendLineMode = options.trendLineMode === 'average' ? 'average' : 'regression';
+  const averageValueEl = options.averageValueEl || null;
   const dpr = window.devicePixelRatio || 1;
   const width = Math.max(
     200,
     Math.floor(canvasEl.clientWidth || canvasEl.parentElement?.clientWidth || 0)
   );
   const height = 130;
-  canvasEl.style.width = `${width}px`;
+  canvasEl.style.width = '100%';
   canvasEl.style.height = `${height}px`;
   canvasEl.width = width * dpr;
   canvasEl.height = height * dpr;
@@ -1905,6 +1912,9 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   ctx.clearRect(0, 0, width, height);
 
   if (!rows.length) {
+    if (averageValueEl) {
+      averageValueEl.textContent = 'none';
+    }
     ctx.fillStyle = '#6e819e';
     ctx.font = '13px sans-serif';
     ctx.fillText('No data yet', 12, 24);
@@ -1989,15 +1999,19 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
       ctx.setLineDash([5, 4]);
       ctx.moveTo(pad.left, avgY);
       ctx.lineTo(pad.left + plotW, avgY);
-      ctx.strokeStyle = 'rgba(231, 122, 49, 0.95)';
+      ctx.strokeStyle = 'rgba(10, 138, 102, 0.95)';
       ctx.lineWidth = 1.8;
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = 'rgba(231, 122, 49, 0.95)';
-      ctx.font = '11px system-ui, -apple-system, sans-serif';
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(`Avg ${fmtNumber(average)}`, width - pad.right, Math.max(12, avgY - 3));
+      if (averageValueEl) {
+        averageValueEl.textContent = fmtNumber(average);
+      } else {
+        ctx.fillStyle = 'rgba(10, 138, 102, 0.95)';
+        ctx.font = '11px system-ui, -apple-system, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(`Avg ${fmtNumber(average)}`, width - pad.right, Math.max(12, avgY - 3));
+      }
       ctx.restore();
       return;
     }
@@ -2041,6 +2055,10 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
     }
   }
 
+  if (averageValueEl) {
+    averageValueEl.textContent = 'none';
+  }
+
   if (showXAxisLabels) {
     ctx.fillStyle = '#6e819e';
     ctx.font = '11px sans-serif';
@@ -2049,6 +2067,44 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
     ctx.fillText(String(rows[rows.length - 1][labelKey] || ''), width - pad.right, height - 6);
     ctx.textAlign = 'left';
   }
+}
+
+function renderWeightChart() {
+  drawSimpleLineChart(weightCanvasEl, state.weightChartRows, 'label', 'value', {
+    baseline: 'range',
+    showYAxis: true,
+    showXAxisLabels: false,
+    yTickCount: 4,
+    showTrendLine: true,
+    trendLineMode: 'average',
+    averageValueEl: weightAverageValueEl
+  });
+}
+
+function renderWorkoutChart() {
+  drawSimpleLineChart(workoutCanvasEl, state.workoutChartRows, 'label', 'value');
+}
+
+function bindPageChartsResize() {
+  if (pageChartsResizeBound) {
+    return;
+  }
+
+  window.addEventListener('resize', () => {
+    if (pageChartsResizeTimer) {
+      window.clearTimeout(pageChartsResizeTimer);
+    }
+    pageChartsResizeTimer = window.setTimeout(() => {
+      pageChartsResizeTimer = null;
+      if (state.selectedPage === 'weight') {
+        renderWeightChart();
+      } else if (state.selectedPage === 'workout') {
+        renderWorkoutChart();
+      }
+    }, 80);
+  });
+
+  pageChartsResizeBound = true;
 }
 
 function renderWeightReadOnlyRow(entry) {
@@ -2090,9 +2146,11 @@ function renderWeightEditRow(entry) {
 function renderWorkoutReadOnlyRow(entry) {
   const loggedAt = new Date(entry.loggedAt);
   const dateText = loggedAt.toLocaleDateString();
+  const intensity = normalizeWorkoutIntensity(entry.intensity);
   return `
     <td data-label="Dt">${dateText}</td>
     <td data-label="Desc">${entry.description}</td>
+    <td data-label="Int">${intensity}</td>
     <td data-label="Dur">${fmtNumber(entry.durationHours)} hr</td>
     <td data-label="Cal">${fmtNumber(entry.caloriesBurned)}</td>
     <td data-label="Act">
@@ -2105,12 +2163,23 @@ function renderWorkoutReadOnlyRow(entry) {
 
 function renderWorkoutEditRow(entry) {
   const loggedAtDate = new Date(entry.loggedAt).toISOString().slice(0, 10);
+  const intensity = normalizeWorkoutIntensity(entry.intensity);
   return `
-    <td data-label="Edit" colspan="5">
+    <td data-label="Edit" colspan="6">
       <table class="edit-vertical-table">
         <tbody>
           <tr><th>Date</th><td><input type="date" data-workout-field="loggedAtDate" value="${loggedAtDate}" /></td></tr>
           <tr><th>Description</th><td><input data-workout-field="description" value="${entry.description}" /></td></tr>
+          <tr>
+            <th>Intensity</th>
+            <td>
+              <select data-workout-field="intensity">
+                <option value="low" ${intensity === 'low' ? 'selected' : ''}>Low</option>
+                <option value="medium" ${intensity === 'medium' ? 'selected' : ''}>Medium</option>
+                <option value="high" ${intensity === 'high' ? 'selected' : ''}>High</option>
+              </select>
+            </td>
+          </tr>
           <tr><th>Hours</th><td><input type="number" step="0.25" min="0" data-workout-field="durationHours" value="${entry.durationHours}" data-base-duration-hours="${entry.durationHours}" data-base-calories-burned="${entry.caloriesBurned}" /></td></tr>
           <tr><th>Calories</th><td><input type="number" step="1" min="0" data-workout-field="caloriesBurned" value="${entry.caloriesBurned}" /></td></tr>
           <tr>
@@ -2187,14 +2256,8 @@ async function refreshWeightData() {
       label: new Date(entry.loggedAt).toLocaleDateString(),
       value: Number(entry.weight || 0)
     }));
-    drawSimpleLineChart(weightCanvasEl, sorted, 'label', 'value', {
-      baseline: 'range',
-      showYAxis: true,
-      showXAxisLabels: false,
-      yTickCount: 4,
-      showTrendLine: true,
-      trendLineMode: 'average'
-    });
+    state.weightChartRows = sorted;
+    renderWeightChart();
   } catch (error) {
     weightNoteEl.textContent = error.message;
   }
@@ -2254,15 +2317,40 @@ function estimateWorkoutCalories(text, hours) {
 function normalizeWorkoutDescription(text) {
   const cleaned = String(text || '')
     .replace(/\bwork\s*out\b/gi, 'workout')
+    .replace(/\b(?:high|low|medium|moderate|intense|intensity|vigorous|light|easy|recovery|hiit)\b/gi, ' ')
+    .replace(/\b(?:workout|training|session)\b/gi, ' ')
+    .replace(/\bof\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return cleaned;
 }
 
+function normalizeWorkoutIntensity(intensity, fallback = 'medium') {
+  const normalized = String(intensity || '').trim().toLowerCase();
+  if (normalized === 'low' || normalized === 'medium' || normalized === 'high') {
+    return normalized;
+  }
+  return fallback;
+}
+
+function parseWorkoutIntensity(text) {
+  const lower = String(text || '').toLowerCase();
+  if (/\b(high|vigorous|intense|hiit)\b/.test(lower)) {
+    return 'high';
+  }
+  if (/\b(low|light|easy|recovery)\b/.test(lower)) {
+    return 'low';
+  }
+  if (/\b(medium|moderate)\b/.test(lower)) {
+    return 'medium';
+  }
+  return 'medium';
+}
+
 function parseWorkoutInput(text) {
   const raw = String(text || '').trim();
   if (!raw) {
-    return { description: '', durationHours: 1 };
+    return { description: '', intensity: 'medium', durationHours: 1 };
   }
 
   let durationHours = 0;
@@ -2278,10 +2366,20 @@ function parseWorkoutInput(text) {
     }
   }
 
+  // Pattern: "45 minute chest workout"
+  const leadingMinutesWithUnit = raw.match(/^(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute)s?\b\s+(.+)$/i);
+  if (leadingMinutesWithUnit) {
+    const parsedMinutes = Number(leadingMinutesWithUnit[1]);
+    if (!durationHours && Number.isFinite(parsedMinutes) && parsedMinutes > 0) {
+      durationHours = parsedMinutes / 60;
+      description = leadingMinutesWithUnit[2];
+    }
+  }
+
   const leadingHours = raw.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
   if (leadingHours) {
     const parsedHours = Number(leadingHours[1]);
-    if (!durationHours && Number.isFinite(parsedHours) && parsedHours > 0) {
+    if (!durationHours && Number.isFinite(parsedHours) && parsedHours > 0 && parsedHours <= 12) {
       durationHours = parsedHours;
       description = leadingHours[2];
     }
@@ -2300,12 +2398,24 @@ function parseWorkoutInput(text) {
   }
 
   if (!durationHours) {
+    const inlineMinutes = raw.match(/(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute)s?\b/i);
+    if (inlineMinutes) {
+      const parsedMinutes = Number(inlineMinutes[1]);
+      if (Number.isFinite(parsedMinutes) && parsedMinutes > 0) {
+        durationHours = parsedMinutes / 60;
+        description = raw.replace(inlineMinutes[0], ' ');
+      }
+    }
+  }
+
+  if (!durationHours) {
     durationHours = 1;
   }
 
   const normalizedDescription = normalizeWorkoutDescription(description || raw);
   return {
-    description: normalizedDescription || normalizeWorkoutDescription(raw),
+    description: normalizedDescription || normalizeWorkoutDescription(raw) || 'General',
+    intensity: parseWorkoutIntensity(raw),
     durationHours
   };
 }
@@ -2322,7 +2432,7 @@ function renderWorkoutQuickAdds(entries) {
     if (map.size >= 6) break;
   }
   const quickItems = Array.from(map.values());
-  workoutQuickListEl.innerHTML = quickItems.map((item) => `<button type="button" class="chip-action" data-workout-quick='${JSON.stringify({description:item.description,durationHours:item.durationHours,caloriesBurned:item.caloriesBurned}).replace(/'/g, '&apos;')}' >${item.description}</button>`).join('') || '<p class="empty-note">No quick workouts yet.</p>';
+  workoutQuickListEl.innerHTML = quickItems.map((item) => `<button type="button" class="chip-action" data-workout-quick='${JSON.stringify({description:item.description,intensity:normalizeWorkoutIntensity(item.intensity),durationHours:item.durationHours,caloriesBurned:item.caloriesBurned}).replace(/'/g, '&apos;')}' >${item.description}</button>`).join('') || '<p class="empty-note">No quick workouts yet.</p>';
 }
 
 async function refreshWorkoutData() {
@@ -2341,6 +2451,7 @@ async function refreshWorkoutData() {
             <tr>
               <th>Dt</th>
               <th>Desc</th>
+              <th>Int</th>
               <th>Dur</th>
               <th>Cal</th>
               <th>Act</th>
@@ -2360,7 +2471,8 @@ async function refreshWorkoutData() {
 
     renderWorkoutQuickAdds(entries);
     const chartRows = dailyCalories.map((row) => ({ label: row.day, value: row.calories }));
-    drawSimpleLineChart(workoutCanvasEl, chartRows, 'label', 'value');
+    state.workoutChartRows = chartRows;
+    renderWorkoutChart();
   } catch (error) {
     setActionBanner(error.message, 'error');
   }
@@ -2491,24 +2603,48 @@ if (weightLogListEl) {
 }
 
 if (parseWorkoutBtnEl) {
-  parseWorkoutBtnEl.addEventListener('click', () => {
+  parseWorkoutBtnEl.addEventListener('click', async () => {
     const text = String(workoutTextEl?.value || '').trim();
     if (!text) {
       setActionBanner('Add a workout description first.', 'error');
       return;
     }
-    const parsed = parseWorkoutInput(text);
-    const estimatedCalories = estimateWorkoutCalories(parsed.description, parsed.durationHours);
-    state.pendingWorkout = {
-      description: parsed.description,
-      durationHours: parsed.durationHours,
-      caloriesBurned: estimatedCalories
-    };
-    if (workoutDescriptionEl) workoutDescriptionEl.value = state.pendingWorkout.description;
-    if (workoutHoursEl) workoutHoursEl.value = String(state.pendingWorkout.durationHours);
-    if (workoutCaloriesEl) workoutCaloriesEl.value = String(state.pendingWorkout.caloriesBurned);
-    if (workoutEditorEl) workoutEditorEl.hidden = false;
-    if (saveWorkoutBtnEl) saveWorkoutBtnEl.disabled = false;
+
+    parseWorkoutBtnEl.disabled = true;
+    try {
+      let parsed;
+      try {
+        parsed = await api('/api/parse-workout', {
+          method: 'POST',
+          body: JSON.stringify({ text })
+        });
+      } catch (_error) {
+        const fallback = parseWorkoutInput(text);
+        parsed = {
+          description: fallback.description,
+          intensity: fallback.intensity,
+          durationHours: fallback.durationHours,
+          caloriesBurned: estimateWorkoutCalories(fallback.description, fallback.durationHours)
+        };
+        setActionBanner('Used fallback workout parsing. You can edit values before saving.', 'info');
+      }
+
+      state.pendingWorkout = {
+        description: String(parsed.description || '').trim(),
+        intensity: normalizeWorkoutIntensity(parsed.intensity),
+        durationHours: Number(parsed.durationHours || 1),
+        caloriesBurned: Number(parsed.caloriesBurned || 0)
+      };
+
+      if (workoutDescriptionEl) workoutDescriptionEl.value = state.pendingWorkout.description;
+      if (workoutHoursEl) workoutHoursEl.value = String(state.pendingWorkout.durationHours);
+      if (workoutCaloriesEl) workoutCaloriesEl.value = String(state.pendingWorkout.caloriesBurned);
+      if (workoutIntensityEl) workoutIntensityEl.value = state.pendingWorkout.intensity;
+      if (workoutEditorEl) workoutEditorEl.hidden = false;
+      if (saveWorkoutBtnEl) saveWorkoutBtnEl.disabled = false;
+    } finally {
+      parseWorkoutBtnEl.disabled = false;
+    }
   });
 }
 
@@ -2527,6 +2663,7 @@ if (saveWorkoutBtnEl) {
         method: 'POST',
         body: JSON.stringify({
           description: String(workoutDescriptionEl?.value || '').trim(),
+          intensity: normalizeWorkoutIntensity(workoutIntensityEl?.value),
           durationHours: Number(workoutHoursEl?.value || 1),
           caloriesBurned: Number(workoutCaloriesEl?.value || 0),
           loggedAt: asIso(workoutLoggedAtEl?.value || toDateTimeLocalValue())
@@ -2594,6 +2731,7 @@ if (workoutLogListEl) {
 
       const loggedAtDate = String(row.querySelector('[data-workout-field="loggedAtDate"]')?.value || '').trim();
       const description = String(row.querySelector('[data-workout-field="description"]')?.value || '').trim();
+      const intensity = normalizeWorkoutIntensity(row.querySelector('[data-workout-field="intensity"]')?.value);
       const durationHours = Number(row.querySelector('[data-workout-field="durationHours"]')?.value || 0);
       const caloriesBurned = Number(row.querySelector('[data-workout-field="caloriesBurned"]')?.value || 0);
       const loggedAt = loggedAtDate ? new Date(`${loggedAtDate}T09:00:00`).toISOString() : new Date().toISOString();
@@ -2601,6 +2739,7 @@ if (workoutLogListEl) {
       try {
         await updateWorkoutEntryApi(entryId, {
           description,
+          intensity,
           durationHours,
           caloriesBurned,
           loggedAt
@@ -2628,6 +2767,7 @@ if (workoutQuickListEl) {
     try {
       const parsed = JSON.parse(payload.replace(/&apos;/g, "'"));
       if (workoutDescriptionEl) workoutDescriptionEl.value = parsed.description || '';
+      if (workoutIntensityEl) workoutIntensityEl.value = normalizeWorkoutIntensity(parsed.intensity);
       if (workoutHoursEl) workoutHoursEl.value = String(parsed.durationHours || 1);
       if (workoutCaloriesEl) workoutCaloriesEl.value = String(parsed.caloriesBurned || 0);
       if (workoutEditorEl) workoutEditorEl.hidden = false;
@@ -2638,6 +2778,7 @@ if (workoutQuickListEl) {
 }
 
 renderActivePage('macros');
+bindPageChartsResize();
 
 refreshDashboard().catch((error) => {
   parseNoteEl.textContent = error.message;
