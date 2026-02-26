@@ -67,18 +67,6 @@ What it runs:
 
 If you want a full runtime test, start Postgres first (`npm run db:up`) and then run `npm start`.
 
-## iPhone App
-An iPhone app shell is included at `/Users/jgreco/Documents/macro tracker/mobile`.
-
-It uses your existing web app and backend (same auth, same API, same data) via an in-app WebView with iOS-focused chrome.
-
-Quick start:
-```bash
-cd /Users/jgreco/Documents/macro\ tracker/mobile
-npm install
-npm start
-```
-
 ## Cloud Setup Notes
 For AWS/RDS deployments set:
 - `DATABASE_URL` to your RDS connection string
