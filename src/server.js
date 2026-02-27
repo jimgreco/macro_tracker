@@ -305,10 +305,7 @@ function normalizeAnalysisContext(snapshot) {
   const plannedFromTargets = toFinite(snapshot?.targets?.workouts, 5);
   const plannedWorkoutsPerWeek = Math.max(0, Math.min(14, Math.round(plannedFromTargets)));
   return {
-    plannedWorkoutsPerWeek,
-    recovery: {
-      notes: ''
-    }
+    plannedWorkoutsPerWeek
   };
 }
 
@@ -340,23 +337,23 @@ function buildAnalysisMetrics(snapshot, context) {
   const totalWorkoutHours = workoutDays.reduce((sum, row) => sum + toFinite(row.durationHours), 0);
   const totalWorkoutCalories = workoutDays.reduce((sum, row) => sum + toFinite(row.caloriesBurned), 0);
   const weightChange = toFinite(snapshot?.weight?.change);
+  const dailyCalories = mealDays.map((row) => toFinite(row.calories));
+  const dailyProtein = mealDays.map((row) => toFinite(row.protein));
 
   const calorieTarget = toFinite(targets.calories);
   const proteinTarget = toFinite(targets.protein);
-  const calorieHitDays = calorieTarget > 0
-    ? mealDays.filter((row) => Math.abs(toFinite(row.calories) - calorieTarget) <= calorieTarget * 0.1).length
-    : 0;
-  const proteinHitDays = proteinTarget > 0
-    ? mealDays.filter((row) => toFinite(row.protein) >= proteinTarget * 0.9).length
-    : 0;
+  const avgCalories = avg(dailyCalories);
+  const avgProtein = avg(dailyProtein);
+  const calorieTargetDelta = calorieTarget > 0 ? avgCalories - calorieTarget : 0;
+  const proteinTargetDelta = proteinTarget > 0 ? avgProtein - proteinTarget : 0;
+  const calorieTargetDeltaPct = calorieTarget > 0 ? (calorieTargetDelta / calorieTarget) * 100 : 0;
+  const proteinTargetDeltaPct = proteinTarget > 0 ? (proteinTargetDelta / proteinTarget) * 100 : 0;
 
   const expectedPlannedSessions = Math.max(
     0,
     Math.round((toFinite(context.plannedWorkoutsPerWeek, 3) * periodDays) / 7)
   );
 
-  const dailyCalories = mealDays.map((row) => toFinite(row.calories));
-  const dailyProtein = mealDays.map((row) => toFinite(row.protein));
   const proteinMean = avg(dailyProtein);
   const proteinCv = proteinMean > 0 ? stddev(dailyProtein) / proteinMean : 0;
   const calorieVolatility = stddev(dailyCalories);
@@ -458,8 +455,12 @@ function buildAnalysisMetrics(snapshot, context) {
     },
     adherence: {
       mealLoggingPct: mealCoveragePct,
-      calorieTargetHitPct: calorieTarget > 0 && mealLoggedDays > 0 ? Math.round((calorieHitDays / mealLoggedDays) * 100) : 0,
-      proteinTargetHitPct: proteinTarget > 0 && mealLoggedDays > 0 ? Math.round((proteinHitDays / mealLoggedDays) * 100) : 0,
+      calorieTargetSet: calorieTarget > 0,
+      calorieTargetDelta: Number(calorieTargetDelta.toFixed(1)),
+      calorieTargetDeltaPct: Number(calorieTargetDeltaPct.toFixed(1)),
+      proteinTargetSet: proteinTarget > 0,
+      proteinTargetDelta: Number(proteinTargetDelta.toFixed(1)),
+      proteinTargetDeltaPct: Number(proteinTargetDeltaPct.toFixed(1)),
       plannedWorkoutCount: expectedPlannedSessions,
       completedWorkoutCount: workoutSessions
     },
@@ -474,10 +475,6 @@ function buildAnalysisMetrics(snapshot, context) {
       calorieVolatility: Number(calorieVolatility.toFixed(1)),
       lateNightEatingPct: Math.round(lateNightPct),
       weekendCalorieDrift: Number(weekendDrift.toFixed(1))
-    },
-    recoveryContext: {
-      notes: context.recovery.notes,
-      dataAvailable: Boolean(context.recovery.notes)
     },
     dataConfidence: {
       score: confidenceScore,
@@ -505,7 +502,9 @@ function buildFallbackAnalysis(snapshot, context) {
     summary,
     progress: [
       `Weight change: ${stats.weightChange > 0 ? '+' : ''}${stats.weightChange.toFixed(1)} over the analysis window.`,
-      `Protein target hit: ${metrics.adherence.proteinTargetHitPct}% of logged meal days.`,
+      metrics.adherence.proteinTargetSet
+        ? `Average protein is ${metrics.adherence.proteinTargetDelta > 0 ? '+' : ''}${metrics.adherence.proteinTargetDelta.toFixed(1)}g (${metrics.adherence.proteinTargetDeltaPct > 0 ? '+' : ''}${metrics.adherence.proteinTargetDeltaPct.toFixed(1)}%) vs target.`
+        : 'Set a protein target to track above/below-target variance.',
       `Workout volume: ${stats.totalWorkoutHours.toFixed(1)} hours total.`
     ],
     needsImprovement: [
@@ -545,7 +544,7 @@ async function generateAiAnalysis(snapshot, context) {
           {
             type: 'input_text',
             text:
-              'Analyze this account data. Include goal alignment score, adherence metrics, week-over-week deltas, nutrition quality signals, recovery context, data confidence, and a concrete next-week plan with numeric targets.\nData:\n' +
+              'Analyze this account data. Include goal alignment score, adherence metrics with target variance (value and percent above/below), week-over-week deltas, nutrition quality signals, data confidence, and a concrete next-week plan with numeric targets.\nData:\n' +
               JSON.stringify({ snapshot, context, baseline })
           }
         ]
@@ -569,7 +568,6 @@ async function generateAiAnalysis(snapshot, context) {
             'adherence',
             'weekOverWeek',
             'nutritionSignals',
-            'recoveryContext',
             'dataConfidence'
           ],
           properties: {
@@ -594,15 +592,23 @@ async function generateAiAnalysis(snapshot, context) {
               additionalProperties: false,
               required: [
                 'mealLoggingPct',
-                'calorieTargetHitPct',
-                'proteinTargetHitPct',
+                'calorieTargetSet',
+                'calorieTargetDelta',
+                'calorieTargetDeltaPct',
+                'proteinTargetSet',
+                'proteinTargetDelta',
+                'proteinTargetDeltaPct',
                 'plannedWorkoutCount',
                 'completedWorkoutCount'
               ],
               properties: {
                 mealLoggingPct: { type: 'number' },
-                calorieTargetHitPct: { type: 'number' },
-                proteinTargetHitPct: { type: 'number' },
+                calorieTargetSet: { type: 'boolean' },
+                calorieTargetDelta: { type: 'number' },
+                calorieTargetDeltaPct: { type: 'number' },
+                proteinTargetSet: { type: 'boolean' },
+                proteinTargetDelta: { type: 'number' },
+                proteinTargetDeltaPct: { type: 'number' },
                 plannedWorkoutCount: { type: 'number' },
                 completedWorkoutCount: { type: 'number' }
               }
@@ -627,15 +633,6 @@ async function generateAiAnalysis(snapshot, context) {
                 calorieVolatility: { type: 'number' },
                 lateNightEatingPct: { type: 'number' },
                 weekendCalorieDrift: { type: 'number' }
-              }
-            },
-            recoveryContext: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['notes', 'dataAvailable'],
-              properties: {
-                notes: { type: 'string' },
-                dataAvailable: { type: 'boolean' }
               }
             },
             dataConfidence: {
@@ -677,7 +674,6 @@ async function generateAiAnalysis(snapshot, context) {
     adherence: parsed.adherence || fallback.adherence,
     weekOverWeek: parsed.weekOverWeek || fallback.weekOverWeek,
     nutritionSignals: parsed.nutritionSignals || fallback.nutritionSignals,
-    recoveryContext: parsed.recoveryContext || fallback.recoveryContext,
     dataConfidence: parsed.dataConfidence || fallback.dataConfidence,
     stats: fallback.stats
   };

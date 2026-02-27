@@ -75,6 +75,16 @@ test('analysis goal selector is removed from weekly analysis form', () => {
   assert.equal(script.includes('analysisGoalEl'), false);
 });
 
+test('analysis report no longer includes recovery context section', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+  const server = read('src/server.js');
+
+  assert.equal(html.includes('id="analysis-recovery-list"'), false);
+  assert.equal(script.includes('analysisRecoveryListEl'), false);
+  assert.equal(server.includes('recoveryContext'), false);
+});
+
 test('weight entries support inline edit and delete actions', () => {
   const script = read('public/script.js');
   const server = read('src/server.js');

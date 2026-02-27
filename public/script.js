@@ -134,7 +134,6 @@ const analysisGoalListEl = document.getElementById('analysis-goal-list');
 const analysisAdherenceListEl = document.getElementById('analysis-adherence-list');
 const analysisWowListEl = document.getElementById('analysis-wow-list');
 const analysisNutritionListEl = document.getElementById('analysis-nutrition-list');
-const analysisRecoveryListEl = document.getElementById('analysis-recovery-list');
 const analysisConfidenceListEl = document.getElementById('analysis-confidence-list');
 const analysisProgressListEl = document.getElementById('analysis-progress-list');
 const analysisNeedsListEl = document.getElementById('analysis-needs-list');
@@ -862,7 +861,6 @@ function renderAnalysisReport(record) {
     fillAnalysisList(analysisAdherenceListEl, []);
     fillAnalysisList(analysisWowListEl, []);
     fillAnalysisList(analysisNutritionListEl, []);
-    fillAnalysisList(analysisRecoveryListEl, []);
     fillAnalysisList(analysisConfidenceListEl, []);
     fillAnalysisList(analysisProgressListEl, []);
     fillAnalysisList(analysisNeedsListEl, []);
@@ -889,7 +887,6 @@ function renderAnalysisReport(record) {
   const adherence = report.adherence || {};
   const wow = report.weekOverWeek || {};
   const nutrition = report.nutritionSignals || {};
-  const recovery = report.recoveryContext || {};
   const confidence = report.dataConfidence || {};
   fillAnalysisList(analysisGoalListEl, [
     `Goal: ${goalAlignment.goal || 'n/a'}`,
@@ -899,8 +896,12 @@ function renderAnalysisReport(record) {
   ]);
   fillAnalysisList(analysisAdherenceListEl, [
     `Meal logging: ${toPercent(adherence.mealLoggingPct)}`,
-    `Calories target hit: ${toPercent(adherence.calorieTargetHitPct)}`,
-    `Protein target hit: ${toPercent(adherence.proteinTargetHitPct)}`,
+    adherence.calorieTargetSet
+      ? `Calories vs target: ${fmtSigned(adherence.calorieTargetDelta, 1)} cal (${fmtSigned(adherence.calorieTargetDeltaPct, 1)}%)`
+      : 'Calories vs target: No target set',
+    adherence.proteinTargetSet
+      ? `Protein vs target: ${fmtSigned(adherence.proteinTargetDelta, 1)}g (${fmtSigned(adherence.proteinTargetDeltaPct, 1)}%)`
+      : 'Protein vs target: No target set',
     `Workouts: ${Number(adherence.completedWorkoutCount || 0)} / ${Number(adherence.plannedWorkoutCount || 0)}`
   ]);
   fillAnalysisList(analysisWowListEl, [
@@ -914,9 +915,6 @@ function renderAnalysisReport(record) {
     `Calorie volatility: ${fmtSigned(nutrition.calorieVolatility, 1)}`,
     `Late-night eating: ${toPercent(nutrition.lateNightEatingPct)}`,
     `Weekend calorie drift: ${fmtSigned(nutrition.weekendCalorieDrift, 1)}`
-  ]);
-  fillAnalysisList(analysisRecoveryListEl, [
-    `Provided: ${recovery.dataAvailable ? 'Yes' : 'No'}`
   ]);
   fillAnalysisList(analysisConfidenceListEl, [
     `Score: ${Math.round(Number(confidence.score || 0))}/100`,

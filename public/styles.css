@@ -274,6 +274,11 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .analysis-field {
+    grid-template-columns: 1fr;
+    gap: 0.32rem;
+  }
+
   .analysis-actions {
     grid-column: span 1;
   }
@@ -327,6 +332,11 @@ body {
 .weight-target-row button {
   margin-bottom: 0;
   min-height: 42px;
+}
+
+#weight-target-date {
+  width: 100%;
+  min-width: 0;
 }
 
 #weight-note {
@@ -1355,8 +1365,13 @@ button[disabled] {
   }
 
   .weight-target-row {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: stretch;
+  }
+
+  .weight-target-row input,
+  .weight-target-row button {
+    min-width: 0;
   }
 
   .weight-target-row label {
