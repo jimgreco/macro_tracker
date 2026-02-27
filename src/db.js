@@ -113,6 +113,16 @@ async function initDb() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS analysis_reports (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      period_days INTEGER NOT NULL,
+      report_json JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
     ALTER TABLE workout_entries
       ADD COLUMN IF NOT EXISTS intensity TEXT NOT NULL DEFAULT 'medium';
   `);
@@ -123,6 +133,7 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_macro_targets_user ON macro_targets(user_id);
     CREATE INDEX IF NOT EXISTS idx_weight_entries_user_logged ON weight_entries(user_id, logged_at DESC);
     CREATE INDEX IF NOT EXISTS idx_workout_entries_user_logged ON workout_entries(user_id, logged_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_analysis_reports_user_created ON analysis_reports(user_id, created_at DESC);
   `);
 }
 
@@ -708,6 +719,184 @@ async function listWorkoutEntries(userId) {
   };
 }
 
+function normalizeAnalysisDays(daysInput) {
+  const parsed = Number(daysInput);
+  if (!Number.isFinite(parsed)) {
+    return 90;
+  }
+  return Math.max(14, Math.min(180, Math.round(parsed)));
+}
+
+async function getAnalysisSnapshot(userId, daysInput = 90) {
+  const days = normalizeAnalysisDays(daysInput);
+  const daysParam = String(days);
+
+  const [mealDailyResult, topMealsResult, mealTimingResult, workoutDailyResult, workoutTypesResult, weightsResult, targets] =
+    await Promise.all([
+      pool.query(
+        `SELECT
+           (consumed_at AT TIME ZONE 'UTC')::date::text AS day,
+           COUNT(*)::integer AS item_count,
+           ROUND(SUM(calories)::numeric, 1) AS calories,
+           ROUND(SUM(protein)::numeric, 1) AS protein,
+           ROUND(SUM(carbs)::numeric, 1) AS carbs,
+           ROUND(SUM(fat)::numeric, 1) AS fat
+         FROM entries
+         WHERE user_id = $1
+           AND consumed_at >= NOW() - ($2::text || ' days')::interval
+         GROUP BY day
+         ORDER BY day ASC`,
+        [userId, daysParam]
+      ),
+      pool.query(
+        `SELECT
+           MIN(item_name) AS item_name,
+           COUNT(*)::integer AS times_logged,
+           ROUND(SUM(calories)::numeric, 1) AS total_calories
+         FROM entries
+         WHERE user_id = $1
+           AND consumed_at >= NOW() - ($2::text || ' days')::interval
+         GROUP BY lower(item_name)
+         ORDER BY COUNT(*) DESC, SUM(calories) DESC
+         LIMIT 12`,
+        [userId, daysParam]
+      ),
+      pool.query(
+        `SELECT
+           COUNT(*)::integer AS total_entries,
+           SUM(CASE WHEN EXTRACT(HOUR FROM consumed_at AT TIME ZONE 'UTC') >= 21 THEN 1 ELSE 0 END)::integer AS late_night_entries
+         FROM entries
+         WHERE user_id = $1
+           AND consumed_at >= NOW() - ($2::text || ' days')::interval`,
+        [userId, daysParam]
+      ),
+      pool.query(
+        `SELECT
+           (logged_at AT TIME ZONE 'UTC')::date::text AS day,
+           COUNT(*)::integer AS sessions,
+           ROUND(SUM(duration_hours)::numeric, 2) AS duration_hours,
+           ROUND(SUM(calories_burned)::numeric, 1) AS calories_burned
+         FROM workout_entries
+         WHERE user_id = $1
+           AND logged_at >= NOW() - ($2::text || ' days')::interval
+         GROUP BY day
+         ORDER BY day ASC`,
+        [userId, daysParam]
+      ),
+      pool.query(
+        `SELECT
+           MIN(description) AS description,
+           COUNT(*)::integer AS sessions,
+           ROUND(SUM(duration_hours)::numeric, 2) AS duration_hours
+         FROM workout_entries
+         WHERE user_id = $1
+           AND logged_at >= NOW() - ($2::text || ' days')::interval
+         GROUP BY lower(description)
+         ORDER BY COUNT(*) DESC, SUM(duration_hours) DESC
+         LIMIT 10`,
+        [userId, daysParam]
+      ),
+      pool.query(
+        `SELECT weight, logged_at AS "loggedAt"
+         FROM weight_entries
+         WHERE user_id = $1
+           AND logged_at >= NOW() - ($2::text || ' days')::interval
+         ORDER BY logged_at ASC`,
+        [userId, daysParam]
+      ),
+      getMacroTargets(userId)
+    ]);
+
+  const weightEntries = weightsResult.rows.map((row) => ({
+    weight: Number(row.weight || 0),
+    loggedAt: new Date(row.loggedAt).toISOString()
+  }));
+
+  const firstWeight = weightEntries.length ? Number(weightEntries[0].weight || 0) : 0;
+  const lastWeight = weightEntries.length ? Number(weightEntries[weightEntries.length - 1].weight || 0) : 0;
+
+  return {
+    periodDays: days,
+    targets,
+    meals: {
+      dailyTotals: mealDailyResult.rows.map((row) => ({
+        day: row.day,
+        itemCount: Number(row.item_count || 0),
+        calories: Number(row.calories || 0),
+        protein: Number(row.protein || 0),
+        carbs: Number(row.carbs || 0),
+        fat: Number(row.fat || 0)
+      })),
+      topItems: topMealsResult.rows.map((row) => ({
+        itemName: row.item_name,
+        timesLogged: Number(row.times_logged || 0),
+        totalCalories: Number(row.total_calories || 0)
+      })),
+      timing: {
+        totalEntries: Number(mealTimingResult.rows[0]?.total_entries || 0),
+        lateNightEntries: Number(mealTimingResult.rows[0]?.late_night_entries || 0)
+      }
+    },
+    workouts: {
+      dailyTotals: workoutDailyResult.rows.map((row) => ({
+        day: row.day,
+        sessions: Number(row.sessions || 0),
+        durationHours: Number(row.duration_hours || 0),
+        caloriesBurned: Number(row.calories_burned || 0)
+      })),
+      topTypes: workoutTypesResult.rows.map((row) => ({
+        description: row.description,
+        sessions: Number(row.sessions || 0),
+        durationHours: Number(row.duration_hours || 0)
+      }))
+    },
+    weight: {
+      entries: weightEntries,
+      firstWeight,
+      lastWeight,
+      change: Number((lastWeight - firstWeight).toFixed(2)),
+      entryCount: weightEntries.length
+    }
+  };
+}
+
+async function saveAnalysisReport(userId, periodDays, report) {
+  const result = await pool.query(
+    `INSERT INTO analysis_reports (user_id, period_days, report_json)
+     VALUES ($1, $2, $3::jsonb)
+     RETURNING id, period_days AS "periodDays", report_json AS "reportJson", created_at AS "createdAt"`,
+    [userId, normalizeAnalysisDays(periodDays), JSON.stringify(report || {})]
+  );
+  const row = result.rows[0];
+  return {
+    id: Number(row.id),
+    periodDays: Number(row.periodDays || 0),
+    report: row.reportJson || {},
+    createdAt: new Date(row.createdAt).toISOString()
+  };
+}
+
+async function getLatestAnalysisReport(userId) {
+  const result = await pool.query(
+    `SELECT id, period_days AS "periodDays", report_json AS "reportJson", created_at AS "createdAt"
+     FROM analysis_reports
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    id: Number(row.id),
+    periodDays: Number(row.periodDays || 0),
+    report: row.reportJson || {},
+    createdAt: new Date(row.createdAt).toISOString()
+  };
+}
+
 module.exports = {
   initDb,
   addEntries,
@@ -728,5 +917,8 @@ module.exports = {
   listWeightEntries,
   addWorkoutEntry,
   updateWorkoutEntry,
-  listWorkoutEntries
+  listWorkoutEntries,
+  getAnalysisSnapshot,
+  saveAnalysisReport,
+  getLatestAnalysisReport
 };

@@ -5,6 +5,7 @@ const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
 const { Strategy: GoogleStrategy } = require('passport-google-oauth20');
+const OpenAI = require('openai');
 const heicConvert = require('heic-convert');
 const {
   initDb,
@@ -25,7 +26,10 @@ const {
   listWeightEntries,
   addWorkoutEntry,
   updateWorkoutEntry,
-  listWorkoutEntries
+  listWorkoutEntries,
+  getAnalysisSnapshot,
+  saveAnalysisReport,
+  getLatestAnalysisReport
 } = require('./db');
 const { parseMealText, parseWorkoutText } = require('./parser');
 const packageJson = require('../package.json');
@@ -263,6 +267,394 @@ function requireAuth(req, res, next) {
   return res.redirect('/login');
 }
 
+function normalizeAnalysisDays(daysInput) {
+  const parsed = Number(daysInput);
+  if (!Number.isFinite(parsed)) {
+    return 90;
+  }
+  return Math.max(14, Math.min(180, Math.round(parsed)));
+}
+
+function hasOpenAiApiKey() {
+  return Boolean(process.env.OPENAI_API_KEY);
+}
+
+function toFinite(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function avg(values) {
+  if (!Array.isArray(values) || !values.length) return 0;
+  return values.reduce((sum, item) => sum + toFinite(item), 0) / values.length;
+}
+
+function stddev(values) {
+  if (!Array.isArray(values) || values.length < 2) return 0;
+  const mean = avg(values);
+  const variance = values.reduce((sum, item) => {
+    const delta = toFinite(item) - mean;
+    return sum + delta * delta;
+  }, 0) / values.length;
+  return Math.sqrt(Math.max(variance, 0));
+}
+
+function normalizeGoal(rawGoal) {
+  const goal = String(rawGoal || '').trim().toLowerCase();
+  if (goal === 'lose' || goal === 'maintain' || goal === 'gain') {
+    return goal;
+  }
+  return 'maintain';
+}
+
+function normalizeAnalysisContext(input) {
+  const plannedWorkoutsPerWeek = Math.max(0, Math.min(14, Math.round(toFinite(input?.plannedWorkoutsPerWeek, 5))));
+  return {
+    goal: normalizeGoal(input?.goal),
+    plannedWorkoutsPerWeek,
+    recovery: {
+      notes: ''
+    }
+  };
+}
+
+function buildAnalysisMetrics(snapshot, context) {
+  const periodDays = Math.max(14, toFinite(snapshot?.periodDays, 90));
+  const targets = snapshot?.targets || {};
+  const mealDays = Array.isArray(snapshot?.meals?.dailyTotals) ? snapshot.meals.dailyTotals : [];
+  const workoutDays = Array.isArray(snapshot?.workouts?.dailyTotals) ? snapshot.workouts.dailyTotals : [];
+  const weightEntries = Array.isArray(snapshot?.weight?.entries) ? snapshot.weight.entries : [];
+  const mealTiming = snapshot?.meals?.timing || {};
+
+  const mealLoggedDays = mealDays.length;
+  const totalLoggedItems = mealDays.reduce((sum, row) => sum + toFinite(row.itemCount), 0);
+  const workoutSessions = workoutDays.reduce((sum, row) => sum + toFinite(row.sessions), 0);
+  const totalWorkoutHours = workoutDays.reduce((sum, row) => sum + toFinite(row.durationHours), 0);
+  const totalWorkoutCalories = workoutDays.reduce((sum, row) => sum + toFinite(row.caloriesBurned), 0);
+  const weightChange = toFinite(snapshot?.weight?.change);
+
+  const calorieTarget = toFinite(targets.calories);
+  const proteinTarget = toFinite(targets.protein);
+  const calorieHitDays = calorieTarget > 0
+    ? mealDays.filter((row) => Math.abs(toFinite(row.calories) - calorieTarget) <= calorieTarget * 0.1).length
+    : 0;
+  const proteinHitDays = proteinTarget > 0
+    ? mealDays.filter((row) => toFinite(row.protein) >= proteinTarget * 0.9).length
+    : 0;
+
+  const expectedPlannedSessions = Math.max(
+    0,
+    Math.round((toFinite(context.plannedWorkoutsPerWeek, 3) * periodDays) / 7)
+  );
+
+  const dailyCalories = mealDays.map((row) => toFinite(row.calories));
+  const dailyProtein = mealDays.map((row) => toFinite(row.protein));
+  const proteinMean = avg(dailyProtein);
+  const proteinCv = proteinMean > 0 ? stddev(dailyProtein) / proteinMean : 0;
+  const calorieVolatility = stddev(dailyCalories);
+
+  let weekendCalories = [];
+  let weekdayCalories = [];
+  for (const row of mealDays) {
+    const date = new Date(`${row.day}T00:00:00Z`);
+    const day = date.getUTCDay();
+    if (day === 0 || day === 6) weekendCalories.push(toFinite(row.calories));
+    else weekdayCalories.push(toFinite(row.calories));
+  }
+  const weekendDrift = avg(weekendCalories) - avg(weekdayCalories);
+  const lateNightPct = toFinite(mealTiming.totalEntries) > 0
+    ? (toFinite(mealTiming.lateNightEntries) / toFinite(mealTiming.totalEntries)) * 100
+    : 0;
+
+  const last7Meals = mealDays.slice(-7);
+  const prev7Meals = mealDays.slice(-14, -7);
+  const last7Workouts = workoutDays.slice(-7);
+  const prev7Workouts = workoutDays.slice(-14, -7);
+  const last7AvgCalories = avg(last7Meals.map((row) => toFinite(row.calories)));
+  const prev7AvgCalories = avg(prev7Meals.map((row) => toFinite(row.calories)));
+  const last7AvgProtein = avg(last7Meals.map((row) => toFinite(row.protein)));
+  const prev7AvgProtein = avg(prev7Meals.map((row) => toFinite(row.protein)));
+  const last7WorkoutHours = last7Workouts.reduce((sum, row) => sum + toFinite(row.durationHours), 0);
+  const prev7WorkoutHours = prev7Workouts.reduce((sum, row) => sum + toFinite(row.durationHours), 0);
+
+  const recentWeights = weightEntries.slice(-8).map((row) => toFinite(row.weight)).filter((value) => value > 0);
+  const priorWeights = weightEntries.slice(-16, -8).map((row) => toFinite(row.weight)).filter((value) => value > 0);
+  const recentWeightChange = recentWeights.length >= 2 ? recentWeights[recentWeights.length - 1] - recentWeights[0] : 0;
+  const priorWeightChange = priorWeights.length >= 2 ? priorWeights[priorWeights.length - 1] - priorWeights[0] : 0;
+  const weightDeltaWoW = recentWeightChange - priorWeightChange;
+
+  const weeklyRate = periodDays > 0 ? (weightChange * 7) / periodDays : 0;
+  const goal = normalizeGoal(context.goal);
+  let goalScore = 50;
+  let goalStatus = 'partially_on_track';
+  let goalReason = 'Insufficient weight trend data to strongly evaluate goal alignment.';
+  if (weightEntries.length >= 3) {
+    if (goal === 'lose') {
+      goalScore = Math.max(0, 100 - Math.min(100, Math.abs(weeklyRate + 0.6) * 130));
+      goalStatus = weeklyRate < -0.25 ? 'on_track' : 'off_track';
+      goalReason = `Weight is changing at ${weeklyRate.toFixed(2)} per week vs fat-loss target pace.`;
+    } else if (goal === 'gain') {
+      goalScore = Math.max(0, 100 - Math.min(100, Math.abs(weeklyRate - 0.35) * 170));
+      goalStatus = weeklyRate > 0.1 ? 'on_track' : 'off_track';
+      goalReason = `Weight is changing at ${weeklyRate.toFixed(2)} per week vs lean-gain target pace.`;
+    } else {
+      goalScore = Math.max(0, 100 - Math.min(100, Math.abs(weeklyRate) * 230));
+      goalStatus = Math.abs(weeklyRate) <= 0.2 ? 'on_track' : 'off_track';
+      goalReason = `Weight is changing at ${weeklyRate.toFixed(2)} per week; maintenance expects near zero.`;
+    }
+  }
+
+  const mealCoveragePct = Math.round((mealLoggedDays / periodDays) * 100);
+  const workoutCoverage = expectedPlannedSessions > 0 ? workoutSessions / expectedPlannedSessions : 0;
+  const weightCoverage = Math.min(1, weightEntries.length / Math.max(2, Math.round(periodDays / 7)));
+  const confidenceScore = Math.round(
+    Math.max(0, Math.min(100, mealCoveragePct * 0.5 + Math.min(100, workoutCoverage * 100) * 0.3 + weightCoverage * 100 * 0.2))
+  );
+
+  return {
+    stats: {
+      periodDays,
+      mealLoggedDays,
+      totalLoggedItems,
+      workoutSessions,
+      totalWorkoutHours: Number(totalWorkoutHours.toFixed(2)),
+      totalWorkoutCalories: Number(totalWorkoutCalories.toFixed(1)),
+      weightEntryCount: weightEntries.length,
+      weightChange: Number(weightChange.toFixed(2))
+    },
+    goalAlignment: {
+      goal,
+      status: goalStatus,
+      score: Math.round(goalScore),
+      reason: goalReason
+    },
+    adherence: {
+      mealLoggingPct: mealCoveragePct,
+      calorieTargetHitPct: calorieTarget > 0 && mealLoggedDays > 0 ? Math.round((calorieHitDays / mealLoggedDays) * 100) : 0,
+      proteinTargetHitPct: proteinTarget > 0 && mealLoggedDays > 0 ? Math.round((proteinHitDays / mealLoggedDays) * 100) : 0,
+      plannedWorkoutCount: expectedPlannedSessions,
+      completedWorkoutCount: workoutSessions
+    },
+    weekOverWeek: {
+      weightChangeDelta: Number(weightDeltaWoW.toFixed(2)),
+      avgCaloriesDelta: Number((last7AvgCalories - prev7AvgCalories).toFixed(1)),
+      avgProteinDelta: Number((last7AvgProtein - prev7AvgProtein).toFixed(1)),
+      workoutHoursDelta: Number((last7WorkoutHours - prev7WorkoutHours).toFixed(2))
+    },
+    nutritionSignals: {
+      proteinConsistency: proteinCv <= 0.2 ? 'high' : proteinCv <= 0.35 ? 'medium' : 'low',
+      calorieVolatility: Number(calorieVolatility.toFixed(1)),
+      lateNightEatingPct: Math.round(lateNightPct),
+      weekendCalorieDrift: Number(weekendDrift.toFixed(1))
+    },
+    recoveryContext: {
+      notes: context.recovery.notes,
+      dataAvailable: Boolean(context.recovery.notes)
+    },
+    dataConfidence: {
+      score: confidenceScore,
+      notes:
+        confidenceScore >= 75
+          ? 'High coverage across meals, workouts, and weight.'
+          : confidenceScore >= 50
+            ? 'Moderate coverage. Some recommendations may be less reliable.'
+            : 'Low coverage. Improve logging consistency for stronger insights.'
+    }
+  };
+}
+
+function buildFallbackAnalysis(snapshot, context) {
+  const metrics = buildAnalysisMetrics(snapshot, context);
+  const stats = metrics.stats;
+  const summary = [
+    `Analyzed ${stats.periodDays} days.`,
+    `Meal logging ${metrics.adherence.mealLoggingPct}% of days.`,
+    `Workouts: ${stats.workoutSessions} completed vs ${metrics.adherence.plannedWorkoutCount} planned.`,
+    `Goal alignment score ${metrics.goalAlignment.score}/100 (${metrics.goalAlignment.status.replace('_', ' ')}).`
+  ].join(' ');
+
+  return {
+    summary,
+    progress: [
+      `Weight change: ${stats.weightChange > 0 ? '+' : ''}${stats.weightChange.toFixed(1)} over the analysis window.`,
+      `Protein target hit: ${metrics.adherence.proteinTargetHitPct}% of logged meal days.`,
+      `Workout volume: ${stats.totalWorkoutHours.toFixed(1)} hours total.`
+    ],
+    needsImprovement: [
+      'Increase meal logging consistency to at least 6 of 7 days.',
+      'Reduce calorie volatility and weekend drift.',
+      'Keep late-night eating to less than 15% of logged meals.'
+    ],
+    nextWeekPlan: [
+      `Complete ${Math.max(3, context.plannedWorkoutsPerWeek)} workouts next week.`,
+      'Hit protein target on at least 5 of 7 days.',
+      'Log morning weight on at least 4 days with similar conditions.'
+    ],
+    confidence: metrics.dataConfidence.score >= 75 ? 'high' : metrics.dataConfidence.score >= 50 ? 'medium' : 'low',
+    ...metrics
+  };
+}
+
+async function generateAiAnalysis(snapshot, context) {
+  if (!hasOpenAiApiKey()) {
+    return buildFallbackAnalysis(snapshot, context);
+  }
+
+  const baseline = buildAnalysisMetrics(snapshot, context);
+
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const response = await client.responses.create({
+    model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+    input: [
+      {
+        role: 'system',
+        content:
+          'You are a direct fitness and nutrition coach. Be honest, specific, and practical. Use only the data provided. Return strict JSON only. Next-week plan items must be numeric and measurable.'
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text:
+              'Analyze this account data. Include goal alignment score, adherence metrics, week-over-week deltas, nutrition quality signals, recovery context, data confidence, and a concrete next-week plan with numeric targets.\nData:\n' +
+              JSON.stringify({ snapshot, context, baseline })
+          }
+        ]
+      }
+    ],
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'weekly_analysis',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          required: [
+            'summary',
+            'progress',
+            'needsImprovement',
+            'nextWeekPlan',
+            'confidence',
+            'goalAlignment',
+            'adherence',
+            'weekOverWeek',
+            'nutritionSignals',
+            'recoveryContext',
+            'dataConfidence'
+          ],
+          properties: {
+            summary: { type: 'string' },
+            progress: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 6 },
+            needsImprovement: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 6 },
+            nextWeekPlan: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 7 },
+            confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+            goalAlignment: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['goal', 'status', 'score', 'reason'],
+              properties: {
+                goal: { type: 'string', enum: ['lose', 'maintain', 'gain'] },
+                status: { type: 'string', enum: ['on_track', 'partially_on_track', 'off_track'] },
+                score: { type: 'number' },
+                reason: { type: 'string' }
+              }
+            },
+            adherence: {
+              type: 'object',
+              additionalProperties: false,
+              required: [
+                'mealLoggingPct',
+                'calorieTargetHitPct',
+                'proteinTargetHitPct',
+                'plannedWorkoutCount',
+                'completedWorkoutCount'
+              ],
+              properties: {
+                mealLoggingPct: { type: 'number' },
+                calorieTargetHitPct: { type: 'number' },
+                proteinTargetHitPct: { type: 'number' },
+                plannedWorkoutCount: { type: 'number' },
+                completedWorkoutCount: { type: 'number' }
+              }
+            },
+            weekOverWeek: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['weightChangeDelta', 'avgCaloriesDelta', 'avgProteinDelta', 'workoutHoursDelta'],
+              properties: {
+                weightChangeDelta: { type: 'number' },
+                avgCaloriesDelta: { type: 'number' },
+                avgProteinDelta: { type: 'number' },
+                workoutHoursDelta: { type: 'number' }
+              }
+            },
+            nutritionSignals: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['proteinConsistency', 'calorieVolatility', 'lateNightEatingPct', 'weekendCalorieDrift'],
+              properties: {
+                proteinConsistency: { type: 'string', enum: ['high', 'medium', 'low'] },
+                calorieVolatility: { type: 'number' },
+                lateNightEatingPct: { type: 'number' },
+                weekendCalorieDrift: { type: 'number' }
+              }
+            },
+            recoveryContext: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['notes', 'dataAvailable'],
+              properties: {
+                notes: { type: 'string' },
+                dataAvailable: { type: 'boolean' }
+              }
+            },
+            dataConfidence: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['score', 'notes'],
+              properties: {
+                score: { type: 'number' },
+                notes: { type: 'string' }
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  let parsed = {};
+  try {
+    parsed = JSON.parse(response.output_text || '{}');
+  } catch (_error) {
+    parsed = {};
+  }
+
+  const fallback = buildFallbackAnalysis(snapshot, context);
+  return {
+    summary: String(parsed.summary || fallback.summary),
+    progress: Array.isArray(parsed.progress) && parsed.progress.length ? parsed.progress.slice(0, 6) : fallback.progress,
+    needsImprovement:
+      Array.isArray(parsed.needsImprovement) && parsed.needsImprovement.length
+        ? parsed.needsImprovement.slice(0, 6)
+        : fallback.needsImprovement,
+    nextWeekPlan:
+      Array.isArray(parsed.nextWeekPlan) && parsed.nextWeekPlan.length
+        ? parsed.nextWeekPlan.slice(0, 7)
+        : fallback.nextWeekPlan,
+    confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : fallback.confidence,
+    goalAlignment: parsed.goalAlignment || fallback.goalAlignment,
+    adherence: parsed.adherence || fallback.adherence,
+    weekOverWeek: parsed.weekOverWeek || fallback.weekOverWeek,
+    nutritionSignals: parsed.nutritionSignals || fallback.nutritionSignals,
+    recoveryContext: parsed.recoveryContext || fallback.recoveryContext,
+    dataConfidence: parsed.dataConfidence || fallback.dataConfidence,
+    stats: fallback.stats
+  };
+}
+
 function validateItems(items, consumedAt) {
   if (!Array.isArray(items) || items.length === 0) {
     return [];
@@ -387,6 +779,7 @@ app.use('/api', requireAuth);
 app.use('/api', enforceApiSource);
 app.use('/api/parse-meal', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 15 }));
 app.use('/api/parse-workout', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30 }));
+app.use('/api/analysis', createRateLimiter({ windowMs: 10 * 60 * 1000, maxRequests: 5 }));
 
 app.post('/api/parse-meal', async (req, res) => {
   let hasImage = false;
@@ -780,6 +1173,34 @@ app.post('/api/workouts/:id', async (req, res) => {
     return res.status(400).json({ error: error.message });
   }
 });
+
+app.get('/api/analysis/latest', async (req, res) => {
+  try {
+    const latest = await getLatestAnalysisReport(userIdFromReq(req));
+    return res.json({ report: latest });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/analysis', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    const days = normalizeAnalysisDays(req.body?.days);
+    const context = normalizeAnalysisContext(req.body || {});
+    const snapshot = await getAnalysisSnapshot(userId, days);
+    const analysis = await generateAiAnalysis(snapshot, context);
+    const saved = await saveAnalysisReport(userId, days, {
+      ...analysis,
+      context,
+      sourceSnapshot: snapshot
+    });
+    return res.json({ report: saved });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
 app.get('/api/dashboard', async (req, res) => {
   try {
     const data = await getDashboard(userIdFromReq(req), req.query.date);

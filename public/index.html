@@ -38,6 +38,7 @@
             <button type="button" class="brand-menu-item is-active" data-page="macros">Macro Tracker</button>
             <button type="button" class="brand-menu-item" data-page="weight">Weight Tracker</button>
             <button type="button" class="brand-menu-item" data-page="workout">Workout Tracker</button>
+            <button type="button" class="brand-menu-item" data-page="analysis">Analysis</button>
           </div>
         </div>
         <div class="topbar-right">
@@ -322,6 +323,87 @@
         <section class="panel glass">
           <h2>Logged Entries</h2>
           <div id="workout-log-list" class="simple-log-list"></div>
+        </section>
+      </section>
+
+      <section id="analysis-page" class="app-page" hidden>
+        <section class="panel glass">
+          <div class="section-head-row">
+            <h2>Weekly Analysis</h2>
+          </div>
+          <p class="empty-note">Generate an honest review from your meals, workouts, and weight trends.</p>
+          <div class="analysis-form-grid">
+            <div class="analysis-field">
+              <label for="analysis-days">Window</label>
+              <select id="analysis-days">
+                <option value="30" selected>30 days</option>
+                <option value="60">60 days</option>
+                <option value="90">90 days</option>
+              </select>
+            </div>
+            <div class="analysis-field">
+              <label for="analysis-goal">Goal</label>
+              <select id="analysis-goal">
+                <option value="lose">Lose</option>
+                <option value="maintain" selected>Maintain</option>
+                <option value="gain">Gain</option>
+              </select>
+            </div>
+            <div class="analysis-field">
+              <label for="analysis-planned-workouts">Planned workouts/wk</label>
+              <input id="analysis-planned-workouts" type="number" min="0" max="14" step="1" value="5" />
+            </div>
+            <div class="analysis-actions">
+            <button id="analysis-generate-btn" type="button">Generate Analysis</button>
+            </div>
+          </div>
+          <p id="analysis-note" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="panel glass">
+          <h2>Latest Report</h2>
+          <p id="analysis-meta" class="empty-note">No analysis yet.</p>
+          <p id="analysis-summary"></p>
+          <div class="analysis-lists analysis-lists-metrics">
+            <div>
+              <h3>Goal Alignment</h3>
+              <ul id="analysis-goal-list" class="analysis-list"></ul>
+            </div>
+            <div>
+              <h3>Adherence Metrics</h3>
+              <ul id="analysis-adherence-list" class="analysis-list"></ul>
+            </div>
+            <div>
+              <h3>Week Over Week</h3>
+              <ul id="analysis-wow-list" class="analysis-list"></ul>
+            </div>
+            <div>
+              <h3>Nutrition Signals</h3>
+              <ul id="analysis-nutrition-list" class="analysis-list"></ul>
+            </div>
+            <div>
+              <h3>Recovery Context</h3>
+              <ul id="analysis-recovery-list" class="analysis-list"></ul>
+            </div>
+            <div>
+              <h3>Data Confidence</h3>
+              <ul id="analysis-confidence-list" class="analysis-list"></ul>
+            </div>
+          </div>
+          <div class="analysis-lists analysis-lists-guidance">
+            <div>
+              <h3>Progress</h3>
+              <ul id="analysis-progress-list" class="analysis-list"></ul>
+            </div>
+            <div>
+              <h3>Needs Improvement</h3>
+              <ul id="analysis-needs-list" class="analysis-list"></ul>
+            </div>
+            <div>
+              <h3>Next Week Plan</h3>
+              <ul id="analysis-nextweek-list" class="analysis-list"></ul>
+            </div>
+          </div>
         </section>
       </section>
     </main>

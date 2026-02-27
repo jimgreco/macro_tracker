@@ -16,7 +16,9 @@ const state = {
   workoutEditingEntryId: null,
   pendingWorkout: null,
   weightChartRows: [],
-  workoutChartRows: []
+  workoutChartRows: [],
+  analysisReport: null,
+  analysisAutoRan: false
 };
 
 const mealTextEl = document.getElementById('meal-text');
@@ -96,7 +98,8 @@ const pageMenuItems = Array.from(document.querySelectorAll('.brand-menu-item'));
 const appPages = {
   macros: document.getElementById('macros-page'),
   weight: document.getElementById('weight-page'),
-  workout: document.getElementById('workout-page')
+  workout: document.getElementById('workout-page'),
+  analysis: document.getElementById('analysis-page')
 };
 const weightLoggedAtEl = document.getElementById('weight-logged-at');
 const weightValueEl = document.getElementById('weight-value');
@@ -117,6 +120,22 @@ const saveWorkoutBtnEl = document.getElementById('save-workout-btn');
 const workoutQuickListEl = document.getElementById('workout-quick-list');
 const workoutLogListEl = document.getElementById('workout-log-list');
 const workoutCanvasEl = document.getElementById('workout-canvas');
+const analysisDaysEl = document.getElementById('analysis-days');
+const analysisGoalEl = document.getElementById('analysis-goal');
+const analysisPlannedWorkoutsEl = document.getElementById('analysis-planned-workouts');
+const analysisGenerateBtnEl = document.getElementById('analysis-generate-btn');
+const analysisNoteEl = document.getElementById('analysis-note');
+const analysisMetaEl = document.getElementById('analysis-meta');
+const analysisSummaryEl = document.getElementById('analysis-summary');
+const analysisGoalListEl = document.getElementById('analysis-goal-list');
+const analysisAdherenceListEl = document.getElementById('analysis-adherence-list');
+const analysisWowListEl = document.getElementById('analysis-wow-list');
+const analysisNutritionListEl = document.getElementById('analysis-nutrition-list');
+const analysisRecoveryListEl = document.getElementById('analysis-recovery-list');
+const analysisConfidenceListEl = document.getElementById('analysis-confidence-list');
+const analysisProgressListEl = document.getElementById('analysis-progress-list');
+const analysisNeedsListEl = document.getElementById('analysis-needs-list');
+const analysisNextWeekListEl = document.getElementById('analysis-nextweek-list');
 const defaultMealTextPlaceholder = mealTextEl ? mealTextEl.placeholder : '';
 
 function toDateTimeLocalValue(date = new Date()) {
@@ -741,6 +760,177 @@ async function api(path, options = {}) {
     throw new Error(body.error || fallback);
   }
   return body;
+}
+
+function formatDateTimeLabel(isoString) {
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown date';
+  }
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+}
+
+function fillAnalysisList(listEl, items) {
+  if (!listEl) {
+    return;
+  }
+  listEl.innerHTML = '';
+  const rows = Array.isArray(items) ? items : [];
+  if (!rows.length) {
+    const li = document.createElement('li');
+    li.textContent = 'No data yet.';
+    listEl.appendChild(li);
+    return;
+  }
+  for (const item of rows) {
+    const li = document.createElement('li');
+    li.textContent = String(item || '').trim();
+    listEl.appendChild(li);
+  }
+}
+
+function toPercent(value) {
+  const num = Number(value || 0);
+  return `${Math.round(num)}%`;
+}
+
+function fmtSigned(value, decimals = 1) {
+  const num = Number(value || 0);
+  const fixed = num.toFixed(decimals);
+  return num > 0 ? `+${fixed}` : fixed;
+}
+
+function getAnalysisContext() {
+  return {
+    goal: String(analysisGoalEl?.value || 'maintain').toLowerCase(),
+    plannedWorkoutsPerWeek: Number(analysisPlannedWorkoutsEl?.value || 5)
+  };
+}
+
+function renderAnalysisReport(record) {
+  state.analysisReport = record || null;
+  const report = record?.report || null;
+  if (!report) {
+    if (analysisMetaEl) analysisMetaEl.textContent = 'No analysis yet.';
+    if (analysisSummaryEl) analysisSummaryEl.textContent = '';
+    fillAnalysisList(analysisGoalListEl, []);
+    fillAnalysisList(analysisAdherenceListEl, []);
+    fillAnalysisList(analysisWowListEl, []);
+    fillAnalysisList(analysisNutritionListEl, []);
+    fillAnalysisList(analysisRecoveryListEl, []);
+    fillAnalysisList(analysisConfidenceListEl, []);
+    fillAnalysisList(analysisProgressListEl, []);
+    fillAnalysisList(analysisNeedsListEl, []);
+    fillAnalysisList(analysisNextWeekListEl, []);
+    return;
+  }
+
+  if (analysisMetaEl) {
+    const periodDays = Number(record.periodDays || 0);
+    const generatedAt = formatDateTimeLabel(record.createdAt);
+    const confidence = String(report.confidence || '').trim();
+    analysisMetaEl.textContent =
+      `Generated ${generatedAt} using ${periodDays} days of data` +
+      (confidence ? ` (${confidence} confidence).` : '.');
+  }
+  if (analysisSummaryEl) {
+    analysisSummaryEl.textContent = String(report.summary || '').trim();
+  }
+  const goalAlignment = report.goalAlignment || {};
+  const adherence = report.adherence || {};
+  const wow = report.weekOverWeek || {};
+  const nutrition = report.nutritionSignals || {};
+  const recovery = report.recoveryContext || {};
+  const confidence = report.dataConfidence || {};
+  fillAnalysisList(analysisGoalListEl, [
+    `Goal: ${goalAlignment.goal || 'n/a'}`,
+    `Status: ${String(goalAlignment.status || 'n/a').replaceAll('_', ' ')}`,
+    `Score: ${Math.round(Number(goalAlignment.score || 0))}/100`,
+    String(goalAlignment.reason || '')
+  ]);
+  fillAnalysisList(analysisAdherenceListEl, [
+    `Meal logging: ${toPercent(adherence.mealLoggingPct)}`,
+    `Calories target hit: ${toPercent(adherence.calorieTargetHitPct)}`,
+    `Protein target hit: ${toPercent(adherence.proteinTargetHitPct)}`,
+    `Workouts: ${Number(adherence.completedWorkoutCount || 0)} / ${Number(adherence.plannedWorkoutCount || 0)}`
+  ]);
+  fillAnalysisList(analysisWowListEl, [
+    `Weight change delta: ${fmtSigned(wow.weightChangeDelta, 2)}`,
+    `Avg calories delta: ${fmtSigned(wow.avgCaloriesDelta, 1)}`,
+    `Avg protein delta: ${fmtSigned(wow.avgProteinDelta, 1)}g`,
+    `Workout hours delta: ${fmtSigned(wow.workoutHoursDelta, 2)}`
+  ]);
+  fillAnalysisList(analysisNutritionListEl, [
+    `Protein consistency: ${nutrition.proteinConsistency || 'n/a'}`,
+    `Calorie volatility: ${fmtSigned(nutrition.calorieVolatility, 1)}`,
+    `Late-night eating: ${toPercent(nutrition.lateNightEatingPct)}`,
+    `Weekend calorie drift: ${fmtSigned(nutrition.weekendCalorieDrift, 1)}`
+  ]);
+  fillAnalysisList(analysisRecoveryListEl, [
+    `Provided: ${recovery.dataAvailable ? 'Yes' : 'No'}`
+  ]);
+  fillAnalysisList(analysisConfidenceListEl, [
+    `Score: ${Math.round(Number(confidence.score || 0))}/100`,
+    String(confidence.notes || '')
+  ]);
+  fillAnalysisList(analysisProgressListEl, report.progress);
+  fillAnalysisList(analysisNeedsListEl, report.needsImprovement);
+  fillAnalysisList(analysisNextWeekListEl, report.nextWeekPlan);
+}
+
+async function refreshAnalysisData() {
+  if (!analysisMetaEl) {
+    return;
+  }
+  const response = await api('/api/analysis/latest');
+  renderAnalysisReport(response.report || null);
+}
+
+async function generateAnalysis() {
+  if (!analysisGenerateBtnEl) {
+    return;
+  }
+  const days = Number(analysisDaysEl?.value || 30);
+  analysisGenerateBtnEl.disabled = true;
+  if (analysisNoteEl) {
+    analysisNoteEl.textContent = 'Generating analysis...';
+  }
+  try {
+    const response = await api('/api/analysis', {
+      method: 'POST',
+      body: JSON.stringify({
+        days,
+        ...getAnalysisContext()
+      })
+    });
+    renderAnalysisReport(response.report || null);
+    if (analysisNoteEl) {
+      analysisNoteEl.textContent = 'Analysis generated.';
+    }
+    setActionBanner('Analysis generated.', 'success');
+  } catch (error) {
+    if (analysisNoteEl) {
+      analysisNoteEl.textContent = error.message;
+    }
+    setActionBanner(error.message, 'error');
+  } finally {
+    analysisGenerateBtnEl.disabled = false;
+  }
+}
+
+function isAnalysisDueWeekly(record) {
+  const createdAtMs = new Date(record?.createdAt || '').getTime();
+  if (!Number.isFinite(createdAtMs)) {
+    return true;
+  }
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  return Date.now() - createdAtMs >= weekMs;
 }
 
 function renderParsedItems(parsedMeal) {
@@ -2499,6 +2689,19 @@ for (const item of pageMenuItems) {
     if (page === 'workout') {
       await refreshWorkoutData();
     }
+    if (page === 'analysis') {
+      await refreshAnalysisData();
+      if (!state.analysisAutoRan && isAnalysisDueWeekly(state.analysisReport)) {
+        state.analysisAutoRan = true;
+        await generateAnalysis();
+      }
+    }
+  });
+}
+
+if (analysisGenerateBtnEl) {
+  analysisGenerateBtnEl.addEventListener('click', async () => {
+    await generateAnalysis();
   });
 }
 
