@@ -113,6 +113,15 @@ async function initDb() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS weight_targets (
+      user_id TEXT PRIMARY KEY,
+      target_weight DOUBLE PRECISION NOT NULL,
+      target_date DATE NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS analysis_reports (
       id BIGSERIAL PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -139,8 +148,8 @@ async function initDb() {
 
 function normalizeMacroName(macro) {
   const value = String(macro || '').toLowerCase();
-  if (!['calories', 'protein', 'carbs', 'fat'].includes(value)) {
-    throw new Error('Invalid macro. Use calories, protein, carbs, or fat.');
+  if (!['calories', 'protein', 'carbs', 'fat', 'workouts'].includes(value)) {
+    throw new Error('Invalid macro. Use calories, protein, carbs, fat, or workouts.');
   }
   return value;
 }
@@ -387,7 +396,8 @@ async function getMacroTargets(userId) {
     calories: 0,
     protein: 0,
     carbs: 0,
-    fat: 0
+    fat: 0,
+    workouts: 5
   };
 
   for (const row of result.rows) {
@@ -400,9 +410,12 @@ async function getMacroTargets(userId) {
 
 async function setMacroTarget(userId, macro, target) {
   const normalizedMacro = normalizeMacroName(macro);
-  const normalizedTarget = Number(target);
+  let normalizedTarget = Number(target);
   if (!Number.isFinite(normalizedTarget) || normalizedTarget < 0) {
     throw new Error('Target must be a number greater than or equal to 0.');
+  }
+  if (normalizedMacro === 'workouts') {
+    normalizedTarget = Math.max(0, Math.min(14, Math.round(normalizedTarget)));
   }
 
   await pool.query(
@@ -623,6 +636,65 @@ async function listWeightEntries(userId, scope = 'week') {
   }));
 }
 
+async function getWeightTarget(userId) {
+  const result = await pool.query(
+    `SELECT target_weight AS "targetWeight", target_date AS "targetDate"
+     FROM weight_targets
+     WHERE user_id = $1`,
+    [userId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return {
+      targetWeight: null,
+      targetDate: null
+    };
+  }
+
+  return {
+    targetWeight: Number(row.targetWeight || 0),
+    targetDate: String(row.targetDate || '')
+  };
+}
+
+function normalizeIsoDateInput(value) {
+  const raw = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    throw new Error('Target date must be in YYYY-MM-DD format.');
+  }
+  const parsed = new Date(`${raw}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('Target date must be a valid date.');
+  }
+  return raw;
+}
+
+async function setWeightTarget(userId, payload) {
+  const targetWeight = Number(payload?.targetWeight);
+  if (!Number.isFinite(targetWeight) || targetWeight <= 0) {
+    throw new Error('Target weight must be greater than 0.');
+  }
+  const normalizedTargetWeight = Number(targetWeight.toFixed(1));
+  const targetDate = normalizeIsoDateInput(payload?.targetDate);
+
+  await pool.query(
+    `INSERT INTO weight_targets (user_id, target_weight, target_date, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (user_id)
+     DO UPDATE
+       SET target_weight = EXCLUDED.target_weight,
+           target_date = EXCLUDED.target_date,
+           updated_at = NOW()`,
+    [userId, normalizedTargetWeight, targetDate]
+  );
+
+  return {
+    targetWeight: normalizedTargetWeight,
+    targetDate
+  };
+}
+
 async function addWorkoutEntry(userId, payload) {
   const description = String(payload.description || '').trim();
   if (!description) {
@@ -731,7 +803,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
   const days = normalizeAnalysisDays(daysInput);
   const daysParam = String(days);
 
-  const [mealDailyResult, topMealsResult, mealTimingResult, workoutDailyResult, workoutTypesResult, weightsResult, targets] =
+  const [mealDailyResult, topMealsResult, mealTimingResult, workoutDailyResult, workoutTypesResult, weightsResult, targets, weightTarget, dataStartResult] =
     await Promise.all([
       pool.query(
         `SELECT
@@ -804,8 +876,34 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
          ORDER BY logged_at ASC`,
         [userId, daysParam]
       ),
-      getMacroTargets(userId)
+      getMacroTargets(userId),
+      getWeightTarget(userId),
+      pool.query(
+        `SELECT MIN(started_at) AS "startedAt"
+         FROM (
+           SELECT MIN(consumed_at) AS started_at
+           FROM entries
+           WHERE user_id = $1
+           UNION ALL
+           SELECT MIN(logged_at) AS started_at
+           FROM workout_entries
+           WHERE user_id = $1
+           UNION ALL
+           SELECT MIN(logged_at) AS started_at
+           FROM weight_entries
+           WHERE user_id = $1
+         ) timeline
+         WHERE started_at IS NOT NULL`,
+        [userId]
+      )
     ]);
+
+  const startedAtRaw = dataStartResult.rows[0]?.startedAt;
+  const startedAt = startedAtRaw ? new Date(startedAtRaw) : null;
+  const elapsedDays = startedAt && Number.isFinite(startedAt.getTime())
+    ? Math.max(1, Math.floor((Date.now() - startedAt.getTime()) / (24 * 60 * 60 * 1000)) + 1)
+    : days;
+  const effectivePeriodDays = Math.max(1, Math.min(days, elapsedDays));
 
   const weightEntries = weightsResult.rows.map((row) => ({
     weight: Number(row.weight || 0),
@@ -814,9 +912,24 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
 
   const firstWeight = weightEntries.length ? Number(weightEntries[0].weight || 0) : 0;
   const lastWeight = weightEntries.length ? Number(weightEntries[weightEntries.length - 1].weight || 0) : 0;
+  const normalizedTargetWeight = Number(weightTarget?.targetWeight);
+  const targetWeight = Number.isFinite(normalizedTargetWeight) && normalizedTargetWeight > 0 ? normalizedTargetWeight : null;
+  const targetDate = typeof weightTarget?.targetDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(weightTarget.targetDate)
+    ? weightTarget.targetDate
+    : null;
+  let targetDaysRemaining = null;
+  if (targetDate) {
+    const targetDateTime = new Date(`${targetDate}T00:00:00Z`).getTime();
+    if (Number.isFinite(targetDateTime)) {
+      const now = Date.now();
+      targetDaysRemaining = Math.ceil((targetDateTime - now) / (24 * 60 * 60 * 1000));
+    }
+  }
 
   return {
-    periodDays: days,
+    requestedPeriodDays: days,
+    periodDays: effectivePeriodDays,
+    trackingStartedAt: startedAt && Number.isFinite(startedAt.getTime()) ? startedAt.toISOString() : null,
     targets,
     meals: {
       dailyTotals: mealDailyResult.rows.map((row) => ({
@@ -855,7 +968,12 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
       firstWeight,
       lastWeight,
       change: Number((lastWeight - firstWeight).toFixed(2)),
-      entryCount: weightEntries.length
+      entryCount: weightEntries.length,
+      target: {
+        weight: targetWeight,
+        date: targetDate,
+        daysRemaining: Number.isFinite(targetDaysRemaining) ? targetDaysRemaining : null
+      }
     }
   };
 }
@@ -915,6 +1033,8 @@ module.exports = {
   updateWeightEntry,
   deleteWeightEntry,
   listWeightEntries,
+  getWeightTarget,
+  setWeightTarget,
   addWorkoutEntry,
   updateWorkoutEntry,
   listWorkoutEntries,

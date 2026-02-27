@@ -24,6 +24,8 @@ const {
   updateWeightEntry,
   deleteWeightEntry,
   listWeightEntries,
+  getWeightTarget,
+  setWeightTarget,
   addWorkoutEntry,
   updateWorkoutEntry,
   listWorkoutEntries,
@@ -299,18 +301,10 @@ function stddev(values) {
   return Math.sqrt(Math.max(variance, 0));
 }
 
-function normalizeGoal(rawGoal) {
-  const goal = String(rawGoal || '').trim().toLowerCase();
-  if (goal === 'lose' || goal === 'maintain' || goal === 'gain') {
-    return goal;
-  }
-  return 'maintain';
-}
-
-function normalizeAnalysisContext(input) {
-  const plannedWorkoutsPerWeek = Math.max(0, Math.min(14, Math.round(toFinite(input?.plannedWorkoutsPerWeek, 5))));
+function normalizeAnalysisContext(snapshot) {
+  const plannedFromTargets = toFinite(snapshot?.targets?.workouts, 5);
+  const plannedWorkoutsPerWeek = Math.max(0, Math.min(14, Math.round(plannedFromTargets)));
   return {
-    goal: normalizeGoal(input?.goal),
     plannedWorkoutsPerWeek,
     recovery: {
       notes: ''
@@ -318,8 +312,22 @@ function normalizeAnalysisContext(input) {
   };
 }
 
+function inferGoalFromWeightTarget(snapshot) {
+  const entries = Array.isArray(snapshot?.weight?.entries) ? snapshot.weight.entries : [];
+  const latestWeight = entries.length ? toFinite(entries[entries.length - 1]?.weight) : 0;
+  const targetWeight = toFinite(snapshot?.weight?.target?.weight);
+  if (latestWeight > 0 && targetWeight > 0) {
+    const delta = targetWeight - latestWeight;
+    if (Math.abs(delta) <= 0.25) {
+      return 'maintain';
+    }
+    return delta < 0 ? 'lose' : 'gain';
+  }
+  return 'maintain';
+}
+
 function buildAnalysisMetrics(snapshot, context) {
-  const periodDays = Math.max(14, toFinite(snapshot?.periodDays, 90));
+  const periodDays = Math.max(1, toFinite(snapshot?.periodDays, snapshot?.requestedPeriodDays || 90));
   const targets = snapshot?.targets || {};
   const mealDays = Array.isArray(snapshot?.meals?.dailyTotals) ? snapshot.meals.dailyTotals : [];
   const workoutDays = Array.isArray(snapshot?.workouts?.dailyTotals) ? snapshot.workouts.dailyTotals : [];
@@ -384,23 +392,43 @@ function buildAnalysisMetrics(snapshot, context) {
   const weightDeltaWoW = recentWeightChange - priorWeightChange;
 
   const weeklyRate = periodDays > 0 ? (weightChange * 7) / periodDays : 0;
-  const goal = normalizeGoal(context.goal);
+  const goal = inferGoalFromWeightTarget(snapshot);
+  const latestWeight = weightEntries.length ? toFinite(weightEntries[weightEntries.length - 1]?.weight) : 0;
+  const targetWeight = toFinite(snapshot?.weight?.target?.weight);
+  const targetDate = String(snapshot?.weight?.target?.date || '').trim();
+  const targetDaysRemaining = toFinite(snapshot?.weight?.target?.daysRemaining, NaN);
+  const hasUsableTarget = latestWeight > 0 && targetWeight > 0;
+  const hasFutureTargetDate = Number.isFinite(targetDaysRemaining) && targetDaysRemaining > 0;
+  const requiredWeeklyRate = hasUsableTarget && hasFutureTargetDate
+    ? ((targetWeight - latestWeight) * 7) / targetDaysRemaining
+    : NaN;
+
   let goalScore = 50;
   let goalStatus = 'partially_on_track';
   let goalReason = 'Insufficient weight trend data to strongly evaluate goal alignment.';
   if (weightEntries.length >= 3) {
-    if (goal === 'lose') {
+    if (Number.isFinite(requiredWeeklyRate)) {
+      const deltaRate = Math.abs(weeklyRate - requiredWeeklyRate);
+      const tolerance = goal === 'maintain' ? 0.2 : 0.25;
+      goalScore = Math.max(0, 100 - Math.min(100, deltaRate * 180));
+      goalStatus = deltaRate <= tolerance ? 'on_track' : deltaRate <= tolerance * 2 ? 'partially_on_track' : 'off_track';
+      goalReason = `Weight is changing at ${weeklyRate.toFixed(2)} per week; target requires ${requiredWeeklyRate.toFixed(2)} per week by ${targetDate}.`;
+    } else if (goal === 'lose') {
       goalScore = Math.max(0, 100 - Math.min(100, Math.abs(weeklyRate + 0.6) * 130));
       goalStatus = weeklyRate < -0.25 ? 'on_track' : 'off_track';
-      goalReason = `Weight is changing at ${weeklyRate.toFixed(2)} per week vs fat-loss target pace.`;
+      goalReason = 'Inferred fat-loss direction from target weight. ' +
+        `Weight is changing at ${weeklyRate.toFixed(2)} per week vs fat-loss pace.`;
     } else if (goal === 'gain') {
       goalScore = Math.max(0, 100 - Math.min(100, Math.abs(weeklyRate - 0.35) * 170));
       goalStatus = weeklyRate > 0.1 ? 'on_track' : 'off_track';
-      goalReason = `Weight is changing at ${weeklyRate.toFixed(2)} per week vs lean-gain target pace.`;
+      goalReason = 'Inferred gain direction from target weight. ' +
+        `Weight is changing at ${weeklyRate.toFixed(2)} per week vs lean-gain pace.`;
     } else {
       goalScore = Math.max(0, 100 - Math.min(100, Math.abs(weeklyRate) * 230));
       goalStatus = Math.abs(weeklyRate) <= 0.2 ? 'on_track' : 'off_track';
-      goalReason = `Weight is changing at ${weeklyRate.toFixed(2)} per week; maintenance expects near zero.`;
+      goalReason = hasUsableTarget
+        ? `Target is near current weight; maintenance inferred. Current rate is ${weeklyRate.toFixed(2)} per week.`
+        : `Weight is changing at ${weeklyRate.toFixed(2)} per week; maintenance expects near zero.`;
     }
   }
 
@@ -1039,6 +1067,24 @@ app.get('/api/weights', async (req, res) => {
   }
 });
 
+app.get('/api/weight-target', async (req, res) => {
+  try {
+    const target = await getWeightTarget(userIdFromReq(req));
+    res.json(target);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.put('/api/weight-target', async (req, res) => {
+  try {
+    const target = await setWeightTarget(userIdFromReq(req), req.body || {});
+    res.json({ ok: true, ...target });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 app.post('/api/weights', async (req, res) => {
   try {
     await addWeightEntry(userIdFromReq(req), req.body || {});
@@ -1187,8 +1233,8 @@ app.post('/api/analysis', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
     const days = normalizeAnalysisDays(req.body?.days);
-    const context = normalizeAnalysisContext(req.body || {});
     const snapshot = await getAnalysisSnapshot(userId, days);
+    const context = normalizeAnalysisContext(snapshot);
     const analysis = await generateAiAnalysis(snapshot, context);
     const saved = await saveAnalysisReport(userId, days, {
       ...analysis,

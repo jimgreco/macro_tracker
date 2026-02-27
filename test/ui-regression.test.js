@@ -54,6 +54,27 @@ test('weight page is weekly-only and split into three sections', () => {
   assert.equal(script.includes('/api/weights?scope=week'), true);
 });
 
+test('weight page includes target weight + date controls', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+  const server = read('src/server.js');
+
+  assert.equal(html.includes('id="weight-target-value"'), true);
+  assert.equal(html.includes('id="weight-target-date"'), true);
+  assert.equal(html.includes('id="save-weight-target-btn"'), true);
+  assert.equal(script.includes("/api/weight-target"), true);
+  assert.equal(server.includes("app.get('/api/weight-target'"), true);
+  assert.equal(server.includes("app.put('/api/weight-target'"), true);
+});
+
+test('analysis goal selector is removed from weekly analysis form', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+
+  assert.equal(html.includes('id="analysis-goal"'), false);
+  assert.equal(script.includes('analysisGoalEl'), false);
+});
+
 test('weight entries support inline edit and delete actions', () => {
   const script = read('public/script.js');
   const server = read('src/server.js');
@@ -77,4 +98,16 @@ test('workout parser uses server endpoint with local fallback', () => {
   assert.equal(script.includes("/api/parse-workout"), true);
   assert.equal(script.includes('Used fallback workout parsing'), true);
   assert.equal(server.includes("app.post('/api/parse-workout'"), true);
+});
+
+
+test('workout target input lives on workout page and not analysis form', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+
+  assert.equal(html.includes('id="workout-target-per-week"'), true);
+  assert.equal(html.includes('id="save-workout-target-btn"'), true);
+  assert.equal(html.includes('id="analysis-planned-workouts"'), false);
+  assert.equal(script.includes('/api/macro-targets/workouts'), true);
+  assert.equal(script.includes('plannedWorkoutsPerWeek: Number(analysisPlannedWorkoutsEl?.value || 5)'), false);
 });

@@ -104,6 +104,9 @@ const appPages = {
 const weightLoggedAtEl = document.getElementById('weight-logged-at');
 const weightValueEl = document.getElementById('weight-value');
 const saveWeightBtnEl = document.getElementById('save-weight-btn');
+const weightTargetValueEl = document.getElementById('weight-target-value');
+const weightTargetDateEl = document.getElementById('weight-target-date');
+const saveWeightTargetBtnEl = document.getElementById('save-weight-target-btn');
 const weightNoteEl = document.getElementById('weight-note');
 const weightCanvasEl = document.getElementById('weight-canvas');
 const weightAverageValueEl = document.getElementById('weight-average-value');
@@ -120,9 +123,9 @@ const saveWorkoutBtnEl = document.getElementById('save-workout-btn');
 const workoutQuickListEl = document.getElementById('workout-quick-list');
 const workoutLogListEl = document.getElementById('workout-log-list');
 const workoutCanvasEl = document.getElementById('workout-canvas');
+const workoutTargetPerWeekEl = document.getElementById('workout-target-per-week');
+const saveWorkoutTargetBtnEl = document.getElementById('save-workout-target-btn');
 const analysisDaysEl = document.getElementById('analysis-days');
-const analysisGoalEl = document.getElementById('analysis-goal');
-const analysisPlannedWorkoutsEl = document.getElementById('analysis-planned-workouts');
 const analysisGenerateBtnEl = document.getElementById('analysis-generate-btn');
 const analysisNoteEl = document.getElementById('analysis-note');
 const analysisMetaEl = document.getElementById('analysis-meta');
@@ -404,6 +407,49 @@ function bindMacroTargetCards() {
   }
 
   macroTargetBound = true;
+}
+
+function renderWorkoutTargetControl() {
+  if (!workoutTargetPerWeekEl) {
+    return;
+  }
+  const target = Number(state.dashboardData?.targets?.workouts);
+  const safeTarget = Number.isFinite(target) ? Math.max(0, Math.min(14, Math.round(target))) : 5;
+  workoutTargetPerWeekEl.value = String(safeTarget);
+}
+
+async function saveWorkoutTarget() {
+  const nextTarget = Number(workoutTargetPerWeekEl?.value || 0);
+  if (!Number.isFinite(nextTarget) || nextTarget < 0) {
+    setActionBanner('Workout target must be a number greater than or equal to 0.', 'error');
+    return;
+  }
+
+  const roundedTarget = Math.max(0, Math.min(14, Math.round(nextTarget)));
+
+  try {
+    if (saveWorkoutTargetBtnEl) {
+      saveWorkoutTargetBtnEl.disabled = true;
+    }
+    await api('/api/macro-targets/workouts', {
+      method: 'PUT',
+      body: JSON.stringify({ target: roundedTarget })
+    });
+    if (state.dashboardData) {
+      state.dashboardData.targets = state.dashboardData.targets || {};
+      state.dashboardData.targets.workouts = roundedTarget;
+    }
+    if (workoutTargetPerWeekEl) {
+      workoutTargetPerWeekEl.value = String(roundedTarget);
+    }
+    setActionBanner('Workout target updated.', 'success');
+  } catch (error) {
+    setActionBanner(error.message, 'error');
+  } finally {
+    if (saveWorkoutTargetBtnEl) {
+      saveWorkoutTargetBtnEl.disabled = false;
+    }
+  }
 }
 
 
@@ -806,13 +852,6 @@ function fmtSigned(value, decimals = 1) {
   return num > 0 ? `+${fixed}` : fixed;
 }
 
-function getAnalysisContext() {
-  return {
-    goal: String(analysisGoalEl?.value || 'maintain').toLowerCase(),
-    plannedWorkoutsPerWeek: Number(analysisPlannedWorkoutsEl?.value || 5)
-  };
-}
-
 function renderAnalysisReport(record) {
   state.analysisReport = record || null;
   const report = record?.report || null;
@@ -832,11 +871,15 @@ function renderAnalysisReport(record) {
   }
 
   if (analysisMetaEl) {
-    const periodDays = Number(record.periodDays || 0);
+    const windowDays = Number(record.periodDays || 0);
+    const trackedDays = Number(report.stats?.periodDays || 0);
     const generatedAt = formatDateTimeLabel(record.createdAt);
     const confidence = String(report.confidence || '').trim();
+    const coverageLabel = trackedDays > 0 && windowDays > 0 && trackedDays < windowDays
+      ? `${trackedDays} tracked day${trackedDays === 1 ? '' : 's'} in a ${windowDays}-day window`
+      : `${windowDays || trackedDays} days of data`;
     analysisMetaEl.textContent =
-      `Generated ${generatedAt} using ${periodDays} days of data` +
+      `Generated ${generatedAt} using ${coverageLabel}` +
       (confidence ? ` (${confidence} confidence).` : '.');
   }
   if (analysisSummaryEl) {
@@ -905,8 +948,7 @@ async function generateAnalysis() {
     const response = await api('/api/analysis', {
       method: 'POST',
       body: JSON.stringify({
-        days,
-        ...getAnalysisContext()
+        days
       })
     });
     renderAnalysisReport(response.report || null);
@@ -1709,6 +1751,7 @@ async function refreshDashboard() {
   renderProfile(me.user || null);
   renderSavedItems();
   renderDashboard(dashboard);
+  renderWorkoutTargetControl();
   bindTrendResize();
   bindTrendMacroCards();
   bindMacroTargetCards();
@@ -2415,8 +2458,13 @@ async function refreshWeightData() {
     return;
   }
   try {
-    const response = await api('/api/weights?scope=week');
+    const [response, target] = await Promise.all([
+      api('/api/weights?scope=week'),
+      api('/api/weight-target')
+    ]);
     const entries = Array.isArray(response.entries) ? response.entries : [];
+
+    renderWeightTargetControl(target);
 
     if (!entries.length) {
       weightLogListEl.innerHTML = '<p class="empty-note">No weight entries yet.</p>';
@@ -2450,6 +2498,51 @@ async function refreshWeightData() {
     renderWeightChart();
   } catch (error) {
     weightNoteEl.textContent = error.message;
+  }
+}
+
+function renderWeightTargetControl(target) {
+  if (weightTargetValueEl) {
+    const value = Number(target?.targetWeight);
+    weightTargetValueEl.value = Number.isFinite(value) && value > 0 ? String(value) : '';
+  }
+  if (weightTargetDateEl) {
+    const date = String(target?.targetDate || '').trim();
+    weightTargetDateEl.value = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : getLocalIsoDay();
+  }
+}
+
+async function saveWeightTarget() {
+  const targetWeight = parseWeightInputValue(weightTargetValueEl?.value);
+  const targetDate = String(weightTargetDateEl?.value || '').trim();
+  if (!Number.isFinite(targetWeight) || targetWeight <= 0) {
+    setActionBanner('Target weight must be greater than 0.', 'error');
+    return;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+    setActionBanner('Target date must be in YYYY-MM-DD format.', 'error');
+    return;
+  }
+
+  try {
+    if (saveWeightTargetBtnEl) {
+      saveWeightTargetBtnEl.disabled = true;
+    }
+    const response = await api('/api/weight-target', {
+      method: 'PUT',
+      body: JSON.stringify({
+        targetWeight,
+        targetDate
+      })
+    });
+    renderWeightTargetControl(response);
+    setActionBanner('Weight target updated.', 'success');
+  } catch (error) {
+    setActionBanner(error.message, 'error');
+  } finally {
+    if (saveWeightTargetBtnEl) {
+      saveWeightTargetBtnEl.disabled = false;
+    }
   }
 }
 
@@ -2709,6 +2802,9 @@ if (saveWeightBtnEl) {
   if (weightLoggedAtEl) {
     weightLoggedAtEl.value = toDateTimeLocalValue();
   }
+  if (weightTargetDateEl && !weightTargetDateEl.value) {
+    weightTargetDateEl.value = getLocalIsoDay();
+  }
 
   saveWeightBtnEl.addEventListener('click', async () => {
     try {
@@ -2730,6 +2826,32 @@ if (saveWeightBtnEl) {
       weightNoteEl.textContent = error.message;
       setActionBanner(error.message, 'error');
     }
+  });
+}
+
+if (saveWeightTargetBtnEl) {
+  saveWeightTargetBtnEl.addEventListener('click', async () => {
+    await saveWeightTarget();
+  });
+}
+
+if (weightTargetValueEl) {
+  weightTargetValueEl.addEventListener('keydown', async (event) => {
+    if (event.key !== 'Enter') {
+      return;
+    }
+    event.preventDefault();
+    await saveWeightTarget();
+  });
+}
+
+if (weightTargetDateEl) {
+  weightTargetDateEl.addEventListener('keydown', async (event) => {
+    if (event.key !== 'Enter') {
+      return;
+    }
+    event.preventDefault();
+    await saveWeightTarget();
   });
 }
 
@@ -2802,6 +2924,22 @@ if (weightLogListEl) {
         setActionBanner(error.message, 'error');
       }
     }
+  });
+}
+
+if (saveWorkoutTargetBtnEl) {
+  saveWorkoutTargetBtnEl.addEventListener('click', async () => {
+    await saveWorkoutTarget();
+  });
+}
+
+if (workoutTargetPerWeekEl) {
+  workoutTargetPerWeekEl.addEventListener('keydown', async (event) => {
+    if (event.key !== 'Enter') {
+      return;
+    }
+    event.preventDefault();
+    await saveWorkoutTarget();
   });
 }
 

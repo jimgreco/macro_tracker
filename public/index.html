@@ -252,6 +252,12 @@
             <input id="weight-value" type="number" step="0.1" min="0" placeholder="Weight" />
           </div>
           <button id="save-weight-btn" type="button">Save Weight</button>
+          <div class="weight-target-row">
+            <label for="weight-target-value">Target Weight</label>
+            <input id="weight-target-value" type="number" step="0.1" min="0" placeholder="Target" />
+            <input id="weight-target-date" type="date" />
+            <button id="save-weight-target-btn" type="button">Save Target</button>
+          </div>
           <p id="weight-note" role="status" aria-live="polite"></p>
         </section>
 
@@ -286,6 +292,11 @@
           <div class="row workout-submit-row">
             <button id="parse-workout-btn" type="button">Parse Workout</button>
             <button id="save-workout-btn" type="button" disabled>Save</button>
+          </div>
+          <div class="workout-target-row">
+            <label for="workout-target-per-week">Target workouts/week</label>
+            <input id="workout-target-per-week" type="number" min="0" max="14" step="1" value="5" />
+            <button id="save-workout-target-btn" type="button">Save Target</button>
           </div>
           <div id="workout-editor" class="workout-editor" hidden>
             <div class="parsed-item">
@@ -340,18 +351,6 @@
                 <option value="60">60 days</option>
                 <option value="90">90 days</option>
               </select>
-            </div>
-            <div class="analysis-field">
-              <label for="analysis-goal">Goal</label>
-              <select id="analysis-goal">
-                <option value="lose">Lose</option>
-                <option value="maintain" selected>Maintain</option>
-                <option value="gain">Gain</option>
-              </select>
-            </div>
-            <div class="analysis-field">
-              <label for="analysis-planned-workouts">Planned workouts/wk</label>
-              <input id="analysis-planned-workouts" type="number" min="0" max="14" step="1" value="5" />
             </div>
             <div class="analysis-actions">
             <button id="analysis-generate-btn" type="button">Generate Analysis</button>

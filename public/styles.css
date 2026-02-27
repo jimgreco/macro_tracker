@@ -169,7 +169,7 @@ body {
 
 .analysis-form-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.55rem 0.7rem;
   align-items: end;
   margin-top: 0.45rem;
@@ -310,6 +310,25 @@ body {
   margin-top: 0.6rem;
 }
 
+.weight-target-row {
+  margin-top: 0.55rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 150px auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.weight-target-row label {
+  margin: 0;
+  line-height: 1.2;
+}
+
+.weight-target-row input,
+.weight-target-row button {
+  margin-bottom: 0;
+  min-height: 42px;
+}
+
 #weight-note {
   margin-top: 0.55rem;
 }
@@ -355,6 +374,30 @@ body {
 .row.workout-submit-row button {
   width: 100%;
   margin-bottom: 0;
+}
+
+.workout-target-row {
+  margin-top: 0.55rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.workout-target-row label {
+  margin: 0;
+  line-height: 1.2;
+}
+
+.workout-target-row input {
+  width: 100%;
+  margin-bottom: 0;
+  min-height: 42px;
+}
+
+.workout-target-row button {
+  margin-bottom: 0;
+  min-height: 42px;
 }
 
 .chip-action {
@@ -1309,6 +1352,19 @@ button[disabled] {
     display: grid;
     gap: 0.38rem;
     overflow: visible;
+  }
+
+  .weight-target-row {
+    grid-template-columns: 1fr 1fr;
+    align-items: stretch;
+  }
+
+  .weight-target-row label {
+    grid-column: span 2;
+  }
+
+  .weight-target-row button {
+    grid-column: span 2;
   }
 
   #saved-item-select {
