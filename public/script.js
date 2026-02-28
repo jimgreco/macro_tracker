@@ -2158,8 +2158,15 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   const values = rows.map((row) => Number(row[valueKey] || 0));
   const maxValue = Math.max(...values, 1);
   const minValue = Math.min(...values);
-  const yMin = baseline === 'range' ? minValue : 0;
-  const yMax = baseline === 'range' ? maxValue : maxValue;
+  // Extract target early so the Y axis always encompasses it
+  const targetValue = Number.isFinite(options.targetValue) && options.targetValue > 0
+    ? options.targetValue : null;
+  let yMin = baseline === 'range' ? minValue : 0;
+  let yMax = baseline === 'range' ? maxValue : maxValue;
+  if (targetValue !== null) {
+    yMin = Math.min(yMin, targetValue);
+    yMax = Math.max(yMax, targetValue);
+  }
   const hasFlatRange = baseline === 'range' && Math.abs(yMax - yMin) < 0.0001;
   const ySpan = hasFlatRange ? 1 : Math.max(yMax - yMin, 1);
 
@@ -2216,27 +2223,23 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // Optional amber target line
-  const targetValue = Number.isFinite(options.targetValue) && options.targetValue > 0
-    ? options.targetValue : null;
+  // Optional amber target line (always in range because yMin/yMax were extended above)
   if (targetValue !== null) {
     const targetY = hasFlatRange
       ? pad.top + plotH / 2
       : pad.top + plotH - ((targetValue - yMin) / ySpan) * plotH;
-    if (targetY >= pad.top - 2 && targetY <= pad.top + plotH + 2) {
-      ctx.save();
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = 'rgba(255, 202, 40, 0.8)';
-      ctx.beginPath();
-      ctx.setLineDash([5, 4]);
-      ctx.moveTo(pad.left, targetY);
-      ctx.lineTo(pad.left + plotW, targetY);
-      ctx.strokeStyle = 'rgba(255, 202, 40, 0.95)';
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
-    }
+    ctx.save();
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = 'rgba(255, 202, 40, 0.8)';
+    ctx.beginPath();
+    ctx.setLineDash([5, 4]);
+    ctx.moveTo(pad.left, targetY);
+    ctx.lineTo(pad.left + plotW, targetY);
+    ctx.strokeStyle = 'rgba(255, 202, 40, 0.95)';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
   }
 
   if (showTrendLine && rows.length >= 2) {
