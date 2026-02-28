@@ -319,7 +319,7 @@ body {
 
 .weight-target-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 110px) minmax(0, 150px) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 110px) auto minmax(0, 150px) auto;
   gap: 0.45rem;
   align-items: center;
 }
@@ -1419,10 +1419,6 @@ button[disabled] {
   .weight-target-row input,
   .weight-target-row button {
     min-width: 0;
-  }
-
-  .weight-target-row label {
-    grid-column: span 2;
   }
 
   .weight-target-row button {
