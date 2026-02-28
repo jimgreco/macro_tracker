@@ -16,6 +16,7 @@ const state = {
   workoutEditingEntryId: null,
   pendingWorkout: null,
   weightChartRows: [],
+  weightTarget: null,
   workoutChartRows: [],
   analysisReport: null,
   analysisAutoRan: false
@@ -2215,6 +2216,29 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   ctx.stroke();
   ctx.shadowBlur = 0;
 
+  // Optional amber target line
+  const targetValue = Number.isFinite(options.targetValue) && options.targetValue > 0
+    ? options.targetValue : null;
+  if (targetValue !== null) {
+    const targetY = hasFlatRange
+      ? pad.top + plotH / 2
+      : pad.top + plotH - ((targetValue - yMin) / ySpan) * plotH;
+    if (targetY >= pad.top - 2 && targetY <= pad.top + plotH + 2) {
+      ctx.save();
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = 'rgba(255, 202, 40, 0.8)';
+      ctx.beginPath();
+      ctx.setLineDash([5, 4]);
+      ctx.moveTo(pad.left, targetY);
+      ctx.lineTo(pad.left + plotW, targetY);
+      ctx.strokeStyle = 'rgba(255, 202, 40, 0.95)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+  }
+
   if (showTrendLine && rows.length >= 2) {
     if (trendLineMode === 'average') {
       const average = rows.reduce((sum, row) => sum + Number(row[valueKey] || 0), 0) / rows.length;
@@ -2309,7 +2333,8 @@ function renderWeightChart() {
     yTickCount: 4,
     showTrendLine: true,
     trendLineMode: 'average',
-    averageValueEl: weightAverageValueEl
+    averageValueEl: weightAverageValueEl,
+    targetValue: state.weightTarget
   });
 }
 
@@ -2464,6 +2489,8 @@ async function refreshWeightData() {
     const entries = Array.isArray(response.entries) ? response.entries : [];
 
     renderWeightTargetControl(target);
+    const tw = Number(target?.targetWeight);
+    state.weightTarget = Number.isFinite(tw) && tw > 0 ? tw : null;
 
     if (!entries.length) {
       weightLogListEl.innerHTML = '<p class="empty-note">No weight entries yet.</p>';

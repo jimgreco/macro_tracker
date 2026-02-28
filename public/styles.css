@@ -318,9 +318,8 @@ body {
 }
 
 .weight-target-row {
-  margin-top: 0.55rem;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px 150px auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 110px) minmax(0, 150px) auto;
   gap: 0.45rem;
   align-items: center;
 }
@@ -339,6 +338,9 @@ body {
 #weight-target-date {
   width: 100%;
   min-width: 0;
+  max-width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 #weight-note {
@@ -389,9 +391,8 @@ body {
 }
 
 .workout-target-row {
-  margin-top: 0.55rem;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 120px) auto;
   gap: 0.45rem;
   align-items: center;
 }
