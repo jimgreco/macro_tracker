@@ -1412,17 +1412,17 @@ button[disabled] {
   }
 
   .weight-target-row {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: 1fr;
     align-items: stretch;
+    gap: 0.3rem;
   }
 
-  .weight-target-row input,
-  .weight-target-row button {
-    min-width: 0;
+  .weight-target-row label {
+    margin-top: 0.4rem;
   }
 
-  .weight-target-row button {
-    grid-column: span 2;
+  .weight-target-row label:first-child {
+    margin-top: 0;
   }
 
   #saved-item-select {
