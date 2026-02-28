@@ -90,7 +90,7 @@ body {
   width: clamp(36px, 3vw, 44px);
   height: clamp(36px, 3vw, 44px);
   display: block;
-  filter: drop-shadow(0 5px 16px rgba(0, 207, 255, 0.4));
+  filter: drop-shadow(0 5px 18px rgba(255, 45, 120, 0.55));
 }
 
 /* ── pill nav tabs ── */
@@ -425,7 +425,7 @@ body {
   font-size: clamp(1.2rem, 1.8vw, 1.6rem);
   font-weight: 800;
   letter-spacing: -0.02em;
-  background: linear-gradient(95deg, #00cfff 0%, #05ffa1 100%);
+  background: linear-gradient(95deg, #ff2d78 0%, #ff85c0 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;

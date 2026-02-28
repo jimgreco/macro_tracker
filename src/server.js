@@ -333,7 +333,9 @@ function buildAnalysisMetrics(snapshot, context) {
 
   const mealLoggedDays = mealDays.length;
   const totalLoggedItems = mealDays.reduce((sum, row) => sum + toFinite(row.itemCount), 0);
-  const workoutSessions = workoutDays.reduce((sum, row) => sum + toFinite(row.sessions), 0);
+  // Count distinct days with at least one workout (not total sessions).
+  // e.g. target=5 means 5 separate days must have workouts; 2 workouts on one day still counts as 1.
+  const workoutSessions = workoutDays.length;
   const totalWorkoutHours = workoutDays.reduce((sum, row) => sum + toFinite(row.durationHours), 0);
   const totalWorkoutCalories = workoutDays.reduce((sum, row) => sum + toFinite(row.caloriesBurned), 0);
   const weightChange = toFinite(snapshot?.weight?.change);
@@ -494,7 +496,7 @@ function buildFallbackAnalysis(snapshot, context) {
   const summary = [
     `Analyzed ${stats.periodDays} days.`,
     `Meal logging ${metrics.adherence.mealLoggingPct}% of days.`,
-    `Workouts: ${stats.workoutSessions} completed vs ${metrics.adherence.plannedWorkoutCount} planned.`,
+    `Workout days: ${stats.workoutSessions} days with workouts vs ${metrics.adherence.plannedWorkoutCount} planned workout days.`,
     `Goal alignment score ${metrics.goalAlignment.score}/100 (${metrics.goalAlignment.status.replace('_', ' ')}).`
   ].join(' ');
 
@@ -536,7 +538,7 @@ async function generateAiAnalysis(snapshot, context) {
       {
         role: 'system',
         content:
-          'You are a direct fitness and nutrition coach. Be honest, specific, and practical. Use only the data provided. Return strict JSON only. Next-week plan items must be numeric and measurable.'
+          'You are a direct fitness and nutrition coach. Be honest, specific, and practical. Use only the data provided. Return strict JSON only. Next-week plan items must be numeric and measurable. IMPORTANT: completedWorkoutCount and plannedWorkoutCount represent distinct days with at least one workout — not total session counts. Two workouts logged on the same day still count as only one workout day.'
       },
       {
         role: 'user',
