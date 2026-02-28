@@ -19,28 +19,26 @@
     <main class="app-shell">
       <div id="action-banner" class="action-banner" role="status" aria-live="polite" hidden></div>
       <header class="topbar">
-        <div class="brand-menu">
-          <button id="brand-menu-btn" class="brand-lockup brand-menu-btn" type="button" aria-label="Open page menu" aria-haspopup="true" aria-expanded="false">
-            <svg class="brand-logo" viewBox="0 0 64 64" role="img" aria-hidden="true" focusable="false">
-              <defs>
-                <linearGradient id="brand-grad" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stop-color="#0f5fce" />
-                  <stop offset="100%" stop-color="#0a8a66" />
-                </linearGradient>
-              </defs>
-              <rect x="6" y="6" width="52" height="52" rx="14" fill="url(#brand-grad)" />
-              <path d="M18 42V22h6l8 11 8-11h6v20h-6V31l-8 10-8-10v11z" fill="#fff" />
-              <circle cx="50" cy="14" r="4" fill="#d5ffe7" />
-            </svg>
-            <span class="brand-wordmark">MacroFlow</span>
-          </button>
-          <div id="brand-menu-popover" class="brand-menu-popover" hidden>
-            <button type="button" class="brand-menu-item is-active" data-page="macros">Macro Tracker</button>
-            <button type="button" class="brand-menu-item" data-page="weight">Weight Tracker</button>
-            <button type="button" class="brand-menu-item" data-page="workout">Workout Tracker</button>
-            <button type="button" class="brand-menu-item" data-page="analysis">Analysis</button>
-          </div>
+        <div class="brand-lockup">
+          <svg class="brand-logo" viewBox="0 0 64 64" role="img" aria-hidden="true" focusable="false">
+            <defs>
+              <linearGradient id="brand-grad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#00cfff" />
+                <stop offset="100%" stop-color="#05ffa1" />
+              </linearGradient>
+            </defs>
+            <rect x="6" y="6" width="52" height="52" rx="14" fill="url(#brand-grad)" />
+            <path d="M18 42V22h6l8 11 8-11h6v20h-6V31l-8 10-8-10v11z" fill="#fff" />
+            <circle cx="50" cy="14" r="4" fill="#05ffa1" />
+          </svg>
+          <span class="brand-wordmark">MacroFlow</span>
         </div>
+        <nav class="main-nav" aria-label="App navigation">
+          <button type="button" class="nav-tab is-active" data-page="macros">Macros</button>
+          <button type="button" class="nav-tab" data-page="weight">Weight</button>
+          <button type="button" class="nav-tab" data-page="workout">Workout</button>
+          <button type="button" class="nav-tab" data-page="analysis">Analysis</button>
+        </nav>
         <div class="topbar-right">
           <div id="profile-menu" class="profile-menu" aria-label="Signed in user">
             <button

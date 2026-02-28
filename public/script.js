@@ -92,9 +92,7 @@ const profileAvatarEl = document.getElementById('profile-avatar');
 const profileNameEl = document.getElementById('profile-name');
 const profileEmailEl = document.getElementById('profile-email');
 const logoutBtnEl = document.getElementById('logout-btn');
-const brandMenuBtnEl = document.getElementById('brand-menu-btn');
-const brandMenuPopoverEl = document.getElementById('brand-menu-popover');
-const pageMenuItems = Array.from(document.querySelectorAll('.brand-menu-item'));
+const pageMenuItems = Array.from(document.querySelectorAll('.nav-tab'));
 const appPages = {
   macros: document.getElementById('macros-page'),
   weight: document.getElementById('weight-page'),
@@ -1412,8 +1410,8 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   if (!trendCanvasEl) {
     return;
   }
-  const targetLineColor = 'rgba(231, 122, 49, 0.95)';
-  const averageLineColor = 'rgba(10, 138, 102, 0.95)';
+  const targetLineColor = 'rgba(255, 202, 40, 0.95)';
+  const averageLineColor = 'rgba(5, 255, 161, 0.95)';
   const cssWidth = Math.max(1, Math.floor(trendCanvasEl.clientWidth || 0));
   const cssHeight = 120;
   if (cssWidth > 0 && (trendCanvasEl.width !== cssWidth || trendCanvasEl.height !== cssHeight)) {
@@ -1457,8 +1455,8 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   });
 
   const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, 'rgba(15,95,206,0.32)');
-  grad.addColorStop(1, 'rgba(15,95,206,0.03)');
+  grad.addColorStop(0, 'rgba(0,207,255,0.28)');
+  grad.addColorStop(1, 'rgba(0,207,255,0.02)');
 
   let targetY = null;
   if (targetValue > 0) {
@@ -1486,21 +1484,24 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   ctx.fillStyle = grad;
   ctx.fill();
 
+  ctx.shadowBlur = 14;
+  ctx.shadowColor = 'rgba(0, 207, 255, 0.75)';
   ctx.beginPath();
   ctx.moveTo(coords[0].x, coords[0].y);
   for (let i = 1; i < coords.length; i += 1) {
     ctx.lineTo(coords[i].x, coords[i].y);
   }
-  ctx.strokeStyle = '#0f5fce';
+  ctx.strokeStyle = '#00cfff';
   ctx.lineWidth = 2.2;
   ctx.stroke();
 
-  ctx.fillStyle = '#0f5fce';
+  ctx.fillStyle = '#00cfff';
   for (const p of coords) {
     ctx.beginPath();
     ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.shadowBlur = 0;
 
   // Show a horizontal weekly average line using days that have logged data.
   let avgY = null;
@@ -1513,6 +1514,8 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
     avgY = padY + ((max - average) / range) * usableH;
 
     ctx.save();
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = 'rgba(5, 255, 161, 0.8)';
     ctx.beginPath();
     ctx.setLineDash([5, 4]);
     ctx.moveTo(padX, avgY);
@@ -1527,8 +1530,8 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
 
   const tickCount = 4;
   ctx.save();
-  ctx.strokeStyle = 'rgba(53, 81, 114, 0.22)';
-  ctx.fillStyle = 'rgba(40, 63, 92, 0.9)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+  ctx.fillStyle = 'rgba(160, 180, 204, 0.85)';
   ctx.lineWidth = 1;
   ctx.font = '11px system-ui, -apple-system, sans-serif';
   ctx.textAlign = 'right';
@@ -1545,7 +1548,7 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
     ctx.fillText(fmtNumber(value), padX - 6, y);
   }
 
-  ctx.strokeStyle = 'rgba(53, 81, 114, 0.45)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
   ctx.beginPath();
   ctx.moveTo(padX, padY);
   ctx.lineTo(padX, h - padY);
@@ -2090,15 +2093,6 @@ entriesByDayEl.addEventListener('input', (event) => {
 
 
 
-function setBrandMenuOpen(isOpen) {
-  if (!brandMenuPopoverEl || !brandMenuBtnEl) {
-    return;
-  }
-  const open = Boolean(isOpen);
-  brandMenuPopoverEl.hidden = !open;
-  brandMenuBtnEl.setAttribute('aria-expanded', String(open));
-}
-
 function renderActivePage(pageKey) {
   state.selectedPage = pageKey;
   for (const [key, section] of Object.entries(appPages)) {
@@ -2146,7 +2140,7 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
     if (averageValueEl) {
       averageValueEl.textContent = 'none';
     }
-    ctx.fillStyle = '#6e819e';
+    ctx.fillStyle = 'rgba(160, 180, 204, 0.85)';
     ctx.font = '13px sans-serif';
     ctx.fillText('No data yet', 12, 24);
     return;
@@ -2170,8 +2164,8 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
 
   if (showYAxis) {
     ctx.save();
-    ctx.strokeStyle = 'rgba(53, 81, 114, 0.22)';
-    ctx.fillStyle = 'rgba(40, 63, 92, 0.9)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+    ctx.fillStyle = 'rgba(160, 180, 204, 0.85)';
     ctx.lineWidth = 1;
     ctx.font = '11px system-ui, -apple-system, sans-serif';
     ctx.textAlign = 'right';
@@ -2188,14 +2182,14 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
       ctx.fillText(fmtNumber(tickValue), pad.left - 6, y);
     }
 
-    ctx.strokeStyle = 'rgba(53, 81, 114, 0.45)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.beginPath();
     ctx.moveTo(pad.left, pad.top);
     ctx.lineTo(pad.left, pad.top + plotH);
     ctx.stroke();
     ctx.restore();
   } else {
-    ctx.strokeStyle = '#d7e2f2';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(pad.left, pad.top);
@@ -2204,7 +2198,9 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
     ctx.stroke();
   }
 
-  ctx.strokeStyle = '#0f5fce';
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = 'rgba(0, 207, 255, 0.75)';
+  ctx.strokeStyle = '#00cfff';
   ctx.lineWidth = 2;
   ctx.beginPath();
   rows.forEach((row, index) => {
@@ -2217,6 +2213,7 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
     else ctx.lineTo(x, y);
   });
   ctx.stroke();
+  ctx.shadowBlur = 0;
 
   if (showTrendLine && rows.length >= 2) {
     if (trendLineMode === 'average') {
@@ -2226,18 +2223,20 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
         : pad.top + plotH - ((average - yMin) / ySpan) * plotH;
 
       ctx.save();
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = 'rgba(5, 255, 161, 0.8)';
       ctx.beginPath();
       ctx.setLineDash([5, 4]);
       ctx.moveTo(pad.left, avgY);
       ctx.lineTo(pad.left + plotW, avgY);
-      ctx.strokeStyle = 'rgba(10, 138, 102, 0.95)';
+      ctx.strokeStyle = 'rgba(5, 255, 161, 0.95)';
       ctx.lineWidth = 1.8;
       ctx.stroke();
       ctx.setLineDash([]);
       if (averageValueEl) {
         averageValueEl.textContent = fmtNumber(average);
       } else {
-        ctx.fillStyle = 'rgba(10, 138, 102, 0.95)';
+        ctx.fillStyle = 'rgba(5, 255, 161, 0.95)';
         ctx.font = '11px system-ui, -apple-system, sans-serif';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'bottom';
@@ -2274,11 +2273,13 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
         : pad.top + plotH - ((endValue - yMin) / ySpan) * plotH;
 
       ctx.save();
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = 'rgba(255, 202, 40, 0.8)';
       ctx.beginPath();
       ctx.setLineDash([5, 4]);
       ctx.moveTo(pad.left, startY);
       ctx.lineTo(pad.left + plotW, endY);
-      ctx.strokeStyle = 'rgba(231, 122, 49, 0.95)';
+      ctx.strokeStyle = 'rgba(255, 202, 40, 0.95)';
       ctx.lineWidth = 1.8;
       ctx.stroke();
       ctx.setLineDash([]);
@@ -2291,7 +2292,7 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   }
 
   if (showXAxisLabels) {
-    ctx.fillStyle = '#6e819e';
+    ctx.fillStyle = 'rgba(160, 180, 204, 0.85)';
     ctx.font = '11px sans-serif';
     ctx.fillText(String(rows[0][labelKey] || ''), pad.left, height - 6);
     ctx.textAlign = 'right';
@@ -2759,13 +2760,6 @@ async function refreshWorkoutData() {
   }
 }
 
-if (brandMenuBtnEl) {
-  brandMenuBtnEl.addEventListener('click', (event) => {
-    event.stopPropagation();
-    setBrandMenuOpen(brandMenuPopoverEl.hidden);
-  });
-}
-
 for (const item of pageMenuItems) {
   item.addEventListener('click', async () => {
     const page = item.dataset.page;
@@ -2773,7 +2767,6 @@ for (const item of pageMenuItems) {
       return;
     }
     renderActivePage(page);
-    setBrandMenuOpen(false);
     if (page === 'weight') {
       await refreshWeightData();
     }
@@ -3132,10 +3125,6 @@ if (profileChipEl) {
 }
 
 document.addEventListener('click', (event) => {
-  if (brandMenuPopoverEl && !brandMenuPopoverEl.hidden && !brandMenuPopoverEl.contains(event.target) && !brandMenuBtnEl?.contains(event.target)) {
-    setBrandMenuOpen(false);
-  }
-
   if (profileMenuEl && !profilePopoverEl.hidden && !profileMenuEl.contains(event.target)) {
     setProfileMenuOpen(false);
   }

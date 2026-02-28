@@ -12,11 +12,11 @@
     />
     <style>
       :root {
-        --bg: #eef4ff;
-        --card: rgba(255, 255, 255, 0.92);
-        --line: #d3dfef;
-        --text: #13233a;
-        --muted: #53647d;
+        --bg: #07090f;
+        --card: rgba(13, 17, 30, 0.95);
+        --line: rgba(0, 207, 255, 0.18);
+        --text: #dce9ff;
+        --muted: #5a6e8a;
       }
 
       * { box-sizing: border-box; }
@@ -25,7 +25,10 @@
         margin: 0;
         min-height: 100vh;
         font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
-        background: radial-gradient(circle at 15% 0%, #ffffff 0%, #e8f2ff 44%, #f2f6fe 100%);
+        background: #07090f;
+        background-image:
+          radial-gradient(ellipse at 18% 8%, rgba(0, 60, 100, 0.45) 0%, transparent 52%),
+          radial-gradient(ellipse at 82% 92%, rgba(0, 80, 50, 0.3) 0%, transparent 48%);
         color: var(--text);
         display: grid;
         place-items: center;
@@ -38,7 +41,8 @@
         border-radius: 16px;
         background: var(--card);
         padding: 1.1rem;
-        box-shadow: 0 20px 44px rgba(14, 30, 56, 0.14);
+        backdrop-filter: blur(14px);
+        box-shadow: 0 20px 44px rgba(0, 0, 0, 0.6), 0 0 30px rgba(0, 207, 255, 0.06);
       }
 
       h1 {
@@ -58,14 +62,14 @@
       .login-brand-logo {
         width: 34px;
         height: 34px;
-        filter: drop-shadow(0 5px 10px rgba(16, 43, 92, 0.2));
+        filter: drop-shadow(0 5px 16px rgba(0, 207, 255, 0.4));
       }
 
       .login-brand-wordmark {
         font-size: 1.62rem;
         font-weight: 800;
         letter-spacing: -0.02em;
-        background: linear-gradient(95deg, #13335d 0%, #0f5fce 46%, #0a8a66 100%);
+        background: linear-gradient(95deg, #00cfff 0%, #05ffa1 100%);
         -webkit-background-clip: text;
         background-clip: text;
         color: transparent;
@@ -77,22 +81,25 @@
 
       .google-btn {
         width: 100%;
-        border: 1px solid #ccd9ec;
+        border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 12px;
         padding: 0.75rem 0.9rem;
-        background: #fff;
-        color: #1b2d49;
+        background: rgba(0, 207, 255, 0.1);
+        color: #00cfff;
+        font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
         font-weight: 700;
         cursor: pointer;
+        transition: background 140ms ease, box-shadow 140ms ease;
       }
 
       .google-btn:hover {
-        background: #f8fbff;
+        background: rgba(0, 207, 255, 0.18);
+        box-shadow: 0 4px 18px rgba(0, 207, 255, 0.2);
       }
 
       .error {
         margin-top: 0.8rem;
-        color: #a12f2f;
+        color: #ff2d78;
         font-size: 0.9rem;
       }
 
@@ -100,7 +107,7 @@
         margin-top: 0.8rem;
         margin-bottom: 0;
         font-size: 0.74rem;
-        color: #6a7890;
+        color: var(--muted);
         text-align: center;
       }
     </style>
@@ -111,13 +118,13 @@
         <svg class="login-brand-logo" viewBox="0 0 64 64" role="img" aria-hidden="true" focusable="false">
           <defs>
             <linearGradient id="login-brand-grad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#0f5fce" />
-              <stop offset="100%" stop-color="#0a8a66" />
+              <stop offset="0%" stop-color="#00cfff" />
+              <stop offset="100%" stop-color="#05ffa1" />
             </linearGradient>
           </defs>
           <rect x="6" y="6" width="52" height="52" rx="14" fill="url(#login-brand-grad)" />
           <path d="M18 42V22h6l8 11 8-11h6v20h-6V31l-8 10-8-10v11z" fill="#fff" />
-          <circle cx="50" cy="14" r="4" fill="#d5ffe7" />
+          <circle cx="50" cy="14" r="4" fill="#05ffa1" />
         </svg>
         <span class="login-brand-wordmark">MacroFlow</span>
       </div>
