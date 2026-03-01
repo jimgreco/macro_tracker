@@ -109,6 +109,7 @@ const saveWeightTargetBtnEl = document.getElementById('save-weight-target-btn');
 const weightNoteEl = document.getElementById('weight-note');
 const weightCanvasEl = document.getElementById('weight-canvas');
 const weightAverageValueEl = document.getElementById('weight-average-value');
+const weightTargetDisplayEl = document.getElementById('weight-target-display');
 const weightLogListEl = document.getElementById('weight-log-list');
 const workoutTextEl = document.getElementById('workout-text');
 const parseWorkoutBtnEl = document.getElementById('parse-workout-btn');
@@ -2339,6 +2340,11 @@ function renderWeightChart() {
     averageValueEl: weightAverageValueEl,
     targetValue: state.weightTarget
   });
+  if (weightTargetDisplayEl) {
+    weightTargetDisplayEl.textContent = state.weightTarget != null
+      ? fmtNumber(state.weightTarget)
+      : '—';
+  }
 }
 
 function renderWorkoutChart() {

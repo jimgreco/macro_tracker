@@ -1425,6 +1425,20 @@ button[disabled] {
     margin-top: 0;
   }
 
+  .weight-target-row button {
+    margin-top: 0.5rem;
+  }
+
+  .workout-target-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 0.3rem;
+  }
+
+  .workout-target-row button {
+    margin-top: 0.5rem;
+  }
+
   #saved-item-select {
     width: 100%;
     min-width: 0;
