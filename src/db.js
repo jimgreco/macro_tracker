@@ -46,6 +46,15 @@ const pool = new Pool({
   max: Number(process.env.PG_POOL_MAX || 10)
 });
 
+async function checkDatabaseHealth() {
+  const startedAt = Date.now();
+  await pool.query('SELECT 1');
+  return {
+    ok: true,
+    latencyMs: Date.now() - startedAt
+  };
+}
+
 async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS entries (
@@ -1017,6 +1026,7 @@ async function getLatestAnalysisReport(userId) {
 
 module.exports = {
   initDb,
+  checkDatabaseHealth,
   addEntries,
   updateEntry,
   deleteEntry,

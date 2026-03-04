@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "check": "node -e \"require('./src/db').initDb().then(() => console.log('DB initialized')).catch((err) => { console.error(err.message); process.exit(1); })\"",
+    "ops:rotate-prod-db-password": "bash scripts/rotate-prod-db-password.sh",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f db",

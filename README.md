@@ -53,6 +53,7 @@ A web app for tracking macros with:
 - Stop DB: `npm run db:down`
 - Tail DB logs: `npm run db:logs`
 - Validate DB init: `npm run check`
+- Rotate prod DB password safely: `npm run ops:rotate-prod-db-password`
 
 ## Test Environment
 Use a fast local test path that does **not** require Postgres or OAuth:
@@ -75,6 +76,11 @@ For AWS/RDS deployments set:
 - `APP_BASE_URL=https://your-production-domain`
 - `SESSION_SECRET` to a long random value (required in production)
 
+Operational safeguards:
+- `GET /healthz` performs a live `SELECT 1` against PostgreSQL and returns `503` if the database is unavailable.
+- Use `npm run ops:rotate-prod-db-password` to rotate the RDS password and update Elastic Beanstalk `DATABASE_URL` in one run.
+- Do not enable RDS managed master-password rotation unless the app is changed to read the current secret from Secrets Manager at runtime.
+
 Run the infrastructure hardening checklist in:
 - `docs/aws-production-security-audit.md`
 
@@ -85,6 +91,7 @@ Run the infrastructure hardening checklist in:
 - Data is stored in PostgreSQL.
 
 ## API Endpoints
+- `GET /healthz`
 - `GET /api/me`
 - `POST /api/parse-meal`
 - `POST /api/entries/bulk`

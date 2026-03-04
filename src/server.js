@@ -9,6 +9,7 @@ const OpenAI = require('openai');
 const heicConvert = require('heic-convert');
 const {
   initDb,
+  checkDatabaseHealth,
   addEntries,
   updateEntry,
   deleteEntry,
@@ -799,6 +800,28 @@ app.get('/version', (req, res) => {
 
 app.get('/api/version', (req, res) => {
   res.json(getVersionPayload());
+});
+
+app.get('/healthz', async (req, res) => {
+  try {
+    const database = await checkDatabaseHealth();
+    return res.json({
+      ok: true,
+      app: 'ok',
+      database,
+      startedAt: startedAtIso
+    });
+  } catch (error) {
+    return res.status(503).json({
+      ok: false,
+      app: 'degraded',
+      database: {
+        ok: false,
+        error: error.message
+      },
+      startedAt: startedAtIso
+    });
+  }
 });
 
 app.use('/api', requireAuth);
