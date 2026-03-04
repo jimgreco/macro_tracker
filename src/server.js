@@ -50,6 +50,24 @@ const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
 const oauthCallbackUrl =
   process.env.GOOGLE_CALLBACK_URL || `http://localhost:${port}/auth/google/callback`;
 
+function parseBooleanEnv(name, fallbackValue = false) {
+  const normalized = String(process.env[name] || '').trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  return fallbackValue;
+}
+
+const localAuthBypassEnabled = !isProduction && parseBooleanEnv('LOCAL_AUTH_BYPASS', false);
+const localDevUser = localAuthBypassEnabled
+  ? {
+      id: String(process.env.LOCAL_DEV_USER_ID || 'local-dev-user'),
+      name: String(process.env.LOCAL_DEV_USER_NAME || 'Local Preview User'),
+      email: String(process.env.LOCAL_DEV_USER_EMAIL || 'local-preview@example.com'),
+      picture: null,
+      provider: 'local-dev'
+    }
+  : null;
+
 if (isProduction && sessionSecret === 'dev-session-secret-change-me') {
   throw new Error('SESSION_SECRET must be set to a strong value in production.');
 }
@@ -201,6 +219,14 @@ app.use(
 );
 app.use(passport.initialize());
 app.use(passport.session());
+app.use((req, res, next) => {
+  if (!localDevUser || (req.user && req.user.id)) {
+    return next();
+  }
+
+  req.user = { ...localDevUser };
+  return next();
+});
 
 function todayIsoString() {
   return new Date().toISOString();
@@ -254,12 +280,16 @@ function userIdFromReq(req) {
   return req.user && req.user.id ? String(req.user.id) : '';
 }
 
+function hasAuthenticatedUser(req) {
+  return Boolean(req.user && req.user.id);
+}
+
 function isAuthConfigured() {
   return Boolean(googleClientId && googleClientSecret);
 }
 
 function requireAuth(req, res, next) {
-  if (req.isAuthenticated && req.isAuthenticated()) {
+  if (hasAuthenticatedUser(req)) {
     return next();
   }
 
@@ -737,7 +767,7 @@ function validateSavedItemBody(body) {
 }
 
 app.get('/login', (req, res) => {
-  if (req.isAuthenticated && req.isAuthenticated()) {
+  if (hasAuthenticatedUser(req)) {
     return res.redirect('/');
   }
 
@@ -751,6 +781,10 @@ app.get('/login.js', (req, res) => {
 app.use('/auth', createRateLimiter({ windowMs: 15 * 60 * 1000, maxRequests: 30 }));
 
 app.get('/auth/google', (req, res, next) => {
+  if (localDevUser) {
+    return res.redirect('/');
+  }
+
   if (!isAuthConfigured()) {
     return res.status(500).send('Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.');
   }
@@ -761,6 +795,10 @@ app.get('/auth/google', (req, res, next) => {
 app.get(
   '/auth/google/callback',
   (req, res, next) => {
+    if (localDevUser) {
+      return res.redirect('/');
+    }
+
     if (!isAuthConfigured()) {
       return res.status(500).send('Google OAuth is not configured.');
     }

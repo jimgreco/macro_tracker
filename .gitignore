@@ -20,5 +20,6 @@ data/
 !.elasticbeanstalk/*.cfg.yml
 !.elasticbeanstalk/*.global.yml
 
-# Claude
+# LLM Code
 .claude/
+.codex/

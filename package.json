@@ -12,6 +12,7 @@
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f db",
+    "db:seed:local": "node scripts/load-local-test-data.js",
     "test": "node --test test/*.test.js",
     "test:check": "node --check public/script.js && node --check src/server.js && npm test"
   },

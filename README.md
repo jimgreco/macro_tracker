@@ -41,6 +41,8 @@ A web app for tracking macros with:
    - `PGSSL` (`false` locally; set `true` in cloud environments)
    - `PGSSL_REJECT_UNAUTHORIZED` (default: `true`)
    - `PGSSL_CA_CERT` or `PGSSL_CA_FILE` (recommended for strict RDS cert pinning)
+   - `LOCAL_AUTH_BYPASS=true` to skip Google OAuth locally and auto-sign in as a default preview user
+   - `LOCAL_DEV_USER_ID`, `LOCAL_DEV_USER_NAME`, `LOCAL_DEV_USER_EMAIL` to customize that local-only user
 
 5. Start the app:
    ```bash
@@ -53,6 +55,7 @@ A web app for tracking macros with:
 - Stop DB: `npm run db:down`
 - Tail DB logs: `npm run db:logs`
 - Validate DB init: `npm run check`
+- Load local test data for the preview user: `npm run db:seed:local`
 - Rotate prod DB password safely: `npm run ops:rotate-prod-db-password`
 
 ## Test Environment
@@ -67,6 +70,7 @@ What it runs:
 - Regression tests that verify the removed mobile bottom nav does not reappear in markup, styles, or script wiring
 
 If you want a full runtime test, start Postgres first (`npm run db:up`) and then run `npm start`.
+For a preloaded local preview, run `npm run db:seed:local` after Postgres is up.
 
 ## Cloud Setup Notes
 For AWS/RDS deployments set:
@@ -87,6 +91,7 @@ Run the infrastructure hardening checklist in:
 
 ## Notes
 - Login is required for all app/API usage.
+- When `LOCAL_AUTH_BYPASS=true` in a non-production environment, the app injects a local default user and skips the Google sign-in flow.
 - If Google OAuth env vars are missing, login will show an auth configuration error.
 - If `OPENAI_API_KEY` is missing, parsing works in fallback mode with placeholder macros.
 - Data is stored in PostgreSQL.

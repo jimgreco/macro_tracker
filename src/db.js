@@ -46,6 +46,10 @@ const pool = new Pool({
   max: Number(process.env.PG_POOL_MAX || 10)
 });
 
+function getPool() {
+  return pool;
+}
+
 async function checkDatabaseHealth() {
   const startedAt = Date.now();
   await pool.query('SELECT 1');
@@ -1026,6 +1030,7 @@ async function getLatestAnalysisReport(userId) {
 
 module.exports = {
   initDb,
+  getPool,
   checkDatabaseHealth,
   addEntries,
   updateEntry,
