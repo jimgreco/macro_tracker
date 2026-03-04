@@ -78,6 +78,7 @@ For AWS/RDS deployments set:
 
 Operational safeguards:
 - `GET /healthz` performs a live `SELECT 1` against PostgreSQL and returns `503` if the database is unavailable.
+- Elastic Beanstalk is configured to use `/healthz` for the default process health check.
 - Use `npm run ops:rotate-prod-db-password` to rotate the RDS password and update Elastic Beanstalk `DATABASE_URL` in one run.
 - Do not enable RDS managed master-password rotation unless the app is changed to read the current secret from Secrets Manager at runtime.
 
