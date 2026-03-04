@@ -17,14 +17,14 @@ test('iOS Safari menu flow has touch-accessible page controls', () => {
   const html = read('public/index.html');
   const css = read('public/styles.css');
 
-  assert.equal(html.includes('id="brand-menu-btn"'), true);
-  assert.equal(html.includes('class="brand-menu-item" data-page="weight"'), true);
-  assert.equal(html.includes('class="brand-menu-item" data-page="workout"'), true);
+  assert.equal(html.includes('class="main-nav"'), true);
+  assert.equal(html.includes('class="nav-tab" data-page="weight"'), true);
+  assert.equal(html.includes('class="nav-tab" data-page="workout"'), true);
 
   // Keep menu controls finger-friendly on mobile Safari.
   assert.equal(css.includes('@media (max-width: 760px)'), true);
-  assert.equal(css.includes('.scope-btn'), true);
-  assert.equal(css.includes('.brand-menu-item'), true);
+  assert.equal(css.includes('.main-nav'), true);
+  assert.equal(css.includes('.nav-tab'), true);
 });
 
 test('iOS Safari pages remain togglable via hidden attribute', () => {
