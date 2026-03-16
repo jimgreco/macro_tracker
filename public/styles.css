@@ -755,29 +755,22 @@ button[disabled] {
   flex: 0 0 auto;
 }
 
-.meal-text-wrap {
-  position: relative;
-}
-
 .meal-photo-preview {
-  position: absolute;
-  right: 0.55rem;
-  bottom: 0.55rem;
-  width: 88px;
-  height: 88px;
-  border-radius: 10px;
-  transform: rotate(5deg);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
-  z-index: 3;
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .meal-photo-preview img {
   width: 100%;
   height: 100%;
-  border-radius: 10px;
+  border-radius: 8px;
   object-fit: cover;
   border: 1px solid rgba(0, 207, 255, 0.2);
-  background: rgba(13, 17, 30, 0.9);
+  display: block;
 }
 
 .meal-photo-remove {
@@ -933,6 +926,53 @@ button[disabled] {
   line-height: 1;
 }
 
+.snapshot-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.snapshot-header h2 {
+  margin: 0;
+}
+
+.period-toggle {
+  display: flex;
+  background: rgba(8, 11, 22, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.period-btn {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 0.22rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(160, 180, 204, 0.7);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.period-btn:hover:not([disabled]) {
+  transform: none;
+  filter: none;
+  box-shadow: none;
+  color: rgba(220, 233, 255, 0.9);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.period-btn.is-active {
+  background: rgba(0, 207, 255, 0.15);
+  color: #00cfff;
+}
+
 .trend-wrap {
   --trend-average-color: rgba(5, 255, 161, 0.95);
   --trend-target-color: rgba(255, 202, 40, 0.95);
@@ -983,6 +1023,20 @@ button[disabled] {
 
 .trend-legend-swatch-target {
   color: var(--trend-target-color);
+}
+
+.trend-legend-swatch-workout {
+  color: rgba(5, 255, 161, 0.95);
+}
+
+[data-workout-stat="workouts"] .metric-value {
+  color: #00cfff;
+  text-shadow: 0 0 16px rgba(0, 207, 255, 0.55);
+}
+
+[data-workout-stat="calories"] .metric-value {
+  color: #ffca28;
+  text-shadow: 0 0 16px rgba(255, 202, 40, 0.55);
 }
 
 #weight-canvas,
@@ -1356,13 +1410,6 @@ button[disabled] {
   .parse-actions .meal-media-btn {
     flex: 0 0 auto;
     min-width: auto;
-  }
-
-  .meal-photo-preview {
-    width: 72px;
-    height: 72px;
-    right: 0.45rem;
-    bottom: 0.45rem;
   }
 
   .meal-photo-remove {

@@ -1,32 +1,6 @@
 const OpenAI = require('openai');
 const { toFile } = require('openai/uploads');
 
-function hasApiKey() {
-  return Boolean(process.env.OPENAI_API_KEY);
-}
-
-function parseFallback(text, consumedAt, hasImage = false) {
-  return {
-    consumedAt,
-    mealName: 'Uncategorized',
-    items: [
-      {
-        itemName: text || (hasImage ? 'Meal from photo' : 'Unspecified meal item'),
-        quantity: 1,
-        unit: 'serving',
-        calories: 0,
-        protein: 0,
-        carbs: 0,
-        fat: 0,
-        confidence: 'low'
-      }
-    ],
-    notes: hasImage
-      ? 'OpenAI API key missing. Added a placeholder item from your meal photo/text with 0 macros.'
-      : 'OpenAI API key missing. Added raw text as a placeholder item with 0 macros.'
-  };
-}
-
 function parseImageDataUrl(imageDataUrl) {
   const match = String(imageDataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/s);
   if (!match) {
@@ -55,10 +29,6 @@ async function parseMealText({ text, consumedAt, imageDataUrl }) {
 
   if (!normalizedText && !hasImage) {
     throw new Error('Meal text or a meal photo is required.');
-  }
-
-  if (!hasApiKey()) {
-    return parseFallback(normalizedText, consumedAt, hasImage);
   }
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -99,7 +69,7 @@ async function parseMealText({ text, consumedAt, imageDataUrl }) {
         {
           role: 'system',
           content:
-            'You extract nutrition logs from user input that may include meal text, a meal photo, or both. Return strict JSON only. Break meals into itemized foods with estimated macros per consumed amount. Use grams for protein/carbs/fat and kcal for calories. Prefer practical food units from user language (egg, bottle, can, slice, cup, serving) over tiny base units like 1 ml or 1 g when a practical unit is implied. If the user says a fractional container (like half bottle), keep quantity fractional with that container unit (quantity 0.5, unit bottle). If uncertain, provide best estimate and confidence. If text and photo conflict, use the text as primary and photo as supporting context.'
+            'You extract nutrition logs from user input that may include meal text, a meal photo, or both. Return strict JSON only. Break meals into itemized foods with estimated macros per consumed amount. Use grams for protein/carbs/fat and kcal for calories. Prefer practical food units from user language (egg, bottle, can, slice, cup, serving) over tiny base units like 1 ml or 1 g when a practical unit is implied. If the user says a fractional container (like half bottle), keep quantity fractional with that container unit (quantity 0.5, unit bottle). If uncertain, provide best estimate and confidence. If text and photo conflict, use the text as primary and photo as supporting context. When estimating macros, be conservative and err on the higher end — it is better to slightly overestimate calories and macros than to underestimate them.'
         },
         {
           role: 'user',
@@ -194,121 +164,14 @@ function normalizeWorkoutIntensity(intensity, fallback = 'medium') {
   return fallback;
 }
 
-function parseWorkoutIntensityFallback(text) {
-  const lower = String(text || '').toLowerCase();
-  if (/\b(high|vigorous|intense|hiit)\b/.test(lower)) {
-    return 'high';
-  }
-  if (/\b(low|light|easy|recovery)\b/.test(lower)) {
-    return 'low';
-  }
-  if (/\b(medium|moderate)\b/.test(lower)) {
-    return 'medium';
-  }
-  return 'medium';
-}
-
-function parseWorkoutInputFallback(text) {
-  const raw = String(text || '').trim();
-  if (!raw) {
-    return { description: '', durationHours: 1 };
-  }
-
-  let durationHours = 0;
-  let description = raw;
-
-  const leadingHoursWithUnit = raw.match(/^(\d+(?:\.\d+)?)\s*(?:h|hr|hour)s?\b\s+(.+)$/i);
-  if (leadingHoursWithUnit) {
-    const parsedHours = Number(leadingHoursWithUnit[1]);
-    if (Number.isFinite(parsedHours) && parsedHours > 0) {
-      durationHours = parsedHours;
-      description = leadingHoursWithUnit[2];
-    }
-  }
-
-  const leadingMinutesWithUnit = raw.match(/^(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute)s?\b\s+(.+)$/i);
-  if (leadingMinutesWithUnit) {
-    const parsedMinutes = Number(leadingMinutesWithUnit[1]);
-    if (!durationHours && Number.isFinite(parsedMinutes) && parsedMinutes > 0) {
-      durationHours = parsedMinutes / 60;
-      description = leadingMinutesWithUnit[2];
-    }
-  }
-
-  const leadingHours = raw.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
-  if (leadingHours) {
-    const parsedHours = Number(leadingHours[1]);
-    if (!durationHours && Number.isFinite(parsedHours) && parsedHours > 0 && parsedHours <= 12) {
-      durationHours = parsedHours;
-      description = leadingHours[2];
-    }
-  }
-
-  if (!durationHours) {
-    const inlineHours = raw.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hour)s?\b/i);
-    if (inlineHours) {
-      const parsedHours = Number(inlineHours[1]);
-      if (Number.isFinite(parsedHours) && parsedHours > 0) {
-        durationHours = parsedHours;
-        description = raw.replace(inlineHours[0], ' ');
-      }
-    }
-  }
-
-  if (!durationHours) {
-    const inlineMinutes = raw.match(/(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute)s?\b/i);
-    if (inlineMinutes) {
-      const parsedMinutes = Number(inlineMinutes[1]);
-      if (Number.isFinite(parsedMinutes) && parsedMinutes > 0) {
-        durationHours = parsedMinutes / 60;
-        description = raw.replace(inlineMinutes[0], ' ');
-      }
-    }
-  }
-
-  if (!durationHours) {
-    durationHours = 1;
-  }
-
-  const normalizedDescription = normalizeWorkoutDescription(description || raw);
-  return {
-    description: normalizedDescription || normalizeWorkoutDescription(raw) || 'General',
-    durationHours
-  };
-}
-
-function estimateWorkoutCalories(text, hours) {
-  const lower = String(text || '').toLowerCase();
-  if (lower.includes('run') || lower.includes('cycling') || lower.includes('bike')) {
-    return Math.round(hours * 650);
-  }
-  if (lower.includes('lift') || lower.includes('strength')) {
-    return Math.round(hours * 420);
-  }
-  return Math.round(hours * 500);
-}
-
-function sanitizeWorkoutParse(parsed, rawText) {
-  const fallback = parseWorkoutInputFallback(rawText);
-  const description = normalizeWorkoutDescription(parsed?.description || fallback.description || rawText) || 'General';
-  const intensity = normalizeWorkoutIntensity(parsed?.intensity, parseWorkoutIntensityFallback(rawText));
-
-  const rawHours = Number(parsed?.durationHours);
-  let durationHours = Number.isFinite(rawHours) && rawHours > 0 ? rawHours : fallback.durationHours;
+function sanitizeWorkoutParse(parsed) {
+  const description = normalizeWorkoutDescription(parsed.description || '') || 'General';
+  const intensity = normalizeWorkoutIntensity(parsed.intensity);
+  let durationHours = Number(parsed.durationHours);
   durationHours = Math.max(0.1, Math.min(12, durationHours));
   durationHours = Math.round(durationHours * 100) / 100;
-
-  const rawCalories = Number(parsed?.caloriesBurned);
-  const caloriesBurned = Number.isFinite(rawCalories) && rawCalories >= 0
-    ? Math.round(rawCalories)
-    : estimateWorkoutCalories(description, durationHours);
-
-  return {
-    description,
-    intensity,
-    durationHours,
-    caloriesBurned
-  };
+  const caloriesBurned = Math.max(0, Math.round(Number(parsed.caloriesBurned || 0)));
+  return { description, intensity, durationHours, caloriesBurned };
 }
 
 async function parseWorkoutText({ text }) {
@@ -317,17 +180,13 @@ async function parseWorkoutText({ text }) {
     throw new Error('Workout text is required.');
   }
 
-  if (!hasApiKey()) {
-    return sanitizeWorkoutParse({}, normalizedText);
-  }
-
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const response = await client.responses.create({
     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
     input: [
       {
         role: 'system',
-        content: 'You extract structured workout logs from natural language. Return strict JSON only. Infer description, intensity, total duration in hours, and estimated calories burned. Allowed intensity values are low, medium, high. Use medium if not provided. Parse minute inputs correctly (e.g., 45 min = 0.75 hours). Keep durationHours realistic between 0.1 and 12. Description should be only the activity/focus and must omit intensity words plus generic words like workout, training, or session.'
+        content: 'You extract structured workout logs from natural language. Return strict JSON only. Infer description, intensity, total duration in hours, and estimated calories burned. Allowed intensity values are low, medium, high. Use medium if not provided. Parse minute inputs correctly (e.g., 45 min = 0.75 hours). Keep durationHours realistic between 0.1 and 12. Description should be only the activity/focus and must omit intensity words plus generic words like workout, training, or session. When estimating calories burned, be conservative and err on the lower end — it is better to slightly underestimate calories burned than to overestimate them.'
       },
       {
         role: 'user',
@@ -362,7 +221,7 @@ async function parseWorkoutText({ text }) {
     parsed = {};
   }
 
-  return sanitizeWorkoutParse(parsed, normalizedText);
+  return sanitizeWorkoutParse(parsed);
 }
 
 module.exports = {

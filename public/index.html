@@ -76,12 +76,7 @@
                 rows="3"
                 placeholder="Example: two 1/2 cup containers of Fage yogurt and one banana"
               ></textarea>
-              <div id="meal-photo-preview-wrap" class="meal-photo-preview" hidden>
-                <button id="remove-photo-btn" type="button" class="meal-photo-remove" aria-label="Remove attached photo">×</button>
-                <img id="meal-photo-preview-image" alt="Attached meal photo preview" />
-              </div>
             </div>
-
 
             <div class="row parse-actions">
               <button id="add-photo-btn" class="meal-media-btn" type="button" aria-label="Add photo" title="Add photo">
@@ -99,6 +94,10 @@
               </button>
               <button id="parse-btn" type="button">Parse Meal</button>
               <button id="save-parsed-btn" type="button" disabled>Save</button>
+              <div id="meal-photo-preview-wrap" class="meal-photo-preview" hidden>
+                <button id="remove-photo-btn" type="button" class="meal-photo-remove" aria-label="Remove attached photo">×</button>
+                <img id="meal-photo-preview-image" alt="Attached meal photo preview" />
+              </div>
               <input id="meal-photo-input" type="file" accept="image/*" hidden />
               <input id="meal-camera-input" type="file" accept="image/*" capture="environment" hidden />
             </div>
@@ -182,7 +181,14 @@
           </section>
 
           <section id="today-section" aria-labelledby="stats-heading" class="panel glass">
-            <h2 id="stats-heading">Weekly Snapshot</h2>
+            <div class="snapshot-header">
+              <h2 id="stats-heading">Weekly Snapshot</h2>
+              <div class="period-toggle" id="macro-period-toggle" role="group" aria-label="Snapshot time period">
+                <button class="period-btn is-active" data-period="weekly">Week</button>
+                <button class="period-btn" data-period="monthly">Month</button>
+                <button class="period-btn" data-period="annual">Year</button>
+              </div>
+            </div>
             <div class="trend-wrap">
               <canvas id="trend-canvas" height="120" aria-label="7-day calorie trend"></canvas>
               <div id="trend-tooltip" class="trend-tooltip" hidden></div>
@@ -259,7 +265,14 @@
         </section>
 
         <section id="weight-snapshot-section" class="panel glass">
-          <h2>Weekly Snapshot</h2>
+          <div class="snapshot-header">
+            <h2 id="weight-snapshot-heading">Weekly Snapshot</h2>
+            <div class="period-toggle" id="weight-period-toggle" role="group" aria-label="Snapshot time period">
+              <button class="period-btn is-active" data-period="weekly">Week</button>
+              <button class="period-btn" data-period="monthly">Month</button>
+              <button class="period-btn" data-period="annual">Year</button>
+            </div>
+          </div>
           <div class="trend-wrap">
             <canvas id="weight-canvas" height="130" aria-label="Weekly weight trend graph"></canvas>
             <div class="trend-legend" aria-live="polite">
@@ -330,6 +343,39 @@
                 </tbody>
               </table>
             </div>
+          </div>
+        </section>
+
+        <section id="workout-snapshot-section" class="panel glass">
+          <div class="snapshot-header">
+            <h2 id="workout-snapshot-heading">Weekly Snapshot</h2>
+            <div class="period-toggle" id="workout-period-toggle" role="group" aria-label="Snapshot time period">
+              <button class="period-btn is-active" data-period="weekly">Week</button>
+              <button class="period-btn" data-period="monthly">Month</button>
+              <button class="period-btn" data-period="annual">Year</button>
+            </div>
+          </div>
+          <div class="trend-wrap">
+            <canvas id="workout-canvas" height="64" aria-label="Weekly workout occurrence chart"></canvas>
+            <div class="trend-legend" aria-live="polite">
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch trend-legend-swatch-workout" aria-hidden="true"></span>
+                <span id="workout-occurrence-stat">—</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="cards stats-cards avg-cards" aria-label="Monthly workout averages">
+            <article class="card metric" data-workout-stat="workouts">
+              <span class="metric-label">Workouts / week</span>
+              <strong class="metric-value" id="avg-workouts-per-week">—</strong>
+              <span class="metric-target">Last 30 days</span>
+            </article>
+            <article class="card metric" data-workout-stat="calories">
+              <span class="metric-label">Cal burned / week</span>
+              <strong class="metric-value" id="avg-cal-burned-per-week">—</strong>
+              <span class="metric-target">Last 30 days</span>
+            </article>
           </div>
         </section>
 

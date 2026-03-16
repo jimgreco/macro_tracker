@@ -19,7 +19,11 @@ const state = {
   weightTarget: null,
   workoutChartRows: [],
   analysisReport: null,
-  analysisAutoRan: false
+  analysisAutoRan: false,
+  macroSnapshotPeriod: 'weekly',
+  weightSnapshotPeriod: 'weekly',
+  workoutSnapshotPeriod: 'weekly',
+  workoutEntries: []
 };
 
 const mealTextEl = document.getElementById('meal-text');
@@ -81,6 +85,15 @@ const trendCanvasEl = document.getElementById('trend-canvas');
 const trendTooltipEl = document.getElementById('trend-tooltip');
 const trendAverageValueEl = document.getElementById('trend-average-value');
 const trendTargetValueEl = document.getElementById('trend-target-value');
+const macroSnapshotHeadingEl = document.getElementById('stats-heading');
+const macroPeriodToggleEl = document.getElementById('macro-period-toggle');
+const weightSnapshotHeadingEl = document.getElementById('weight-snapshot-heading');
+const weightPeriodToggleEl = document.getElementById('weight-period-toggle');
+const workoutSnapshotHeadingEl = document.getElementById('workout-snapshot-heading');
+const workoutPeriodToggleEl = document.getElementById('workout-period-toggle');
+const workoutOccurrenceStatEl = document.getElementById('workout-occurrence-stat');
+const avgWorkoutsPerWeekEl = document.getElementById('avg-workouts-per-week');
+const avgCalBurnedPerWeekEl = document.getElementById('avg-cal-burned-per-week');
 const entriesByDayEl = document.getElementById('entries-by-day');
 const entriesPrevDayBtnEl = document.getElementById('entries-prev-day-btn');
 const entriesNextDayBtnEl = document.getElementById('entries-next-day-btn');
@@ -493,7 +506,8 @@ function showTrendTooltipFromClient(clientX, clientY, persist = false) {
   }
 
   const trendMacro = getTrendMacroConfig();
-  trendTooltipEl.textContent = `${formatIsoDayLabel(nearest.day)}: ${fmtNumber(nearest.value)} ${trendMacro.unit}`;
+  const pointLabel = nearest.label || formatIsoDayLabel(nearest.day);
+  trendTooltipEl.textContent = `${pointLabel}: ${fmtNumber(nearest.value)} ${trendMacro.unit}`;
   trendTooltipEl.hidden = false;
 
   const wrap = trendCanvasEl.parentElement;
@@ -651,7 +665,7 @@ function renderMealImagePreview() {
   if (hasImage) {
     if (mealPhotoPreviewImageEl) {
       try {
-        mealPhotoPreviewImageEl.src = state.mealImagePreviewUrl || state.mealImageDataUrl;
+        mealPhotoPreviewImageEl.src = state.mealImageDataUrl;
       } catch (_error) {
         mealPhotoPreviewImageEl.removeAttribute('src');
       }
@@ -1183,9 +1197,30 @@ function quickAddByTemplate(template) {
   });
 }
 
-function buildHistoryQuickItems(entries) {
+function buildHistoryQuickItems(entries, savedItems) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 7);
+  cutoff.setHours(0, 0, 0, 0);
+
+  const savedSignatures = new Set(
+    (savedItems || []).map((item) =>
+      [
+        String(item.name || '').trim().toLowerCase(),
+        String(item.unit || 'serving').trim().toLowerCase(),
+        Number(item.quantity || 0).toFixed(3),
+        Number(item.calories || 0).toFixed(3),
+        Number(item.protein || 0).toFixed(3),
+        Number(item.carbs || 0).toFixed(3),
+        Number(item.fat || 0).toFixed(3)
+      ].join('|')
+    )
+  );
+
   const historyBySignature = new Map();
   for (const entry of entries || []) {
+    if (new Date(entry.consumedAt) < cutoff) {
+      continue;
+    }
     const signature = [
       String(entry.itemName || '').trim().toLowerCase(),
       String(entry.unit || 'serving').trim().toLowerCase(),
@@ -1195,9 +1230,11 @@ function buildHistoryQuickItems(entries) {
       Number(entry.carbs || 0).toFixed(3),
       Number(entry.fat || 0).toFixed(3)
     ].join('|');
+    if (savedSignatures.has(signature)) {
+      continue;
+    }
     const existing = historyBySignature.get(signature);
     if (existing) {
-      existing.count += 1;
       if (new Date(entry.consumedAt).getTime() > new Date(existing.lastUsedAt).getTime()) {
         existing.lastUsedAt = entry.consumedAt;
       }
@@ -1213,24 +1250,12 @@ function buildHistoryQuickItems(entries) {
       protein: Number(entry.protein || 0),
       carbs: Number(entry.carbs || 0),
       fat: Number(entry.fat || 0),
-      count: 1,
       lastUsedAt: entry.consumedAt
     });
   }
 
   return Array.from(historyBySignature.values())
-    .sort((a, b) => {
-      const countDiff = Number(b.count || 0) - Number(a.count || 0);
-      if (countDiff !== 0) {
-        return countDiff;
-      }
-      const timeDiff = new Date(b.lastUsedAt || 0).getTime() - new Date(a.lastUsedAt || 0).getTime();
-      if (timeDiff !== 0) {
-        return timeDiff;
-      }
-      return String(a.name || '').localeCompare(String(b.name || ''));
-    })
-    .slice(0, 60);
+    .sort((a, b) => new Date(b.lastUsedAt || 0).getTime() - new Date(a.lastUsedAt || 0).getTime());
 }
 
 function fillQuickEditor(item) {
@@ -1408,10 +1433,50 @@ function syncEditMacrosWithQuantity(row, quantityInput) {
   }
 }
 
+function buildTrendPoints(entries, period, baseIsoDay) {
+  const dayMap = new Map();
+  for (const entry of entries || []) {
+    const day = getLocalIsoDay(entry.consumedAt);
+    dayMap.set(day, Number(dayMap.get(day) || 0) + Number(entry[state.selectedTrendMacro] || 0));
+  }
+
+  if (period === 'annual') {
+    const points = [];
+    for (let w = 51; w >= 0; w -= 1) {
+      const weekEndDay = shiftIsoDay(baseIsoDay, -w * 7);
+      const weekStartDay = shiftIsoDay(weekEndDay, -6);
+      let total = 0;
+      let daysWithData = 0;
+      for (let d = 0; d <= 6; d += 1) {
+        const day = shiftIsoDay(weekStartDay, d);
+        if (dayMap.has(day)) {
+          total += dayMap.get(day);
+          daysWithData += 1;
+        }
+      }
+      const hasData = daysWithData > 0;
+      const value = hasData ? total / daysWithData : 0;
+      const startDate = fromIsoDayLocal(weekStartDay);
+      const label = 'Week of ' + startDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      points.push({ day: weekStartDay, label, value, hasData });
+    }
+    return points;
+  }
+
+  const numDays = period === 'monthly' ? 30 : 7;
+  const points = [];
+  for (let i = numDays - 1; i >= 0; i -= 1) {
+    const day = shiftIsoDay(baseIsoDay, -i);
+    points.push({ day, value: dayMap.get(day) || 0, hasData: dayMap.has(day) });
+  }
+  return points;
+}
+
 function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   if (!trendCanvasEl) {
     return;
   }
+  const period = state.macroSnapshotPeriod || 'weekly';
   const targetLineColor = 'rgba(255, 202, 40, 0.95)';
   const averageLineColor = 'rgba(5, 255, 161, 0.95)';
   const cssWidth = Math.max(1, Math.floor(trendCanvasEl.clientWidth || 0));
@@ -1426,17 +1491,7 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   const h = trendCanvasEl.height;
   ctx.clearRect(0, 0, w, h);
 
-  const map = new Map();
-  for (const entry of entries || []) {
-    const day = getLocalIsoDay(entry.consumedAt);
-    map.set(day, Number(map.get(day) || 0) + Number(entry[state.selectedTrendMacro] || 0));
-  }
-
-  const points = [];
-  for (let i = 6; i >= 0; i -= 1) {
-    const day = shiftIsoDay(baseIsoDay, -i);
-    points.push({ day, value: map.get(day) || 0, hasData: map.has(day) });
-  }
+  const points = buildTrendPoints(entries, period, baseIsoDay);
 
   const selectedMacroTarget = Number(state.dashboardData?.targets?.[state.selectedTrendMacro] || 0);
   const targetValue = selectedMacroTarget > 0 ? selectedMacroTarget : 0;
@@ -1447,8 +1502,9 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
 
   const padX = 34;
   const padY = 14;
+  const xLabelH = period !== 'weekly' ? 14 : 0;
   const usableW = w - padX * 2;
-  const usableH = h - padY * 2;
+  const usableH = h - padY * 2 - xLabelH;
 
   const coords = points.map((p, i) => {
     const x = padX + (i / (points.length - 1)) * usableW;
@@ -1460,9 +1516,8 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   grad.addColorStop(0, 'rgba(0,207,255,0.28)');
   grad.addColorStop(1, 'rgba(0,207,255,0.02)');
 
-  let targetY = null;
   if (targetValue > 0) {
-    targetY = padY + ((max - targetValue) / range) * usableH;
+    const targetY = padY + ((max - targetValue) / range) * usableH;
     ctx.save();
     ctx.beginPath();
     ctx.setLineDash([5, 4]);
@@ -1480,8 +1535,8 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   for (let i = 1; i < coords.length; i += 1) {
     ctx.lineTo(coords[i].x, coords[i].y);
   }
-  ctx.lineTo(coords[coords.length - 1].x, h - padY + 4);
-  ctx.lineTo(coords[0].x, h - padY + 4);
+  ctx.lineTo(coords[coords.length - 1].x, h - padY - xLabelH + 4);
+  ctx.lineTo(coords[0].x, h - padY - xLabelH + 4);
   ctx.closePath();
   ctx.fillStyle = grad;
   ctx.fill();
@@ -1505,15 +1560,14 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   }
   ctx.shadowBlur = 0;
 
-  // Show a horizontal weekly average line using days that have logged data.
-  let avgY = null;
+  // Average line over points that have logged data.
   let average = 0;
   let hasAverage = false;
   const trendSource = points.filter((p) => p.hasData);
   if (trendSource.length >= 1) {
     hasAverage = true;
     average = trendSource.reduce((sum, point) => sum + point.value, 0) / trendSource.length;
-    avgY = padY + ((max - average) / range) * usableH;
+    const avgY = padY + ((max - average) / range) * usableH;
 
     ctx.save();
     ctx.shadowBlur = 10;
@@ -1553,15 +1607,44 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
   ctx.beginPath();
   ctx.moveTo(padX, padY);
-  ctx.lineTo(padX, h - padY);
+  ctx.lineTo(padX, h - padY - xLabelH);
   ctx.stroke();
   ctx.restore();
 
-  trendPointCoords = coords;
-  if (trendCanvasEl) {
-    const trendMacro = getTrendMacroConfig();
-    trendCanvasEl.setAttribute('aria-label', `7-day ${trendMacro.label.toLowerCase()} trend`);
+  // X-axis date labels for monthly and annual views.
+  if (period !== 'weekly' && points.length > 0) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(160, 180, 204, 0.65)';
+    ctx.font = '10px system-ui, -apple-system, sans-serif';
+    ctx.textBaseline = 'bottom';
+    const labelY = h - 2;
+
+    if (period === 'monthly') {
+      const fmtShort = (d) => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      ctx.textAlign = 'left';
+      ctx.fillText(fmtShort(fromIsoDayLocal(points[0].day)), padX + 2, labelY);
+      ctx.textAlign = 'right';
+      ctx.fillText(fmtShort(fromIsoDayLocal(points[points.length - 1].day)), w - padX - 2, labelY);
+    } else {
+      // Annual: one label per month at the first weekly point in that month.
+      let lastMonthShown = -1;
+      for (let i = 0; i < points.length; i += 1) {
+        const d = fromIsoDayLocal(points[i].day);
+        const month = d.getMonth();
+        if (month !== lastMonthShown) {
+          lastMonthShown = month;
+          const x = padX + (i / (points.length - 1)) * usableW;
+          ctx.textAlign = i === 0 ? 'left' : (i >= points.length - 2 ? 'right' : 'center');
+          ctx.fillText(d.toLocaleDateString([], { month: 'short' }), x, labelY);
+        }
+      }
+    }
+    ctx.restore();
   }
+
+  trendPointCoords = coords;
+  const periodLabel = period === 'annual' ? '52-week' : period === 'monthly' ? '30-day' : '7-day';
+  trendCanvasEl.setAttribute('aria-label', `${periodLabel} ${trendMacro.label.toLowerCase()} trend`);
   bindTrendInteractions();
 }
 
@@ -1621,6 +1704,87 @@ function bindTrendMacroCards() {
 
   syncTrendMacroCards();
   trendMacroBound = true;
+}
+
+const PERIOD_HEADING = {
+  weekly: 'Weekly Snapshot',
+  monthly: 'Monthly Snapshot',
+  annual: 'Annual Snapshot'
+};
+
+let snapshotToggleBound = false;
+
+function syncPeriodToggle(toggleEl, period) {
+  if (!toggleEl) {
+    return;
+  }
+  for (const btn of toggleEl.querySelectorAll('.period-btn')) {
+    const active = btn.dataset.period === period;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  }
+}
+
+function bindSnapshotToggles() {
+  if (snapshotToggleBound) {
+    return;
+  }
+
+  if (macroPeriodToggleEl) {
+    for (const btn of macroPeriodToggleEl.querySelectorAll('.period-btn')) {
+      btn.addEventListener('click', () => {
+        const period = btn.dataset.period;
+        if (!period || period === state.macroSnapshotPeriod) {
+          return;
+        }
+        state.macroSnapshotPeriod = period;
+        syncPeriodToggle(macroPeriodToggleEl, period);
+        if (macroSnapshotHeadingEl) {
+          macroSnapshotHeadingEl.textContent = PERIOD_HEADING[period] || 'Snapshot';
+        }
+        hideTrendTooltip();
+        if (state.dashboardData) {
+          drawTrend(state.dashboardData.entries);
+        }
+      });
+    }
+  }
+
+  if (weightPeriodToggleEl) {
+    for (const btn of weightPeriodToggleEl.querySelectorAll('.period-btn')) {
+      btn.addEventListener('click', async () => {
+        const period = btn.dataset.period;
+        if (!period || period === state.weightSnapshotPeriod) {
+          return;
+        }
+        state.weightSnapshotPeriod = period;
+        syncPeriodToggle(weightPeriodToggleEl, period);
+        if (weightSnapshotHeadingEl) {
+          weightSnapshotHeadingEl.textContent = PERIOD_HEADING[period] || 'Snapshot';
+        }
+        await refreshWeightData();
+      });
+    }
+  }
+
+  if (workoutPeriodToggleEl) {
+    for (const btn of workoutPeriodToggleEl.querySelectorAll('.period-btn')) {
+      btn.addEventListener('click', () => {
+        const period = btn.dataset.period;
+        if (!period || period === state.workoutSnapshotPeriod) {
+          return;
+        }
+        state.workoutSnapshotPeriod = period;
+        syncPeriodToggle(workoutPeriodToggleEl, period);
+        if (workoutSnapshotHeadingEl) {
+          workoutSnapshotHeadingEl.textContent = PERIOD_HEADING[period] || 'Snapshot';
+        }
+        renderWorkoutChart();
+      });
+    }
+  }
+
+  snapshotToggleBound = true;
 }
 
 function renderDashboard(data) {
@@ -1749,7 +1913,7 @@ async function refreshDashboard() {
     api('/api/me')
   ]);
   state.savedItems = saved;
-  state.historyQuickItems = buildHistoryQuickItems(dashboard.entries);
+  state.historyQuickItems = buildHistoryQuickItems(dashboard.entries, state.savedItems);
   state.dashboardData = dashboard;
   renderProfile(me.user || null);
   renderSavedItems();
@@ -1758,6 +1922,7 @@ async function refreshDashboard() {
   bindTrendResize();
   bindTrendMacroCards();
   bindMacroTargetCards();
+  bindSnapshotToggles();
 }
 
 parseBtnEl.addEventListener('click', async () => {
@@ -2347,8 +2512,146 @@ function renderWeightChart() {
   }
 }
 
+function renderWorkoutStats(entries) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  cutoff.setHours(0, 0, 0, 0);
+  const recent = (entries || []).filter((e) => new Date(e.loggedAt) >= cutoff);
+  const weeks = 30 / 7;
+  const avgWorkouts = recent.length / weeks;
+  const avgCal = recent.reduce((sum, e) => sum + Number(e.caloriesBurned || 0), 0) / weeks;
+  if (avgWorkoutsPerWeekEl) {
+    avgWorkoutsPerWeekEl.textContent = recent.length ? avgWorkouts.toFixed(1) : '—';
+  }
+  if (avgCalBurnedPerWeekEl) {
+    avgCalBurnedPerWeekEl.textContent = recent.length ? Math.round(avgCal).toLocaleString() : '—';
+  }
+}
+
+function drawWorkoutOccurrenceChart(entries, period) {
+  if (!workoutCanvasEl) {
+    return;
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  const cssWidth = Math.max(200, Math.floor(workoutCanvasEl.clientWidth || workoutCanvasEl.parentElement?.clientWidth || 0));
+  const cssHeight = 64;
+  workoutCanvasEl.style.width = '100%';
+  workoutCanvasEl.style.height = `${cssHeight}px`;
+  workoutCanvasEl.width = cssWidth * dpr;
+  workoutCanvasEl.height = cssHeight * dpr;
+
+  const ctx = workoutCanvasEl.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+  const today = getLocalIsoDay();
+
+  const workoutDays = new Set();
+  for (const entry of entries || []) {
+    workoutDays.add(getLocalIsoDay(entry.loggedAt));
+  }
+
+  const points = [];
+  if (period === 'annual') {
+    for (let w = 51; w >= 0; w -= 1) {
+      const weekEndDay = shiftIsoDay(today, -w * 7);
+      const weekStartDay = shiftIsoDay(weekEndDay, -6);
+      let count = 0;
+      for (let d = 0; d <= 6; d += 1) {
+        if (workoutDays.has(shiftIsoDay(weekStartDay, d))) {
+          count += 1;
+        }
+      }
+      points.push({ day: weekStartDay, active: count > 0, count });
+    }
+  } else {
+    const numDays = period === 'monthly' ? 30 : 7;
+    for (let i = numDays - 1; i >= 0; i -= 1) {
+      const day = shiftIsoDay(today, -i);
+      points.push({ day, active: workoutDays.has(day), isToday: day === today });
+    }
+  }
+
+  const activeCount = points.filter((p) => p.active).length;
+  if (workoutOccurrenceStatEl) {
+    const total = points.length;
+    const unit = period === 'annual' ? 'weeks active' : period === 'monthly' ? 'days active' : 'days active';
+    workoutOccurrenceStatEl.textContent = `${activeCount} / ${total} ${unit}`;
+  }
+
+  const padX = 10;
+  const labelH = 14;
+  const plotH = cssHeight - labelH;
+  const dotY = plotH / 2;
+  const plotW = cssWidth - padX * 2;
+  const maxDotR = period === 'weekly' ? 10 : period === 'monthly' ? 5 : 4;
+  const spacingRaw = points.length > 1 ? plotW / (points.length - 1) : plotW;
+  const dotR = Math.min(maxDotR, spacingRaw / 2 - 1);
+
+  const activeColor = 'rgba(5, 255, 161, 0.95)';
+  const inactiveStroke = 'rgba(255, 255, 255, 0.13)';
+  const todayStroke = 'rgba(0, 207, 255, 0.45)';
+
+  for (let i = 0; i < points.length; i += 1) {
+    const p = points[i];
+    const x = padX + (points.length > 1 ? (i / (points.length - 1)) * plotW : plotW / 2);
+
+    if (p.active) {
+      ctx.save();
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = 'rgba(5, 255, 161, 0.65)';
+      ctx.beginPath();
+      ctx.arc(x, dotY, dotR, 0, Math.PI * 2);
+      ctx.fillStyle = activeColor;
+      ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.beginPath();
+      ctx.arc(x, dotY, dotR, 0, Math.PI * 2);
+      ctx.strokeStyle = p.isToday ? todayStroke : inactiveStroke;
+      ctx.lineWidth = p.isToday ? 1.5 : 1;
+      ctx.stroke();
+    }
+  }
+
+  ctx.fillStyle = 'rgba(160, 180, 204, 0.6)';
+  ctx.font = '10px system-ui, -apple-system, sans-serif';
+  ctx.textBaseline = 'bottom';
+  const labelY = cssHeight - 1;
+  const DAY_ABBREVS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+  if (period === 'weekly') {
+    for (let i = 0; i < points.length; i += 1) {
+      const x = padX + (i / (points.length - 1)) * plotW;
+      const d = fromIsoDayLocal(points[i].day);
+      ctx.textAlign = 'center';
+      ctx.fillText(DAY_ABBREVS[d.getDay()], x, labelY);
+    }
+  } else if (period === 'monthly') {
+    ctx.textAlign = 'left';
+    ctx.fillText(fromIsoDayLocal(points[0].day).toLocaleDateString([], { month: 'short', day: 'numeric' }), padX, labelY);
+    ctx.textAlign = 'right';
+    ctx.fillText(fromIsoDayLocal(points[points.length - 1].day).toLocaleDateString([], { month: 'short', day: 'numeric' }), cssWidth - padX, labelY);
+  } else {
+    let lastMonth = -1;
+    for (let i = 0; i < points.length; i += 1) {
+      const d = fromIsoDayLocal(points[i].day);
+      const month = d.getMonth();
+      if (month !== lastMonth) {
+        lastMonth = month;
+        const x = padX + (i / (points.length - 1)) * plotW;
+        ctx.textAlign = i === 0 ? 'left' : i >= points.length - 2 ? 'right' : 'center';
+        ctx.fillText(d.toLocaleDateString([], { month: 'short' }), x, labelY);
+      }
+    }
+  }
+
+  workoutCanvasEl.setAttribute('aria-label', `${period === 'annual' ? '52-week' : period === 'monthly' ? '30-day' : '7-day'} workout occurrence chart`);
+}
+
 function renderWorkoutChart() {
-  drawSimpleLineChart(workoutCanvasEl, state.workoutChartRows, 'label', 'value');
+  drawWorkoutOccurrenceChart(state.workoutEntries, state.workoutSnapshotPeriod || 'weekly');
 }
 
 function bindPageChartsResize() {
@@ -2491,8 +2794,10 @@ async function refreshWeightData() {
     return;
   }
   try {
+    const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
+    const weightScope = periodToScope[state.weightSnapshotPeriod] || 'week';
     const [response, target] = await Promise.all([
-      api('/api/weights?scope=week'),
+      api(`/api/weights?scope=${weightScope}`),
       api('/api/weight-target')
     ]);
     const entries = Array.isArray(response.entries) ? response.entries : [];
@@ -2501,11 +2806,16 @@ async function refreshWeightData() {
     const tw = Number(target?.targetWeight);
     state.weightTarget = Number.isFinite(tw) && tw > 0 ? tw : null;
 
-    if (!entries.length) {
-      weightLogListEl.innerHTML = '<p class="empty-note">No weight entries yet.</p>';
+    const tenDaysCutoff = new Date();
+    tenDaysCutoff.setDate(tenDaysCutoff.getDate() - 10);
+    tenDaysCutoff.setHours(0, 0, 0, 0);
+    const recentEntries = entries.filter((e) => new Date(e.loggedAt) >= tenDaysCutoff);
+
+    if (!recentEntries.length) {
+      weightLogListEl.innerHTML = '<p class="empty-note">No weight entries in the last 10 days.</p>';
     } else {
       weightLogListEl.innerHTML = `
-        <table class="table" aria-label="Past week logged weight entries">
+        <table class="table" aria-label="Last 10 days logged weight entries">
           <thead>
             <tr>
               <th>Date/Time</th>
@@ -2514,7 +2824,7 @@ async function refreshWeightData() {
             </tr>
           </thead>
           <tbody>
-            ${entries.map((entry) => {
+            ${recentEntries.map((entry) => {
               const rowHtml = state.weightEditingEntryId === entry.id
                 ? renderWeightEditRow(entry)
                 : renderWeightReadOnlyRow(entry);
@@ -2762,7 +3072,12 @@ async function refreshWorkoutData() {
     const entries = Array.isArray(data.entries) ? data.entries : [];
     const dailyCalories = Array.isArray(data.dailyCalories) ? data.dailyCalories : [];
 
-    workoutLogListEl.innerHTML = entries.length
+    const tenDaysCutoff = new Date();
+    tenDaysCutoff.setDate(tenDaysCutoff.getDate() - 10);
+    tenDaysCutoff.setHours(0, 0, 0, 0);
+    const recentWorkouts = entries.filter((e) => new Date(e.loggedAt) >= tenDaysCutoff);
+
+    workoutLogListEl.innerHTML = recentWorkouts.length
       ? `
         <table class="table" aria-label="Logged workout entries">
           <thead>
@@ -2776,7 +3091,7 @@ async function refreshWorkoutData() {
             </tr>
           </thead>
           <tbody>
-            ${entries.map((entry) => {
+            ${recentWorkouts.map((entry) => {
               const rowHtml = state.workoutEditingEntryId === entry.id
                 ? renderWorkoutEditRow(entry)
                 : renderWorkoutReadOnlyRow(entry);
@@ -2785,11 +3100,11 @@ async function refreshWorkoutData() {
           </tbody>
         </table>
       `
-      : '<p class="empty-note">No workouts logged yet.</p>';
+      : '<p class="empty-note">No workouts logged in the last 10 days.</p>';
 
     renderWorkoutQuickAdds(entries);
-    const chartRows = dailyCalories.map((row) => ({ label: row.day, value: row.calories }));
-    state.workoutChartRows = chartRows;
+    state.workoutEntries = entries;
+    renderWorkoutStats(entries);
     renderWorkoutChart();
   } catch (error) {
     setActionBanner(error.message, 'error');
