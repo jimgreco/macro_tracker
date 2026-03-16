@@ -87,6 +87,8 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 - Password rotation: `npm run ops:rotate-prod-db-password`
 - Security checklist: `docs/aws-production-security-audit.md`
 
+> **Critical deploy gotcha**: `eb deploy` packages via `git archive` and only includes **committed** files. Uncommitted changes to `public/script.js`, `src/server.js`, or any other file will be silently ignored and the old version ships. Always `git add` + `git commit` before deploying.
+
 ## Content Security Policy
 
 The server sets a strict CSP header. Key constraints for frontend development:
