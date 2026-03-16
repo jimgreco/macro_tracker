@@ -1,6 +1,8 @@
 require('dotenv').config();
 
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
@@ -42,6 +44,15 @@ const port = Number(process.env.PORT) || 3000;
 app.set('trust proxy', 1);
 const appBuild = process.env.APP_BUILD || 'c24d664';
 const startedAtIso = new Date().toISOString();
+
+const scriptPath = path.join(process.cwd(), 'public', 'script.js');
+const scriptHash = crypto
+  .createHash('md5')
+  .update(fs.readFileSync(scriptPath))
+  .digest('hex')
+  .slice(0, 8);
+const indexHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'index.html'), 'utf8');
+const indexHtml = indexHtmlRaw.replace('src="/script.js"', `src="/script.js?v=${scriptHash}"`);
 const isProduction = process.env.NODE_ENV === 'production';
 
 const sessionSecret = process.env.SESSION_SECRET || 'dev-session-secret-change-me';
@@ -1316,11 +1327,11 @@ app.get('/api/dashboard', async (req, res) => {
 });
 
 app.use(requireAuth);
-app.use(express.static(path.join(process.cwd(), 'public')));
-
 app.get('/', (req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.type('html').send(indexHtml);
 });
+app.use(express.static(path.join(process.cwd(), 'public')));
 
 async function startServer() {
   try {

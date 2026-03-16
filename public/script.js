@@ -1745,6 +1745,7 @@ function bindSnapshotToggles() {
         hideTrendTooltip();
         if (state.dashboardData) {
           drawTrend(state.dashboardData.entries);
+          renderSnapshotStats(state.dashboardData.entries, state.dashboardData.targets);
         }
       });
     }
@@ -1787,15 +1788,15 @@ function bindSnapshotToggles() {
   snapshotToggleBound = true;
 }
 
-function renderDashboard(data) {
-  const compactMobile = isCompactMobileView();
-
-  drawTrend(data.entries);
+function renderSnapshotStats(entries, targets) {
+  const period = state.macroSnapshotPeriod || 'weekly';
+  const numDays = period === 'annual' ? 364 : period === 'monthly' ? 30 : 7;
+  const periodLabel = period === 'annual' ? '52 weeks' : `${numDays} days`;
 
   const avgBaseDay = shiftIsoDay(getLocalIsoDay(), -1);
-  const avgWindowDays = new Set(Array.from({ length: 7 }, (_, i) => shiftIsoDay(avgBaseDay, -i)));
+  const avgWindowDays = new Set(Array.from({ length: numDays }, (_, i) => shiftIsoDay(avgBaseDay, -i)));
   const avgTotalsByDay = new Map();
-  for (const entry of data.entries) {
+  for (const entry of entries) {
     const day = getLocalIsoDay(entry.consumedAt);
     if (!avgWindowDays.has(day)) {
       continue;
@@ -1831,20 +1832,22 @@ function renderDashboard(data) {
   setText(avgCarbsEl, `${fmtNumber(avgCarbs)}g`);
   setText(avgFatEl, `${fmtNumber(avgFat)}g`);
   renderWeeklyTargets(
-    {
-      calories: avgCalories,
-      protein: avgProtein,
-      carbs: avgCarbs,
-      fat: avgFat
-    },
-    data.targets || {}
+    { calories: avgCalories, protein: avgProtein, carbs: avgCarbs, fat: avgFat },
+    targets || {}
   );
   setText(
     weeklyAvgNoteEl,
     daysWithData > 0
-      ? `Based on ${daysWithData} day${daysWithData === 1 ? '' : 's'} with entries in the last 7 days.`
-      : 'No entries in the last 7 days.'
+      ? `Based on ${daysWithData} day${daysWithData === 1 ? '' : 's'} with entries in the last ${periodLabel}.`
+      : `No entries in the last ${periodLabel}.`
   );
+}
+
+function renderDashboard(data) {
+  const compactMobile = isCompactMobileView();
+
+  drawTrend(data.entries);
+  renderSnapshotStats(data.entries, data.targets);
 
   const baseDay = getLocalIsoDay();
   if (!state.selectedEntriesDay) {
