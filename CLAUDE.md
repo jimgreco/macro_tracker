@@ -80,8 +80,25 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 ## Production (AWS)
 
 - Platform: Elastic Beanstalk (`macro-tracker-prod`, us-east-2)
+- Deploy: `eb deploy macro-tracker-prod` from project root
 - Health check: `GET /healthz` (performs live DB query)
 - Max upload: 12MB (Nginx config in `.platform/`)
 - SSL: Auto-enabled for RDS. Pin cert via `PGSSL_CA_FILE`.
 - Password rotation: `npm run ops:rotate-prod-db-password`
 - Security checklist: `docs/aws-production-security-audit.md`
+
+## Content Security Policy
+
+The server sets a strict CSP header. Key constraints for frontend development:
+
+- `img-src 'self' data: https:` — **blob: URLs are NOT allowed for images**. Always use `data:` URLs (base64) for dynamically generated image previews. Do not use `URL.createObjectURL()` for `<img>` src.
+- `script-src 'self'` — no inline scripts or external scripts
+- `connect-src 'self'` — no external API calls from frontend
+
+## Frontend Notes
+
+- All state lives in the global `state` object in `public/script.js`
+- Period toggles (weekly/monthly/annual) controlled by `state.macroSnapshotPeriod`, `state.weightSnapshotPeriod`, `state.workoutSnapshotPeriod`
+- Charts are drawn on `<canvas>` elements with device pixel ratio scaling
+- Meal photo preview: uses base64 data URL (`state.mealImageDataUrl`) for `<img src>` — not blob URLs (blocked by CSP)
+- OpenAI API key is required; no fallback parsing exists
