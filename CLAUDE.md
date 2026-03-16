@@ -89,6 +89,17 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 
 > **Critical deploy gotcha**: `eb deploy` packages via `git archive` and only includes **committed** files. Uncommitted changes to `public/script.js`, `src/server.js`, or any other file will be silently ignored and the old version ships. Always `git add` + `git commit` before deploying.
 
+### Deployment Process
+
+When asked to deploy or "push live", always run these steps in order — no skipping:
+
+1. **`git status`** — identify all modified/untracked files
+2. **`git add`** all changed files relevant to the work
+3. **Update `CLAUDE.md`** if anything was learned (new gotchas, architecture decisions, changed patterns) — then `git add CLAUDE.md`
+4. **`git commit`** with a clear message describing what changed and why
+5. **`git push`** to GitHub
+6. **`eb deploy macro-tracker-prod`** to ship to production
+
 ## Content Security Policy
 
 The server sets a strict CSP header. Key constraints for frontend development:
