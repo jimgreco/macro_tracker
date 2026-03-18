@@ -2994,10 +2994,12 @@ function renderTdeeSection(data) {
   if (!data) return;
   const { dailyIntake, stats } = data;
 
-  const rows = dailyIntake.map((d) => ({
-    label: d.day,
-    intake: d.calories
-  }));
+  const rows = dailyIntake
+    .filter((d) => d.calories > 0)
+    .map((d) => ({
+      label: d.day,
+      intake: d.calories
+    }));
 
   drawDualLineChart(tdeeCanvasEl, rows, {
     tdeeValue: stats.tdee,
