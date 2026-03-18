@@ -1089,17 +1089,31 @@ async function getEnergyBalance(userId, scope = 'week') {
   let dailySurplusDeficit = null;
 
   if (weights.length >= 2 && daysWithIntake >= 3) {
-    const firstWeight = weights[0].weight;
-    const lastWeight = weights[weights.length - 1].weight;
+    // Use linear regression on weight entries to smooth out daily fluctuations
+    // from water retention, sodium, etc. The slope (lbs/day) is far more stable
+    // than comparing first vs last entry.
     const firstDate = new Date(weights[0].loggedAt);
     const lastDate = new Date(weights[weights.length - 1].loggedAt);
     const spanDays = Math.max(1, Math.round((lastDate - firstDate) / (24 * 60 * 60 * 1000)));
-    // Require at least 7 days between first and last weight entry to avoid
-    // short-term water weight fluctuations producing wildly inaccurate TDEE
+
     if (spanDays >= 7) {
-      weightChangeLbs = lastWeight - firstWeight;
-      tdee = avgDailyIntake - (weightChangeLbs * 3500 / spanDays);
-      dailySurplusDeficit = avgDailyIntake - tdee;
+      const msPerDay = 24 * 60 * 60 * 1000;
+      const n = weights.length;
+      let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+      for (const w of weights) {
+        const x = (new Date(w.loggedAt) - firstDate) / msPerDay;
+        sumX += x;
+        sumY += w.weight;
+        sumXY += x * w.weight;
+        sumX2 += x * x;
+      }
+      const denom = n * sumX2 - sumX * sumX;
+      if (Math.abs(denom) > 0.000001) {
+        const slope = (n * sumXY - sumX * sumY) / denom; // lbs per day
+        weightChangeLbs = slope * spanDays;
+        tdee = avgDailyIntake - (slope * 3500);
+        dailySurplusDeficit = avgDailyIntake - tdee;
+      }
     }
   }
 
