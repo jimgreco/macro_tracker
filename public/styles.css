@@ -1029,6 +1029,14 @@ button[disabled] {
   color: rgba(5, 255, 161, 0.95);
 }
 
+.trend-legend-swatch-intake {
+  color: #00cfff;
+}
+
+.trend-legend-swatch-tdee {
+  color: #ff6b6b;
+}
+
 [data-workout-stat="workouts"] .metric-value {
   color: #00cfff;
   text-shadow: 0 0 16px rgba(0, 207, 255, 0.55);

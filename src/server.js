@@ -34,7 +34,8 @@ const {
   listWorkoutEntries,
   getAnalysisSnapshot,
   saveAnalysisReport,
-  getLatestAnalysisReport
+  getLatestAnalysisReport,
+  getEnergyBalance
 } = require('./db');
 const { parseMealText, parseWorkoutText } = require('./parser');
 const packageJson = require('../package.json');
@@ -1132,6 +1133,16 @@ app.get('/api/weights', async (req, res) => {
     const scope = String(req.query.scope || 'week').toLowerCase();
     const entries = await listWeightEntries(userIdFromReq(req), scope);
     res.json({ entries });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/energy-balance', async (req, res) => {
+  try {
+    const scope = String(req.query.scope || 'week').toLowerCase();
+    const data = await getEnergyBalance(userIdFromReq(req), scope);
+    res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

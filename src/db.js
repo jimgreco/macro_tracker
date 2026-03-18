@@ -1028,6 +1028,88 @@ async function getLatestAnalysisReport(userId) {
   };
 }
 
+async function getEnergyBalance(userId, scope = 'week') {
+  const days = parseScopeDays(scope);
+  const daysParam = String(days);
+
+  const [dailyIntakeResult, weightResult, workoutResult] = await Promise.all([
+    pool.query(
+      `SELECT (consumed_at AT TIME ZONE 'UTC')::date::text AS day,
+              ROUND(SUM(calories)::numeric, 1) AS calories
+       FROM entries
+       WHERE user_id = $1
+         AND consumed_at >= NOW() - ($2::text || ' days')::interval
+       GROUP BY day
+       ORDER BY day ASC`,
+      [userId, daysParam]
+    ),
+    pool.query(
+      `SELECT weight, logged_at AS "loggedAt"
+       FROM weight_entries
+       WHERE user_id = $1
+         AND logged_at >= NOW() - ($2::text || ' days')::interval
+       ORDER BY logged_at ASC`,
+      [userId, daysParam]
+    ),
+    pool.query(
+      `SELECT (logged_at AT TIME ZONE 'UTC')::date::text AS day,
+              ROUND(SUM(calories_burned)::numeric, 1) AS calories
+       FROM workout_entries
+       WHERE user_id = $1
+         AND logged_at >= NOW() - ($2::text || ' days')::interval
+       GROUP BY day
+       ORDER BY day ASC`,
+      [userId, daysParam]
+    )
+  ]);
+
+  const dailyIntake = dailyIntakeResult.rows.map((r) => ({
+    day: r.day,
+    calories: Number(r.calories || 0)
+  }));
+  const dailyWorkoutBurn = workoutResult.rows.map((r) => ({
+    day: r.day,
+    calories: Number(r.calories || 0)
+  }));
+  const weights = weightResult.rows.map((r) => ({
+    weight: Number(r.weight || 0),
+    loggedAt: new Date(r.loggedAt).toISOString()
+  }));
+
+  const totalIntake = dailyIntake.reduce((sum, d) => sum + d.calories, 0);
+  const daysWithIntake = dailyIntake.length;
+  const avgDailyIntake = daysWithIntake > 0 ? totalIntake / daysWithIntake : 0;
+
+  let weightChangeLbs = null;
+  let tdee = null;
+  let dailySurplusDeficit = null;
+
+  if (weights.length >= 2 && daysWithIntake >= 3) {
+    const firstWeight = weights[0].weight;
+    const lastWeight = weights[weights.length - 1].weight;
+    weightChangeLbs = lastWeight - firstWeight;
+    const firstDate = new Date(weights[0].loggedAt);
+    const lastDate = new Date(weights[weights.length - 1].loggedAt);
+    const spanDays = Math.max(1, Math.round((lastDate - firstDate) / (24 * 60 * 60 * 1000)));
+    tdee = avgDailyIntake - (weightChangeLbs * 3500 / spanDays);
+    dailySurplusDeficit = avgDailyIntake - tdee;
+  }
+
+  return {
+    dailyIntake,
+    dailyWorkoutBurn,
+    stats: {
+      avgDailyIntake: Number(avgDailyIntake.toFixed(1)),
+      weightChangeLbs: weightChangeLbs !== null ? Number(weightChangeLbs.toFixed(2)) : null,
+      tdee: tdee !== null ? Math.round(tdee) : null,
+      dailySurplusDeficit: dailySurplusDeficit !== null ? Math.round(dailySurplusDeficit) : null,
+      daysWithIntakeData: daysWithIntake,
+      weightEntryCount: weights.length,
+      periodDays: days
+    }
+  };
+}
+
 module.exports = {
   initDb,
   getPool,
@@ -1055,5 +1137,6 @@ module.exports = {
   listWorkoutEntries,
   getAnalysisSnapshot,
   saveAnalysisReport,
-  getLatestAnalysisReport
+  getLatestAnalysisReport,
+  getEnergyBalance
 };

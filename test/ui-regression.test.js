@@ -41,17 +41,16 @@ test('brand menu includes macro, weight, and workout pages', () => {
   assert.equal(html.includes('id="workout-page"'), true);
 });
 
-test('weight page is weekly-only and split into three sections', () => {
+test('weight page has log, entries, snapshot, and energy balance sections', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');
 
   assert.equal(html.includes('id="weight-log-section"'), true);
   assert.equal(html.includes('id="weight-entries-section"'), true);
   assert.equal(html.includes('id="weight-snapshot-section"'), true);
-  assert.equal(html.includes('data-weight-scope="month"'), false);
-  assert.equal(html.includes('data-weight-scope="year"'), false);
-  assert.equal(script.includes('weightScope'), false);
-  assert.equal(script.includes('/api/weights?scope=week'), true);
+  assert.equal(html.includes('id="tdee-section"'), true);
+  assert.equal(html.includes('id="tdee-canvas"'), true);
+  assert.equal(script.includes('refreshTdeeData'), true);
 });
 
 test('weight page includes target weight + date controls', () => {

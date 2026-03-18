@@ -288,6 +288,48 @@
           </div>
         </section>
 
+        <section id="tdee-section" class="panel glass">
+          <div class="snapshot-header">
+            <h2 id="tdee-heading">Weekly Energy Balance</h2>
+            <div class="period-toggle" id="tdee-period-toggle" role="group" aria-label="Energy balance time period">
+              <button class="period-btn is-active" data-period="weekly">Week</button>
+              <button class="period-btn" data-period="monthly">Month</button>
+              <button class="period-btn" data-period="annual">Year</button>
+            </div>
+          </div>
+          <div class="trend-wrap">
+            <canvas id="tdee-canvas" height="150" aria-label="Daily calorie intake vs estimated expenditure chart"></canvas>
+            <div class="trend-legend" aria-live="polite">
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch trend-legend-swatch-intake" aria-hidden="true"></span>
+                Intake
+              </span>
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch trend-legend-swatch-tdee" aria-hidden="true"></span>
+                Est. TDEE
+              </span>
+            </div>
+          </div>
+          <div class="cards stats-cards" aria-label="Energy balance statistics">
+            <article class="card metric">
+              <span class="metric-label">Est. TDEE</span>
+              <strong class="metric-value" id="tdee-value">--</strong>
+              <span class="metric-target">cal/day</span>
+            </article>
+            <article class="card metric">
+              <span class="metric-label">Avg Intake</span>
+              <strong class="metric-value" id="tdee-avg-intake">--</strong>
+              <span class="metric-target">cal/day</span>
+            </article>
+            <article class="card metric">
+              <span class="metric-label">Daily Balance</span>
+              <strong class="metric-value" id="tdee-balance">--</strong>
+              <span class="metric-target" id="tdee-balance-label">surplus/deficit</span>
+            </article>
+          </div>
+          <p id="tdee-note" class="avg-note"></p>
+        </section>
+
         <section class="panel glass">
           <h2>Target Weight</h2>
           <div class="weight-target-row">
