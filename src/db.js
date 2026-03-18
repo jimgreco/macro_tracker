@@ -1039,6 +1039,7 @@ async function getEnergyBalance(userId, scope = 'week') {
        FROM entries
        WHERE user_id = $1
          AND consumed_at >= NOW() - ($2::text || ' days')::interval
+         AND (consumed_at AT TIME ZONE 'UTC')::date < CURRENT_DATE
        GROUP BY day
        HAVING SUM(calories) > 0
        ORDER BY day ASC`,
