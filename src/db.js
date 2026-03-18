@@ -1032,18 +1032,20 @@ async function getEnergyBalance(userId, scope = 'week') {
   const days = parseScopeDays(scope);
   const daysParam = String(days);
 
+  const tz = 'America/New_York';
+
   const [dailyIntakeResult, weightResult, workoutResult] = await Promise.all([
     pool.query(
-      `SELECT (consumed_at AT TIME ZONE 'UTC')::date::text AS day,
+      `SELECT (consumed_at AT TIME ZONE $3)::date::text AS day,
               ROUND(SUM(calories)::numeric, 1) AS calories
        FROM entries
        WHERE user_id = $1
          AND consumed_at >= NOW() - ($2::text || ' days')::interval
-         AND (consumed_at AT TIME ZONE 'UTC')::date < CURRENT_DATE
+         AND (consumed_at AT TIME ZONE $3)::date < (NOW() AT TIME ZONE $3)::date
        GROUP BY day
        HAVING SUM(calories) > 0
        ORDER BY day ASC`,
-      [userId, daysParam]
+      [userId, daysParam, tz]
     ),
     pool.query(
       `SELECT weight, logged_at AS "loggedAt"
@@ -1054,14 +1056,14 @@ async function getEnergyBalance(userId, scope = 'week') {
       [userId, daysParam]
     ),
     pool.query(
-      `SELECT (logged_at AT TIME ZONE 'UTC')::date::text AS day,
+      `SELECT (logged_at AT TIME ZONE $3)::date::text AS day,
               ROUND(SUM(calories_burned)::numeric, 1) AS calories
        FROM workout_entries
        WHERE user_id = $1
          AND logged_at >= NOW() - ($2::text || ' days')::interval
        GROUP BY day
        ORDER BY day ASC`,
-      [userId, daysParam]
+      [userId, daysParam, tz]
     )
   ]);
 
@@ -1089,12 +1091,16 @@ async function getEnergyBalance(userId, scope = 'week') {
   if (weights.length >= 2 && daysWithIntake >= 3) {
     const firstWeight = weights[0].weight;
     const lastWeight = weights[weights.length - 1].weight;
-    weightChangeLbs = lastWeight - firstWeight;
     const firstDate = new Date(weights[0].loggedAt);
     const lastDate = new Date(weights[weights.length - 1].loggedAt);
     const spanDays = Math.max(1, Math.round((lastDate - firstDate) / (24 * 60 * 60 * 1000)));
-    tdee = avgDailyIntake - (weightChangeLbs * 3500 / spanDays);
-    dailySurplusDeficit = avgDailyIntake - tdee;
+    // Require at least 7 days between first and last weight entry to avoid
+    // short-term water weight fluctuations producing wildly inaccurate TDEE
+    if (spanDays >= 7) {
+      weightChangeLbs = lastWeight - firstWeight;
+      tdee = avgDailyIntake - (weightChangeLbs * 3500 / spanDays);
+      dailySurplusDeficit = avgDailyIntake - tdee;
+    }
   }
 
   return {

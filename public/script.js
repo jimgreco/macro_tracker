@@ -3026,7 +3026,7 @@ function renderTdeeSection(data) {
         ? 'Log at least 2 weight entries to estimate TDEE.'
         : stats.daysWithIntakeData < 3
           ? 'Log at least 3 days of meals to estimate TDEE.'
-          : 'Insufficient data to estimate TDEE.'
+          : 'Need at least 7 days between weight entries to estimate TDEE. Try the monthly or annual view.'
     );
   } else {
     setText(tdeeNoteEl, `Based on ${stats.daysWithIntakeData} days of intake data and ${stats.weightEntryCount} weight entries.`);
