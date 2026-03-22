@@ -15,6 +15,7 @@ const {
   addEntries,
   updateEntry,
   deleteEntry,
+  scaleMealGroup,
   addSavedItem,
   updateSavedItem,
   deleteSavedItem,
@@ -976,6 +977,17 @@ app.post('/api/entries/bulk', async (req, res) => {
       return res.status(400).json({ error: 'At least one item is required.' });
     }
 
+    const mealName = String(req.body.mealName || '').trim() || null;
+    const mealGroup = rows.length > 1 && mealName ? crypto.randomUUID() : null;
+    const mealQuantity = Number(req.body.mealQuantity) > 0 ? Number(req.body.mealQuantity) : 1;
+    const mealUnit = String(req.body.mealUnit || 'serving').trim();
+    for (const row of rows) {
+      row.mealGroup = mealGroup;
+      row.mealName = mealName;
+      row.mealQuantity = mealQuantity;
+      row.mealUnit = mealUnit;
+    }
+
     const userId = userIdFromReq(req);
     await addEntries(userId, rows);
 
@@ -1025,6 +1037,28 @@ app.delete('/api/entries/:id', async (req, res) => {
     }
 
     return res.json({ ok: true });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+app.put('/api/meal-group/:mealGroup/scale', async (req, res) => {
+  try {
+    const { mealGroup } = req.params;
+    if (!mealGroup) {
+      return res.status(400).json({ error: 'mealGroup is required.' });
+    }
+    const quantity = Number(req.body.quantity);
+    if (!quantity || quantity <= 0) {
+      return res.status(400).json({ error: 'quantity must be a positive number.' });
+    }
+    const unit = String(req.body.unit || 'serving').trim();
+    const name = req.body.name ? String(req.body.name).trim() : null;
+    const updated = await scaleMealGroup(userIdFromReq(req), mealGroup, quantity, unit, name);
+    if (!updated) {
+      return res.status(404).json({ error: 'Meal group not found.' });
+    }
+    return res.json({ ok: true, updated });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }

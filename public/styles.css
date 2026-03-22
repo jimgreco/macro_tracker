@@ -1098,6 +1098,35 @@ button[disabled] {
   font-size: 0.8rem;
 }
 
+.meal-group-header {
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.meal-group-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.meal-group-header td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.meal-group-toggle {
+  display: inline-block;
+  width: 1em;
+  font-size: 0.75em;
+  color: var(--muted);
+}
+
+.meal-group-child td[data-label="Item"] {
+  padding-left: 1.8rem;
+}
+
+.meal-group-child {
+  opacity: 0.8;
+}
+
+
 .entries-nav {
   display: flex;
   align-items: center;
@@ -1703,6 +1732,10 @@ button[disabled] {
   #workout-log-list .table td .action-row {
     width: auto;
     justify-content: flex-start;
+  }
+
+  #entries-by-day .meal-group-child td:first-child {
+    padding-left: 1.8rem;
   }
 
   .stats-cards {

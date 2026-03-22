@@ -72,7 +72,11 @@ async function initDb() {
       carbs DOUBLE PRECISION NOT NULL,
       fat DOUBLE PRECISION NOT NULL,
       consumed_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      meal_group TEXT,
+      meal_name TEXT,
+      meal_quantity DOUBLE PRECISION DEFAULT 1,
+      meal_unit TEXT DEFAULT 'serving'
     );
   `);
 
@@ -150,6 +154,23 @@ async function initDb() {
   `);
 
   await pool.query(`
+    ALTER TABLE entries
+      ADD COLUMN IF NOT EXISTS meal_group TEXT;
+  `);
+  await pool.query(`
+    ALTER TABLE entries
+      ADD COLUMN IF NOT EXISTS meal_name TEXT;
+  `);
+  await pool.query(`
+    ALTER TABLE entries
+      ADD COLUMN IF NOT EXISTS meal_quantity DOUBLE PRECISION DEFAULT 1;
+  `);
+  await pool.query(`
+    ALTER TABLE entries
+      ADD COLUMN IF NOT EXISTS meal_unit TEXT DEFAULT 'serving';
+  `);
+
+  await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_entries_user_consumed ON entries(user_id, consumed_at DESC);
     CREATE INDEX IF NOT EXISTS idx_saved_items_user_name ON saved_items(user_id, lower(name));
     CREATE INDEX IF NOT EXISTS idx_macro_targets_user ON macro_targets(user_id);
@@ -184,8 +205,12 @@ async function addEntries(userId, entries) {
         protein,
         carbs,
         fat,
-        consumed_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        consumed_at,
+        meal_group,
+        meal_name,
+        meal_quantity,
+        meal_unit
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
     `;
 
     for (const row of entries) {
@@ -198,7 +223,11 @@ async function addEntries(userId, entries) {
         Number(row.protein || 0),
         Number(row.carbs || 0),
         Number(row.fat || 0),
-        new Date(row.consumedAt)
+        new Date(row.consumedAt),
+        row.mealGroup || null,
+        row.mealName || null,
+        row.mealQuantity != null ? Number(row.mealQuantity) : 1,
+        row.mealUnit || 'serving'
       ]);
     }
 
@@ -244,6 +273,46 @@ async function updateEntry(userId, id, entry) {
 async function deleteEntry(userId, id) {
   const result = await pool.query('DELETE FROM entries WHERE id = $1 AND user_id = $2', [id, userId]);
   return result.rowCount || 0;
+}
+
+async function scaleMealGroup(userId, mealGroup, newQuantity, newUnit, newName) {
+  const existing = await pool.query(
+    'SELECT id, quantity, calories, protein, carbs, fat, meal_quantity FROM entries WHERE user_id = $1 AND meal_group = $2',
+    [userId, mealGroup]
+  );
+  if (!existing.rows.length) return 0;
+
+  const oldMealQty = Number(existing.rows[0].meal_quantity || 1);
+  const scale = Number(newQuantity) / oldMealQty;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const row of existing.rows) {
+      await client.query(
+        `UPDATE entries
+         SET quantity = ROUND(($1 * quantity)::numeric, 2),
+             calories = ROUND(($1 * calories)::numeric, 2),
+             protein = ROUND(($1 * protein)::numeric, 2),
+             carbs = ROUND(($1 * carbs)::numeric, 2),
+             fat = ROUND(($1 * fat)::numeric, 2),
+             meal_quantity = $2,
+             meal_unit = $3
+             ${newName ? ', meal_name = $6' : ''}
+         WHERE id = $4 AND user_id = $5`,
+        newName
+          ? [scale, Number(newQuantity), newUnit, row.id, userId, newName]
+          : [scale, Number(newQuantity), newUnit, row.id, userId]
+      );
+    }
+    await client.query('COMMIT');
+    return existing.rows.length;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function addSavedItem(userId, item) {
@@ -534,7 +603,11 @@ async function getDashboard(userId, dateInput) {
        carbs,
        fat,
        consumed_at AS "consumedAt",
-       (consumed_at AT TIME ZONE 'UTC')::date::text AS day
+       (consumed_at AT TIME ZONE 'UTC')::date::text AS day,
+       meal_group AS "mealGroup",
+       meal_name AS "mealName",
+       meal_quantity AS "mealQuantity",
+       meal_unit AS "mealUnit"
      FROM entries
      WHERE user_id = $1
      ORDER BY consumed_at DESC, id DESC`,
@@ -549,7 +622,11 @@ async function getDashboard(userId, dateInput) {
     protein: Number(row.protein || 0),
     carbs: Number(row.carbs || 0),
     fat: Number(row.fat || 0),
-    consumedAt: new Date(row.consumedAt).toISOString()
+    consumedAt: new Date(row.consumedAt).toISOString(),
+    mealGroup: row.mealGroup || null,
+    mealName: row.mealName || null,
+    mealQuantity: Number(row.mealQuantity || 1),
+    mealUnit: row.mealUnit || 'serving'
   }));
 
   const targets = await getMacroTargets(userId);
@@ -1139,6 +1216,7 @@ module.exports = {
   addEntries,
   updateEntry,
   deleteEntry,
+  scaleMealGroup,
   addSavedItem,
   updateSavedItem,
   deleteSavedItem,

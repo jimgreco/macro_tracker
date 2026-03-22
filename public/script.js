@@ -25,7 +25,9 @@ const state = {
   workoutSnapshotPeriod: 'weekly',
   tdeeSnapshotPeriod: 'monthly',
   tdeeData: null,
-  workoutEntries: []
+  workoutEntries: [],
+  expandedMealGroups: new Set(),
+  editingMealGroup: null
 };
 
 const mealTextEl = document.getElementById('meal-text');
@@ -1924,11 +1926,93 @@ function renderDashboard(data) {
     : '<thead><tr><th>Item</th><th>Quantity</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Time</th><th>Actions</th></tr></thead>';
 
   const tbody = document.createElement('tbody');
+
+  const rendered = new Set();
   for (const item of dayItems) {
-    const row = document.createElement('tr');
-    row.dataset.entryId = String(item.id);
-    row.innerHTML = state.editingEntryId === item.id ? renderEditRow(item) : renderReadOnlyRow(item);
-    tbody.appendChild(row);
+    if (rendered.has(item.id)) continue;
+
+    if (item.mealGroup) {
+      const groupItems = dayItems.filter((e) => e.mealGroup === item.mealGroup);
+      if (groupItems.every((e) => rendered.has(e.id))) continue;
+
+      const totals = groupItems.reduce((acc, e) => {
+        acc.calories += Number(e.calories || 0);
+        acc.protein += Number(e.protein || 0);
+        acc.carbs += Number(e.carbs || 0);
+        acc.fat += Number(e.fat || 0);
+        return acc;
+      }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+      const isExpanded = state.expandedMealGroups && state.expandedMealGroups.has(item.mealGroup);
+      const isEditingGroup = state.editingMealGroup === item.mealGroup;
+
+      const groupRow = document.createElement('tr');
+      groupRow.className = 'meal-group-header' + (isExpanded ? ' expanded' : '');
+      groupRow.dataset.mealGroup = item.mealGroup;
+      const timeStr = new Date(item.consumedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const mealQty = item.mealQuantity || 1;
+      const mealUnit = item.mealUnit || 'serving';
+
+      groupRow.innerHTML = `
+        <td data-label="Item"><span class="meal-group-toggle">${isExpanded ? '\u25BC' : '\u25B6'}</span> <strong>${item.mealName || 'Meal'}</strong></td>
+        <td data-label="${compactMobile ? 'Qty' : 'Quantity'}">${fmtNumber(mealQty)} ${mealUnit}</td>
+        <td data-label="${compactMobile ? 'Cal' : 'Calories'}">${fmtNumber(totals.calories)}</td>
+        <td data-label="Protein">${fmtNumber(totals.protein)}</td>
+        <td data-label="Carbs">${fmtNumber(totals.carbs)}</td>
+        <td data-label="Fat">${fmtNumber(totals.fat)}</td>
+        <td data-label="Time">${timeStr}</td>
+        <td data-label="${compactMobile ? 'Act' : 'Actions'}">
+          <div class="action-row">
+            <button type="button" class="btn-warning table-action-btn" data-action="edit-group" data-meal-group="${item.mealGroup}">Edit</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(groupRow);
+
+      if (isEditingGroup) {
+        const editRow = document.createElement('tr');
+        editRow.className = 'meal-group-edit-row';
+        editRow.dataset.mealGroup = item.mealGroup;
+        editRow.innerHTML = `
+          <td data-label="Edit" colspan="8">
+            <table class="edit-vertical-table">
+              <tbody>
+                <tr><th>Name</th><td><input type="text" class="meal-group-name-input" value="${(item.mealName || 'Meal').replace(/"/g, '&quot;')}" data-meal-group="${item.mealGroup}" /></td></tr>
+                <tr><th>Quantity</th><td><input type="number" step="0.1" min="0.1" class="meal-group-qty-input" value="${mealQty}" data-meal-group="${item.mealGroup}" /></td></tr>
+                <tr><th>Unit</th><td><input type="text" class="meal-group-unit-input" value="${mealUnit}" data-meal-group="${item.mealGroup}" /></td></tr>
+                <tr>
+                  <th>Actions</th>
+                  <td>
+                    <div class="edit-vertical-actions">
+                      <button type="button" class="btn-success table-action-btn" data-action="save-group" data-meal-group="${item.mealGroup}">Save</button>
+                      <button type="button" class="btn-warning table-action-btn" data-action="cancel-group" data-meal-group="${item.mealGroup}">Cancel</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </td>
+        `;
+        tbody.appendChild(editRow);
+      }
+
+      for (const child of groupItems) {
+        rendered.add(child.id);
+        const childRow = document.createElement('tr');
+        childRow.dataset.entryId = String(child.id);
+        childRow.dataset.mealGroup = item.mealGroup;
+        childRow.className = 'meal-group-child';
+        if (!isExpanded) childRow.style.display = 'none';
+        childRow.innerHTML = state.editingEntryId === child.id ? renderEditRow(child) : renderReadOnlyRow(child);
+        tbody.appendChild(childRow);
+      }
+    } else {
+      rendered.add(item.id);
+      const row = document.createElement('tr');
+      row.dataset.entryId = String(item.id);
+      row.innerHTML = state.editingEntryId === item.id ? renderEditRow(item) : renderReadOnlyRow(item);
+      tbody.appendChild(row);
+    }
   }
 
   table.appendChild(tbody);
@@ -2066,7 +2150,8 @@ saveParsedBtnEl.addEventListener('click', async () => {
       body: JSON.stringify({
         consumedAt,
         items,
-        saveItems
+        saveItems,
+        mealName: state.parsedMeal.mealName || undefined
       })
     });
 
@@ -2197,6 +2282,58 @@ entriesByDayEl.addEventListener('click', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) {
     return;
+  }
+
+  const groupAction = target.dataset.action;
+  const groupId = target.dataset.mealGroup;
+
+  if (groupAction === 'edit-group' && groupId) {
+    state.editingMealGroup = groupId;
+    state.expandedMealGroups.add(groupId);
+    renderDashboard(state.dashboardData);
+    return;
+  }
+
+  if (groupAction === 'cancel-group' && groupId) {
+    state.editingMealGroup = null;
+    renderDashboard(state.dashboardData);
+    return;
+  }
+
+  if (groupAction === 'save-group' && groupId) {
+    const nameInput = entriesByDayEl.querySelector(`.meal-group-name-input[data-meal-group="${groupId}"]`);
+    const qtyInput = entriesByDayEl.querySelector(`.meal-group-qty-input[data-meal-group="${groupId}"]`);
+    const unitInput = entriesByDayEl.querySelector(`.meal-group-unit-input[data-meal-group="${groupId}"]`);
+    const newName = String(nameInput?.value || '').trim();
+    const newQty = Number(qtyInput?.value || 1);
+    const newUnit = String(unitInput?.value || 'serving').trim();
+    if (newQty <= 0) return;
+    try {
+      await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
+        method: 'PUT',
+        body: JSON.stringify({ quantity: newQty, unit: newUnit, name: newName || undefined })
+      });
+      state.editingMealGroup = null;
+      setActionBanner('Meal scaled.', 'success');
+      await refreshDashboard();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+    return;
+  }
+
+  const groupHeader = target.closest('.meal-group-header');
+  if (groupHeader && !target.closest('button') && !target.closest('input')) {
+    const toggleGroupId = groupHeader.dataset.mealGroup;
+    if (toggleGroupId) {
+      if (state.expandedMealGroups.has(toggleGroupId)) {
+        state.expandedMealGroups.delete(toggleGroupId);
+      } else {
+        state.expandedMealGroups.add(toggleGroupId);
+      }
+      renderDashboard(state.dashboardData);
+      return;
+    }
   }
 
   const action = target.dataset.action;
