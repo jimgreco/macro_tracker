@@ -2,6 +2,7 @@ const params = new URLSearchParams(window.location.search);
 const errorEl = document.getElementById('error');
 const versionEl = document.getElementById('login-version');
 const googleLoginBtnEl = document.getElementById('google-login-btn');
+const appleLoginBtnEl = document.getElementById('apple-login-btn');
 
 if (params.get('error') && errorEl) {
   errorEl.hidden = false;
@@ -10,6 +11,12 @@ if (params.get('error') && errorEl) {
 if (googleLoginBtnEl) {
   googleLoginBtnEl.addEventListener('click', () => {
     window.location.href = '/auth/google';
+  });
+}
+
+if (appleLoginBtnEl) {
+  appleLoginBtnEl.addEventListener('click', () => {
+    window.location.href = '/auth/apple';
   });
 }
 

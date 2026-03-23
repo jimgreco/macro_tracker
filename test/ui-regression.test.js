@@ -62,8 +62,8 @@ test('weight page includes target weight + date controls', () => {
   assert.equal(html.includes('id="weight-target-date"'), true);
   assert.equal(html.includes('id="save-weight-target-btn"'), true);
   assert.equal(script.includes("/api/weight-target"), true);
-  assert.equal(server.includes("app.get('/api/weight-target'"), true);
-  assert.equal(server.includes("app.put('/api/weight-target'"), true);
+  assert.equal(server.includes("apiRouter.get('/weight-target'"), true);
+  assert.equal(server.includes("apiRouter.put('/weight-target'"), true);
 });
 
 test('analysis goal selector is removed from weekly analysis form', () => {
@@ -93,10 +93,10 @@ test('weight entries support inline edit and delete actions', () => {
   assert.equal(script.includes('data-weight-action="delete"'), true);
   assert.equal(script.includes('/api/weights/${entryId}/delete'), true);
   assert.equal(script.includes('/api/weights/delete'), true);
-  assert.equal(server.includes("app.put('/api/weights/:id'"), true);
-  assert.equal(server.includes("app.delete('/api/weights/:id'"), true);
-  assert.equal(server.includes("app.post('/api/weights/:id/delete'"), true);
-  assert.equal(server.includes("app.post('/api/weights/delete'"), true);
+  assert.equal(server.includes("apiRouter.put('/weights/:id'"), true);
+  assert.equal(server.includes("apiRouter.delete('/weights/:id'"), true);
+  assert.equal(server.includes("apiRouter.post('/weights/:id/delete'"), true);
+  assert.equal(server.includes("apiRouter.post('/weights/delete'"), true);
 });
 
 
@@ -106,7 +106,7 @@ test('workout parser uses server endpoint with local fallback', () => {
 
   assert.equal(script.includes("/api/parse-workout"), true);
   assert.equal(script.includes('Used fallback workout parsing'), true);
-  assert.equal(server.includes("app.post('/api/parse-workout'"), true);
+  assert.equal(server.includes("apiRouter.post('/parse-workout'"), true);
 });
 
 

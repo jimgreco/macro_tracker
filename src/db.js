@@ -1,4 +1,5 @@
 const fs = require('fs');
+const crypto = require('crypto');
 const { Pool } = require('pg');
 
 const isProduction = process.env.NODE_ENV === 'production';
@@ -60,6 +61,19 @@ async function checkDatabaseHealth() {
 }
 
 async function initDb() {
+  // ── Core user table ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT,
+      name TEXT,
+      picture TEXT,
+      provider TEXT NOT NULL DEFAULT 'google',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS entries (
       id BIGSERIAL PRIMARY KEY,
@@ -76,7 +90,8 @@ async function initDb() {
       meal_group TEXT,
       meal_name TEXT,
       meal_quantity DOUBLE PRECISION DEFAULT 1,
-      meal_unit TEXT DEFAULT 'serving'
+      meal_unit TEXT DEFAULT 'serving',
+      deleted_at TIMESTAMPTZ
     );
   `);
 
@@ -92,7 +107,8 @@ async function initDb() {
       carbs DOUBLE PRECISION NOT NULL,
       fat DOUBLE PRECISION NOT NULL,
       usage_count INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
     );
   `);
 
@@ -112,7 +128,8 @@ async function initDb() {
       user_id TEXT NOT NULL,
       weight DOUBLE PRECISION NOT NULL,
       logged_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
     );
   `);
 
@@ -125,7 +142,8 @@ async function initDb() {
       duration_hours DOUBLE PRECISION NOT NULL,
       calories_burned DOUBLE PRECISION NOT NULL,
       logged_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
     );
   `);
 
@@ -144,10 +162,66 @@ async function initDb() {
       user_id TEXT NOT NULL,
       period_days INTEGER NOT NULL,
       report_json JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  // ── Subscriptions ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE,
+      stripe_customer_id TEXT UNIQUE,
+      stripe_subscription_id TEXT UNIQUE,
+      plan TEXT NOT NULL DEFAULT 'free',
+      status TEXT NOT NULL DEFAULT 'active',
+      current_period_start TIMESTAMPTZ,
+      current_period_end TIMESTAMPTZ,
+      cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS billing_events (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT,
+      stripe_event_id TEXT UNIQUE,
+      event_type TEXT NOT NULL,
+      payload JSONB NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
 
+  // ── API tokens for mobile/external clients ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL DEFAULT 'default',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ,
+      last_used_at TIMESTAMPTZ
+    );
+  `);
+
+  // ── Audit log ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      details JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // ── Migrations for existing databases ──
   await pool.query(`
     ALTER TABLE workout_entries
       ADD COLUMN IF NOT EXISTS intensity TEXT NOT NULL DEFAULT 'medium';
@@ -170,6 +244,13 @@ async function initDb() {
       ADD COLUMN IF NOT EXISTS meal_unit TEXT DEFAULT 'serving';
   `);
 
+  // Soft-delete columns for existing databases
+  await pool.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE weight_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE workout_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE analysis_reports ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
+
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_entries_user_consumed ON entries(user_id, consumed_at DESC);
     CREATE INDEX IF NOT EXISTS idx_saved_items_user_name ON saved_items(user_id, lower(name));
@@ -177,8 +258,45 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_weight_entries_user_logged ON weight_entries(user_id, logged_at DESC);
     CREATE INDEX IF NOT EXISTS idx_workout_entries_user_logged ON workout_entries(user_id, logged_at DESC);
     CREATE INDEX IF NOT EXISTS idx_analysis_reports_user_created ON analysis_reports(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer ON subscriptions(stripe_customer_id);
+    CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id);
+    CREATE INDEX IF NOT EXISTS idx_billing_events_stripe ON billing_events(stripe_event_id);
   `);
 }
+
+// ── Users ──
+
+async function upsertUser(user) {
+  await pool.query(
+    `INSERT INTO users (id, email, name, picture, provider, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (id) DO UPDATE
+       SET email = EXCLUDED.email,
+           name = EXCLUDED.name,
+           picture = EXCLUDED.picture,
+           updated_at = NOW()`,
+    [user.id, user.email || null, user.name || null, user.picture || null, user.provider || 'google']
+  );
+}
+
+// ── Audit logging ──
+
+async function logAudit(userId, action, entityType, entityId, details) {
+  try {
+    await pool.query(
+      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, details)
+       VALUES ($1, $2, $3, $4, $5::jsonb)`,
+      [userId, action, entityType, entityId || null, details ? JSON.stringify(details) : null]
+    );
+  } catch (_error) {
+    // Audit logging should never break the main operation
+  }
+}
+
+// ── Macros / entries ──
 
 function normalizeMacroName(macro) {
   const value = String(macro || '').toLowerCase();
@@ -252,7 +370,7 @@ async function updateEntry(userId, id, entry) {
        carbs = $6,
        fat = $7,
        consumed_at = $8
-     WHERE id = $9 AND user_id = $10`,
+     WHERE id = $9 AND user_id = $10 AND deleted_at IS NULL`,
     [
       entry.itemName,
       Number(entry.quantity || 0),
@@ -271,13 +389,16 @@ async function updateEntry(userId, id, entry) {
 }
 
 async function deleteEntry(userId, id) {
-  const result = await pool.query('DELETE FROM entries WHERE id = $1 AND user_id = $2', [id, userId]);
+  const result = await pool.query(
+    'UPDATE entries SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+    [id, userId]
+  );
   return result.rowCount || 0;
 }
 
 async function scaleMealGroup(userId, mealGroup, newQuantity, newUnit, newName) {
   const existing = await pool.query(
-    'SELECT id, quantity, calories, protein, carbs, fat, meal_quantity FROM entries WHERE user_id = $1 AND meal_group = $2',
+    'SELECT id, quantity, calories, protein, carbs, fat, meal_quantity FROM entries WHERE user_id = $1 AND meal_group = $2 AND deleted_at IS NULL',
     [userId, mealGroup]
   );
   if (!existing.rows.length) return 0;
@@ -299,7 +420,7 @@ async function scaleMealGroup(userId, mealGroup, newQuantity, newUnit, newName) 
              meal_quantity = $2,
              meal_unit = $3
              ${newName ? ', meal_name = $6' : ''}
-         WHERE id = $4 AND user_id = $5`,
+         WHERE id = $4 AND user_id = $5 AND deleted_at IS NULL`,
         newName
           ? [scale, Number(newQuantity), newUnit, row.id, userId, newName]
           : [scale, Number(newQuantity), newUnit, row.id, userId]
@@ -346,7 +467,7 @@ async function updateSavedItem(userId, id, item) {
        protein = $5,
        carbs = $6,
        fat = $7
-     WHERE id = $8 AND user_id = $9`,
+     WHERE id = $8 AND user_id = $9 AND deleted_at IS NULL`,
     [
       item.name,
       Number(item.quantity || 1),
@@ -364,7 +485,10 @@ async function updateSavedItem(userId, id, item) {
 }
 
 async function deleteSavedItem(userId, id) {
-  const result = await pool.query('DELETE FROM saved_items WHERE id = $1 AND user_id = $2', [id, userId]);
+  const result = await pool.query(
+    'UPDATE saved_items SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+    [id, userId]
+  );
   return result.rowCount || 0;
 }
 
@@ -372,7 +496,7 @@ async function listSavedItems(userId) {
   const result = await pool.query(
     `SELECT id, name, quantity, unit, calories, protein, carbs, fat, usage_count AS "usageCount"
      FROM saved_items
-     WHERE user_id = $1
+     WHERE user_id = $1 AND deleted_at IS NULL
      ORDER BY lower(name) ASC`,
     [userId]
   );
@@ -397,7 +521,7 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
     const savedResult = await client.query(
       `SELECT id, name, quantity, unit, calories, protein, carbs, fat
        FROM saved_items
-       WHERE id = $1 AND user_id = $2
+       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
        FOR UPDATE`,
       [savedItemId, userId]
     );
@@ -523,9 +647,11 @@ function toIsoDate(date) {
   return date.toISOString().slice(0, 10);
 }
 
-async function getDashboard(userId, dateInput) {
+async function getDashboard(userId, dateInput, options = {}) {
   const baseDate = normalizeDate(dateInput);
   const baseDay = toIsoDate(baseDate);
+  const limit = Math.min(Math.max(1, Number(options.limit) || 100), 500);
+  const offset = Math.max(0, Number(options.offset) || 0);
 
   const dailyTotalsResult = await pool.query(
     `SELECT
@@ -535,7 +661,7 @@ async function getDashboard(userId, dateInput) {
        ROUND(SUM(carbs)::numeric, 1) AS carbs,
        ROUND(SUM(fat)::numeric, 1) AS fat
      FROM entries
-     WHERE user_id = $1
+     WHERE user_id = $1 AND deleted_at IS NULL
      GROUP BY day
      ORDER BY day DESC`,
     [userId]
@@ -566,7 +692,7 @@ async function getDashboard(userId, dateInput) {
        SUM(carbs) AS carbs,
        SUM(fat) AS fat
      FROM entries
-     WHERE user_id = $1
+     WHERE user_id = $1 AND deleted_at IS NULL
        AND (consumed_at AT TIME ZONE 'UTC')::date::text >= $2
        AND (consumed_at AT TIME ZONE 'UTC')::date::text < $3
      GROUP BY day`,
@@ -609,9 +735,10 @@ async function getDashboard(userId, dateInput) {
        meal_quantity AS "mealQuantity",
        meal_unit AS "mealUnit"
      FROM entries
-     WHERE user_id = $1
-     ORDER BY consumed_at DESC, id DESC`,
-    [userId]
+     WHERE user_id = $1 AND deleted_at IS NULL
+     ORDER BY consumed_at DESC, id DESC
+     LIMIT $2 OFFSET $3`,
+    [userId, limit, offset]
   );
 
   const entries = entriesResult.rows.map((row) => ({
@@ -636,7 +763,8 @@ async function getDashboard(userId, dateInput) {
     previousDays,
     sevenDayAverage,
     entries,
-    targets
+    targets,
+    pagination: { limit, offset, returned: entries.length }
   };
 }
 
@@ -691,7 +819,7 @@ async function updateWeightEntry(userId, id, payload) {
   const result = await pool.query(
     `UPDATE weight_entries
      SET weight = $3, logged_at = $4
-     WHERE user_id = $1 AND id = $2`,
+     WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
     [userId, id, weight, loggedAt]
   );
 
@@ -700,8 +828,8 @@ async function updateWeightEntry(userId, id, payload) {
 
 async function deleteWeightEntry(userId, id) {
   const result = await pool.query(
-    `DELETE FROM weight_entries
-     WHERE user_id = $1 AND id = $2`,
+    `UPDATE weight_entries SET deleted_at = NOW()
+     WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
     [userId, id]
   );
 
@@ -713,7 +841,7 @@ async function listWeightEntries(userId, scope = 'week') {
   const result = await pool.query(
     `SELECT id, weight, logged_at AS "loggedAt"
      FROM weight_entries
-     WHERE user_id = $1
+     WHERE user_id = $1 AND deleted_at IS NULL
        AND logged_at >= NOW() - ($2::text || ' days')::interval
      ORDER BY logged_at DESC`,
     [userId, String(days)]
@@ -837,28 +965,31 @@ async function updateWorkoutEntry(userId, id, payload) {
          duration_hours = $5,
          calories_burned = $6,
          logged_at = $7
-     WHERE user_id = $1 AND id = $2`,
+     WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
     [userId, id, description, intensity, durationHours, caloriesBurned, loggedAt]
   );
 
   return result.rowCount;
 }
 
-async function listWorkoutEntries(userId) {
+async function listWorkoutEntries(userId, options = {}) {
+  const limit = Math.min(Math.max(1, Number(options.limit) || 100), 500);
+  const offset = Math.max(0, Number(options.offset) || 0);
+
   const rowsResult = await pool.query(
     `SELECT id, description, intensity, duration_hours AS "durationHours", calories_burned AS "caloriesBurned", logged_at AS "loggedAt"
      FROM workout_entries
-     WHERE user_id = $1
+     WHERE user_id = $1 AND deleted_at IS NULL
      ORDER BY logged_at DESC, id DESC
-     LIMIT 100`,
-    [userId]
+     LIMIT $2 OFFSET $3`,
+    [userId, limit, offset]
   );
 
   const dailyResult = await pool.query(
     `SELECT (logged_at AT TIME ZONE 'UTC')::date::text AS day,
             ROUND(SUM(calories_burned)::numeric, 1) AS calories
      FROM workout_entries
-     WHERE user_id = $1
+     WHERE user_id = $1 AND deleted_at IS NULL
        AND logged_at >= NOW() - INTERVAL '30 days'
      GROUP BY day
      ORDER BY day ASC`,
@@ -877,7 +1008,8 @@ async function listWorkoutEntries(userId) {
     dailyCalories: dailyResult.rows.map((row) => ({
       day: row.day,
       calories: Number(row.calories || 0)
-    }))
+    })),
+    pagination: { limit, offset, returned: rowsResult.rows.length }
   };
 }
 
@@ -904,7 +1036,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
            ROUND(SUM(carbs)::numeric, 1) AS carbs,
            ROUND(SUM(fat)::numeric, 1) AS fat
          FROM entries
-         WHERE user_id = $1
+         WHERE user_id = $1 AND deleted_at IS NULL
            AND consumed_at >= NOW() - ($2::text || ' days')::interval
          GROUP BY day
          ORDER BY day ASC`,
@@ -916,7 +1048,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
            COUNT(*)::integer AS times_logged,
            ROUND(SUM(calories)::numeric, 1) AS total_calories
          FROM entries
-         WHERE user_id = $1
+         WHERE user_id = $1 AND deleted_at IS NULL
            AND consumed_at >= NOW() - ($2::text || ' days')::interval
          GROUP BY lower(item_name)
          ORDER BY COUNT(*) DESC, SUM(calories) DESC
@@ -928,7 +1060,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
            COUNT(*)::integer AS total_entries,
            SUM(CASE WHEN EXTRACT(HOUR FROM consumed_at AT TIME ZONE 'UTC') >= 21 THEN 1 ELSE 0 END)::integer AS late_night_entries
          FROM entries
-         WHERE user_id = $1
+         WHERE user_id = $1 AND deleted_at IS NULL
            AND consumed_at >= NOW() - ($2::text || ' days')::interval`,
         [userId, daysParam]
       ),
@@ -939,7 +1071,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
            ROUND(SUM(duration_hours)::numeric, 2) AS duration_hours,
            ROUND(SUM(calories_burned)::numeric, 1) AS calories_burned
          FROM workout_entries
-         WHERE user_id = $1
+         WHERE user_id = $1 AND deleted_at IS NULL
            AND logged_at >= NOW() - ($2::text || ' days')::interval
          GROUP BY day
          ORDER BY day ASC`,
@@ -951,7 +1083,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
            COUNT(*)::integer AS sessions,
            ROUND(SUM(duration_hours)::numeric, 2) AS duration_hours
          FROM workout_entries
-         WHERE user_id = $1
+         WHERE user_id = $1 AND deleted_at IS NULL
            AND logged_at >= NOW() - ($2::text || ' days')::interval
          GROUP BY lower(description)
          ORDER BY COUNT(*) DESC, SUM(duration_hours) DESC
@@ -961,7 +1093,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
       pool.query(
         `SELECT weight, logged_at AS "loggedAt"
          FROM weight_entries
-         WHERE user_id = $1
+         WHERE user_id = $1 AND deleted_at IS NULL
            AND logged_at >= NOW() - ($2::text || ' days')::interval
          ORDER BY logged_at ASC`,
         [userId, daysParam]
@@ -973,15 +1105,15 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
          FROM (
            SELECT MIN(consumed_at) AS started_at
            FROM entries
-           WHERE user_id = $1
+           WHERE user_id = $1 AND deleted_at IS NULL
            UNION ALL
            SELECT MIN(logged_at) AS started_at
            FROM workout_entries
-           WHERE user_id = $1
+           WHERE user_id = $1 AND deleted_at IS NULL
            UNION ALL
            SELECT MIN(logged_at) AS started_at
            FROM weight_entries
-           WHERE user_id = $1
+           WHERE user_id = $1 AND deleted_at IS NULL
          ) timeline
          WHERE started_at IS NOT NULL`,
         [userId]
@@ -1003,7 +1135,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
   const firstWeight = weightEntries.length ? Number(weightEntries[0].weight || 0) : 0;
   const lastWeight = weightEntries.length ? Number(weightEntries[weightEntries.length - 1].weight || 0) : 0;
   const normalizedTargetWeight = Number(weightTarget?.targetWeight);
-  const targetWeight = Number.isFinite(normalizedTargetWeight) && normalizedTargetWeight > 0 ? normalizedTargetWeight : null;
+  const targetWeightValue = Number.isFinite(normalizedTargetWeight) && normalizedTargetWeight > 0 ? normalizedTargetWeight : null;
   const targetDate = typeof weightTarget?.targetDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(weightTarget.targetDate)
     ? weightTarget.targetDate
     : null;
@@ -1060,7 +1192,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
       change: Number((lastWeight - firstWeight).toFixed(2)),
       entryCount: weightEntries.length,
       target: {
-        weight: targetWeight,
+        weight: targetWeightValue,
         date: targetDate,
         daysRemaining: Number.isFinite(targetDaysRemaining) ? targetDaysRemaining : null
       }
@@ -1088,7 +1220,7 @@ async function getLatestAnalysisReport(userId) {
   const result = await pool.query(
     `SELECT id, period_days AS "periodDays", report_json AS "reportJson", created_at AS "createdAt"
      FROM analysis_reports
-     WHERE user_id = $1
+     WHERE user_id = $1 AND deleted_at IS NULL
      ORDER BY created_at DESC
      LIMIT 1`,
     [userId]
@@ -1116,7 +1248,7 @@ async function getEnergyBalance(userId, scope = 'week') {
       `SELECT (consumed_at AT TIME ZONE $3)::date::text AS day,
               ROUND(SUM(calories)::numeric, 1) AS calories
        FROM entries
-       WHERE user_id = $1
+       WHERE user_id = $1 AND deleted_at IS NULL
          AND consumed_at >= NOW() - ($2::text || ' days')::interval
          AND (consumed_at AT TIME ZONE $3)::date < (NOW() AT TIME ZONE $3)::date
        GROUP BY day
@@ -1127,7 +1259,7 @@ async function getEnergyBalance(userId, scope = 'week') {
     pool.query(
       `SELECT weight, logged_at AS "loggedAt"
        FROM weight_entries
-       WHERE user_id = $1
+       WHERE user_id = $1 AND deleted_at IS NULL
          AND logged_at >= NOW() - ($2::text || ' days')::interval
        ORDER BY logged_at ASC`,
       [userId, daysParam]
@@ -1136,7 +1268,7 @@ async function getEnergyBalance(userId, scope = 'week') {
       `SELECT (logged_at AT TIME ZONE $3)::date::text AS day,
               ROUND(SUM(calories_burned)::numeric, 1) AS calories
        FROM workout_entries
-       WHERE user_id = $1
+       WHERE user_id = $1 AND deleted_at IS NULL
          AND logged_at >= NOW() - ($2::text || ' days')::interval
        GROUP BY day
        ORDER BY day ASC`,
@@ -1209,10 +1341,221 @@ async function getEnergyBalance(userId, scope = 'week') {
   };
 }
 
+// ── API tokens ──
+
+async function createApiToken(userId, name) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const hash = crypto.createHash('sha256').update(token).digest('hex');
+  const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
+  const result = await pool.query(
+    `INSERT INTO api_tokens (user_id, token_hash, name, expires_at)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id, name, created_at AS "createdAt", expires_at AS "expiresAt"`,
+    [userId, hash, name || 'default', expiresAt]
+  );
+
+  return {
+    id: Number(result.rows[0].id),
+    name: result.rows[0].name,
+    token,
+    createdAt: new Date(result.rows[0].createdAt).toISOString(),
+    expiresAt: new Date(result.rows[0].expiresAt).toISOString()
+  };
+}
+
+async function validateApiToken(token) {
+  const hash = crypto.createHash('sha256').update(token).digest('hex');
+  const result = await pool.query(
+    `SELECT t.id, t.user_id, u.email, u.name, u.picture, u.provider
+     FROM api_tokens t
+     JOIN users u ON u.id = t.user_id
+     WHERE t.token_hash = $1
+       AND (t.expires_at IS NULL OR t.expires_at > NOW())`,
+    [hash]
+  );
+
+  if (!result.rows.length) return null;
+
+  const row = result.rows[0];
+  pool.query('UPDATE api_tokens SET last_used_at = NOW() WHERE id = $1', [row.id]).catch(() => {});
+
+  return {
+    id: row.user_id,
+    email: row.email,
+    name: row.name,
+    picture: row.picture,
+    provider: row.provider
+  };
+}
+
+async function listApiTokens(userId) {
+  const result = await pool.query(
+    `SELECT id, name, created_at AS "createdAt", expires_at AS "expiresAt", last_used_at AS "lastUsedAt"
+     FROM api_tokens
+     WHERE user_id = $1
+     ORDER BY created_at DESC`,
+    [userId]
+  );
+  return result.rows.map((row) => ({
+    id: Number(row.id),
+    name: row.name,
+    createdAt: new Date(row.createdAt).toISOString(),
+    expiresAt: row.expiresAt ? new Date(row.expiresAt).toISOString() : null,
+    lastUsedAt: row.lastUsedAt ? new Date(row.lastUsedAt).toISOString() : null
+  }));
+}
+
+async function deleteApiToken(userId, tokenId) {
+  const result = await pool.query(
+    'DELETE FROM api_tokens WHERE id = $1 AND user_id = $2',
+    [tokenId, userId]
+  );
+  return result.rowCount || 0;
+}
+
+// ── GDPR ──
+
+async function exportUserData(userId) {
+  const [user, entries, savedItems, macroTargets, weightEntries, workoutEntries, weightTarget, analysisReports] =
+    await Promise.all([
+      pool.query('SELECT id, email, name, provider, created_at, updated_at FROM users WHERE id = $1', [userId]),
+      pool.query('SELECT id, item_name, quantity, unit, calories, protein, carbs, fat, consumed_at, meal_group, meal_name, meal_quantity, meal_unit, created_at FROM entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY consumed_at DESC', [userId]),
+      pool.query('SELECT id, name, quantity, unit, calories, protein, carbs, fat, usage_count, created_at FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL ORDER BY name', [userId]),
+      pool.query('SELECT macro, target, updated_at FROM macro_targets WHERE user_id = $1', [userId]),
+      pool.query('SELECT id, weight, logged_at, created_at FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
+      pool.query('SELECT id, description, intensity, duration_hours, calories_burned, logged_at, created_at FROM workout_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
+      getWeightTarget(userId),
+      pool.query('SELECT id, period_days, report_json, created_at FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC', [userId])
+    ]);
+
+  return {
+    exportedAt: new Date().toISOString(),
+    user: user.rows[0] || null,
+    entries: entries.rows,
+    savedItems: savedItems.rows,
+    macroTargets: macroTargets.rows,
+    weightEntries: weightEntries.rows,
+    workoutEntries: workoutEntries.rows,
+    weightTarget,
+    analysisReports: analysisReports.rows
+  };
+}
+
+async function deleteUserAccount(userId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM entries WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM saved_items WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM macro_targets WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM weight_entries WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM workout_entries WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM weight_targets WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM analysis_reports WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM api_tokens WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM billing_events WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM subscriptions WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM audit_log WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM users WHERE id = $1', [userId]);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// ── Subscriptions ──
+
+const PLAN_LIMITS = {
+  free: { dailyParses: 5, analysisPerDay: 1 },
+  pro: { dailyParses: 100, analysisPerDay: 10 }
+};
+
+function getPlanLimits(plan) {
+  return PLAN_LIMITS[plan] || PLAN_LIMITS.free;
+}
+
+async function getSubscription(userId) {
+  const result = await pool.query(
+    `SELECT id, user_id, stripe_customer_id AS "stripeCustomerId",
+            stripe_subscription_id AS "stripeSubscriptionId",
+            plan, status, current_period_start AS "currentPeriodStart",
+            current_period_end AS "currentPeriodEnd",
+            cancel_at_period_end AS "cancelAtPeriodEnd",
+            created_at AS "createdAt", updated_at AS "updatedAt"
+     FROM subscriptions WHERE user_id = $1`,
+    [userId]
+  );
+  if (!result.rows.length) {
+    return { plan: 'free', status: 'active', stripeCustomerId: null, stripeSubscriptionId: null };
+  }
+  const row = result.rows[0];
+  return {
+    id: Number(row.id),
+    plan: row.plan || 'free',
+    status: row.status || 'active',
+    stripeCustomerId: row.stripeCustomerId || null,
+    stripeSubscriptionId: row.stripeSubscriptionId || null,
+    currentPeriodStart: row.currentPeriodStart ? new Date(row.currentPeriodStart).toISOString() : null,
+    currentPeriodEnd: row.currentPeriodEnd ? new Date(row.currentPeriodEnd).toISOString() : null,
+    cancelAtPeriodEnd: Boolean(row.cancelAtPeriodEnd),
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null
+  };
+}
+
+async function upsertSubscription(userId, data) {
+  await pool.query(
+    `INSERT INTO subscriptions (user_id, stripe_customer_id, stripe_subscription_id, plan, status, current_period_start, current_period_end, cancel_at_period_end, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+     ON CONFLICT (user_id) DO UPDATE SET
+       stripe_customer_id = COALESCE(EXCLUDED.stripe_customer_id, subscriptions.stripe_customer_id),
+       stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, subscriptions.stripe_subscription_id),
+       plan = EXCLUDED.plan,
+       status = EXCLUDED.status,
+       current_period_start = COALESCE(EXCLUDED.current_period_start, subscriptions.current_period_start),
+       current_period_end = COALESCE(EXCLUDED.current_period_end, subscriptions.current_period_end),
+       cancel_at_period_end = EXCLUDED.cancel_at_period_end,
+       updated_at = NOW()`,
+    [
+      userId,
+      data.stripeCustomerId || null,
+      data.stripeSubscriptionId || null,
+      data.plan || 'free',
+      data.status || 'active',
+      data.currentPeriodStart || null,
+      data.currentPeriodEnd || null,
+      Boolean(data.cancelAtPeriodEnd)
+    ]
+  );
+}
+
+async function getSubscriptionByStripeCustomerId(stripeCustomerId) {
+  const result = await pool.query(
+    'SELECT user_id FROM subscriptions WHERE stripe_customer_id = $1',
+    [stripeCustomerId]
+  );
+  return result.rows[0] || null;
+}
+
+async function saveBillingEvent(userId, stripeEventId, eventType, payload) {
+  await pool.query(
+    `INSERT INTO billing_events (user_id, stripe_event_id, event_type, payload)
+     VALUES ($1, $2, $3, $4::jsonb)
+     ON CONFLICT (stripe_event_id) DO NOTHING`,
+    [userId, stripeEventId, eventType, JSON.stringify(payload)]
+  );
+}
+
 module.exports = {
   initDb,
   getPool,
   checkDatabaseHealth,
+  upsertUser,
+  logAudit,
   addEntries,
   updateEntry,
   deleteEntry,
@@ -1238,5 +1581,16 @@ module.exports = {
   getAnalysisSnapshot,
   saveAnalysisReport,
   getLatestAnalysisReport,
-  getEnergyBalance
+  getEnergyBalance,
+  createApiToken,
+  validateApiToken,
+  listApiTokens,
+  deleteApiToken,
+  exportUserData,
+  deleteUserAccount,
+  getPlanLimits,
+  getSubscription,
+  upsertSubscription,
+  getSubscriptionByStripeCustomerId,
+  saveBillingEvent
 };

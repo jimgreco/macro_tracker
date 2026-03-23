@@ -2,14 +2,16 @@
 
 ## Project Overview
 
-Full-stack macro/nutrition tracking web app. Node.js + Express backend, vanilla JS frontend (SPA), PostgreSQL database. Uses OpenAI for natural language meal/workout parsing and Google OAuth for authentication.
+Full-stack macro/nutrition tracking web app with iOS companion. Node.js + Express backend, vanilla JS frontend (SPA), PostgreSQL database, SwiftUI iOS app. Uses OpenAI for natural language meal/workout parsing. Supports Google OAuth and Apple Sign-In for authentication. Stripe for paid subscriptions.
 
 ## Tech Stack
 
-- **Backend**: Node.js 18+, Express.js, Passport.js (Google OAuth)
+- **Backend**: Node.js 18+, Express.js, Passport.js (Google OAuth), Apple Sign-In (`apple-signin-auth`)
 - **Frontend**: Vanilla JS, HTML5, CSS3 (no frameworks)
+- **iOS App**: SwiftUI (iOS 17+), AuthenticationServices (Sign in with Apple), Keychain token storage
 - **Database**: PostgreSQL 16 (Docker locally, AWS RDS in production)
 - **AI**: OpenAI API (`gpt-4.1-mini` by default) for meal/workout parsing
+- **Billing**: Stripe (checkout sessions, customer portal, webhooks)
 - **Deployment**: AWS Elastic Beanstalk (Node.js 22, Amazon Linux 2023)
 
 ## Local Development
@@ -22,7 +24,7 @@ npm run db:seed:local  # Optional: seed preview data
 npm run dev         # Start with file watcher
 ```
 
-Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google OAuth setup locally.
+Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google/Apple OAuth setup locally.
 
 ## Common Commands
 
@@ -39,13 +41,16 @@ Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google OAuth setup locally.
 
 | File | Purpose |
 |------|---------|
-| `src/server.js` | Express server, all routes, auth (~1,340 lines) |
-| `src/db.js` | All PostgreSQL queries (~1,030 lines) |
+| `src/server.js` | Express server, all routes, auth, Stripe webhooks (~1,800 lines) |
+| `src/db.js` | All PostgreSQL queries (~1,570 lines) |
 | `src/parser.js` | OpenAI meal/workout parsing (371 lines) |
 | `public/script.js` | Frontend SPA logic (~3,185 lines) |
 | `public/index.html` | Main app HTML |
+| `public/login.html` | Login page (Google + Apple buttons) |
+| `public/login.js` | Login page behavior |
 | `docker-compose.yml` | Local PostgreSQL container |
 | `.env.example` | All env vars with descriptions |
+| `ios/MacroFlow/` | SwiftUI iOS app (Xcode project) |
 
 ## Required Environment Variables
 
@@ -58,12 +63,27 @@ GOOGLE_CLIENT_SECRET=    # Google OAuth
 APP_BASE_URL=            # Canonical URL (e.g. https://yourdomain.com)
 ```
 
-See `.env.example` for full list including optional vars.
+### Optional Environment Variables
+
+```
+APPLE_CLIENT_ID=         # Apple Service ID for web Sign in with Apple
+APPLE_TEAM_ID=           # Apple Developer Team ID
+APPLE_KEY_ID=            # Key ID from Apple Developer Console
+APPLE_PRIVATE_KEY=       # .p8 private key contents (use \n for newlines)
+APPLE_REDIRECT_URI=      # Apple callback URL
+APPLE_BUNDLE_ID=         # iOS app bundle ID (for mobile token verification)
+STRIPE_SECRET_KEY=       # Stripe secret key
+STRIPE_WEBHOOK_SECRET=   # Stripe webhook signing secret
+STRIPE_PRO_PRICE_ID=     # Stripe Price ID for the Pro plan
+```
+
+See `.env.example` for full list.
 
 ## Testing
 
 Uses Node's built-in `node:test` module.
 
+- `test/api-infrastructure.test.js` — API infra: soft deletes, pagination, auth, billing, GDPR (36 tests)
 - `test/ios-safari-regression.test.js` — Mobile nav regression
 - `test/ui-regression.test.js` — UI component tests
 - `test/workout-parse.test.js` — Workout parsing logic
@@ -72,10 +92,39 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 
 ## Architecture Notes
 
-- **Authentication**: Google OAuth only (no local accounts). Session-based via `express-session`.
-- **Database**: Schema auto-created on startup (`npm run check` calls `initDB()`). Tables: `entries`, `saved_items`, `macro_targets`, `weight_entries`, `workout_entries`, `weight_targets`, `analysis_reports`.
-- **API**: REST endpoints under `/api/`. Rate-limited parse endpoints (15 req/min). See `src/server.js` for full route list.
+- **Authentication**: Google OAuth + Apple Sign-In. Session-based via `express-session` for web. Bearer token auth for iOS/API.
+- **Apple Sign-In**: Web flow uses form POST callback (`/auth/apple/callback`). iOS flow uses `/auth/apple/mobile` endpoint that verifies the Apple identity token and returns an API token. Apple user IDs are prefixed with `apple_` to avoid collision with Google IDs.
+- **Users table**: Central `users` table with upsert on every OAuth login. Supports `google`, `apple`, and `local-dev` providers.
+- **API versioning**: Routes on `express.Router()` mounted at both `/api/v1/` and `/api/` (backward compat).
+- **Soft deletes**: All data tables have `deleted_at TIMESTAMPTZ`. DELETE operations do `UPDATE SET deleted_at = NOW()`. All SELECTs filter `AND deleted_at IS NULL`.
+- **Bearer tokens**: `api_tokens` table with SHA-256 hashed tokens. `bearerTokenAuth` middleware checks before session auth on `/api` routes.
+- **Per-user rate limiting**: Rate limiter keys on `req.user.id` when available, falls back to IP.
+- **Audit logging**: `audit_log` table. `logAudit()` wraps in try/catch to never break main operations.
+- **GDPR**: `GET /api/v1/account/export` (full data dump), `DELETE /api/v1/account` (hard delete all data).
+- **Pagination**: `getDashboard()` and `listWorkoutEntries()` accept `{ limit, offset }`, responses include `pagination` object.
+- **Stripe billing**: Webhook registered BEFORE `express.json()` for raw body access. Handles `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. Plan gating via `createPlanGate(limitKey)` middleware (free: 5 parses/day, pro: 100/day).
+- **Database**: Schema auto-created on startup. Tables: `users`, `entries`, `saved_items`, `macro_targets`, `weight_entries`, `workout_entries`, `weight_targets`, `analysis_reports`, `api_tokens`, `audit_log`, `subscriptions`, `billing_events`.
+- **API**: REST endpoints under `/api/v1/`. Rate-limited parse endpoints (15 req/min). See `src/server.js` for full route list.
 - **Frontend**: Single HTML page (`public/index.html`) with all state in `public/script.js`.
+
+## iOS App (`ios/MacroFlow/`)
+
+SwiftUI app targeting iOS 17+. Uses token-based auth (either via Sign in with Apple or manual API token entry).
+
+| File | Purpose |
+|------|---------|
+| `MacroFlowApp.swift` | App entry point, auth routing, dark mode |
+| `AuthManager.swift` | Auth state, Sign in with Apple, token auth |
+| `APIClient.swift` | Singleton API client, all REST endpoints, Keychain |
+| `Models.swift` | Codable response types |
+| `LoginView.swift` | Sign in with Apple + token-based login |
+| `MainTabView.swift` | 4-tab navigation (Macros, Weight, Workouts, Settings) |
+| `MacrosView.swift` | Meal logging, parsing, dashboard with macro progress bars |
+| `WeightView.swift` | Weight logging, Canvas trend chart, history |
+| `WorkoutsView.swift` | Workout logging/parsing, intensity cards |
+| `SettingsView.swift` | Account, subscription, data export, delete account |
+
+The iOS app communicates with the backend via Bearer token auth. Sign in with Apple sends the identity token to `/auth/apple/mobile` which verifies it and returns an API token stored in Keychain.
 
 ## Production (AWS)
 

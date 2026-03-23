@@ -8,10 +8,14 @@ const session = require('express-session');
 const passport = require('passport');
 const { Strategy: GoogleStrategy } = require('passport-google-oauth20');
 const OpenAI = require('openai');
+const Stripe = require('stripe');
+const appleSignin = require('apple-signin-auth');
 const heicConvert = require('heic-convert');
 const {
   initDb,
   checkDatabaseHealth,
+  upsertUser,
+  logAudit,
   addEntries,
   updateEntry,
   deleteEntry,
@@ -36,7 +40,18 @@ const {
   getAnalysisSnapshot,
   saveAnalysisReport,
   getLatestAnalysisReport,
-  getEnergyBalance
+  getEnergyBalance,
+  createApiToken,
+  validateApiToken,
+  listApiTokens,
+  deleteApiToken,
+  exportUserData,
+  deleteUserAccount,
+  getPlanLimits,
+  getSubscription,
+  upsertSubscription,
+  getSubscriptionByStripeCustomerId,
+  saveBillingEvent
 } = require('./db');
 const { parseMealText, parseWorkoutText } = require('./parser');
 const packageJson = require('../package.json');
@@ -62,6 +77,13 @@ const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
 const oauthCallbackUrl =
   process.env.GOOGLE_CALLBACK_URL || `http://localhost:${port}/auth/google/callback`;
+
+const appleClientId = process.env.APPLE_CLIENT_ID || ''; // Service ID (e.g. com.macroflow.web)
+const appleTeamId = process.env.APPLE_TEAM_ID || '';
+const appleKeyId = process.env.APPLE_KEY_ID || '';
+const applePrivateKey = (process.env.APPLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+const appleRedirectUri = process.env.APPLE_REDIRECT_URI || `${process.env.APP_BASE_URL || `http://localhost:${port}`}/auth/apple/callback`;
+const appleBundleId = process.env.APPLE_BUNDLE_ID || ''; // iOS app bundle ID (e.g. com.macroflow.app)
 
 function parseBooleanEnv(name, fallbackValue = false) {
   const normalized = String(process.env[name] || '').trim().toLowerCase();
@@ -158,12 +180,15 @@ function enforceApiSource(req, res, next) {
   return next();
 }
 
+// ── Per-user rate limiting (falls back to IP for unauthenticated requests) ──
+
 function createRateLimiter({ windowMs, maxRequests }) {
   const hits = new Map();
 
   return (req, res, next) => {
     const now = Date.now();
-    const key = `${req.ip}:${req.path}`;
+    const userId = req.user && req.user.id ? req.user.id : req.ip;
+    const key = `${userId}:${req.baseUrl}${req.path}`;
     const current = hits.get(key);
 
     if (!current || now > current.expiresAt) {
@@ -211,6 +236,98 @@ if (googleClientId && googleClientSecret) {
       }
     )
   );
+}
+
+// ── Stripe setup ──
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
+const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+const stripePriceId = process.env.STRIPE_PRO_PRICE_ID || '';
+const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
+
+// Stripe webhook must be registered BEFORE express.json() — it needs the raw body
+if (stripe && stripeWebhookSecret) {
+  app.post('/api/v1/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], stripeWebhookSecret);
+    } catch (err) {
+      return res.status(400).json({ error: `Webhook signature verification failed: ${err.message}` });
+    }
+
+    try {
+      const data = event.data.object;
+      let userId = null;
+
+      if (data.customer) {
+        const sub = await getSubscriptionByStripeCustomerId(String(data.customer));
+        if (sub) userId = sub.user_id;
+      }
+
+      await saveBillingEvent(userId, event.id, event.type, data);
+
+      switch (event.type) {
+        case 'checkout.session.completed': {
+          if (data.mode === 'subscription' && data.client_reference_id) {
+            await upsertSubscription(data.client_reference_id, {
+              stripeCustomerId: String(data.customer),
+              stripeSubscriptionId: String(data.subscription),
+              plan: 'pro',
+              status: 'active'
+            });
+            logAudit(data.client_reference_id, 'subscribe', 'subscription', null, { plan: 'pro' });
+          }
+          break;
+        }
+
+        case 'customer.subscription.updated': {
+          if (userId) {
+            const plan = data.cancel_at_period_end ? 'pro' : (data.status === 'active' ? 'pro' : 'free');
+            await upsertSubscription(userId, {
+              stripeSubscriptionId: String(data.id),
+              plan,
+              status: data.status,
+              currentPeriodStart: data.current_period_start ? new Date(data.current_period_start * 1000) : null,
+              currentPeriodEnd: data.current_period_end ? new Date(data.current_period_end * 1000) : null,
+              cancelAtPeriodEnd: Boolean(data.cancel_at_period_end)
+            });
+          }
+          break;
+        }
+
+        case 'customer.subscription.deleted': {
+          if (userId) {
+            await upsertSubscription(userId, {
+              plan: 'free',
+              status: 'canceled',
+              cancelAtPeriodEnd: false
+            });
+            logAudit(userId, 'cancel', 'subscription', null, { reason: 'subscription_deleted' });
+          }
+          break;
+        }
+
+        case 'invoice.payment_failed': {
+          if (userId) {
+            await upsertSubscription(userId, {
+              status: 'past_due'
+            });
+          }
+          break;
+        }
+      }
+    } catch (err) {
+      // Log but don't fail — Stripe will retry
+      console.error('Webhook processing error:', err.message);
+    }
+
+    res.json({ received: true });
+  });
+
+  // Also mount at /api/ for backward compat
+  app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), (req, res) => {
+    // Forward to v1 handler — reconstruct since express already consumed the body
+    req.app.handle(Object.assign(req, { url: '/api/v1/webhooks/stripe' }), res);
+  });
 }
 
 app.use(express.json({ limit: '10mb' }));
@@ -298,7 +415,50 @@ function hasAuthenticatedUser(req) {
 }
 
 function isAuthConfigured() {
-  return Boolean(googleClientId && googleClientSecret);
+  return Boolean(googleClientId && googleClientSecret) || isAppleAuthConfigured();
+}
+
+function isAppleAuthConfigured() {
+  return Boolean(appleClientId && appleTeamId && appleKeyId && applePrivateKey);
+}
+
+function getAppleClientSecret() {
+  return appleSignin.getClientSecret({
+    clientID: appleClientId,
+    teamID: appleTeamId,
+    keyIdentifier: appleKeyId,
+    privateKey: applePrivateKey
+  });
+}
+
+// ── Bearer token auth middleware ──
+// Checks Authorization header for Bearer tokens before falling back to session auth.
+
+async function bearerTokenAuth(req, res, next) {
+  if (hasAuthenticatedUser(req)) {
+    return next();
+  }
+
+  const authHeader = req.get('authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+
+  const token = authHeader.slice(7);
+  if (!token) {
+    return next();
+  }
+
+  try {
+    const user = await validateApiToken(token);
+    if (user) {
+      req.user = user;
+    }
+  } catch (_error) {
+    // Token validation failed; fall through to session auth
+  }
+
+  return next();
 }
 
 function requireAuth(req, res, next) {
@@ -307,7 +467,7 @@ function requireAuth(req, res, next) {
   }
 
   if (req.originalUrl && req.originalUrl.startsWith('/api/')) {
-    return res.status(401).json({ error: 'Unauthorized. Sign in with Google first.' });
+    return res.status(401).json({ error: 'Unauthorized. Please sign in first.' });
   }
 
   return res.redirect('/login');
@@ -779,6 +939,8 @@ function validateSavedItemBody(body) {
   };
 }
 
+// ── Non-API routes (login, auth, health) ──
+
 app.get('/login', (req, res) => {
   if (hasAuthenticatedUser(req)) {
     return res.redirect('/');
@@ -818,10 +980,156 @@ app.get(
     return next();
   },
   passport.authenticate('google', { failureRedirect: '/login?error=google_auth_failed' }),
-  (req, res) => {
+  async (req, res) => {
+    // Upsert user into the users table on every login
+    if (req.user && req.user.id) {
+      try {
+        await upsertUser(req.user);
+      } catch (_error) {
+        // Don't block login if upsert fails
+      }
+    }
     res.redirect('/');
   }
 );
+
+// ── Apple Sign-In (web flow) ──
+
+app.get('/auth/apple', (req, res) => {
+  if (localDevUser) {
+    return res.redirect('/');
+  }
+
+  if (!isAppleAuthConfigured()) {
+    return res.status(500).send('Apple Sign-In is not configured.');
+  }
+
+  const authUrl = appleSignin.getAuthorizationUrl({
+    clientID: appleClientId,
+    redirectUri: appleRedirectUri,
+    scope: 'name email',
+    responseMode: 'form_post',
+    state: crypto.randomBytes(16).toString('hex')
+  });
+
+  return res.redirect(authUrl);
+});
+
+// Apple posts form data to the callback (responseMode: form_post)
+app.post('/auth/apple/callback', express.urlencoded({ extended: false }), async (req, res) => {
+  if (localDevUser) {
+    return res.redirect('/');
+  }
+
+  if (!isAppleAuthConfigured()) {
+    return res.redirect('/login?error=apple_auth_failed');
+  }
+
+  try {
+    const { id_token: idToken, user: userJson } = req.body;
+
+    const clientSecret = getAppleClientSecret();
+    const tokenResponse = await appleSignin.getAuthorizationToken(req.body.code, {
+      clientID: appleClientId,
+      clientSecret,
+      redirectUri: appleRedirectUri
+    });
+
+    const verifyToken = tokenResponse.id_token || idToken;
+    const payload = await appleSignin.verifyIdToken(verifyToken, {
+      audience: appleClientId,
+      ignoreExpiration: false
+    });
+
+    // Apple only sends user info on first sign-in; parse it if present
+    let userName = null;
+    let userEmail = payload.email || null;
+    if (userJson) {
+      try {
+        const parsed = typeof userJson === 'string' ? JSON.parse(userJson) : userJson;
+        if (parsed.name) {
+          const parts = [parsed.name.firstName, parsed.name.lastName].filter(Boolean);
+          userName = parts.join(' ') || null;
+        }
+        if (parsed.email) userEmail = parsed.email;
+      } catch (_e) { /* ignore parse errors */ }
+    }
+
+    const user = {
+      id: `apple_${payload.sub}`,
+      name: userName,
+      email: userEmail,
+      picture: null,
+      provider: 'apple'
+    };
+
+    try {
+      await upsertUser(user);
+    } catch (_error) {
+      // Don't block login if upsert fails
+    }
+
+    req.login(user, (loginErr) => {
+      if (loginErr) {
+        return res.redirect('/login?error=apple_auth_failed');
+      }
+      return res.redirect('/');
+    });
+  } catch (error) {
+    return res.redirect('/login?error=apple_auth_failed');
+  }
+});
+
+// ── Apple Sign-In (mobile / token exchange) ──
+// iOS app sends the Apple identity token; we verify and return an API token
+
+app.post('/auth/apple/mobile', express.json(), async (req, res) => {
+  const { identityToken, fullName, email } = req.body;
+
+  if (!identityToken) {
+    return res.status(400).json({ error: 'identityToken is required.' });
+  }
+
+  // Accept either the web Service ID or iOS Bundle ID as valid audiences
+  const validAudiences = [appleClientId, appleBundleId].filter(Boolean);
+  if (validAudiences.length === 0) {
+    return res.status(500).json({ error: 'Apple Sign-In is not configured on the server.' });
+  }
+
+  try {
+    const payload = await appleSignin.verifyIdToken(identityToken, {
+      audience: validAudiences,
+      ignoreExpiration: false
+    });
+
+    let userName = null;
+    if (fullName) {
+      const parts = [fullName.givenName, fullName.familyName].filter(Boolean);
+      userName = parts.join(' ') || null;
+    }
+
+    const user = {
+      id: `apple_${payload.sub}`,
+      name: userName,
+      email: email || payload.email || null,
+      picture: null,
+      provider: 'apple'
+    };
+
+    await upsertUser(user);
+
+    // Create a long-lived API token for the mobile app
+    const tokenResult = await createApiToken(user.id, 'MacroFlow iOS', null);
+
+    return res.json({
+      ok: true,
+      token: tokenResult.token,
+      user: { id: user.id, name: user.name, email: user.email }
+    });
+  } catch (error) {
+    return res.status(401).json({ error: 'Invalid Apple identity token.' });
+  }
+});
 
 app.post('/auth/logout', (req, res) => {
   req.logout(() => {
@@ -829,10 +1137,6 @@ app.post('/auth/logout', (req, res) => {
       res.json({ ok: true });
     });
   });
-});
-
-app.get('/api/me', requireAuth, (req, res) => {
-  res.json({ user: req.user || null });
 });
 
 function getVersionPayload() {
@@ -846,10 +1150,6 @@ function getVersionPayload() {
 }
 
 app.get('/version', (req, res) => {
-  res.json(getVersionPayload());
-});
-
-app.get('/api/version', (req, res) => {
   res.json(getVersionPayload());
 });
 
@@ -875,13 +1175,70 @@ app.get('/healthz', async (req, res) => {
   }
 });
 
-app.use('/api', requireAuth);
-app.use('/api', enforceApiSource);
-app.use('/api/parse-meal', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 15 }));
-app.use('/api/parse-workout', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30 }));
-app.use('/api/analysis', createRateLimiter({ windowMs: 10 * 60 * 1000, maxRequests: 5 }));
+// ── API Router (mounted at /api/v1 and /api for backward compat) ──
 
-app.post('/api/parse-meal', async (req, res) => {
+const apiRouter = express.Router();
+
+// ── Plan-based feature gating for AI endpoints ──
+function createPlanGate(limitKey) {
+  const dailyUsage = new Map();
+
+  return async (req, res, next) => {
+    const userId = userIdFromReq(req);
+    if (!userId) return next();
+
+    try {
+      const sub = await getSubscription(userId);
+      const limits = getPlanLimits(sub.plan);
+      const maxDaily = limits[limitKey] || 5;
+
+      const today = new Date().toISOString().slice(0, 10);
+      const key = `${userId}:${today}`;
+      const current = dailyUsage.get(key) || 0;
+
+      if (current >= maxDaily) {
+        return res.status(429).json({
+          error: `Daily limit reached (${maxDaily}/${limitKey}). Upgrade to Pro for higher limits.`,
+          plan: sub.plan,
+          limit: maxDaily,
+          upgrade: sub.plan === 'free'
+        });
+      }
+
+      dailyUsage.set(key, current + 1);
+
+      // Clean old keys periodically
+      if (dailyUsage.size > 10000) {
+        for (const [k] of dailyUsage) {
+          if (!k.endsWith(today)) dailyUsage.delete(k);
+        }
+      }
+    } catch (_error) {
+      // Don't block on plan check failure
+    }
+    return next();
+  };
+}
+
+// Rate limiters on specific paths
+apiRouter.use('/parse-meal', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 15 }));
+apiRouter.use('/parse-workout', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30 }));
+apiRouter.use('/analysis', createRateLimiter({ windowMs: 10 * 60 * 1000, maxRequests: 5 }));
+
+// Plan-based daily limits (after rate limiter, before handler)
+apiRouter.use('/parse-meal', createPlanGate('dailyParses'));
+apiRouter.use('/parse-workout', createPlanGate('dailyParses'));
+apiRouter.use('/analysis', createPlanGate('analysisPerDay'));
+
+apiRouter.get('/me', (req, res) => {
+  res.json({ user: req.user || null });
+});
+
+apiRouter.get('/version', (req, res) => {
+  res.json(getVersionPayload());
+});
+
+apiRouter.post('/parse-meal', async (req, res) => {
   let hasImage = false;
   try {
     const consumedAt = req.body.consumedAt || todayIsoString();
@@ -954,7 +1311,7 @@ app.post('/api/parse-meal', async (req, res) => {
 });
 
 
-app.post('/api/parse-workout', async (req, res) => {
+apiRouter.post('/parse-workout', async (req, res) => {
   try {
     const text = typeof req.body?.text === 'string' ? req.body.text : '';
     if (!text.trim()) {
@@ -968,7 +1325,7 @@ app.post('/api/parse-workout', async (req, res) => {
   }
 });
 
-app.post('/api/entries/bulk', async (req, res) => {
+apiRouter.post('/entries/bulk', async (req, res) => {
   try {
     const consumedAt = req.body.consumedAt || todayIsoString();
     const rows = validateItems(req.body.items, consumedAt);
@@ -998,13 +1355,14 @@ app.post('/api/entries/bulk', async (req, res) => {
       savedIds.push(id);
     }
 
+    logAudit(userId, 'create', 'entries', null, { count: rows.length });
     return res.json({ ok: true, savedIds });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-app.put('/api/entries/:id', async (req, res) => {
+apiRouter.put('/entries/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -1012,37 +1370,41 @@ app.put('/api/entries/:id', async (req, res) => {
     }
 
     const payload = validateEntryBody(req.body || {});
-    const changes = await updateEntry(userIdFromReq(req), id, payload);
+    const userId = userIdFromReq(req);
+    const changes = await updateEntry(userId, id, payload);
 
     if (!changes) {
       return res.status(404).json({ error: 'Entry not found.' });
     }
 
+    logAudit(userId, 'update', 'entry', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-app.delete('/api/entries/:id', async (req, res) => {
+apiRouter.delete('/entries/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid entry id.' });
     }
 
-    const changes = await deleteEntry(userIdFromReq(req), id);
+    const userId = userIdFromReq(req);
+    const changes = await deleteEntry(userId, id);
     if (!changes) {
       return res.status(404).json({ error: 'Entry not found.' });
     }
 
+    logAudit(userId, 'delete', 'entry', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-app.put('/api/meal-group/:mealGroup/scale', async (req, res) => {
+apiRouter.put('/meal-group/:mealGroup/scale', async (req, res) => {
   try {
     const { mealGroup } = req.params;
     if (!mealGroup) {
@@ -1064,7 +1426,7 @@ app.put('/api/meal-group/:mealGroup/scale', async (req, res) => {
   }
 });
 
-app.get('/api/saved-items', async (req, res) => {
+apiRouter.get('/saved-items', async (req, res) => {
   try {
     const items = await listSavedItems(userIdFromReq(req));
     res.json(items);
@@ -1073,54 +1435,60 @@ app.get('/api/saved-items', async (req, res) => {
   }
 });
 
-app.post('/api/saved-items', async (req, res) => {
+apiRouter.post('/saved-items', async (req, res) => {
   try {
-    const id = await addSavedItem(userIdFromReq(req), validateSavedItemBody(req.body || {}));
+    const userId = userIdFromReq(req);
+    const id = await addSavedItem(userId, validateSavedItemBody(req.body || {}));
+    logAudit(userId, 'create', 'saved_item', String(id));
     res.json({ id });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-app.put('/api/saved-items/:id', async (req, res) => {
+apiRouter.put('/saved-items/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid saved item id.' });
     }
 
+    const userId = userIdFromReq(req);
     const payload = validateSavedItemBody(req.body || {});
-    const changes = await updateSavedItem(userIdFromReq(req), id, payload);
+    const changes = await updateSavedItem(userId, id, payload);
 
     if (!changes) {
       return res.status(404).json({ error: 'Saved item not found.' });
     }
 
+    logAudit(userId, 'update', 'saved_item', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-app.delete('/api/saved-items/:id', async (req, res) => {
+apiRouter.delete('/saved-items/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid saved item id.' });
     }
 
-    const changes = await deleteSavedItem(userIdFromReq(req), id);
+    const userId = userIdFromReq(req);
+    const changes = await deleteSavedItem(userId, id);
     if (!changes) {
       return res.status(404).json({ error: 'Saved item not found.' });
     }
 
+    logAudit(userId, 'delete', 'saved_item', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-app.post('/api/quick-add', async (req, res) => {
+apiRouter.post('/quick-add', async (req, res) => {
   try {
     const consumedAt = req.body.consumedAt || todayIsoString();
     const entry = await quickAddFromSaved(
@@ -1140,7 +1508,7 @@ app.post('/api/quick-add', async (req, res) => {
   }
 });
 
-app.post('/api/claim-legacy-data', async (req, res) => {
+apiRouter.post('/claim-legacy-data', async (req, res) => {
   try {
     const result = await claimLegacyData(userIdFromReq(req));
     return res.json({ ok: true, ...result });
@@ -1149,7 +1517,7 @@ app.post('/api/claim-legacy-data', async (req, res) => {
   }
 });
 
-app.put('/api/macro-targets/:macro', async (req, res) => {
+apiRouter.put('/macro-targets/:macro', async (req, res) => {
   try {
     const macro = String(req.params.macro || '').toLowerCase();
     const target = Number(req.body?.target);
@@ -1162,7 +1530,7 @@ app.put('/api/macro-targets/:macro', async (req, res) => {
 
 
 
-app.get('/api/weights', async (req, res) => {
+apiRouter.get('/weights', async (req, res) => {
   try {
     const scope = String(req.query.scope || 'week').toLowerCase();
     const entries = await listWeightEntries(userIdFromReq(req), scope);
@@ -1172,7 +1540,7 @@ app.get('/api/weights', async (req, res) => {
   }
 });
 
-app.get('/api/energy-balance', async (req, res) => {
+apiRouter.get('/energy-balance', async (req, res) => {
   try {
     const scope = String(req.query.scope || 'week').toLowerCase();
     const data = await getEnergyBalance(userIdFromReq(req), scope);
@@ -1182,7 +1550,7 @@ app.get('/api/energy-balance', async (req, res) => {
   }
 });
 
-app.get('/api/weight-target', async (req, res) => {
+apiRouter.get('/weight-target', async (req, res) => {
   try {
     const target = await getWeightTarget(userIdFromReq(req));
     res.json(target);
@@ -1191,7 +1559,7 @@ app.get('/api/weight-target', async (req, res) => {
   }
 });
 
-app.put('/api/weight-target', async (req, res) => {
+apiRouter.put('/weight-target', async (req, res) => {
   try {
     const target = await setWeightTarget(userIdFromReq(req), req.body || {});
     res.json({ ok: true, ...target });
@@ -1200,142 +1568,162 @@ app.put('/api/weight-target', async (req, res) => {
   }
 });
 
-app.post('/api/weights', async (req, res) => {
+apiRouter.post('/weights', async (req, res) => {
   try {
-    await addWeightEntry(userIdFromReq(req), req.body || {});
+    const userId = userIdFromReq(req);
+    await addWeightEntry(userId, req.body || {});
+    logAudit(userId, 'create', 'weight_entry');
     res.json({ ok: true });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-app.put('/api/weights/:id', async (req, res) => {
+apiRouter.put('/weights/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid weight entry id.' });
     }
 
-    const changes = await updateWeightEntry(userIdFromReq(req), id, req.body || {});
+    const userId = userIdFromReq(req);
+    const changes = await updateWeightEntry(userId, id, req.body || {});
     if (!changes) {
       return res.status(404).json({ error: 'Weight entry not found.' });
     }
 
+    logAudit(userId, 'update', 'weight_entry', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-app.delete('/api/weights/:id', async (req, res) => {
+apiRouter.delete('/weights/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid weight entry id.' });
     }
 
-    const changes = await deleteWeightEntry(userIdFromReq(req), id);
+    const userId = userIdFromReq(req);
+    const changes = await deleteWeightEntry(userId, id);
     if (!changes) {
       return res.status(404).json({ error: 'Weight entry not found.' });
     }
 
+    logAudit(userId, 'delete', 'weight_entry', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-app.post('/api/weights/:id/delete', async (req, res) => {
+// Legacy compat: POST-based delete (kept for existing frontend)
+apiRouter.post('/weights/:id/delete', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid weight entry id.' });
     }
 
-    const changes = await deleteWeightEntry(userIdFromReq(req), id);
+    const userId = userIdFromReq(req);
+    const changes = await deleteWeightEntry(userId, id);
     if (!changes) {
       return res.status(404).json({ error: 'Weight entry not found.' });
     }
 
+    logAudit(userId, 'delete', 'weight_entry', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-app.post('/api/weights/delete', async (req, res) => {
+apiRouter.post('/weights/delete', async (req, res) => {
   try {
     const id = Number(req.body?.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid weight entry id.' });
     }
 
-    const changes = await deleteWeightEntry(userIdFromReq(req), id);
+    const userId = userIdFromReq(req);
+    const changes = await deleteWeightEntry(userId, id);
     if (!changes) {
       return res.status(404).json({ error: 'Weight entry not found.' });
     }
 
+    logAudit(userId, 'delete', 'weight_entry', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-app.get('/api/workouts', async (req, res) => {
+apiRouter.get('/workouts', async (req, res) => {
   try {
-    const data = await listWorkoutEntries(userIdFromReq(req));
+    const limit = Number(req.query.limit) || undefined;
+    const offset = Number(req.query.offset) || undefined;
+    const data = await listWorkoutEntries(userIdFromReq(req), { limit, offset });
     res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-app.post('/api/workouts', async (req, res) => {
+apiRouter.post('/workouts', async (req, res) => {
   try {
-    await addWorkoutEntry(userIdFromReq(req), req.body || {});
+    const userId = userIdFromReq(req);
+    await addWorkoutEntry(userId, req.body || {});
+    logAudit(userId, 'create', 'workout_entry');
     res.json({ ok: true });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-app.put('/api/workouts/:id', async (req, res) => {
+apiRouter.put('/workouts/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid workout entry id.' });
     }
 
-    const changes = await updateWorkoutEntry(userIdFromReq(req), id, req.body || {});
+    const userId = userIdFromReq(req);
+    const changes = await updateWorkoutEntry(userId, id, req.body || {});
     if (!changes) {
       return res.status(404).json({ error: 'Workout entry not found.' });
     }
 
+    logAudit(userId, 'update', 'workout_entry', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-app.post('/api/workouts/:id', async (req, res) => {
+// Legacy compat: POST-based update (kept for existing frontend)
+apiRouter.post('/workouts/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid workout entry id.' });
     }
 
-    const changes = await updateWorkoutEntry(userIdFromReq(req), id, req.body || {});
+    const userId = userIdFromReq(req);
+    const changes = await updateWorkoutEntry(userId, id, req.body || {});
     if (!changes) {
       return res.status(404).json({ error: 'Workout entry not found.' });
     }
 
+    logAudit(userId, 'update', 'workout_entry', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-app.get('/api/analysis/latest', async (req, res) => {
+apiRouter.get('/analysis/latest', async (req, res) => {
   try {
     const latest = await getLatestAnalysisReport(userIdFromReq(req));
     return res.json({ report: latest });
@@ -1344,7 +1732,7 @@ app.get('/api/analysis/latest', async (req, res) => {
   }
 });
 
-app.post('/api/analysis', async (req, res) => {
+apiRouter.post('/analysis', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
     const days = normalizeAnalysisDays(req.body?.days);
@@ -1362,14 +1750,164 @@ app.post('/api/analysis', async (req, res) => {
   }
 });
 
-app.get('/api/dashboard', async (req, res) => {
+apiRouter.get('/dashboard', async (req, res) => {
   try {
-    const data = await getDashboard(userIdFromReq(req), req.query.date);
+    const limit = Number(req.query.limit) || undefined;
+    const offset = Number(req.query.offset) || undefined;
+    const data = await getDashboard(userIdFromReq(req), req.query.date, { limit, offset });
     res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
+
+// ── API tokens (for mobile/external clients) ──
+
+apiRouter.get('/auth/tokens', async (req, res) => {
+  try {
+    const tokens = await listApiTokens(userIdFromReq(req));
+    res.json({ tokens });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/auth/tokens', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    const name = String(req.body?.name || 'default').trim();
+    const token = await createApiToken(userId, name);
+    logAudit(userId, 'create', 'api_token', String(token.id));
+    res.json(token);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.delete('/auth/tokens/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid token id.' });
+    }
+
+    const userId = userIdFromReq(req);
+    const changes = await deleteApiToken(userId, id);
+    if (!changes) {
+      return res.status(404).json({ error: 'Token not found.' });
+    }
+
+    logAudit(userId, 'delete', 'api_token', String(id));
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+// ── GDPR / account management ──
+
+apiRouter.get('/account/export', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    const data = await exportUserData(userId);
+    logAudit(userId, 'export', 'account');
+    res.json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.delete('/account', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    logAudit(userId, 'delete', 'account');
+    await deleteUserAccount(userId);
+    req.logout(() => {
+      req.session.destroy(() => {
+        res.json({ ok: true });
+      });
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ── Subscription / billing endpoints ──
+
+apiRouter.get('/subscription', async (req, res) => {
+  try {
+    const sub = await getSubscription(userIdFromReq(req));
+    const limits = getPlanLimits(sub.plan);
+    res.json({ subscription: sub, limits });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/subscription/checkout', async (req, res) => {
+  try {
+    if (!stripe || !stripePriceId) {
+      return res.status(503).json({ error: 'Billing is not configured.' });
+    }
+    const userId = userIdFromReq(req);
+    const user = req.user;
+    const appBaseUrl = String(process.env.APP_BASE_URL || `http://localhost:${port}`).replace(/\/+$/, '');
+
+    const sessionParams = {
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: [{ price: stripePriceId, quantity: 1 }],
+      success_url: `${appBaseUrl}/?checkout=success`,
+      cancel_url: `${appBaseUrl}/?checkout=cancel`,
+      client_reference_id: userId
+    };
+
+    // Reuse existing Stripe customer if available
+    const sub = await getSubscription(userId);
+    if (sub.stripeCustomerId) {
+      sessionParams.customer = sub.stripeCustomerId;
+    } else {
+      sessionParams.customer_email = user.email || undefined;
+    }
+
+    const checkoutSession = await stripe.checkout.sessions.create(sessionParams);
+    logAudit(userId, 'create', 'checkout_session');
+    res.json({ url: checkoutSession.url });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/subscription/portal', async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(503).json({ error: 'Billing is not configured.' });
+    }
+    const userId = userIdFromReq(req);
+    const sub = await getSubscription(userId);
+
+    if (!sub.stripeCustomerId) {
+      return res.status(400).json({ error: 'No billing account found. Subscribe first.' });
+    }
+
+    const appBaseUrl = String(process.env.APP_BASE_URL || `http://localhost:${port}`).replace(/\/+$/, '');
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: sub.stripeCustomerId,
+      return_url: appBaseUrl
+    });
+
+    res.json({ url: portalSession.url });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ── Mount API router ──
+// Bearer token auth runs before requireAuth so tokens are checked first
+app.use('/api/v1', bearerTokenAuth, requireAuth, enforceApiSource, apiRouter);
+app.use('/api', bearerTokenAuth, requireAuth, enforceApiSource, apiRouter);
+
+// ── Authenticated frontend routes ──
 
 app.use(requireAuth);
 app.get('/', (req, res) => {
