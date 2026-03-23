@@ -941,12 +941,33 @@ function validateSavedItemBody(body) {
 
 // ── Non-API routes (login, auth, health) ──
 
+const loginHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'login.html'), 'utf8');
+
 app.get('/login', (req, res) => {
   if (hasAuthenticatedUser(req)) {
     return res.redirect('/');
   }
 
-  return res.sendFile(path.join(process.cwd(), 'public', 'login.html'));
+  let html = loginHtmlRaw;
+
+  // Hide Apple button + divider when Apple Sign-In is not configured
+  if (!isAppleAuthConfigured()) {
+    html = html
+      .replace(/<div class="login-divider">or<\/div>/, '')
+      .replace(/<button id="apple-login-btn"[^]*?<\/button>/, '');
+  }
+
+  // Hide Google button when Google OAuth is not configured
+  if (!googleClientId || !googleClientSecret) {
+    html = html
+      .replace(/<button id="google-login-btn"[^]*?<\/button>/, '');
+    // Also remove divider if it's still there
+    if (isAppleAuthConfigured()) {
+      html = html.replace(/<div class="login-divider">or<\/div>/, '');
+    }
+  }
+
+  res.type('html').send(html);
 });
 
 app.get('/login.js', (req, res) => {
@@ -1001,7 +1022,7 @@ app.get('/auth/apple', (req, res) => {
   }
 
   if (!isAppleAuthConfigured()) {
-    return res.status(500).send('Apple Sign-In is not configured.');
+    return res.redirect('/login?error=apple_not_configured');
   }
 
   const authUrl = appleSignin.getAuthorizationUrl({
