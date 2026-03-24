@@ -19,7 +19,7 @@ struct LoginView: View {
                         .font(.system(size: 60))
                         .foregroundStyle(.cyan)
 
-                    Text("MacroFlow")
+                    Text("DailyMacros")
                         .font(.largeTitle.bold())
 
                     Text("Track your nutrition, weight, and workouts")
@@ -94,7 +94,7 @@ struct LoginView: View {
                     .textInputAutocapitalization(.never)
             }
 
-            Text("Generate a token at your MacroFlow web app under Settings.")
+            Text("Generate a token at your DailyMacros web app under Settings.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

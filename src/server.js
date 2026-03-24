@@ -20,6 +20,9 @@ const {
   updateEntry,
   deleteEntry,
   scaleMealGroup,
+  combineEntries,
+  splitMealGroup,
+  removeFromMealGroup,
   addSavedItem,
   updateSavedItem,
   deleteSavedItem,
@@ -1246,10 +1249,6 @@ apiRouter.use('/parse-meal', createRateLimiter({ windowMs: 60 * 1000, maxRequest
 apiRouter.use('/parse-workout', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30 }));
 apiRouter.use('/analysis', createRateLimiter({ windowMs: 10 * 60 * 1000, maxRequests: 5 }));
 
-// Plan-based daily limits (after rate limiter, before handler)
-apiRouter.use('/parse-meal', createPlanGate('dailyParses'));
-apiRouter.use('/parse-workout', createPlanGate('dailyParses'));
-apiRouter.use('/analysis', createPlanGate('analysisPerDay'));
 
 apiRouter.get('/me', (req, res) => {
   res.json({ user: req.user || null });
@@ -1442,6 +1441,58 @@ apiRouter.put('/meal-group/:mealGroup/scale', async (req, res) => {
       return res.status(404).json({ error: 'Meal group not found.' });
     }
     return res.json({ ok: true, updated });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/entries/combine', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    const { entryIds, mealName } = req.body;
+    if (!Array.isArray(entryIds) || entryIds.length < 2) {
+      return res.status(400).json({ error: 'At least two entry IDs are required.' });
+    }
+    const ids = entryIds.map(Number).filter(Number.isFinite);
+    if (ids.length < 2) {
+      return res.status(400).json({ error: 'At least two valid entry IDs are required.' });
+    }
+    const quantity = Number(req.body.quantity) || 1;
+    const unit = req.body.unit ? String(req.body.unit).trim() : 'serving';
+    const mealGroup = await combineEntries(userId, ids, mealName ? String(mealName).trim() : null, quantity, unit);
+    logAudit(userId, 'combine', 'entries', mealGroup);
+    return res.json({ ok: true, mealGroup });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/meal-group/:mealGroup/split', async (req, res) => {
+  try {
+    const { mealGroup } = req.params;
+    if (!mealGroup) {
+      return res.status(400).json({ error: 'mealGroup is required.' });
+    }
+    const count = await splitMealGroup(userIdFromReq(req), mealGroup);
+    if (!count) {
+      return res.status(404).json({ error: 'Meal group not found.' });
+    }
+    logAudit(userIdFromReq(req), 'split', 'meal_group', mealGroup);
+    return res.json({ ok: true, count });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/entries/:id/remove-from-group', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) {
+      return res.status(400).json({ error: 'Entry ID is required.' });
+    }
+    await removeFromMealGroup(userIdFromReq(req), id);
+    logAudit(userIdFromReq(req), 'remove_from_group', 'entry', String(id));
+    return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }

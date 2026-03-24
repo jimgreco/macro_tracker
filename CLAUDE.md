@@ -50,7 +50,7 @@ Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google/Apple OAuth setup locally.
 | `public/login.js` | Login page behavior |
 | `docker-compose.yml` | Local PostgreSQL container |
 | `.env.example` | All env vars with descriptions |
-| `ios/MacroFlow/` | SwiftUI iOS app (Xcode project) |
+| `ios/DailyMacros/` | SwiftUI iOS app (Xcode project) |
 
 ## Required Environment Variables
 
@@ -107,13 +107,13 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 - **API**: REST endpoints under `/api/v1/`. Rate-limited parse endpoints (15 req/min). See `src/server.js` for full route list.
 - **Frontend**: Single HTML page (`public/index.html`) with all state in `public/script.js`.
 
-## iOS App (`ios/MacroFlow/`)
+## iOS App (`ios/DailyMacros/`)
 
 SwiftUI app targeting iOS 17+. Uses token-based auth (either via Sign in with Apple or manual API token entry).
 
 | File | Purpose |
 |------|---------|
-| `MacroFlowApp.swift` | App entry point, auth routing, dark mode |
+| `DailyMacrosApp.swift` | App entry point, auth routing, dark mode |
 | `AuthManager.swift` | Auth state, Sign in with Apple, token auth |
 | `APIClient.swift` | Singleton API client, all REST endpoints, Keychain |
 | `Models.swift` | Codable response types |

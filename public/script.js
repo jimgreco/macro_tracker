@@ -27,7 +27,9 @@ const state = {
   tdeeData: null,
   workoutEntries: [],
   expandedMealGroups: new Set(),
-  editingMealGroup: null
+  editingMealGroup: null,
+  selectedEntryIds: new Set(),
+  selectedMealGroups: new Set()
 };
 
 const mealTextEl = document.getElementById('meal-text');
@@ -1002,66 +1004,121 @@ function isAnalysisDueWeekly(record) {
 function renderParsedItems(parsedMeal) {
   parsedItemsContainerEl.innerHTML = '';
 
+  if (parsedMeal.items.length > 1) {
+    const mealQty = parsedMeal.mealQuantity || 1;
+    const mealUnit = parsedMeal.mealUnit || 'serving';
+    const totals = parsedMeal.items.reduce((acc, it) => {
+      acc.calories += Number(it.calories || 0);
+      acc.protein += Number(it.protein || 0);
+      acc.carbs += Number(it.carbs || 0);
+      acc.fat += Number(it.fat || 0);
+      return acc;
+    }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+    const header = document.createElement('div');
+    header.className = 'parsed-meal-header parsed-item-card';
+    header.innerHTML = `
+      <div class="parsed-item-summary">
+        <span class="parsed-item-name">${parsedMeal.mealName || 'Meal'}</span>
+        <span class="parsed-item-macros">${fmtNumber(mealQty)} ${mealUnit} &middot; ${fmtNumber(totals.calories)} cal &middot; ${fmtNumber(totals.protein)}P &middot; ${fmtNumber(totals.carbs)}C &middot; ${fmtNumber(totals.fat)}F</span>
+      </div>
+      <div class="parsed-item-right">
+        <div class="parsed-item-btn-row">
+          <button type="button" class="btn-warning table-action-btn" id="parsed-meal-edit-btn">Edit</button>
+          <button type="button" class="btn-success table-action-btn" id="parsed-meal-save-btn">Save</button>
+        </div>
+        <label class="inline-check parsed-item-quickadd"><input type="checkbox" id="parsed-meal-save-quickadd" /><span>Save as quick-add</span></label>
+      </div>
+    `;
+    parsedItemsContainerEl.appendChild(header);
+
+    document.getElementById('parsed-meal-edit-btn').addEventListener('click', () => {
+      showCombineModal(null, {
+        name: parsedMeal.mealName || 'Meal',
+        quantity: parsedMeal.mealQuantity || 1,
+        unit: parsedMeal.mealUnit || 'serving',
+        onSave: (name, qty, unit) => {
+          parsedMeal.mealName = name;
+          parsedMeal.mealQuantity = qty;
+          parsedMeal.mealUnit = unit;
+          renderParsedItems(parsedMeal);
+        }
+      });
+    });
+
+    document.getElementById('parsed-meal-save-btn').addEventListener('click', () => {
+      saveParsedBtnEl.click();
+    });
+  }
+
   parsedMeal.items.forEach((item, index) => {
     const wrapper = document.createElement('article');
-    wrapper.className = 'parsed-item';
+    wrapper.className = 'parsed-item parsed-item-card';
 
-    const details = document.createElement('p');
-    details.textContent = 'Edit values before saving. Confidence: ' + item.confidence;
+    const summary = document.createElement('div');
+    summary.className = 'parsed-item-summary';
+    summary.innerHTML = `
+      <span class="parsed-item-name">${item.itemName}</span>
+      <span class="parsed-item-macros">${fmtNumber(item.calories)} cal &middot; ${fmtNumber(item.protein)}P &middot; ${fmtNumber(item.carbs)}C &middot; ${fmtNumber(item.fat)}F</span>
+    `;
 
-    const table = document.createElement('table');
-    table.className = 'parsed-edit-table';
-    const tbody = document.createElement('tbody');
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'btn-warning table-action-btn';
+    editBtn.textContent = 'Edit';
+    editBtn.addEventListener('click', () => {
+      const currentItem = parsedMeal.items[index];
+      showEntryModal(currentItem, {
+        title: 'Edit Parsed Item',
+        onSave: (updated) => {
+          parsedMeal.items[index] = { ...currentItem, ...updated };
+          renderParsedItems(parsedMeal);
+        }
+      });
+    });
 
-    function addField(labelText, field, value, options = {}) {
-      const row = document.createElement('tr');
-      const labelCell = document.createElement('th');
-      labelCell.scope = 'row';
-      labelCell.textContent = labelText;
-      const valueCell = document.createElement('td');
-      const input = document.createElement('input');
-      input.dataset.parseIndex = String(index);
-      input.dataset.parseField = field;
-      input.type = options.type || 'text';
-      if (options.step) {
-        input.step = options.step;
-      }
-      if (options.min !== undefined) {
-        input.min = String(options.min);
-      }
-      input.placeholder = options.placeholder || field;
-      input.value = value ?? '';
-      valueCell.appendChild(input);
-      row.appendChild(labelCell);
-      row.appendChild(valueCell);
-      tbody.appendChild(row);
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn-danger table-action-btn';
+    removeBtn.textContent = 'Remove';
+    removeBtn.addEventListener('click', () => {
+      parsedMeal.items.splice(index, 1);
+      renderParsedItems(parsedMeal);
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'parsed-item-btn-row';
+    actions.appendChild(editBtn);
+    actions.appendChild(removeBtn);
+
+    if (parsedMeal.items.length === 1) {
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'btn-success table-action-btn';
+      saveBtn.textContent = 'Save';
+      saveBtn.addEventListener('click', () => saveParsedBtnEl.click());
+      actions.appendChild(saveBtn);
+
+      const label = document.createElement('label');
+      label.className = 'inline-check parsed-item-quickadd';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = 'parsed-meal-save-quickadd';
+      const text = document.createElement('span');
+      text.textContent = 'Save as quick-add';
+      label.appendChild(checkbox);
+      label.appendChild(text);
+
+      const rightCol = document.createElement('div');
+      rightCol.className = 'parsed-item-right';
+      rightCol.appendChild(actions);
+      rightCol.appendChild(label);
+      wrapper.appendChild(summary);
+      wrapper.appendChild(rightCol);
+    } else {
+      wrapper.appendChild(summary);
+      wrapper.appendChild(actions);
     }
-
-    addField('Item', 'itemName', item.itemName, { placeholder: 'Item' });
-    addField('Quantity', 'quantity', item.quantity, { type: 'number', step: '0.1', min: 0, placeholder: 'Qty' });
-    addField('Unit', 'unit', item.unit || '', { placeholder: 'Unit' });
-    addField('Calories', 'calories', item.calories, { type: 'number', step: '0.1', min: 0, placeholder: 'Cal' });
-    addField('Protein', 'protein', item.protein, { type: 'number', step: '0.1', min: 0, placeholder: 'P' });
-    addField('Carbs', 'carbs', item.carbs, { type: 'number', step: '0.1', min: 0, placeholder: 'C' });
-    addField('Fat', 'fat', item.fat, { type: 'number', step: '0.1', min: 0, placeholder: 'F' });
-    table.appendChild(tbody);
-
-    const label = document.createElement('label');
-    label.className = 'inline-check';
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.dataset.index = String(index);
-
-    const text = document.createElement('span');
-    text.textContent = 'Save this as a quick-add item';
-
-    label.appendChild(checkbox);
-    label.appendChild(text);
-
-    wrapper.appendChild(details);
-    wrapper.appendChild(table);
-    wrapper.appendChild(label);
     parsedItemsContainerEl.appendChild(wrapper);
   });
 
@@ -1072,31 +1129,16 @@ function collectParsedItemsFromUi() {
   if (!state.parsedMeal || !Array.isArray(state.parsedMeal.items)) {
     return [];
   }
-
-  return state.parsedMeal.items.map((item, index) => {
-    const getValue = (field, fallback = '') => {
-      const el = parsedItemsContainerEl.querySelector(
-        '[data-parse-index="' + index + '"][data-parse-field="' + field + '"]'
-      );
-      return el ? el.value : fallback;
-    };
-
-    const toNumber = (value, fallback = 0) => {
-      const num = Number(value);
-      return Number.isFinite(num) ? num : fallback;
-    };
-
-    return {
-      itemName: String(getValue('itemName', item.itemName || '')).trim() || item.itemName || 'Item',
-      quantity: toNumber(getValue('quantity', item.quantity), Number(item.quantity || 0)),
-      unit: String(getValue('unit', item.unit || 'serving')).trim() || 'serving',
-      calories: toNumber(getValue('calories', item.calories), Number(item.calories || 0)),
-      protein: toNumber(getValue('protein', item.protein), Number(item.protein || 0)),
-      carbs: toNumber(getValue('carbs', item.carbs), Number(item.carbs || 0)),
-      fat: toNumber(getValue('fat', item.fat), Number(item.fat || 0)),
-      confidence: item.confidence
-    };
-  });
+  return state.parsedMeal.items.map((item) => ({
+    itemName: String(item.itemName || 'Item').trim() || 'Item',
+    quantity: Number(item.quantity || 0),
+    unit: String(item.unit || 'serving').trim() || 'serving',
+    calories: Number(item.calories || 0),
+    protein: Number(item.protein || 0),
+    carbs: Number(item.carbs || 0),
+    fat: Number(item.fat || 0),
+    confidence: item.confidence
+  }));
 }
 
 function getSelectedSavedItem() {
@@ -1356,7 +1398,10 @@ function renderSavedItems() {
 }
 
 function renderReadOnlyRow(entry) {
+  const checked = state.selectedEntryIds.has(entry.id) ? 'checked' : '';
+  const inGroup = Boolean(entry.mealGroup);
   return `
+    <td data-label="" class="entry-checkbox-cell"><input type="checkbox" class="entry-checkbox" data-entry-id="${entry.id}" ${inGroup ? `data-in-group="1" data-meal-group="${entry.mealGroup}"` : ''} ${checked} /></td>
     <td data-label="Item">${entry.itemName}</td>
     <td data-label="Quantity">${fmtNumber(entry.quantity)} ${entry.unit || ''}</td>
     <td data-label="Calories">${fmtNumber(entry.calories)}</td>
@@ -1364,11 +1409,6 @@ function renderReadOnlyRow(entry) {
     <td data-label="Carbs">${fmtNumber(entry.carbs)}</td>
     <td data-label="Fat">${fmtNumber(entry.fat)}</td>
     <td data-label="Time">${new Date(entry.consumedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-    <td data-label="Actions">
-      <div class="action-row">
-        <button type="button" class="btn-warning table-action-btn" data-action="edit" data-id="${entry.id}">Edit</button>
-      </div>
-    </td>
   `;
 }
 
@@ -1909,9 +1949,6 @@ function renderDashboard(data) {
   setText(todayFatEl, `${fmtNumber(dayTotals.fat)}g`);
   renderMacroTargets(dayTotals, data.targets || {});
 
-  if (state.editingEntryId && !dayItems.some((entry) => entry.id === state.editingEntryId)) {
-    state.editingEntryId = null;
-  }
 
   entriesByDayEl.innerHTML = '';
   if (!dayItems.length) {
@@ -1922,8 +1959,8 @@ function renderDashboard(data) {
   const table = document.createElement('table');
   table.className = 'table';
   table.innerHTML = compactMobile
-    ? '<thead><tr><th>Item</th><th>Qty</th><th>Cal</th><th>P</th><th>C</th><th>F</th><th>Time</th><th>Act</th></tr></thead>'
-    : '<thead><tr><th>Item</th><th>Quantity</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Time</th><th>Actions</th></tr></thead>';
+    ? '<thead><tr><th class="entry-checkbox-col"></th><th>Item</th><th>Qty</th><th>Cal</th><th>P</th><th>C</th><th>F</th><th>Time</th></tr></thead>'
+    : '<thead><tr><th class="entry-checkbox-col"></th><th>Item</th><th>Quantity</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Time</th></tr></thead>';
 
   const tbody = document.createElement('tbody');
 
@@ -1953,7 +1990,9 @@ function renderDashboard(data) {
       const mealQty = item.mealQuantity || 1;
       const mealUnit = item.mealUnit || 'serving';
 
+      const mealGroupChecked = state.selectedMealGroups.has(item.mealGroup) ? 'checked' : '';
       groupRow.innerHTML = `
+        <td data-label="" class="entry-checkbox-cell"><input type="checkbox" class="meal-group-checkbox" data-meal-group="${item.mealGroup}" ${mealGroupChecked} /></td>
         <td data-label="Item"><span class="meal-group-toggle">${isExpanded ? '\u25BC' : '\u25B6'}</span> <strong>${item.mealName || 'Meal'}</strong></td>
         <td data-label="${compactMobile ? 'Qty' : 'Quantity'}">${fmtNumber(mealQty)} ${mealUnit}</td>
         <td data-label="${compactMobile ? 'Cal' : 'Calories'}">${fmtNumber(totals.calories)}</td>
@@ -1961,11 +2000,6 @@ function renderDashboard(data) {
         <td data-label="Carbs">${fmtNumber(totals.carbs)}</td>
         <td data-label="Fat">${fmtNumber(totals.fat)}</td>
         <td data-label="Time">${timeStr}</td>
-        <td data-label="${compactMobile ? 'Act' : 'Actions'}">
-          <div class="action-row">
-            <button type="button" class="btn-warning table-action-btn" data-action="edit-group" data-meal-group="${item.mealGroup}">Edit</button>
-          </div>
-        </td>
       `;
       tbody.appendChild(groupRow);
 
@@ -2003,20 +2037,499 @@ function renderDashboard(data) {
         childRow.dataset.mealGroup = item.mealGroup;
         childRow.className = 'meal-group-child';
         if (!isExpanded) childRow.style.display = 'none';
-        childRow.innerHTML = state.editingEntryId === child.id ? renderEditRow(child) : renderReadOnlyRow(child);
+        childRow.innerHTML = renderReadOnlyRow(child);
         tbody.appendChild(childRow);
       }
     } else {
       rendered.add(item.id);
       const row = document.createElement('tr');
       row.dataset.entryId = String(item.id);
-      row.innerHTML = state.editingEntryId === item.id ? renderEditRow(item) : renderReadOnlyRow(item);
+      row.innerHTML = renderReadOnlyRow(item);
       tbody.appendChild(row);
     }
   }
 
   table.appendChild(tbody);
   entriesByDayEl.appendChild(table);
+
+  renderSelectionActions();
+}
+
+function getSelectionMode() {
+  if (state.selectedMealGroups.size > 0) return 'meals';
+  if (state.selectedEntryIds.size > 0) {
+    const entries = state.dashboardData?.entries || [];
+    const anyInGroup = [...state.selectedEntryIds].some((id) => {
+      const entry = entries.find((e) => e.id === id);
+      return entry && entry.mealGroup;
+    });
+    return anyInGroup ? 'sub-items' : 'items';
+  }
+  return null;
+}
+
+function clearSelection() {
+  state.selectedEntryIds.clear();
+  state.selectedMealGroups.clear();
+}
+
+function renderSelectionActions() {
+  let bar = document.getElementById('selection-action-bar');
+  const mode = getSelectionMode();
+  const entryCount = state.selectedEntryIds.size;
+  const mealCount = state.selectedMealGroups.size;
+
+  if (!mode) {
+    if (bar) bar.remove();
+    return;
+  }
+
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'selection-action-bar';
+    bar.className = 'selection-action-bar';
+    entriesByDayEl.appendChild(bar);
+  }
+
+  let html = '';
+
+  if (mode === 'meals') {
+    html += `<span class="selection-count">${mealCount} meal${mealCount > 1 ? 's' : ''} selected</span>`;
+    if (mealCount === 1) {
+      html += '<button type="button" class="btn-warning table-action-btn" data-sel-action="edit-meal">Edit</button>';
+    }
+    html += '<button type="button" class="btn-danger table-action-btn" data-sel-action="delete-meal">Delete</button>';
+    html += '<button type="button" class="btn-info table-action-btn" data-sel-action="split-meal">Split</button>';
+  } else if (mode === 'sub-items') {
+    html += `<span class="selection-count">${entryCount} item${entryCount > 1 ? 's' : ''} selected</span>`;
+    if (entryCount === 1) {
+      html += '<button type="button" class="btn-warning table-action-btn" data-sel-action="edit-item">Edit</button>';
+    }
+    html += '<button type="button" class="btn-danger table-action-btn" data-sel-action="delete-item">Delete</button>';
+    html += '<button type="button" class="btn-info table-action-btn" data-sel-action="remove-from-meal">Remove</button>';
+  } else {
+    html += `<span class="selection-count">${entryCount} item${entryCount > 1 ? 's' : ''} selected</span>`;
+    if (entryCount === 1) {
+      html += '<button type="button" class="btn-warning table-action-btn" data-sel-action="edit-item">Edit</button>';
+    }
+    html += '<button type="button" class="btn-danger table-action-btn" data-sel-action="delete-item">Delete</button>';
+    if (entryCount >= 2) {
+      html += '<button type="button" class="btn-success table-action-btn" data-sel-action="combine">Combine</button>';
+    }
+  }
+
+  bar.innerHTML = html;
+}
+
+entriesByDayEl.addEventListener('change', (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+
+  if (target.classList.contains('meal-group-checkbox')) {
+    const groupId = target.dataset.mealGroup;
+    if (!groupId) return;
+
+    // Don't allow mixing meals and individual items
+    if (target.checked && state.selectedEntryIds.size > 0) {
+      // Check if any selected entries are NOT in a group (standalone items)
+      const entries = state.dashboardData?.entries || [];
+      const anyStandalone = [...state.selectedEntryIds].some((id) => {
+        const e = entries.find((entry) => entry.id === id);
+        return e && !e.mealGroup;
+      });
+      if (anyStandalone) {
+        target.checked = false;
+        setActionBanner('Cannot mix meal and item selections.', 'info');
+        return;
+      }
+    }
+
+    if (target.checked) {
+      state.selectedMealGroups.add(groupId);
+    } else {
+      state.selectedMealGroups.delete(groupId);
+    }
+    renderSelectionActions();
+    return;
+  }
+
+  if (target.classList.contains('entry-checkbox')) {
+    const entryId = Number(target.dataset.entryId);
+    if (!entryId) return;
+
+    const inGroup = target.dataset.inGroup === '1';
+
+    // Don't allow mixing meals and individual items
+    if (target.checked) {
+      if (inGroup && state.selectedEntryIds.size > 0) {
+        const entries = state.dashboardData?.entries || [];
+        const anyStandalone = [...state.selectedEntryIds].some((id) => {
+          const e = entries.find((entry) => entry.id === id);
+          return e && !e.mealGroup;
+        });
+        if (anyStandalone) {
+          target.checked = false;
+          setActionBanner('Cannot mix meal sub-items and standalone item selections.', 'info');
+          return;
+        }
+      }
+      if (!inGroup && state.selectedEntryIds.size > 0) {
+        const entries = state.dashboardData?.entries || [];
+        const anyInGroup = [...state.selectedEntryIds].some((id) => {
+          const e = entries.find((entry) => entry.id === id);
+          return e && e.mealGroup;
+        });
+        if (anyInGroup) {
+          target.checked = false;
+          setActionBanner('Cannot mix standalone items and meal sub-item selections.', 'info');
+          return;
+        }
+      }
+      if (!inGroup && state.selectedMealGroups.size > 0) {
+        target.checked = false;
+        setActionBanner('Cannot mix meal and item selections.', 'info');
+        return;
+      }
+      if (inGroup && state.selectedMealGroups.size > 0) {
+        target.checked = false;
+        setActionBanner('Cannot mix meal and sub-item selections.', 'info');
+        return;
+      }
+    }
+
+    if (target.checked) {
+      state.selectedEntryIds.add(entryId);
+    } else {
+      state.selectedEntryIds.delete(entryId);
+    }
+    renderSelectionActions();
+    return;
+  }
+});
+
+entriesByDayEl.addEventListener('click', async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+
+  const selAction = target.dataset.selAction;
+  if (!selAction) return;
+
+  if (selAction === 'clear') {
+    clearSelection();
+    renderDashboard(state.dashboardData);
+    return;
+  }
+
+  if (selAction === 'edit-item') {
+    const entryId = [...state.selectedEntryIds][0];
+    if (!entryId) return;
+    const entries = state.dashboardData?.entries || [];
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    clearSelection();
+    renderDashboard(state.dashboardData);
+    showEntryModal(entry, {
+      title: 'Edit Item',
+      onSave: async (updated) => {
+        try {
+          await api(`/api/entries/${entryId}`, {
+            method: 'PUT',
+            body: JSON.stringify(updated)
+          });
+          setActionBanner('Entry updated.', 'success');
+          await refreshDashboard();
+        } catch (error) {
+          setActionBanner(error.message, 'error');
+        }
+      },
+      onDelete: async () => {
+        if (!window.confirm('Delete this entry?')) return;
+        try {
+          await api(`/api/entries/${entryId}`, { method: 'DELETE' });
+          setActionBanner('Entry deleted.', 'success');
+          await refreshDashboard();
+        } catch (error) {
+          setActionBanner(error.message, 'error');
+        }
+      }
+    });
+    return;
+  }
+
+  if (selAction === 'edit-meal') {
+    const groupId = [...state.selectedMealGroups][0];
+    if (!groupId) return;
+    state.editingMealGroup = groupId;
+    state.expandedMealGroups.add(groupId);
+    clearSelection();
+    renderDashboard(state.dashboardData);
+    return;
+  }
+
+  if (selAction === 'delete-item') {
+    const ids = [...state.selectedEntryIds];
+    const confirmed = window.confirm(`Delete ${ids.length} entr${ids.length > 1 ? 'ies' : 'y'}?`);
+    if (!confirmed) return;
+    try {
+      for (const id of ids) {
+        await api(`/api/entries/${id}`, { method: 'DELETE' });
+      }
+      clearSelection();
+      setActionBanner(`${ids.length} entr${ids.length > 1 ? 'ies' : 'y'} deleted.`, 'success');
+      await refreshDashboard();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+    return;
+  }
+
+  if (selAction === 'delete-meal') {
+    const groups = [...state.selectedMealGroups];
+    const confirmed = window.confirm(`Delete ${groups.length} meal${groups.length > 1 ? 's' : ''} and all their items?`);
+    if (!confirmed) return;
+    try {
+      const entries = state.dashboardData?.entries || [];
+      for (const groupId of groups) {
+        const groupEntries = entries.filter((e) => e.mealGroup === groupId);
+        for (const e of groupEntries) {
+          await api(`/api/entries/${e.id}`, { method: 'DELETE' });
+        }
+      }
+      clearSelection();
+      setActionBanner('Meal(s) deleted.', 'success');
+      await refreshDashboard();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+    return;
+  }
+
+  if (selAction === 'split-meal') {
+    const groups = [...state.selectedMealGroups];
+    try {
+      for (const groupId of groups) {
+        await api(`/api/meal-group/${encodeURIComponent(groupId)}/split`, { method: 'POST' });
+      }
+      clearSelection();
+      setActionBanner('Meal(s) split into individual items.', 'success');
+      await refreshDashboard();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+    return;
+  }
+
+  if (selAction === 'remove-from-meal') {
+    const ids = [...state.selectedEntryIds];
+    try {
+      for (const id of ids) {
+        await api(`/api/entries/${id}/remove-from-group`, { method: 'POST' });
+      }
+      clearSelection();
+      setActionBanner('Item(s) removed from meal.', 'success');
+      await refreshDashboard();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+    return;
+  }
+
+  if (selAction === 'combine') {
+    showCombineModal([...state.selectedEntryIds]);
+    return;
+  }
+});
+
+function showCombineModal(entryIds, options) {
+  const isEdit = options && options.onSave;
+  const title = isEdit ? 'Edit Meal' : 'Combine into Meal';
+  const btnLabel = isEdit ? 'Save' : 'Combine';
+  const defaultName = (options && options.name) || 'Meal';
+  const defaultQty = (options && options.quantity) || 1;
+  const defaultUnit = (options && options.unit) || 'serving';
+
+  let overlay = document.getElementById('combine-modal-overlay');
+  if (overlay) overlay.remove();
+
+  overlay = document.createElement('div');
+  overlay.id = 'combine-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal">
+      <h3>${title}</h3>
+      <label for="combine-name">Meal Name</label>
+      <input id="combine-name" type="text" value="${String(defaultName).replace(/"/g, '&quot;')}" />
+      <label for="combine-qty">Quantity</label>
+      <input id="combine-qty" type="number" step="0.1" min="0.1" value="${defaultQty}" />
+      <label for="combine-unit">Unit</label>
+      <input id="combine-unit" type="text" value="${String(defaultUnit).replace(/"/g, '&quot;')}" />
+      <div class="combine-modal-actions">
+        <button type="button" class="btn-muted table-action-btn" id="combine-cancel-btn">Cancel</button>
+        <button type="button" class="btn-success table-action-btn" id="combine-confirm-btn">${btnLabel}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const nameInput = document.getElementById('combine-name');
+  nameInput.focus();
+  nameInput.select();
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  document.getElementById('combine-cancel-btn').addEventListener('click', () => overlay.remove());
+
+  document.getElementById('combine-confirm-btn').addEventListener('click', async () => {
+    const mealName = nameInput.value.trim() || 'Meal';
+    const quantity = Number(document.getElementById('combine-qty').value) || 1;
+    const unit = document.getElementById('combine-unit').value.trim() || 'serving';
+    overlay.remove();
+
+    if (isEdit) {
+      options.onSave(mealName, quantity, unit);
+      return;
+    }
+
+    try {
+      await api('/api/entries/combine', {
+        method: 'POST',
+        body: JSON.stringify({ entryIds, mealName, quantity, unit })
+      });
+      clearSelection();
+      setActionBanner('Items combined into a meal.', 'success');
+      await refreshDashboard();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      document.getElementById('combine-confirm-btn').click();
+    }
+    if (e.key === 'Escape') {
+      overlay.remove();
+    }
+  });
+}
+
+function showEntryModal(entry, { onSave, onDelete, title } = {}) {
+  let overlay = document.getElementById('entry-modal-overlay');
+  if (overlay) overlay.remove();
+
+  const consumedAtValue = entry.consumedAt ? isoToLocalInputValue(entry.consumedAt) : '';
+
+  overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal entry-modal">
+      <h3>${title || 'Edit Item'}</h3>
+      <label for="entry-modal-name">Item</label>
+      <input id="entry-modal-name" type="text" value="${(entry.itemName || '').replace(/"/g, '&quot;')}" />
+      <div class="entry-modal-row">
+        <div class="entry-modal-field">
+          <label for="entry-modal-qty">Quantity</label>
+          <input id="entry-modal-qty" type="number" step="0.1" min="0" value="${entry.quantity || 1}" />
+        </div>
+        <div class="entry-modal-field">
+          <label for="entry-modal-unit">Unit</label>
+          <input id="entry-modal-unit" type="text" value="${(entry.unit || 'serving').replace(/"/g, '&quot;')}" />
+        </div>
+      </div>
+      <div class="entry-modal-row">
+        <div class="entry-modal-field">
+          <label for="entry-modal-cal">Calories</label>
+          <input id="entry-modal-cal" type="number" step="0.1" min="0" value="${entry.calories || 0}" />
+        </div>
+        <div class="entry-modal-field">
+          <label for="entry-modal-protein">Protein</label>
+          <input id="entry-modal-protein" type="number" step="0.1" min="0" value="${entry.protein || 0}" />
+        </div>
+      </div>
+      <div class="entry-modal-row">
+        <div class="entry-modal-field">
+          <label for="entry-modal-carbs">Carbs</label>
+          <input id="entry-modal-carbs" type="number" step="0.1" min="0" value="${entry.carbs || 0}" />
+        </div>
+        <div class="entry-modal-field">
+          <label for="entry-modal-fat">Fat</label>
+          <input id="entry-modal-fat" type="number" step="0.1" min="0" value="${entry.fat || 0}" />
+        </div>
+      </div>
+      ${consumedAtValue ? `<label for="entry-modal-time">Time</label><input id="entry-modal-time" type="datetime-local" value="${consumedAtValue}" />` : ''}
+      <div class="combine-modal-actions">
+        ${onDelete ? '<button type="button" class="btn-danger table-action-btn" id="entry-modal-delete-btn">Delete</button>' : ''}
+        <span style="flex:1"></span>
+        <button type="button" class="btn-muted table-action-btn" id="entry-modal-cancel-btn">Cancel</button>
+        <button type="button" class="btn-success table-action-btn" id="entry-modal-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('entry-modal-name').focus();
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  document.getElementById('entry-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+
+  if (onDelete) {
+    document.getElementById('entry-modal-delete-btn').addEventListener('click', () => {
+      overlay.remove();
+      onDelete();
+    });
+  }
+
+  // Quantity-based macro scaling
+  const qtyInput = document.getElementById('entry-modal-qty');
+  const baseQty = Number(entry.quantity || 1);
+  const baseCal = Number(entry.calories || 0);
+  const basePro = Number(entry.protein || 0);
+  const baseCarb = Number(entry.carbs || 0);
+  const baseFat = Number(entry.fat || 0);
+  qtyInput.addEventListener('input', () => {
+    const newQty = Number(qtyInput.value || 0);
+    if (!Number.isFinite(newQty) || newQty < 0 || baseQty <= 0) return;
+    const factor = newQty / baseQty;
+    document.getElementById('entry-modal-cal').value = formatScaledMacroValue(baseCal * factor);
+    document.getElementById('entry-modal-protein').value = formatScaledMacroValue(basePro * factor);
+    document.getElementById('entry-modal-carbs').value = formatScaledMacroValue(baseCarb * factor);
+    document.getElementById('entry-modal-fat').value = formatScaledMacroValue(baseFat * factor);
+  });
+
+  document.getElementById('entry-modal-save-btn').addEventListener('click', () => {
+    const result = {
+      itemName: document.getElementById('entry-modal-name').value.trim() || 'Item',
+      quantity: Number(document.getElementById('entry-modal-qty').value) || 1,
+      unit: document.getElementById('entry-modal-unit').value.trim() || 'serving',
+      calories: Number(document.getElementById('entry-modal-cal').value) || 0,
+      protein: Number(document.getElementById('entry-modal-protein').value) || 0,
+      carbs: Number(document.getElementById('entry-modal-carbs').value) || 0,
+      fat: Number(document.getElementById('entry-modal-fat').value) || 0
+    };
+    const timeEl = document.getElementById('entry-modal-time');
+    if (timeEl) {
+      result.consumedAt = asIso(timeEl.value);
+    }
+    overlay.remove();
+    if (onSave) onSave(result);
+  });
+
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      document.getElementById('entry-modal-save-btn').click();
+    }
+    if (e.key === 'Escape') {
+      overlay.remove();
+    }
+  });
 }
 
 async function refreshDashboard() {
@@ -2078,8 +2591,6 @@ saveParsedBtnEl.addEventListener('click', async () => {
   }
 
   const consumedAt = asIso(consumedAtEl.value);
-  const saveChecks = Array.from(parsedItemsContainerEl.querySelectorAll('input[type="checkbox"]'));
-
   const editedItems = collectParsedItemsFromUi();
 
   const items = editedItems.map((item) => ({
@@ -2093,56 +2604,43 @@ saveParsedBtnEl.addEventListener('click', async () => {
     consumedAt
   }));
 
-  const mealTextLower = String(mealTextEl.value || '').toLowerCase();
-
-  const saveItems = saveChecks
-    .filter((box) => box.checked)
-    .map((box) => {
-      const parsedItem = editedItems[Number(box.dataset.index)] || state.parsedMeal.items[Number(box.dataset.index)];
-
-      const rawQuantity = Number(parsedItem.quantity) > 0 ? Number(parsedItem.quantity) : 1;
-      const unitRaw = String(parsedItem.unit || 'serving').trim() || 'serving';
-      const unitLower = unitRaw.toLowerCase();
-      const nameLower = String(parsedItem.itemName || '').toLowerCase();
-
-      let baseQuantity = 1;
-      let baseUnit = unitRaw;
-      let divisor = rawQuantity;
-
-      const isMlUnit = ['ml', 'milliliter', 'milliliters'].includes(unitLower);
-      const isBottleMentioned = /\bbottle(s)?\b/.test(mealTextLower) || /\bbottle(s)?\b/.test(nameLower);
-      const isWineLike = /(wine|cabernet|merlot|pinot|chardonnay|sauvignon|riesling|malbec|prosecco|champagne)/.test(nameLower);
-
-      if (isMlUnit && isBottleMentioned) {
-        const bottleSizeMl = isWineLike ? 750 : 500;
-        const bottleQty = rawQuantity / bottleSizeMl;
-
-        if (bottleQty > 0.1 && bottleQty <= 4) {
-          baseQuantity = 1;
-          baseUnit = 'bottle';
-          divisor = bottleQty;
-        }
-      } else {
-        const tinyBaseUnits = new Set(['ml', 'milliliter', 'milliliters', 'g', 'gram', 'grams']);
-        if (tinyBaseUnits.has(unitLower) && rawQuantity >= 50) {
-          baseQuantity = rawQuantity;
-          baseUnit = unitRaw;
-          divisor = 1;
-        }
-      }
-
-      const perUnit = (value) => Number((Number(value || 0) / (divisor || 1)).toFixed(2));
-
-      return {
-        name: parsedItem.itemName,
-        quantity: Number(baseQuantity.toFixed(2)),
-        unit: baseUnit,
-        calories: perUnit(parsedItem.calories),
-        protein: perUnit(parsedItem.protein),
-        carbs: perUnit(parsedItem.carbs),
-        fat: perUnit(parsedItem.fat)
-      };
-    });
+  const saveQuickAdd = document.getElementById('parsed-meal-save-quickadd');
+  const saveItems = [];
+  if (saveQuickAdd && saveQuickAdd.checked) {
+    if (editedItems.length === 1) {
+      const item = editedItems[0];
+      const qty = Number(item.quantity) || 1;
+      const perUnit = (v) => Number((Number(v || 0) / qty).toFixed(2));
+      saveItems.push({
+        name: item.itemName,
+        quantity: 1,
+        unit: item.unit || 'serving',
+        calories: perUnit(item.calories),
+        protein: perUnit(item.protein),
+        carbs: perUnit(item.carbs),
+        fat: perUnit(item.fat)
+      });
+    } else {
+      const mealQty = state.parsedMeal.mealQuantity || 1;
+      const totals = editedItems.reduce((acc, item) => {
+        acc.calories += Number(item.calories || 0);
+        acc.protein += Number(item.protein || 0);
+        acc.carbs += Number(item.carbs || 0);
+        acc.fat += Number(item.fat || 0);
+        return acc;
+      }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+      const perUnit = (v) => Number((v / mealQty).toFixed(2));
+      saveItems.push({
+        name: state.parsedMeal.mealName || 'Meal',
+        quantity: 1,
+        unit: state.parsedMeal.mealUnit || 'serving',
+        calories: perUnit(totals.calories),
+        protein: perUnit(totals.protein),
+        carbs: perUnit(totals.carbs),
+        fat: perUnit(totals.fat)
+      });
+    }
+  }
 
   try {
     await api('/api/entries/bulk', {
@@ -2151,7 +2649,9 @@ saveParsedBtnEl.addEventListener('click', async () => {
         consumedAt,
         items,
         saveItems,
-        mealName: state.parsedMeal.mealName || undefined
+        mealName: state.parsedMeal.mealName || undefined,
+        mealQuantity: state.parsedMeal.mealQuantity || undefined,
+        mealUnit: state.parsedMeal.mealUnit || undefined
       })
     });
 
@@ -2336,93 +2836,8 @@ entriesByDayEl.addEventListener('click', async (event) => {
     }
   }
 
-  const action = target.dataset.action;
-  const entryId = Number(target.dataset.id);
-
-  if (!action || !entryId) {
-    return;
-  }
-
-  if (action === 'edit') {
-    state.editingEntryId = entryId;
-    await refreshDashboard();
-    return;
-  }
-
-  if (action === 'cancel') {
-    state.editingEntryId = null;
-    await refreshDashboard();
-    return;
-  }
-
-  if (action === 'delete') {
-    const confirmed = window.confirm('Delete this log entry?');
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      await api(`/api/entries/${entryId}`, { method: 'DELETE' });
-      state.editingEntryId = null;
-      parseNoteEl.textContent = 'Entry deleted.';
-      setActionBanner('Entry deleted.', 'success');
-      await refreshDashboard();
-    } catch (error) {
-      parseNoteEl.textContent = error.message;
-    setActionBanner(error.message, 'error');
-    }
-    return;
-  }
-
-  if (action === 'save') {
-    const row = target.closest('tr[data-entry-id]');
-    if (!row) {
-      return;
-    }
-
-    const payload = {
-      itemName: row.querySelector('[data-field="itemName"]')?.value || '',
-      quantity: Number(row.querySelector('[data-field="quantity"]')?.value || 0),
-      unit: row.querySelector('[data-field="unit"]')?.value || 'serving',
-      calories: Number(row.querySelector('[data-field="calories"]')?.value || 0),
-      protein: Number(row.querySelector('[data-field="protein"]')?.value || 0),
-      carbs: Number(row.querySelector('[data-field="carbs"]')?.value || 0),
-      fat: Number(row.querySelector('[data-field="fat"]')?.value || 0),
-      consumedAt: asIso(row.querySelector('[data-field="consumedAt"]')?.value)
-    };
-
-    try {
-      await api(`/api/entries/${entryId}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload)
-      });
-
-      state.editingEntryId = null;
-      parseNoteEl.textContent = 'Entry updated.';
-      setActionBanner('Entry updated.', 'success');
-      await refreshDashboard();
-    } catch (error) {
-      parseNoteEl.textContent = error.message;
-    setActionBanner(error.message, 'error');
-    }
-  }
 });
 
-entriesByDayEl.addEventListener('input', (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLInputElement)) {
-    return;
-  }
-  if (target.dataset.field !== 'quantity') {
-    return;
-  }
-
-  const row = target.closest('tr[data-entry-id]');
-  if (!row) {
-    return;
-  }
-  syncEditMacrosWithQuantity(row, target);
-});
 
 
 

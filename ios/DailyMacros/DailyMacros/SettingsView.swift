@@ -175,7 +175,7 @@ struct SettingsView: View {
         defer { isExporting = false }
         do {
             let data = try await api.exportData()
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("macroflow-export.json")
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("dailymacros-export.json")
             try data.write(to: tempURL)
             await MainActor.run {
                 let controller = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)

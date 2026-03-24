@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct MacroFlowApp: App {
+struct DailyMacrosApp: App {
     @StateObject private var auth = AuthManager()
     @StateObject private var api = APIClient.shared
 

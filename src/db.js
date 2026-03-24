@@ -436,6 +436,80 @@ async function scaleMealGroup(userId, mealGroup, newQuantity, newUnit, newName) 
   }
 }
 
+async function combineEntries(userId, entryIds, mealName, quantity, unit) {
+  if (!entryIds || entryIds.length < 2) throw new Error('At least two entries are required.');
+  const placeholders = entryIds.map((_, i) => `$${i + 2}`).join(', ');
+  const existing = await pool.query(
+    `SELECT id, meal_group FROM entries WHERE user_id = $1 AND id IN (${placeholders}) AND deleted_at IS NULL`,
+    [userId, ...entryIds]
+  );
+  if (existing.rows.length !== entryIds.length) throw new Error('One or more entries not found.');
+  if (existing.rows.some((r) => r.meal_group)) throw new Error('Cannot combine entries that are already part of a meal.');
+
+  const mealGroup = require('crypto').randomUUID();
+  const mealQty = Number(quantity) || 1;
+  const mealUnit = unit || 'serving';
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const id of entryIds) {
+      await client.query(
+        `UPDATE entries SET meal_group = $1, meal_name = $2, meal_quantity = $3, meal_unit = $4
+         WHERE id = $5 AND user_id = $6 AND deleted_at IS NULL`,
+        [mealGroup, mealName || 'Meal', mealQty, mealUnit, id, userId]
+      );
+    }
+    await client.query('COMMIT');
+    return mealGroup;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function splitMealGroup(userId, mealGroup) {
+  const result = await pool.query(
+    `UPDATE entries SET meal_group = NULL, meal_name = NULL, meal_quantity = NULL, meal_unit = NULL
+     WHERE user_id = $1 AND meal_group = $2 AND deleted_at IS NULL`,
+    [userId, mealGroup]
+  );
+  return result.rowCount || 0;
+}
+
+async function removeFromMealGroup(userId, entryId) {
+  const entry = await pool.query(
+    'SELECT id, meal_group FROM entries WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+    [entryId, userId]
+  );
+  if (!entry.rows.length) throw new Error('Entry not found.');
+  if (!entry.rows[0].meal_group) throw new Error('Entry is not part of a meal.');
+
+  const mealGroup = entry.rows[0].meal_group;
+
+  await pool.query(
+    `UPDATE entries SET meal_group = NULL, meal_name = NULL, meal_quantity = NULL, meal_unit = NULL
+     WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+    [entryId, userId]
+  );
+
+  // If only one entry remains in the group, ungroup it too
+  const remaining = await pool.query(
+    'SELECT id FROM entries WHERE user_id = $1 AND meal_group = $2 AND deleted_at IS NULL',
+    [userId, mealGroup]
+  );
+  if (remaining.rows.length === 1) {
+    await pool.query(
+      `UPDATE entries SET meal_group = NULL, meal_name = NULL, meal_quantity = NULL, meal_unit = NULL
+       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+      [remaining.rows[0].id, userId]
+    );
+  }
+
+  return 1;
+}
+
 async function addSavedItem(userId, item) {
   const result = await pool.query(
     `INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat)
@@ -1560,6 +1634,9 @@ module.exports = {
   updateEntry,
   deleteEntry,
   scaleMealGroup,
+  combineEntries,
+  splitMealGroup,
+  removeFromMealGroup,
   addSavedItem,
   updateSavedItem,
   deleteSavedItem,
