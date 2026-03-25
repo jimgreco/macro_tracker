@@ -20,8 +20,6 @@ const state = {
   macroSnapshotPeriod: 'weekly',
   weightSnapshotPeriod: 'weekly',
   workoutSnapshotPeriod: 'weekly',
-  tdeeSnapshotPeriod: 'monthly',
-  tdeeData: null,
   weightEntries: [],
   workoutEntries: [],
   expandedMealGroups: new Set(),
@@ -118,14 +116,6 @@ const weightCanvasEl = document.getElementById('weight-canvas');
 const weightAverageValueEl = document.getElementById('weight-average-value');
 const weightTargetDisplayEl = document.getElementById('weight-target-display');
 const weightLogListEl = document.getElementById('weight-log-list');
-const tdeeCanvasEl = document.getElementById('tdee-canvas');
-const tdeeHeadingEl = document.getElementById('tdee-heading');
-const tdeePeriodToggleEl = document.getElementById('tdee-period-toggle');
-const tdeeValueEl = document.getElementById('tdee-value');
-const tdeeAvgIntakeEl = document.getElementById('tdee-avg-intake');
-const tdeeBalanceEl = document.getElementById('tdee-balance');
-const tdeeBalanceLabelEl = document.getElementById('tdee-balance-label');
-const tdeeNoteEl = document.getElementById('tdee-note');
 const workoutTextEl = document.getElementById('workout-text');
 const parseWorkoutBtnEl = document.getElementById('parse-workout-btn');
 const workoutEditorEl = document.getElementById('workout-editor');
@@ -1427,11 +1417,10 @@ function syncEditMacrosWithQuantity(row, quantityInput) {
   }
 }
 
-function buildTrendPoints(entries, period, baseIsoDay) {
+function buildTrendPoints(dailyTotals, period, baseIsoDay) {
   const dayMap = new Map();
-  for (const entry of entries || []) {
-    const day = getLocalIsoDay(entry.consumedAt);
-    dayMap.set(day, Number(dayMap.get(day) || 0) + Number(entry[state.selectedTrendMacro] || 0));
+  for (const dt of dailyTotals || []) {
+    dayMap.set(dt.day, Number(dt[state.selectedTrendMacro] || 0));
   }
 
   if (period === 'annual') {
@@ -1466,7 +1455,7 @@ function buildTrendPoints(entries, period, baseIsoDay) {
   return points;
 }
 
-function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
+function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   if (!trendCanvasEl) {
     return;
   }
@@ -1485,7 +1474,7 @@ function drawTrend(entries, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   const h = trendCanvasEl.height;
   ctx.clearRect(0, 0, w, h);
 
-  const points = buildTrendPoints(entries, period, baseIsoDay);
+  const points = buildTrendPoints(dailyTotals, period, baseIsoDay);
 
   const selectedMacroTarget = Number(state.dashboardData?.targets?.[state.selectedTrendMacro] || 0);
   const targetValue = selectedMacroTarget > 0 ? selectedMacroTarget : 0;
@@ -1648,10 +1637,10 @@ function bindTrendResize() {
   }
 
   window.addEventListener('resize', () => {
-    if (!state.dashboardData) {
+    if (!state.macroDailyTotals) {
       return;
     }
-    drawTrend(state.dashboardData.entries);
+    drawTrend(state.macroDailyTotals);
   });
 
   trendResizeBound = true;
@@ -1673,8 +1662,8 @@ function setTrendMacro(macro) {
   state.selectedTrendMacro = macro;
   syncTrendMacroCards();
   hideTrendTooltip();
-  if (state.dashboardData) {
-    drawTrend(state.dashboardData.entries);
+  if (state.macroDailyTotals) {
+    drawTrend(state.macroDailyTotals);
   }
 }
 
@@ -1719,6 +1708,22 @@ function syncPeriodToggle(toggleEl, period) {
   }
 }
 
+async function refreshMacroSnapshotData() {
+  const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
+  const scope = periodToScope[state.macroSnapshotPeriod] || 'week';
+  try {
+    const data = await api(`/api/daily-totals?scope=${scope}`);
+    state.macroDailyTotals = data.dailyTotals || [];
+    if (data.targets) {
+      state.dashboardData.targets = data.targets;
+    }
+    drawTrend(state.macroDailyTotals);
+    renderSnapshotStats(state.macroDailyTotals, state.dashboardData.targets);
+  } catch (error) {
+    console.error('Failed to refresh macro snapshot:', error);
+  }
+}
+
 function bindSnapshotToggles() {
   if (snapshotToggleBound) {
     return;
@@ -1726,7 +1731,7 @@ function bindSnapshotToggles() {
 
   if (macroPeriodToggleEl) {
     for (const btn of macroPeriodToggleEl.querySelectorAll('.period-btn')) {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const period = btn.dataset.period;
         if (!period || period === state.macroSnapshotPeriod) {
           return;
@@ -1737,10 +1742,7 @@ function bindSnapshotToggles() {
           macroSnapshotHeadingEl.textContent = PERIOD_HEADING[period] || 'Snapshot';
         }
         hideTrendTooltip();
-        if (state.dashboardData) {
-          drawTrend(state.dashboardData.entries);
-          renderSnapshotStats(state.dashboardData.entries, state.dashboardData.targets);
-        }
+        await refreshMacroSnapshotData();
       });
     }
   }
@@ -1779,57 +1781,25 @@ function bindSnapshotToggles() {
     }
   }
 
-  if (tdeePeriodToggleEl) {
-    for (const btn of tdeePeriodToggleEl.querySelectorAll('.period-btn')) {
-      btn.addEventListener('click', async () => {
-        const period = btn.dataset.period;
-        if (!period || period === state.tdeeSnapshotPeriod) return;
-        state.tdeeSnapshotPeriod = period;
-        syncPeriodToggle(tdeePeriodToggleEl, period);
-        if (tdeeHeadingEl) {
-          const label = period === 'annual' ? 'Annual' : period === 'monthly' ? 'Monthly' : 'Weekly';
-          tdeeHeadingEl.textContent = `${label} Energy Balance`;
-        }
-        await refreshTdeeData();
-      });
-    }
-  }
-
   snapshotToggleBound = true;
 }
 
-function renderSnapshotStats(entries, targets) {
+function renderSnapshotStats(dailyTotals, targets) {
   const period = state.macroSnapshotPeriod || 'weekly';
   const numDays = period === 'annual' ? 364 : period === 'monthly' ? 30 : 7;
   const periodLabel = period === 'annual' ? '52 weeks' : `${numDays} days`;
 
-  const avgBaseDay = shiftIsoDay(getLocalIsoDay(), -1);
-  const avgWindowDays = new Set(Array.from({ length: numDays }, (_, i) => shiftIsoDay(avgBaseDay, -i)));
-  const avgTotalsByDay = new Map();
-  for (const entry of entries) {
-    const day = getLocalIsoDay(entry.consumedAt);
-    if (!avgWindowDays.has(day)) {
-      continue;
-    }
-    const current = avgTotalsByDay.get(day) || { calories: 0, protein: 0, carbs: 0, fat: 0 };
-    current.calories += Number(entry.calories || 0);
-    current.protein += Number(entry.protein || 0);
-    current.carbs += Number(entry.carbs || 0);
-    current.fat += Number(entry.fat || 0);
-    avgTotalsByDay.set(day, current);
-  }
-
-  const daysWithData = avgTotalsByDay.size;
+  const daysWithData = (dailyTotals || []).length;
   let avgCalories = 0;
   let avgProtein = 0;
   let avgCarbs = 0;
   let avgFat = 0;
   if (daysWithData > 0) {
-    for (const totals of avgTotalsByDay.values()) {
-      avgCalories += totals.calories;
-      avgProtein += totals.protein;
-      avgCarbs += totals.carbs;
-      avgFat += totals.fat;
+    for (const dt of dailyTotals) {
+      avgCalories += dt.calories;
+      avgProtein += dt.protein;
+      avgCarbs += dt.carbs;
+      avgFat += dt.fat;
     }
     avgCalories /= daysWithData;
     avgProtein /= daysWithData;
@@ -1856,8 +1826,10 @@ function renderSnapshotStats(entries, targets) {
 function renderDashboard(data) {
   const compactMobile = isCompactMobileView();
 
-  drawTrend(data.entries);
-  renderSnapshotStats(data.entries, data.targets);
+  if (state.macroDailyTotals) {
+    drawTrend(state.macroDailyTotals);
+    renderSnapshotStats(state.macroDailyTotals, data.targets);
+  }
 
   const baseDay = getLocalIsoDay();
   if (!state.selectedEntriesDay) {
@@ -2661,6 +2633,7 @@ async function refreshDashboard() {
   bindTrendMacroCards();
   bindMacroTargetCards();
   bindSnapshotToggles();
+  await refreshMacroSnapshotData();
 }
 
 parseBtnEl.addEventListener('click', async () => {
@@ -3039,6 +3012,7 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   ctx.shadowColor = 'rgba(0, 207, 255, 0.75)';
   ctx.strokeStyle = '#00cfff';
   ctx.lineWidth = 2;
+  const coords = [];
   ctx.beginPath();
   rows.forEach((row, index) => {
     const x = pad.left + (index / Math.max(rows.length - 1, 1)) * plotW;
@@ -3046,10 +3020,20 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
     const y = hasFlatRange
       ? pad.top + plotH / 2
       : pad.top + plotH - ((value - yMin) / ySpan) * plotH;
+    coords.push({ x, y });
     if (index === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
   ctx.stroke();
+
+  const maxDotsForSize = 60;
+  const dotRadius = coords.length > maxDotsForSize ? 1.5 : 2.4;
+  ctx.fillStyle = '#00cfff';
+  for (const p of coords) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, dotRadius, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.shadowBlur = 0;
 
   // Optional amber target line (always in range because yMin/yMax were extended above)
@@ -3157,119 +3141,6 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   }
 }
 
-function drawDualLineChart(canvasEl, rows, options = {}) {
-  if (!canvasEl) return;
-  const ctx = canvasEl.getContext('2d');
-  if (!ctx) return;
-
-  const dpr = window.devicePixelRatio || 1;
-  const width = Math.max(200, Math.floor(canvasEl.clientWidth || canvasEl.parentElement?.clientWidth || 0));
-  const height = 150;
-  canvasEl.style.width = '100%';
-  canvasEl.style.height = `${height}px`;
-  canvasEl.width = width * dpr;
-  canvasEl.height = height * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-
-  if (!rows.length) {
-    ctx.fillStyle = 'rgba(160, 180, 204, 0.85)';
-    ctx.font = '13px sans-serif';
-    ctx.fillText('No data yet', 12, 24);
-    return;
-  }
-
-  const pad = { top: 16, right: 14, bottom: 24, left: 48 };
-  const plotW = width - pad.left - pad.right;
-  const plotH = height - pad.top - pad.bottom;
-
-  const intakeValues = rows.map((r) => r.intake).filter((v) => v != null);
-  const tdeeVal = Number.isFinite(options.tdeeValue) ? options.tdeeValue : null;
-  const allValues = intakeValues.slice();
-  if (tdeeVal !== null) allValues.push(tdeeVal);
-  if (!allValues.length) {
-    ctx.fillStyle = 'rgba(160, 180, 204, 0.85)';
-    ctx.font = '13px sans-serif';
-    ctx.fillText('No data yet', 12, 24);
-    return;
-  }
-
-  const yMin = 0;
-  const yMax = Math.max(...allValues, 1);
-  const ySpan = Math.max(yMax - yMin, 1);
-  const yTickCount = options.yTickCount || 4;
-
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
-  ctx.fillStyle = 'rgba(160, 180, 204, 0.85)';
-  ctx.lineWidth = 1;
-  ctx.font = '11px system-ui, -apple-system, sans-serif';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  for (let i = 0; i <= yTickCount; i += 1) {
-    const ratio = i / yTickCount;
-    const tickValue = yMax - ratio * ySpan;
-    const y = pad.top + ratio * plotH;
-    ctx.beginPath();
-    ctx.moveTo(pad.left, y);
-    ctx.lineTo(pad.left + plotW, y);
-    ctx.stroke();
-    ctx.fillText(Math.round(tickValue).toLocaleString(), pad.left - 6, y);
-  }
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-  ctx.beginPath();
-  ctx.moveTo(pad.left, pad.top);
-  ctx.lineTo(pad.left, pad.top + plotH);
-  ctx.stroke();
-  ctx.restore();
-
-  // Intake line (cyan)
-  if (intakeValues.length >= 2) {
-    ctx.save();
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = 'rgba(0, 207, 255, 0.75)';
-    ctx.strokeStyle = '#00cfff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    let started = false;
-    rows.forEach((row, index) => {
-      if (row.intake == null) return;
-      const x = pad.left + (index / Math.max(rows.length - 1, 1)) * plotW;
-      const y = pad.top + plotH - ((row.intake - yMin) / ySpan) * plotH;
-      if (!started) { ctx.moveTo(x, y); started = true; }
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.restore();
-  }
-
-  // TDEE line (coral dashed horizontal)
-  if (tdeeVal !== null) {
-    const tdeeY = pad.top + plotH - ((tdeeVal - yMin) / ySpan) * plotH;
-    ctx.save();
-    ctx.shadowBlur = 8;
-    ctx.shadowColor = 'rgba(255, 107, 107, 0.8)';
-    ctx.beginPath();
-    ctx.setLineDash([6, 4]);
-    ctx.moveTo(pad.left, tdeeY);
-    ctx.lineTo(pad.left + plotW, tdeeY);
-    ctx.strokeStyle = '#ff6b6b';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.restore();
-  }
-
-  // X-axis date labels
-  ctx.fillStyle = 'rgba(160, 180, 204, 0.85)';
-  ctx.font = '11px sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(rows[0].label || '', pad.left, height - 6);
-  ctx.textAlign = 'right';
-  ctx.fillText(rows[rows.length - 1].label || '', width - pad.right, height - 6);
-  ctx.textAlign = 'left';
-}
 
 function renderWeightChart() {
   drawSimpleLineChart(weightCanvasEl, state.weightChartRows, 'label', 'value', {
@@ -3444,7 +3315,6 @@ function bindPageChartsResize() {
       pageChartsResizeTimer = null;
       if (state.selectedPage === 'weight') {
         renderWeightChart();
-        if (state.tdeeData) renderTdeeSection(state.tdeeData);
       } else if (state.selectedPage === 'workout') {
         renderWorkoutChart();
       }
@@ -3541,61 +3411,6 @@ async function refreshWeightData() {
   }
 }
 
-function renderTdeeSection(data) {
-  if (!data) return;
-  const { dailyIntake, stats } = data;
-
-  const rows = dailyIntake
-    .filter((d) => d.calories > 0)
-    .map((d) => ({
-      label: d.day,
-      intake: d.calories
-    }));
-
-  drawDualLineChart(tdeeCanvasEl, rows, {
-    tdeeValue: stats.tdee,
-    showYAxis: true,
-    yTickCount: 4
-  });
-
-  setText(tdeeValueEl, stats.tdee != null ? Math.round(stats.tdee).toLocaleString() : '--');
-  setText(tdeeAvgIntakeEl, stats.avgDailyIntake > 0 ? Math.round(stats.avgDailyIntake).toLocaleString() : '--');
-
-  if (stats.dailySurplusDeficit != null) {
-    const abs = Math.abs(stats.dailySurplusDeficit);
-    const sign = stats.dailySurplusDeficit >= 0 ? '+' : '-';
-    setText(tdeeBalanceEl, `${sign}${abs}`);
-    setText(tdeeBalanceLabelEl, stats.dailySurplusDeficit >= 0 ? 'cal surplus/day' : 'cal deficit/day');
-  } else {
-    setText(tdeeBalanceEl, '--');
-    setText(tdeeBalanceLabelEl, 'surplus/deficit');
-  }
-
-  if (stats.tdee == null) {
-    setText(tdeeNoteEl,
-      stats.weightEntryCount < 2
-        ? 'Log at least 2 weight entries to estimate TDEE.'
-        : stats.daysWithIntakeData < 3
-          ? 'Log at least 3 days of meals to estimate TDEE.'
-          : 'Need at least 7 days between weight entries to estimate TDEE.'
-    );
-  } else {
-    setText(tdeeNoteEl, `Based on ${stats.daysWithIntakeData} days of intake data and ${stats.weightEntryCount} weight entries.`);
-  }
-}
-
-async function refreshTdeeData() {
-  if (!tdeeCanvasEl) return;
-  try {
-    const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
-    const scope = periodToScope[state.tdeeSnapshotPeriod] || 'week';
-    const data = await api(`/api/energy-balance?scope=${scope}`);
-    state.tdeeData = data;
-    renderTdeeSection(data);
-  } catch (error) {
-    if (tdeeNoteEl) tdeeNoteEl.textContent = error.message;
-  }
-}
 
 function renderWeightTargetControl(target) {
   if (weightTargetValueEl) {
@@ -3867,7 +3682,7 @@ for (const item of pageMenuItems) {
     }
     renderActivePage(page);
     if (page === 'weight') {
-      await Promise.all([refreshWeightData(), refreshTdeeData()]);
+      await refreshWeightData();
     }
     if (page === 'workout') {
       await refreshWorkoutData();

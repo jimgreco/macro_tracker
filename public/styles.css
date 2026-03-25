@@ -1029,13 +1029,7 @@ button[disabled] {
   color: rgba(5, 255, 161, 0.95);
 }
 
-.trend-legend-swatch-intake {
-  color: #00cfff;
-}
 
-.trend-legend-swatch-tdee {
-  color: #ff6b6b;
-}
 
 [data-workout-stat="workouts"] .metric-value {
   color: #00cfff;
@@ -1170,22 +1164,44 @@ button[disabled] {
 
 .entry-checkbox,
 .meal-group-checkbox {
-  width: auto;
-  height: auto;
-  transform: scale(0.9);
-  transform-origin: center;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  border: 1.5px solid rgba(0, 207, 255, 0.35);
+  border-radius: 4px;
+  background: rgba(0, 207, 255, 0.06);
   cursor: pointer;
-  accent-color: var(--accent, #00cfff);
-  opacity: 0.45;
-  transition: opacity 0.15s;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
   margin: 0;
+  position: relative;
+  flex-shrink: 0;
 }
 
 .entry-checkbox:hover,
-.meal-group-checkbox:hover,
+.meal-group-checkbox:hover {
+  border-color: rgba(0, 207, 255, 0.6);
+  background: rgba(0, 207, 255, 0.1);
+}
+
 .entry-checkbox:checked,
 .meal-group-checkbox:checked {
-  opacity: 1;
+  background: var(--accent, #00cfff);
+  border-color: var(--accent, #00cfff);
+  box-shadow: 0 0 6px rgba(0, 207, 255, 0.5);
+}
+
+.entry-checkbox:checked::after,
+.meal-group-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 3.5px;
+  top: 1px;
+  width: 4.5px;
+  height: 8px;
+  border: solid #0a1628;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 
 .selection-action-bar {
@@ -2012,24 +2028,48 @@ button[disabled] {
 
   #entries-by-day.editing .table th.entry-checkbox-col {
     display: table-cell;
-    width: 1rem;
-    padding: 0 0.05rem !important;
+    width: 2.5rem;
+    padding: 0 0.2rem !important;
     text-align: center;
   }
 
   #entries-by-day.editing .table td.entry-checkbox-cell {
-    display: flex;
-    width: 1rem;
-    padding: 0 0.05rem !important;
+    display: table-cell;
+    width: 2.5rem;
+    padding: 0.5rem 0.2rem !important;
     text-align: center;
-    justify-content: center;
-    border-bottom: 0;
+    vertical-align: middle;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     min-width: auto;
+  }
+
+  #entries-by-day.editing .table tr.meal-group-child td.entry-checkbox-cell {
+    padding-left: 1.2rem !important;
+  }
+
+  #entries-by-day.editing .table td {
+    vertical-align: middle;
   }
 
   #entries-by-day .entry-checkbox,
   #entries-by-day .meal-group-checkbox {
-    transform: scale(0.8);
+    width: 1.2rem;
+    height: 1.2rem;
+    margin: 0;
+  }
+
+  #entries-by-day .entry-checkbox:checked::after,
+  #entries-by-day .meal-group-checkbox:checked::after {
+    left: 4px;
+    top: 1px;
+    width: 5px;
+    height: 9px;
+  }
+
+  .edit-items-link {
+    display: inline-block;
+    font-size: 0.85em;
+    padding: 0.5rem 0.3rem;
   }
 
   #previous-days .table td::before,

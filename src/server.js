@@ -30,6 +30,8 @@ const {
   quickAddFromSaved,
   claimLegacyData,
   getDashboard,
+  getDailyTotals,
+  getMacroTargets,
   setMacroTarget,
   addWeightEntry,
   updateWeightEntry,
@@ -43,7 +45,6 @@ const {
   getAnalysisSnapshot,
   saveAnalysisReport,
   getLatestAnalysisReport,
-  getEnergyBalance,
   createApiToken,
   validateApiToken,
   listApiTokens,
@@ -1612,16 +1613,6 @@ apiRouter.get('/weights', async (req, res) => {
   }
 });
 
-apiRouter.get('/energy-balance', async (req, res) => {
-  try {
-    const scope = String(req.query.scope || 'week').toLowerCase();
-    const data = await getEnergyBalance(userIdFromReq(req), scope);
-    res.json(data);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
 apiRouter.get('/weight-target', async (req, res) => {
   try {
     const target = await getWeightTarget(userIdFromReq(req));
@@ -1828,6 +1819,17 @@ apiRouter.get('/dashboard', async (req, res) => {
     const offset = Number(req.query.offset) || undefined;
     const data = await getDashboard(userIdFromReq(req), req.query.date, { limit, offset });
     res.json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.get('/daily-totals', async (req, res) => {
+  try {
+    const scope = String(req.query.scope || 'week').toLowerCase();
+    const totals = await getDailyTotals(userIdFromReq(req), scope);
+    const targets = await getMacroTargets(userIdFromReq(req));
+    res.json({ dailyTotals: totals, targets });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

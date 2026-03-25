@@ -844,6 +844,32 @@ async function getDashboard(userId, dateInput, options = {}) {
 
 
 
+async function getDailyTotals(userId, scope = 'week') {
+  const days = parseScopeDays(scope);
+  const result = await pool.query(
+    `SELECT
+       (consumed_at AT TIME ZONE 'UTC')::date::text AS day,
+       ROUND(SUM(calories)::numeric, 1) AS calories,
+       ROUND(SUM(protein)::numeric, 1) AS protein,
+       ROUND(SUM(carbs)::numeric, 1) AS carbs,
+       ROUND(SUM(fat)::numeric, 1) AS fat
+     FROM entries
+     WHERE user_id = $1 AND deleted_at IS NULL
+       AND consumed_at >= NOW() - ($2::text || ' days')::interval
+     GROUP BY day
+     ORDER BY day DESC`,
+    [userId, String(days)]
+  );
+
+  return result.rows.map((row) => ({
+    day: row.day,
+    calories: Number(row.calories || 0),
+    protein: Number(row.protein || 0),
+    carbs: Number(row.carbs || 0),
+    fat: Number(row.fat || 0)
+  }));
+}
+
 function parseScopeDays(scope) {
   if (scope === 'year') return 365;
   if (scope === 'month') return 30;
@@ -1311,110 +1337,6 @@ async function getLatestAnalysisReport(userId) {
   };
 }
 
-async function getEnergyBalance(userId, scope = 'week') {
-  const days = parseScopeDays(scope);
-  const daysParam = String(days);
-
-  const tz = 'America/New_York';
-
-  const [dailyIntakeResult, weightResult, workoutResult] = await Promise.all([
-    pool.query(
-      `SELECT (consumed_at AT TIME ZONE $3)::date::text AS day,
-              ROUND(SUM(calories)::numeric, 1) AS calories
-       FROM entries
-       WHERE user_id = $1 AND deleted_at IS NULL
-         AND consumed_at >= NOW() - ($2::text || ' days')::interval
-         AND (consumed_at AT TIME ZONE $3)::date < (NOW() AT TIME ZONE $3)::date
-       GROUP BY day
-       HAVING SUM(calories) > 0
-       ORDER BY day ASC`,
-      [userId, daysParam, tz]
-    ),
-    pool.query(
-      `SELECT weight, logged_at AS "loggedAt"
-       FROM weight_entries
-       WHERE user_id = $1 AND deleted_at IS NULL
-         AND logged_at >= NOW() - ($2::text || ' days')::interval
-       ORDER BY logged_at ASC`,
-      [userId, daysParam]
-    ),
-    pool.query(
-      `SELECT (logged_at AT TIME ZONE $3)::date::text AS day,
-              ROUND(SUM(calories_burned)::numeric, 1) AS calories
-       FROM workout_entries
-       WHERE user_id = $1 AND deleted_at IS NULL
-         AND logged_at >= NOW() - ($2::text || ' days')::interval
-       GROUP BY day
-       ORDER BY day ASC`,
-      [userId, daysParam, tz]
-    )
-  ]);
-
-  const dailyIntake = dailyIntakeResult.rows.map((r) => ({
-    day: r.day,
-    calories: Number(r.calories || 0)
-  }));
-  const dailyWorkoutBurn = workoutResult.rows.map((r) => ({
-    day: r.day,
-    calories: Number(r.calories || 0)
-  }));
-  const weights = weightResult.rows.map((r) => ({
-    weight: Number(r.weight || 0),
-    loggedAt: new Date(r.loggedAt).toISOString()
-  }));
-
-  const totalIntake = dailyIntake.reduce((sum, d) => sum + d.calories, 0);
-  const daysWithIntake = dailyIntake.length;
-  const avgDailyIntake = daysWithIntake > 0 ? totalIntake / daysWithIntake : 0;
-
-  let weightChangeLbs = null;
-  let tdee = null;
-  let dailySurplusDeficit = null;
-
-  if (weights.length >= 2 && daysWithIntake >= 3) {
-    // Use linear regression on weight entries to smooth out daily fluctuations
-    // from water retention, sodium, etc. The slope (lbs/day) is far more stable
-    // than comparing first vs last entry.
-    const firstDate = new Date(weights[0].loggedAt);
-    const lastDate = new Date(weights[weights.length - 1].loggedAt);
-    const spanDays = Math.max(1, Math.round((lastDate - firstDate) / (24 * 60 * 60 * 1000)));
-
-    if (spanDays >= 7) {
-      const msPerDay = 24 * 60 * 60 * 1000;
-      const n = weights.length;
-      let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-      for (const w of weights) {
-        const x = (new Date(w.loggedAt) - firstDate) / msPerDay;
-        sumX += x;
-        sumY += w.weight;
-        sumXY += x * w.weight;
-        sumX2 += x * x;
-      }
-      const denom = n * sumX2 - sumX * sumX;
-      if (Math.abs(denom) > 0.000001) {
-        const slope = (n * sumXY - sumX * sumY) / denom; // lbs per day
-        weightChangeLbs = slope * spanDays;
-        tdee = avgDailyIntake - (slope * 3500);
-        dailySurplusDeficit = avgDailyIntake - tdee;
-      }
-    }
-  }
-
-  return {
-    dailyIntake,
-    dailyWorkoutBurn,
-    stats: {
-      avgDailyIntake: Number(avgDailyIntake.toFixed(1)),
-      weightChangeLbs: weightChangeLbs !== null ? Number(weightChangeLbs.toFixed(2)) : null,
-      tdee: tdee !== null ? Math.round(tdee) : null,
-      dailySurplusDeficit: dailySurplusDeficit !== null ? Math.round(dailySurplusDeficit) : null,
-      daysWithIntakeData: daysWithIntake,
-      weightEntryCount: weights.length,
-      periodDays: days
-    }
-  };
-}
-
 // ── API tokens ──
 
 async function createApiToken(userId, name) {
@@ -1644,6 +1566,7 @@ module.exports = {
   quickAddFromSaved,
   claimLegacyData,
   getDashboard,
+  getDailyTotals,
   getMacroTargets,
   setMacroTarget,
   addWeightEntry,
@@ -1658,7 +1581,6 @@ module.exports = {
   getAnalysisSnapshot,
   saveAnalysisReport,
   getLatestAnalysisReport,
-  getEnergyBalance,
   createApiToken,
   validateApiToken,
   listApiTokens,

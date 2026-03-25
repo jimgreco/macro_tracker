@@ -42,7 +42,6 @@ test('db.js exports all required functions', () => {
     'getAnalysisSnapshot',
     'saveAnalysisReport',
     'getLatestAnalysisReport',
-    'getEnergyBalance',
     'createApiToken',
     'validateApiToken',
     'listApiTokens',

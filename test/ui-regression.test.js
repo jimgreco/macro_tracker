@@ -41,16 +41,12 @@ test('brand menu includes macro, weight, and workout pages', () => {
   assert.equal(html.includes('id="workout-page"'), true);
 });
 
-test('weight page has log, entries, snapshot, and energy balance sections', () => {
+test('weight page has log, entries, and snapshot sections', () => {
   const html = read('public/index.html');
-  const script = read('public/script.js');
 
   assert.equal(html.includes('id="weight-log-section"'), true);
   assert.equal(html.includes('id="weight-entries-section"'), true);
   assert.equal(html.includes('id="weight-snapshot-section"'), true);
-  assert.equal(html.includes('id="tdee-section"'), true);
-  assert.equal(html.includes('id="tdee-canvas"'), true);
-  assert.equal(script.includes('refreshTdeeData'), true);
 });
 
 test('weight page includes target weight + date controls', () => {
