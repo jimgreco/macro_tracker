@@ -41,10 +41,10 @@ Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google/Apple OAuth setup locally.
 
 | File | Purpose |
 |------|---------|
-| `src/server.js` | Express server, all routes, auth, Stripe webhooks (~1,800 lines) |
-| `src/db.js` | All PostgreSQL queries (~1,570 lines) |
-| `src/parser.js` | OpenAI meal/workout parsing (371 lines) |
-| `public/script.js` | Frontend SPA logic (~3,185 lines) |
+| `src/server.js` | Express server, all routes, auth, Stripe webhooks (~2,000 lines) |
+| `src/db.js` | All PostgreSQL queries (~1,600 lines) |
+| `src/parser.js` | OpenAI meal/workout parsing (~230 lines) |
+| `public/script.js` | Frontend SPA logic (~3,960 lines) |
 | `public/index.html` | Main app HTML |
 | `public/login.html` | Login page (Google + Apple buttons) |
 | `public/login.js` | Login page behavior |
@@ -108,7 +108,7 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 - **Frontend**: Single HTML page (`public/index.html`) with all state in `public/script.js`.
 - **Modal-based editing**: All editing (entries, meals, quick adds, weight, workouts) uses modal popups (`showEntryModal`, `showCombineModal`, `showWeightEditModal`, `showWorkoutEditModal`). No inline edit rows remain.
 - **Meal grouping**: Entries can be combined into meals via `meal_group` UUID. API endpoints: `POST /api/entries/combine`, `POST /api/meal-group/:id/split`, `POST /api/entries/:id/remove-from-group`, `PUT /api/meal-group/:id/scale`.
-- **Entry multi-select**: Checkboxes hidden by default behind "(edit)" link in table header. Toggle adds `.editing` class to `#entries-by-day`. Selection modes: meals, items, sub-items (no mixing). Action bar appears with context-sensitive buttons (Edit, Delete, Combine, Split, Remove).
+- **Entry multi-select**: Custom-styled checkboxes (neon accent, `appearance: none`) hidden by default behind "(edit)" link in table header. Toggle adds `.editing` class to `#entries-by-day`. Sub-item checkboxes are indented within meal groups. Mobile-friendly tap targets for both edit link and checkboxes. Selection modes: meals, items, sub-items (no mixing). Action bar appears with context-sensitive buttons (Edit, Delete, Combine, Split, Remove).
 
 ## iOS App (`ios/DailyMacros/`)
 
@@ -163,7 +163,8 @@ The server sets a strict CSP header. Key constraints for frontend development:
 ## Frontend Notes
 
 - All state lives in the global `state` object in `public/script.js`
-- Period toggles (weekly/monthly/annual) controlled by `state.macroSnapshotPeriod`, `state.weightSnapshotPeriod`, `state.workoutSnapshotPeriod`
-- Charts are drawn on `<canvas>` elements with device pixel ratio scaling
+- Period toggles (weekly/monthly/annual) controlled by `state.macroSnapshotPeriod`, `state.weightSnapshotPeriod`, `state.workoutSnapshotPeriod`. Switching period triggers a server request with `scope` param (e.g. `/api/daily-totals?scope=month`) to fetch the full date range.
+- Charts are drawn on `<canvas>` elements with device pixel ratio scaling. Weight chart renders data point dots along the trend line.
+- TDEE/energy balance feature was removed — no longer present in the codebase.
 - Meal photo preview: uses base64 data URL (`state.mealImageDataUrl`) for `<img src>` — not blob URLs (blocked by CSP)
 - OpenAI API key is required; no fallback parsing exists
