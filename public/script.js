@@ -11,8 +11,6 @@ const state = {
   dashboardData: null,
   selectedTrendMacro: 'calories',
   selectedPage: 'macros',
-  weightEditingEntryId: null,
-  workoutEditingEntryId: null,
   pendingWorkout: null,
   weightChartRows: [],
   weightTarget: null,
@@ -24,6 +22,7 @@ const state = {
   workoutSnapshotPeriod: 'weekly',
   tdeeSnapshotPeriod: 'monthly',
   tdeeData: null,
+  weightEntries: [],
   workoutEntries: [],
   expandedMealGroups: new Set(),
   selectedEntryIds: new Set(),
@@ -2483,6 +2482,168 @@ function showEntryModal(entry, { onSave, onDelete, title } = {}) {
   });
 }
 
+function showWeightEditModal(entry) {
+  let overlay = document.getElementById('entry-modal-overlay');
+  if (overlay) overlay.remove();
+
+  const loggedAtValue = isoToLocalInputValue(entry.loggedAt);
+  overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal entry-modal">
+      <h3>Edit Weight</h3>
+      <label for="weight-modal-weight">Weight</label>
+      <input id="weight-modal-weight" type="number" step="0.1" min="0" value="${entry.weight}" />
+      <label for="weight-modal-time">Logged At</label>
+      <input id="weight-modal-time" type="datetime-local" value="${loggedAtValue}" />
+      <div class="combine-modal-actions">
+        <button type="button" class="btn-danger table-action-btn" id="weight-modal-delete-btn">Delete</button>
+        <span style="flex:1"></span>
+        <button type="button" class="btn-muted table-action-btn" id="weight-modal-cancel-btn">Cancel</button>
+        <button type="button" class="btn-success table-action-btn" id="weight-modal-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('weight-modal-weight').focus();
+
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('weight-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+
+  document.getElementById('weight-modal-delete-btn').addEventListener('click', async () => {
+    if (!window.confirm('Delete this weight entry?')) return;
+    overlay.remove();
+    try {
+      await deleteWeightEntryApi(entry.id);
+      setActionBanner('Weight entry deleted.', 'success');
+      await refreshWeightData();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+
+  document.getElementById('weight-modal-save-btn').addEventListener('click', async () => {
+    const payload = {
+      weight: parseWeightInputValue(document.getElementById('weight-modal-weight').value),
+      loggedAt: asIso(document.getElementById('weight-modal-time').value || toDateTimeLocalValue())
+    };
+    overlay.remove();
+    try {
+      await api(`/api/weights/${entry.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      setActionBanner('Weight entry updated.', 'success');
+      await refreshWeightData();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('weight-modal-save-btn').click(); }
+    if (e.key === 'Escape') overlay.remove();
+  });
+}
+
+function showWorkoutEditModal(entry) {
+  let overlay = document.getElementById('entry-modal-overlay');
+  if (overlay) overlay.remove();
+
+  const loggedAtDate = new Date(entry.loggedAt).toISOString().slice(0, 10);
+  const intensity = normalizeWorkoutIntensity(entry.intensity);
+  overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal entry-modal">
+      <h3>Edit Workout</h3>
+      <label for="workout-modal-desc">Description</label>
+      <input id="workout-modal-desc" type="text" value="${(entry.description || '').replace(/"/g, '&quot;')}" />
+      <div class="entry-modal-row">
+        <div class="entry-modal-field">
+          <label for="workout-modal-date">Date</label>
+          <input id="workout-modal-date" type="date" value="${loggedAtDate}" />
+        </div>
+        <div class="entry-modal-field">
+          <label for="workout-modal-intensity">Intensity</label>
+          <select id="workout-modal-intensity">
+            <option value="low" ${intensity === 'low' ? 'selected' : ''}>Low</option>
+            <option value="medium" ${intensity === 'medium' ? 'selected' : ''}>Medium</option>
+            <option value="high" ${intensity === 'high' ? 'selected' : ''}>High</option>
+          </select>
+        </div>
+      </div>
+      <div class="entry-modal-row">
+        <div class="entry-modal-field">
+          <label for="workout-modal-duration">Hours</label>
+          <input id="workout-modal-duration" type="number" step="0.25" min="0" value="${entry.durationHours}" />
+        </div>
+        <div class="entry-modal-field">
+          <label for="workout-modal-calories">Calories</label>
+          <input id="workout-modal-calories" type="number" step="1" min="0" value="${entry.caloriesBurned}" />
+        </div>
+      </div>
+      <div class="combine-modal-actions">
+        <button type="button" class="btn-danger table-action-btn" id="workout-modal-delete-btn">Delete</button>
+        <span style="flex:1"></span>
+        <button type="button" class="btn-muted table-action-btn" id="workout-modal-cancel-btn">Cancel</button>
+        <button type="button" class="btn-success table-action-btn" id="workout-modal-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('workout-modal-desc').focus();
+
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('workout-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+
+  // Duration → calories sync
+  const baseDuration = Number(entry.durationHours || 0);
+  const baseCalories = Number(entry.caloriesBurned || 0);
+  document.getElementById('workout-modal-duration').addEventListener('input', (e) => {
+    const newDur = Number(e.target.value || 0);
+    if (baseDuration > 0 && Number.isFinite(newDur) && newDur >= 0) {
+      document.getElementById('workout-modal-calories').value = String(Math.round(baseCalories * (newDur / baseDuration)));
+    }
+  });
+
+  document.getElementById('workout-modal-delete-btn').addEventListener('click', async () => {
+    if (!window.confirm('Delete this workout?')) return;
+    overlay.remove();
+    try {
+      await api(`/api/workouts/${entry.id}`, { method: 'DELETE' });
+      setActionBanner('Workout deleted.', 'success');
+      await refreshWorkoutData();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+
+  document.getElementById('workout-modal-save-btn').addEventListener('click', async () => {
+    const loggedAtDateVal = document.getElementById('workout-modal-date').value;
+    const loggedAt = loggedAtDateVal ? new Date(`${loggedAtDateVal}T09:00:00`).toISOString() : new Date().toISOString();
+    const payload = {
+      description: document.getElementById('workout-modal-desc').value.trim(),
+      intensity: normalizeWorkoutIntensity(document.getElementById('workout-modal-intensity').value),
+      durationHours: Number(document.getElementById('workout-modal-duration').value || 0),
+      caloriesBurned: Number(document.getElementById('workout-modal-calories').value || 0),
+      loggedAt
+    };
+    overlay.remove();
+    try {
+      await updateWorkoutEntryApi(entry.id, payload);
+      setActionBanner('Workout updated.', 'success');
+      await refreshWorkoutData();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('workout-modal-save-btn').click(); }
+    if (e.key === 'Escape') overlay.remove();
+  });
+}
+
 async function refreshDashboard() {
   const [dashboard, saved, me] = await Promise.all([
     api('/api/dashboard'),
@@ -3305,29 +3466,6 @@ function renderWeightReadOnlyRow(entry) {
   `;
 }
 
-function renderWeightEditRow(entry) {
-  const loggedAtValue = isoToLocalInputValue(entry.loggedAt);
-  return `
-    <td data-label="Edit" colspan="3">
-      <table class="edit-vertical-table">
-        <tbody>
-          <tr><th>Logged At</th><td><input type="datetime-local" data-weight-field="loggedAt" value="${loggedAtValue}" /></td></tr>
-          <tr><th>Weight</th><td><input type="number" step="0.1" min="0" data-weight-field="weight" value="${entry.weight}" /></td></tr>
-          <tr>
-            <th>Actions</th>
-            <td>
-              <div class="edit-vertical-actions">
-                <button type="button" class="btn-success table-action-btn" data-weight-action="save" data-weight-id="${entry.id}">Save</button>
-                <button type="button" class="btn-warning table-action-btn" data-weight-action="cancel" data-weight-id="${entry.id}">Cancel</button>
-                <button type="button" class="btn-danger table-action-btn" data-weight-action="delete" data-weight-id="${entry.id}">Delete</button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </td>
-  `;
-}
 
 function renderWorkoutReadOnlyRow(entry) {
   const loggedAt = new Date(entry.loggedAt);
@@ -3347,64 +3485,6 @@ function renderWorkoutReadOnlyRow(entry) {
   `;
 }
 
-function renderWorkoutEditRow(entry) {
-  const loggedAtDate = new Date(entry.loggedAt).toISOString().slice(0, 10);
-  const intensity = normalizeWorkoutIntensity(entry.intensity);
-  return `
-    <td data-label="Edit" colspan="6">
-      <table class="edit-vertical-table">
-        <tbody>
-          <tr><th>Date</th><td><input type="date" data-workout-field="loggedAtDate" value="${loggedAtDate}" /></td></tr>
-          <tr><th>Description</th><td><input data-workout-field="description" value="${entry.description}" /></td></tr>
-          <tr>
-            <th>Intensity</th>
-            <td>
-              <select data-workout-field="intensity">
-                <option value="low" ${intensity === 'low' ? 'selected' : ''}>Low</option>
-                <option value="medium" ${intensity === 'medium' ? 'selected' : ''}>Medium</option>
-                <option value="high" ${intensity === 'high' ? 'selected' : ''}>High</option>
-              </select>
-            </td>
-          </tr>
-          <tr><th>Hours</th><td><input type="number" step="0.25" min="0" data-workout-field="durationHours" value="${entry.durationHours}" data-base-duration-hours="${entry.durationHours}" data-base-calories-burned="${entry.caloriesBurned}" /></td></tr>
-          <tr><th>Calories</th><td><input type="number" step="1" min="0" data-workout-field="caloriesBurned" value="${entry.caloriesBurned}" /></td></tr>
-          <tr>
-            <th>Actions</th>
-            <td>
-              <div class="edit-vertical-actions">
-                <button type="button" class="btn-success table-action-btn" data-workout-action="save" data-workout-id="${entry.id}">Save</button>
-                <button type="button" class="btn-warning table-action-btn" data-workout-action="cancel" data-workout-id="${entry.id}">Cancel</button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </td>
-  `;
-}
-
-function syncWorkoutCaloriesWithDuration(row, durationInput) {
-  if (!row || !durationInput) {
-    return;
-  }
-
-  const nextDuration = Number(durationInput.value || 0);
-  const baseDuration = Number(durationInput.dataset.baseDurationHours || 0);
-  const baseCalories = Number(durationInput.dataset.baseCaloriesBurned || 0);
-  if (!Number.isFinite(nextDuration) || nextDuration < 0) {
-    return;
-  }
-  if (!Number.isFinite(baseDuration) || baseDuration <= 0 || !Number.isFinite(baseCalories) || baseCalories < 0) {
-    return;
-  }
-
-  const factor = nextDuration / baseDuration;
-  const caloriesInput = row.querySelector('[data-workout-field="caloriesBurned"]');
-  if (!(caloriesInput instanceof HTMLInputElement)) {
-    return;
-  }
-  caloriesInput.value = String(Math.round(baseCalories * factor));
-}
 
 async function refreshWeightData() {
   if (!weightLogListEl) {
@@ -3418,6 +3498,7 @@ async function refreshWeightData() {
       api('/api/weight-target')
     ]);
     const entries = Array.isArray(response.entries) ? response.entries : [];
+    state.weightEntries = entries;
 
     renderWeightTargetControl(target);
     const tw = Number(target?.targetWeight);
@@ -3442,10 +3523,7 @@ async function refreshWeightData() {
           </thead>
           <tbody>
             ${recentEntries.map((entry) => {
-              const rowHtml = state.weightEditingEntryId === entry.id
-                ? renderWeightEditRow(entry)
-                : renderWeightReadOnlyRow(entry);
-              return `<tr data-weight-row-id="${entry.id}">${rowHtml}</tr>`;
+              return `<tr data-weight-row-id="${entry.id}">${renderWeightReadOnlyRow(entry)}</tr>`;
             }).join('')}
           </tbody>
         </table>
@@ -3765,10 +3843,7 @@ async function refreshWorkoutData() {
           </thead>
           <tbody>
             ${recentWorkouts.map((entry) => {
-              const rowHtml = state.workoutEditingEntryId === entry.id
-                ? renderWorkoutEditRow(entry)
-                : renderWorkoutReadOnlyRow(entry);
-              return `<tr data-workout-row-id="${entry.id}">${rowHtml}</tr>`;
+              return `<tr data-workout-row-id="${entry.id}">${renderWorkoutReadOnlyRow(entry)}</tr>`;
             }).join('')}
           </tbody>
         </table>
@@ -3830,7 +3905,6 @@ if (saveWeightBtnEl) {
           weight: parseWeightInputValue(weightValueEl?.value)
         })
       });
-      state.weightEditingEntryId = null;
       weightNoteEl.textContent = 'Weight saved.';
       if (weightValueEl) {
         weightValueEl.value = '';
@@ -3884,60 +3958,10 @@ if (weightLogListEl) {
     }
 
     if (action === 'edit') {
-      state.weightEditingEntryId = entryId;
-      await refreshWeightData();
+      const entry = (state.weightEntries || []).find(e => e.id === entryId);
+      if (!entry) return;
+      showWeightEditModal(entry);
       return;
-    }
-
-    if (action === 'cancel') {
-      state.weightEditingEntryId = null;
-      await refreshWeightData();
-      return;
-    }
-
-    if (action === 'delete') {
-      const confirmed = window.confirm('Delete this weight entry?');
-      if (!confirmed) {
-        return;
-      }
-
-      try {
-        await deleteWeightEntryApi(entryId);
-        state.weightEditingEntryId = null;
-        weightNoteEl.textContent = 'Weight entry deleted.';
-        setActionBanner('Weight entry deleted.', 'success');
-        await refreshWeightData();
-      } catch (error) {
-        weightNoteEl.textContent = error.message;
-        setActionBanner(error.message, 'error');
-      }
-      return;
-    }
-
-    if (action === 'save') {
-      const row = target.closest('tr[data-weight-row-id]');
-      if (!row) {
-        return;
-      }
-
-      const payload = {
-        weight: parseWeightInputValue(row.querySelector('[data-weight-field="weight"]')?.value),
-        loggedAt: asIso(row.querySelector('[data-weight-field="loggedAt"]')?.value || toDateTimeLocalValue())
-      };
-
-      try {
-        await api(`/api/weights/${entryId}`, {
-          method: 'PUT',
-          body: JSON.stringify(payload)
-        });
-        state.weightEditingEntryId = null;
-        weightNoteEl.textContent = 'Weight entry updated.';
-        setActionBanner('Weight entry updated.', 'success');
-        await refreshWeightData();
-      } catch (error) {
-        weightNoteEl.textContent = error.message;
-        setActionBanner(error.message, 'error');
-      }
     }
   });
 }
@@ -4029,7 +4053,6 @@ if (saveWorkoutBtnEl) {
       if (workoutEditorEl) workoutEditorEl.hidden = true;
       saveWorkoutBtnEl.disabled = true;
       state.pendingWorkout = null;
-      state.workoutEditingEntryId = null;
       setActionBanner('Workout logged.', 'success');
       await refreshWorkoutData();
     } catch (error) {
@@ -4039,22 +4062,6 @@ if (saveWorkoutBtnEl) {
 }
 
 if (workoutLogListEl) {
-  workoutLogListEl.addEventListener('input', (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement)) {
-      return;
-    }
-    if (target.dataset.workoutField !== 'durationHours') {
-      return;
-    }
-
-    const row = target.closest('tr[data-workout-row-id]');
-    if (!row) {
-      return;
-    }
-    syncWorkoutCaloriesWithDuration(row, target);
-  });
-
   workoutLogListEl.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
@@ -4068,44 +4075,10 @@ if (workoutLogListEl) {
     }
 
     if (action === 'edit') {
-      state.workoutEditingEntryId = entryId;
-      await refreshWorkoutData();
+      const entry = (state.workoutEntries || []).find(e => e.id === entryId);
+      if (!entry) return;
+      showWorkoutEditModal(entry);
       return;
-    }
-
-    if (action === 'cancel') {
-      state.workoutEditingEntryId = null;
-      await refreshWorkoutData();
-      return;
-    }
-
-    if (action === 'save') {
-      const row = target.closest('tr[data-workout-row-id]');
-      if (!row) {
-        return;
-      }
-
-      const loggedAtDate = String(row.querySelector('[data-workout-field="loggedAtDate"]')?.value || '').trim();
-      const description = String(row.querySelector('[data-workout-field="description"]')?.value || '').trim();
-      const intensity = normalizeWorkoutIntensity(row.querySelector('[data-workout-field="intensity"]')?.value);
-      const durationHours = Number(row.querySelector('[data-workout-field="durationHours"]')?.value || 0);
-      const caloriesBurned = Number(row.querySelector('[data-workout-field="caloriesBurned"]')?.value || 0);
-      const loggedAt = loggedAtDate ? new Date(`${loggedAtDate}T09:00:00`).toISOString() : new Date().toISOString();
-
-      try {
-        await updateWorkoutEntryApi(entryId, {
-          description,
-          intensity,
-          durationHours,
-          caloriesBurned,
-          loggedAt
-        });
-        state.workoutEditingEntryId = null;
-        setActionBanner('Workout updated.', 'success');
-        await refreshWorkoutData();
-      } catch (error) {
-        setActionBanner(error.message, 'error');
-      }
     }
   });
 }

@@ -84,15 +84,13 @@ test('analysis report no longer includes recovery context section', () => {
   assert.equal(server.includes('recoveryContext'), false);
 });
 
-test('weight entries support inline edit and delete actions', () => {
+test('weight entries support edit and delete actions', () => {
   const script = read('public/script.js');
   const server = read('src/server.js');
 
   assert.equal(script.includes('data-weight-action="edit"'), true);
-  assert.equal(script.includes('data-weight-action="save"'), true);
-  assert.equal(script.includes('data-weight-action="delete"'), true);
-  assert.equal(script.includes('/api/weights/${entryId}/delete'), true);
-  assert.equal(script.includes('/api/weights/delete'), true);
+  assert.equal(script.includes('showWeightEditModal'), true);
+  assert.equal(script.includes('deleteWeightEntryApi'), true);
   assert.equal(server.includes("apiRouter.put('/weights/:id'"), true);
   assert.equal(server.includes("apiRouter.delete('/weights/:id'"), true);
   assert.equal(server.includes("apiRouter.post('/weights/:id/delete'"), true);
