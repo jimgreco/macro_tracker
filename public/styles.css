@@ -1122,29 +1122,57 @@ button[disabled] {
   padding-left: 2rem;
 }
 
+.editing .table tr.meal-group-child td.entry-checkbox-cell {
+  padding-left: 1.5rem !important;
+}
+
 .meal-group-child {
   opacity: 0.75;
   font-size: 0.85em;
 }
 
-.entry-checkbox-col {
-  width: 1rem;
-  padding: 0 0.15rem 0 0.1rem !important;
+.entry-checkbox-col,
+.table td.entry-checkbox-cell,
+.entry-checkbox-cell,
+#entries-by-day .table th.entry-checkbox-col,
+#entries-by-day .table td.entry-checkbox-cell {
+  display: none;
 }
 
-.table td.entry-checkbox-cell,
-.entry-checkbox-cell {
-  width: 1rem;
-  padding: 0 0.15rem 0 0.1rem !important;
+.editing .entry-checkbox-col,
+#entries-by-day.editing .table th.entry-checkbox-col {
+  display: table-cell;
+  width: 2rem;
+}
+
+.editing .table td.entry-checkbox-cell,
+.editing .entry-checkbox-cell,
+#entries-by-day.editing .table td.entry-checkbox-cell {
+  display: table-cell;
+  width: 2rem;
+  padding: 0 !important;
   text-align: center;
   vertical-align: middle;
 }
 
+.edit-items-link {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.8em;
+  text-decoration: none;
+  opacity: 0.7;
+}
+
+.edit-items-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
 .entry-checkbox,
 .meal-group-checkbox {
-  width: 13px;
-  height: 13px;
-  transform: scale(0.55);
+  width: auto;
+  height: auto;
+  transform: scale(0.9);
   transform-origin: center;
   cursor: pointer;
   accent-color: var(--accent, #00cfff);
@@ -1869,11 +1897,11 @@ button[disabled] {
   }
 
   .table td.entry-checkbox-cell {
-    display: inline-flex;
+    display: none;
     border-bottom: 0;
-    padding: 0.2rem 0;
+    padding: 0;
     min-width: auto;
-    justify-content: flex-start;
+    width: auto;
   }
 
   .table td.entry-checkbox-cell::before {
@@ -1885,7 +1913,7 @@ button[disabled] {
     justify-content: flex-end;
   }
 
-  .table input {
+  .table input:not(.entry-checkbox):not(.meal-group-checkbox) {
     width: 100%;
     min-width: 0;
     min-height: 40px;
@@ -1929,6 +1957,7 @@ button[disabled] {
   #workout-log-list .table {
     border-collapse: collapse;
     border-spacing: 0;
+    width: 100%;
   }
 
   #previous-days .table thead,
@@ -1979,6 +2008,28 @@ button[disabled] {
   #workout-log-list .table td {
     padding: 0.26rem 0.28rem;
     font-size: 0.75rem;
+  }
+
+  #entries-by-day.editing .table th.entry-checkbox-col {
+    display: table-cell;
+    width: 1rem;
+    padding: 0 0.05rem !important;
+    text-align: center;
+  }
+
+  #entries-by-day.editing .table td.entry-checkbox-cell {
+    display: flex;
+    width: 1rem;
+    padding: 0 0.05rem !important;
+    text-align: center;
+    justify-content: center;
+    border-bottom: 0;
+    min-width: auto;
+  }
+
+  #entries-by-day .entry-checkbox,
+  #entries-by-day .meal-group-checkbox {
+    transform: scale(0.8);
   }
 
   #previous-days .table td::before,

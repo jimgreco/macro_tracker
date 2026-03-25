@@ -3,7 +3,6 @@ const state = {
   savedItems: [],
   historyQuickItems: [],
   editingEntryId: null,
-  quickEditMode: false,
   mealImageDataUrl: '',
   mealImagePreviewUrl: '',
   mealImageName: '',
@@ -29,7 +28,8 @@ const state = {
   expandedMealGroups: new Set(),
   editingMealGroup: null,
   selectedEntryIds: new Set(),
-  selectedMealGroups: new Set()
+  selectedMealGroups: new Set(),
+  editingEntries: false
 };
 
 const mealTextEl = document.getElementById('meal-text');
@@ -49,16 +49,6 @@ const savedSelectEl = document.getElementById('saved-item-select');
 const quickMultiplierEl = document.getElementById('quick-multiplier');
 const quickAddBtnEl = document.getElementById('quick-add-btn');
 const quickEditToggleBtnEl = document.getElementById('quick-edit-toggle-btn');
-const quickSaveBtnEl = document.getElementById('quick-save-btn');
-const quickDeleteBtnEl = document.getElementById('quick-delete-btn');
-const quickEditorEl = document.getElementById('quick-add-editor');
-const quickEditNameEl = document.getElementById('quick-edit-name');
-const quickEditQuantityEl = document.getElementById('quick-edit-quantity');
-const quickEditUnitEl = document.getElementById('quick-edit-unit');
-const quickEditCaloriesEl = document.getElementById('quick-edit-calories');
-const quickEditProteinEl = document.getElementById('quick-edit-protein');
-const quickEditCarbsEl = document.getElementById('quick-edit-carbs');
-const quickEditFatEl = document.getElementById('quick-edit-fat');
 const todayCaloriesEl = document.getElementById('today-calories');
 const todayProteinEl = document.getElementById('today-protein');
 const todayCarbsEl = document.getElementById('today-carbs');
@@ -1206,16 +1196,6 @@ function getSelectedQuickTemplate() {
   return null;
 }
 
-function setQuickEditMode(isEditing) {
-  const selected = getSelectedSavedItem();
-  const selectedTemplate = getSelectedQuickTemplate();
-  const hasSelection = Boolean(selectedTemplate);
-  state.quickEditMode = isEditing;
-  quickEditorEl.hidden = !isEditing;
-  quickEditToggleBtnEl.textContent = isEditing ? 'Cancel' : 'Edit';
-  quickSaveBtnEl.classList.toggle('is-visible', Boolean(isEditing && hasSelection));
-  quickDeleteBtnEl.classList.toggle('is-visible', Boolean(isEditing && selected));
-}
 
 function quickAddById(savedItemId) {
   return api('/api/quick-add', {
@@ -1312,26 +1292,6 @@ function buildHistoryQuickItems(entries, savedItems) {
     .sort((a, b) => new Date(b.lastUsedAt || 0).getTime() - new Date(a.lastUsedAt || 0).getTime());
 }
 
-function fillQuickEditor(item) {
-  if (!item) {
-    quickEditNameEl.value = '';
-    quickEditQuantityEl.value = '';
-    quickEditUnitEl.value = '';
-    quickEditCaloriesEl.value = '';
-    quickEditProteinEl.value = '';
-    quickEditCarbsEl.value = '';
-    quickEditFatEl.value = '';
-    return;
-  }
-
-  quickEditNameEl.value = item.name;
-  quickEditQuantityEl.value = item.quantity;
-  quickEditUnitEl.value = item.unit || 'serving';
-  quickEditCaloriesEl.value = item.calories;
-  quickEditProteinEl.value = item.protein;
-  quickEditCarbsEl.value = item.carbs;
-  quickEditFatEl.value = item.fat;
-}
 
 function renderSavedItems() {
   const selectedBefore = savedSelectEl.value;
@@ -1344,12 +1304,6 @@ function renderSavedItems() {
     savedSelectEl.appendChild(option);
     quickAddBtnEl.disabled = true;
     quickEditToggleBtnEl.disabled = true;
-    quickSaveBtnEl.disabled = true;
-    quickSaveBtnEl.classList.remove('is-visible');
-    quickDeleteBtnEl.disabled = true;
-    quickDeleteBtnEl.classList.remove('is-visible');
-    setQuickEditMode(false);
-    fillQuickEditor(null);
     return;
   }
 
@@ -1385,16 +1339,6 @@ function renderSavedItems() {
   const selectedTemplate = getSelectedQuickTemplate();
   quickAddBtnEl.disabled = false;
   quickEditToggleBtnEl.disabled = !selectedTemplate;
-  quickSaveBtnEl.disabled = !selectedTemplate;
-  quickSaveBtnEl.classList.toggle('is-visible', Boolean(selectedTemplate && state.quickEditMode));
-  quickDeleteBtnEl.disabled = !selected;
-  quickDeleteBtnEl.classList.toggle('is-visible', Boolean(selected && state.quickEditMode));
-
-  if (!selectedTemplate) {
-    setQuickEditMode(false);
-  }
-
-  fillQuickEditor(selected || selectedTemplate);
 }
 
 function renderReadOnlyRow(entry) {
@@ -1959,8 +1903,8 @@ function renderDashboard(data) {
   const table = document.createElement('table');
   table.className = 'table';
   table.innerHTML = compactMobile
-    ? '<thead><tr><th class="entry-checkbox-col"></th><th>Item</th><th>Qty</th><th>Cal</th><th>P</th><th>C</th><th>F</th><th>Time</th></tr></thead>'
-    : '<thead><tr><th class="entry-checkbox-col"></th><th>Item</th><th>Quantity</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Time</th></tr></thead>';
+    ? `<thead><tr><th class="entry-checkbox-col"></th><th>Item <a href="#" class="edit-items-link" data-edit-entries>${state.editingEntries ? '(done)' : '(edit)'}</a></th><th>Qty</th><th>Cal</th><th>P</th><th>C</th><th>F</th><th>Time</th></tr></thead>`
+    : `<thead><tr><th class="entry-checkbox-col"></th><th>Item <a href="#" class="edit-items-link" data-edit-entries>${state.editingEntries ? '(done)' : '(edit)'}</a></th><th>Quantity</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Time</th></tr></thead>`;
 
   const tbody = document.createElement('tbody');
 
@@ -2120,6 +2064,26 @@ function renderSelectionActions() {
 
   bar.innerHTML = html;
 }
+
+function toggleEditEntries() {
+  state.editingEntries = !state.editingEntries;
+  entriesByDayEl.classList.toggle('editing', state.editingEntries);
+  entriesByDayEl.querySelectorAll('[data-edit-entries]').forEach(el => {
+    el.textContent = state.editingEntries ? '(done)' : '(edit)';
+  });
+  if (!state.editingEntries) {
+    clearSelection();
+    renderSelectionActions();
+  }
+}
+
+entriesByDayEl.addEventListener('click', (event) => {
+  const editLink = event.target.closest('[data-edit-entries]');
+  if (editLink) {
+    event.preventDefault();
+    toggleEditEntries();
+  }
+});
 
 entriesByDayEl.addEventListener('change', (event) => {
   const target = event.target;
@@ -2690,92 +2654,75 @@ quickAddBtnEl.addEventListener('click', async () => {
 });
 
 savedSelectEl.addEventListener('change', () => {
-  const selected = getSelectedSavedItem();
   const selectedTemplate = getSelectedQuickTemplate();
-  fillQuickEditor(selected || selectedTemplate);
-  if (!selected) {
-    setQuickEditMode(false);
-  }
+  quickEditToggleBtnEl.disabled = !selectedTemplate;
 });
 
 quickEditToggleBtnEl.addEventListener('click', () => {
   const selectedTemplate = getSelectedQuickTemplate();
-  if (!selectedTemplate) {
-    return;
-  }
+  if (!selectedTemplate) return;
 
-  const willEdit = !state.quickEditMode;
-  setQuickEditMode(willEdit);
-  if (willEdit) {
-    fillQuickEditor(selectedTemplate);
-  }
-});
-
-quickDeleteBtnEl.addEventListener('click', async () => {
   const selected = getSelectedSavedItem();
-  if (!selected) {
-    return;
-  }
 
-  const confirmed = window.confirm(`Delete quick add item \"${selected.name}\"?`);
-  if (!confirmed) {
-    return;
-  }
-
-  try {
-    await api(`/api/saved-items/${selected.id}`, { method: 'DELETE' });
-    setQuickEditMode(false);
-    parseNoteEl.textContent = 'Quick add item deleted.';
-    setActionBanner('Quick add item deleted.', 'success');
-    await refreshDashboard();
-  } catch (error) {
-    parseNoteEl.textContent = error.message;
-    setActionBanner(error.message, 'error');
-  }
-});
-
-quickSaveBtnEl.addEventListener('click', async () => {
-  const selected = getSelectedSavedItem();
-  const selectedTemplate = getSelectedQuickTemplate();
-  if (!selected) {
-    if (!selectedTemplate) {
-      return;
+  showEntryModal(
+    {
+      itemName: selectedTemplate.name,
+      quantity: selectedTemplate.quantity,
+      unit: selectedTemplate.unit || 'serving',
+      calories: selectedTemplate.calories,
+      protein: selectedTemplate.protein,
+      carbs: selectedTemplate.carbs,
+      fat: selectedTemplate.fat
+    },
+    {
+      title: 'Edit Quick Add',
+      onDelete: selected ? async () => {
+        const confirmed = window.confirm(`Delete quick add item "${selected.name}"?`);
+        if (!confirmed) return;
+        try {
+          await api(`/api/saved-items/${selected.id}`, { method: 'DELETE' });
+          parseNoteEl.textContent = 'Quick add item deleted.';
+          setActionBanner('Quick add item deleted.', 'success');
+          await refreshDashboard();
+        } catch (error) {
+          parseNoteEl.textContent = error.message;
+          setActionBanner(error.message, 'error');
+        }
+      } : null,
+      onSave: async (values) => {
+        const payload = {
+          name: values.itemName,
+          quantity: values.quantity,
+          unit: values.unit,
+          calories: values.calories,
+          protein: values.protein,
+          carbs: values.carbs,
+          fat: values.fat
+        };
+        try {
+          if (selected) {
+            await api(`/api/saved-items/${selected.id}`, {
+              method: 'PUT',
+              body: JSON.stringify(payload)
+            });
+            parseNoteEl.textContent = 'Quick add item updated.';
+            setActionBanner('Quick add item updated.', 'success');
+          } else {
+            await api('/api/saved-items', {
+              method: 'POST',
+              body: JSON.stringify(payload)
+            });
+            parseNoteEl.textContent = 'Quick add item saved.';
+            setActionBanner('Quick add item saved.', 'success');
+          }
+          await refreshDashboard();
+        } catch (error) {
+          parseNoteEl.textContent = error.message;
+          setActionBanner(error.message, 'error');
+        }
+      }
     }
-  }
-
-  const payload = {
-    name: quickEditNameEl.value.trim(),
-    quantity: Number(quickEditQuantityEl.value || 1),
-    unit: quickEditUnitEl.value.trim() || 'serving',
-    calories: Number(quickEditCaloriesEl.value || 0),
-    protein: Number(quickEditProteinEl.value || 0),
-    carbs: Number(quickEditCarbsEl.value || 0),
-    fat: Number(quickEditFatEl.value || 0)
-  };
-
-  try {
-    if (selected) {
-      await api(`/api/saved-items/${selected.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload)
-      });
-      parseNoteEl.textContent = 'Quick add item updated.';
-      setActionBanner('Quick add item updated.', 'success');
-    } else {
-      await api('/api/saved-items', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      });
-      parseNoteEl.textContent = 'Quick add item saved.';
-      setActionBanner('Quick add item saved.', 'success');
-    }
-
-    setQuickEditMode(false);
-    await refreshDashboard();
-  } catch (error) {
-    parseNoteEl.textContent = error.message;
-    setActionBanner(error.message, 'error');
-  }
+  );
 });
 
 entriesByDayEl.addEventListener('click', async (event) => {
