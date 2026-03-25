@@ -26,7 +26,6 @@ const state = {
   tdeeData: null,
   workoutEntries: [],
   expandedMealGroups: new Set(),
-  editingMealGroup: null,
   selectedEntryIds: new Set(),
   selectedMealGroups: new Set(),
   editingEntries: false
@@ -1925,7 +1924,6 @@ function renderDashboard(data) {
       }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
       const isExpanded = state.expandedMealGroups && state.expandedMealGroups.has(item.mealGroup);
-      const isEditingGroup = state.editingMealGroup === item.mealGroup;
 
       const groupRow = document.createElement('tr');
       groupRow.className = 'meal-group-header' + (isExpanded ? ' expanded' : '');
@@ -1947,32 +1945,6 @@ function renderDashboard(data) {
       `;
       tbody.appendChild(groupRow);
 
-      if (isEditingGroup) {
-        const editRow = document.createElement('tr');
-        editRow.className = 'meal-group-edit-row';
-        editRow.dataset.mealGroup = item.mealGroup;
-        editRow.innerHTML = `
-          <td data-label="Edit" colspan="8">
-            <table class="edit-vertical-table">
-              <tbody>
-                <tr><th>Name</th><td><input type="text" class="meal-group-name-input" value="${(item.mealName || 'Meal').replace(/"/g, '&quot;')}" data-meal-group="${item.mealGroup}" /></td></tr>
-                <tr><th>Quantity</th><td><input type="number" step="0.1" min="0.1" class="meal-group-qty-input" value="${mealQty}" data-meal-group="${item.mealGroup}" /></td></tr>
-                <tr><th>Unit</th><td><input type="text" class="meal-group-unit-input" value="${mealUnit}" data-meal-group="${item.mealGroup}" /></td></tr>
-                <tr>
-                  <th>Actions</th>
-                  <td>
-                    <div class="edit-vertical-actions">
-                      <button type="button" class="btn-success table-action-btn" data-action="save-group" data-meal-group="${item.mealGroup}">Save</button>
-                      <button type="button" class="btn-warning table-action-btn" data-action="cancel-group" data-meal-group="${item.mealGroup}">Cancel</button>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </td>
-        `;
-        tbody.appendChild(editRow);
-      }
 
       for (const child of groupItems) {
         rendered.add(child.id);
@@ -2223,10 +2195,25 @@ entriesByDayEl.addEventListener('click', async (event) => {
   if (selAction === 'edit-meal') {
     const groupId = [...state.selectedMealGroups][0];
     if (!groupId) return;
-    state.editingMealGroup = groupId;
-    state.expandedMealGroups.add(groupId);
-    clearSelection();
-    renderDashboard(state.dashboardData);
+    const mealEntry = (state.dashboardData?.entries || []).find(e => e.mealGroup === groupId);
+    showCombineModal([], {
+      name: mealEntry?.mealName || 'Meal',
+      quantity: mealEntry?.mealQuantity || 1,
+      unit: mealEntry?.mealUnit || 'serving',
+      onSave: async (name, quantity, unit) => {
+        try {
+          await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
+            method: 'PUT',
+            body: JSON.stringify({ quantity, unit, name: name || undefined })
+          });
+          clearSelection();
+          setActionBanner('Meal updated.', 'success');
+          await refreshDashboard();
+        } catch (error) {
+          setActionBanner(error.message, 'error');
+        }
+      }
+    });
     return;
   }
 
@@ -2735,37 +2722,24 @@ entriesByDayEl.addEventListener('click', async (event) => {
   const groupId = target.dataset.mealGroup;
 
   if (groupAction === 'edit-group' && groupId) {
-    state.editingMealGroup = groupId;
-    state.expandedMealGroups.add(groupId);
-    renderDashboard(state.dashboardData);
-    return;
-  }
-
-  if (groupAction === 'cancel-group' && groupId) {
-    state.editingMealGroup = null;
-    renderDashboard(state.dashboardData);
-    return;
-  }
-
-  if (groupAction === 'save-group' && groupId) {
-    const nameInput = entriesByDayEl.querySelector(`.meal-group-name-input[data-meal-group="${groupId}"]`);
-    const qtyInput = entriesByDayEl.querySelector(`.meal-group-qty-input[data-meal-group="${groupId}"]`);
-    const unitInput = entriesByDayEl.querySelector(`.meal-group-unit-input[data-meal-group="${groupId}"]`);
-    const newName = String(nameInput?.value || '').trim();
-    const newQty = Number(qtyInput?.value || 1);
-    const newUnit = String(unitInput?.value || 'serving').trim();
-    if (newQty <= 0) return;
-    try {
-      await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
-        method: 'PUT',
-        body: JSON.stringify({ quantity: newQty, unit: newUnit, name: newName || undefined })
-      });
-      state.editingMealGroup = null;
-      setActionBanner('Meal scaled.', 'success');
-      await refreshDashboard();
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    }
+    const mealEntry = (state.dashboardData?.entries || []).find(e => e.mealGroup === groupId);
+    showCombineModal([], {
+      name: mealEntry?.mealName || 'Meal',
+      quantity: mealEntry?.mealQuantity || 1,
+      unit: mealEntry?.mealUnit || 'serving',
+      onSave: async (name, quantity, unit) => {
+        try {
+          await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
+            method: 'PUT',
+            body: JSON.stringify({ quantity, unit, name: name || undefined })
+          });
+          setActionBanner('Meal updated.', 'success');
+          await refreshDashboard();
+        } catch (error) {
+          setActionBanner(error.message, 'error');
+        }
+      }
+    });
     return;
   }
 
