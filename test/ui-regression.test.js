@@ -54,9 +54,8 @@ test('weight page includes target weight + date controls', () => {
   const script = read('public/script.js');
   const server = read('src/server.js');
 
-  assert.equal(html.includes('id="weight-target-value"'), true);
-  assert.equal(html.includes('id="weight-target-date"'), true);
-  assert.equal(html.includes('id="save-weight-target-btn"'), true);
+  assert.equal(html.includes('id="edit-weight-target-link"'), true);
+  assert.equal(script.includes('showWeightTargetModal'), true);
   assert.equal(script.includes("/api/weight-target"), true);
   assert.equal(server.includes("apiRouter.get('/weight-target'"), true);
   assert.equal(server.includes("apiRouter.put('/weight-target'"), true);
@@ -108,8 +107,8 @@ test('workout target input lives on workout page and not analysis form', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');
 
-  assert.equal(html.includes('id="workout-target-per-week"'), true);
-  assert.equal(html.includes('id="save-workout-target-btn"'), true);
+  assert.equal(html.includes('id="edit-workout-target-link"'), true);
+  assert.equal(script.includes('showWorkoutTargetModal'), true);
   assert.equal(html.includes('id="analysis-planned-workouts"'), false);
   assert.equal(script.includes('/api/macro-targets/workouts'), true);
   assert.equal(script.includes('plannedWorkoutsPerWeek: Number(analysisPlannedWorkoutsEl?.value || 5)'), false);

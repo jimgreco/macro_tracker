@@ -1727,7 +1727,8 @@ apiRouter.get('/workouts', async (req, res) => {
   try {
     const limit = Number(req.query.limit) || undefined;
     const offset = Number(req.query.offset) || undefined;
-    const data = await listWorkoutEntries(userIdFromReq(req), { limit, offset });
+    const scope = String(req.query.scope || 'week').toLowerCase();
+    const data = await listWorkoutEntries(userIdFromReq(req), { limit, offset, scope });
     res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });

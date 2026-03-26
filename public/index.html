@@ -121,14 +121,14 @@
 
         <div class="column-right">
           <section id="entries-section" aria-labelledby="entries-heading" class="panel glass">
-            <h2 id="entries-heading">Logged Entries</h2>
+            <h2 id="entries-heading">Logged Entries <a href="#" id="edit-targets-link" class="edit-items-link">(edit targets)</a></h2>
             <div class="entries-nav" aria-label="Logged entries day navigation">
               <button id="entries-prev-day-btn" class="entries-day-btn" type="button" aria-label="Previous day">‹</button>
               <div id="entries-day-label" class="entries-day-label" aria-live="polite"></div>
               <button id="entries-next-day-btn" class="entries-day-btn" type="button" aria-label="Next day">›</button>
             </div>
             <div class="cards stats-cards entries-totals" aria-label="Selected day totals">
-              <article class="card metric macro-target-card macro-progress-card" data-target-macro="calories" data-progress-macro="calories" role="button" tabindex="0" aria-label="Set calories target">
+              <article class="card metric macro-progress-card" data-target-macro="calories" data-progress-macro="calories">
                 <span class="metric-label">Calories</span>
                 <div class="metric-value-row">
                   <strong class="metric-value" id="today-calories">0</strong>
@@ -136,7 +136,7 @@
                 </div>
                 <span class="metric-target" id="today-calories-target">Target: none</span>
               </article>
-              <article class="card metric macro-target-card macro-progress-card" data-target-macro="protein" data-progress-macro="protein" role="button" tabindex="0" aria-label="Set protein target">
+              <article class="card metric macro-progress-card" data-target-macro="protein" data-progress-macro="protein">
                 <span class="metric-label">Protein</span>
                 <div class="metric-value-row">
                   <strong class="metric-value" id="today-protein">0g</strong>
@@ -144,7 +144,7 @@
                 </div>
                 <span class="metric-target" id="today-protein-target">Target: none</span>
               </article>
-              <article class="card metric macro-target-card macro-progress-card" data-target-macro="carbs" data-progress-macro="carbs" role="button" tabindex="0" aria-label="Set carbs target">
+              <article class="card metric macro-progress-card" data-target-macro="carbs" data-progress-macro="carbs">
                 <span class="metric-label">Carbs</span>
                 <div class="metric-value-row">
                   <strong class="metric-value" id="today-carbs">0g</strong>
@@ -152,7 +152,7 @@
                 </div>
                 <span class="metric-target" id="today-carbs-target">Target: none</span>
               </article>
-              <article class="card metric macro-target-card macro-progress-card" data-target-macro="fat" data-progress-macro="fat" role="button" tabindex="0" aria-label="Set fat target">
+              <article class="card metric macro-progress-card" data-target-macro="fat" data-progress-macro="fat">
                 <span class="metric-label">Fat</span>
                 <div class="metric-value-row">
                   <strong class="metric-value" id="today-fat">0g</strong>
@@ -244,7 +244,7 @@
         </section>
 
         <section id="weight-entries-section" class="panel glass">
-          <h2>Logged Entries</h2>
+          <h2>Logged Entries <a href="#" id="edit-weight-target-link" class="edit-items-link">(edit target)</a></h2>
           <div id="weight-log-list" class="simple-log-list"></div>
         </section>
 
@@ -272,16 +272,6 @@
           </div>
         </section>
 
-        <section class="panel glass">
-          <h2>Target Weight</h2>
-          <div class="weight-target-row">
-            <label for="weight-target-value">Target Weight</label>
-            <input id="weight-target-value" type="number" step="0.1" min="0" placeholder="Target" />
-            <label for="weight-target-date">Target Date</label>
-            <input id="weight-target-date" type="date" />
-            <button id="save-weight-target-btn" type="button">Save Target</button>
-          </div>
-        </section>
       </section>
 
       <section id="workout-page" class="app-page" hidden>
@@ -330,6 +320,11 @@
           </div>
         </section>
 
+        <section class="panel glass">
+          <h2>Logged Entries <a href="#" id="edit-workout-target-link" class="edit-items-link">(edit target)</a></h2>
+          <div id="workout-log-list" class="simple-log-list"></div>
+        </section>
+
         <section id="workout-snapshot-section" class="panel glass">
           <div class="snapshot-header">
             <h2 id="workout-snapshot-heading">Weekly Snapshot</h2>
@@ -349,6 +344,20 @@
             </div>
           </div>
 
+          <div class="trend-wrap">
+            <canvas id="workout-cal-canvas" height="130" aria-label="Workout calories burned chart"></canvas>
+            <div class="trend-legend" aria-live="polite">
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
+                Average: <span id="workout-cal-average-value">none</span>
+              </span>
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch trend-legend-swatch-target" aria-hidden="true"></span>
+                Target: <span id="workout-cal-target-display">—</span>
+              </span>
+            </div>
+          </div>
+
           <div class="cards stats-cards avg-cards" aria-label="Monthly workout averages">
             <article class="card metric" data-workout-stat="workouts">
               <span class="metric-label">Workouts / week</span>
@@ -360,20 +369,6 @@
               <strong class="metric-value" id="avg-cal-burned-per-week">—</strong>
               <span class="metric-target">Last 30 days</span>
             </article>
-          </div>
-        </section>
-
-        <section class="panel glass">
-          <h2>Logged Entries</h2>
-          <div id="workout-log-list" class="simple-log-list"></div>
-        </section>
-
-        <section class="panel glass">
-          <h2>Weekly Target</h2>
-          <div class="workout-target-row">
-            <label for="workout-target-per-week">Target workouts/week</label>
-            <input id="workout-target-per-week" type="number" min="0" max="14" step="1" value="5" />
-            <button id="save-workout-target-btn" type="button">Save Target</button>
           </div>
         </section>
       </section>

@@ -300,8 +300,8 @@ async function logAudit(userId, action, entityType, entityId, details) {
 
 function normalizeMacroName(macro) {
   const value = String(macro || '').toLowerCase();
-  if (!['calories', 'protein', 'carbs', 'fat', 'workouts'].includes(value)) {
-    throw new Error('Invalid macro. Use calories, protein, carbs, fat, or workouts.');
+  if (!['calories', 'protein', 'carbs', 'fat', 'workouts', 'workout_calories'].includes(value)) {
+    throw new Error('Invalid macro. Use calories, protein, carbs, fat, workouts, or workout_calories.');
   }
   return value;
 }
@@ -677,7 +677,8 @@ async function getMacroTargets(userId) {
     protein: 0,
     carbs: 0,
     fat: 0,
-    workouts: 5
+    workouts: 5,
+    workout_calories: 0
   };
 
   for (const row of result.rows) {
@@ -1085,12 +1086,13 @@ async function listWorkoutEntries(userId, options = {}) {
     [userId, limit, offset]
   );
 
+  const scopeDays = parseScopeDays(options.scope || 'week');
   const dailyResult = await pool.query(
     `SELECT (logged_at AT TIME ZONE 'UTC')::date::text AS day,
             ROUND(SUM(calories_burned)::numeric, 1) AS calories
      FROM workout_entries
      WHERE user_id = $1 AND deleted_at IS NULL
-       AND logged_at >= NOW() - INTERVAL '30 days'
+       AND logged_at >= NOW() - INTERVAL '${scopeDays} days'
      GROUP BY day
      ORDER BY day ASC`,
     [userId]

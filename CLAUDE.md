@@ -44,7 +44,7 @@ Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google/Apple OAuth setup locally.
 | `src/server.js` | Express server, all routes, auth, Stripe webhooks (~2,000 lines) |
 | `src/db.js` | All PostgreSQL queries (~1,600 lines) |
 | `src/parser.js` | OpenAI meal/workout parsing (~230 lines) |
-| `public/script.js` | Frontend SPA logic (~3,960 lines) |
+| `public/script.js` | Frontend SPA logic (~4,030 lines) |
 | `public/index.html` | Main app HTML |
 | `public/login.html` | Login page (Google + Apple buttons) |
 | `public/login.js` | Login page behavior |
@@ -106,7 +106,9 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 - **Database**: Schema auto-created on startup. Tables: `users`, `entries`, `saved_items`, `macro_targets`, `weight_entries`, `workout_entries`, `weight_targets`, `analysis_reports`, `api_tokens`, `audit_log`, `subscriptions`, `billing_events`.
 - **API**: REST endpoints under `/api/v1/`. Rate-limited parse endpoints (15 req/min). See `src/server.js` for full route list.
 - **Frontend**: Single HTML page (`public/index.html`) with all state in `public/script.js`.
-- **Modal-based editing**: All editing (entries, meals, quick adds, weight, workouts) uses modal popups (`showEntryModal`, `showCombineModal`, `showWeightEditModal`, `showWorkoutEditModal`). No inline edit rows remain.
+- **Modal-based editing**: All editing (entries, meals, quick adds, weight, workouts) uses modal popups (`showEntryModal`, `showCombineModal`, `showWeightEditModal`, `showWorkoutEditModal`). Target editing also uses modals: `showEditTargetsModal` (macro targets), `showWeightTargetModal` (weight target + date), `showWorkoutTargetModal` (workouts/week + calories/week). Each is accessed via "(edit targets)" or "(edit target)" links in the Logged Entries heading of each tab. No inline edit rows remain.
+- **Macro targets**: Stored in `macro_targets` table. Valid macros: `calories`, `protein`, `carbs`, `fat`, `workouts`, `workout_calories`. Defaults via `getMacroTargets()`.
+- **Workout calories chart**: `drawSimpleLineChart` on `#workout-cal-canvas` shows daily calories burned with average and target lines. Target is stored as weekly (`workout_calories`) and converted to daily for chart display. Workout API (`/api/workouts`) accepts `scope` param (week/month/year) for dailyCalories date range.
 - **Meal grouping**: Entries can be combined into meals via `meal_group` UUID. API endpoints: `POST /api/entries/combine`, `POST /api/meal-group/:id/split`, `POST /api/entries/:id/remove-from-group`, `PUT /api/meal-group/:id/scale`.
 - **Entry multi-select**: Custom-styled checkboxes (neon accent, `appearance: none`) hidden by default behind "(edit)" link in table header. Toggle adds `.editing` class to `#entries-by-day`. Sub-item checkboxes are indented within meal groups. Mobile-friendly tap targets for both edit link and checkboxes. Selection modes: meals, items, sub-items (no mixing). Action bar appears with context-sensitive buttons (Edit, Delete, Combine, Split, Remove).
 

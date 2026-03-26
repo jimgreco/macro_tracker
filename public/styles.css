@@ -1469,7 +1469,6 @@ button[disabled] {
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 120ms ease;
 }
 
-.macro-target-card:focus-visible,
 .trend-macro-card:focus-visible {
   outline: none;
   border-color: #00cfff;

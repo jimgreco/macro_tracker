@@ -15,6 +15,7 @@ const state = {
   weightChartRows: [],
   weightTarget: null,
   workoutChartRows: [],
+  workoutCalChartRows: [],
   analysisReport: null,
   analysisAutoRan: false,
   macroSnapshotPeriod: 'weekly',
@@ -57,7 +58,7 @@ const todayCaloriesProgressEl = document.getElementById('today-calories-progress
 const todayProteinProgressEl = document.getElementById('today-protein-progress');
 const todayCarbsProgressEl = document.getElementById('today-carbs-progress');
 const todayFatProgressEl = document.getElementById('today-fat-progress');
-const macroTargetCards = Array.from(document.querySelectorAll('.macro-target-card'));
+const editTargetsLinkEl = document.getElementById('edit-targets-link');
 const avgCaloriesEl = document.getElementById('avg-calories');
 const avgProteinEl = document.getElementById('avg-protein');
 const avgCarbsEl = document.getElementById('avg-carbs');
@@ -108,9 +109,7 @@ const appPages = {
 const weightLoggedAtEl = document.getElementById('weight-logged-at');
 const weightValueEl = document.getElementById('weight-value');
 const saveWeightBtnEl = document.getElementById('save-weight-btn');
-const weightTargetValueEl = document.getElementById('weight-target-value');
-const weightTargetDateEl = document.getElementById('weight-target-date');
-const saveWeightTargetBtnEl = document.getElementById('save-weight-target-btn');
+const editWeightTargetLinkEl = document.getElementById('edit-weight-target-link');
 const weightNoteEl = document.getElementById('weight-note');
 const weightCanvasEl = document.getElementById('weight-canvas');
 const weightAverageValueEl = document.getElementById('weight-average-value');
@@ -128,8 +127,10 @@ const saveWorkoutBtnEl = document.getElementById('save-workout-btn');
 const workoutQuickListEl = document.getElementById('workout-quick-list');
 const workoutLogListEl = document.getElementById('workout-log-list');
 const workoutCanvasEl = document.getElementById('workout-canvas');
-const workoutTargetPerWeekEl = document.getElementById('workout-target-per-week');
-const saveWorkoutTargetBtnEl = document.getElementById('save-workout-target-btn');
+const workoutCalCanvasEl = document.getElementById('workout-cal-canvas');
+const workoutCalAverageValueEl = document.getElementById('workout-cal-average-value');
+const workoutCalTargetDisplayEl = document.getElementById('workout-cal-target-display');
+const editWorkoutTargetLinkEl = document.getElementById('edit-workout-target-link');
 const analysisDaysEl = document.getElementById('analysis-days');
 const analysisGenerateBtnEl = document.getElementById('analysis-generate-btn');
 const analysisNoteEl = document.getElementById('analysis-note');
@@ -217,7 +218,7 @@ let trendPointCoords = [];
 let trendInteractionsBound = false;
 let trendResizeBound = false;
 let trendMacroBound = false;
-let macroTargetBound = false;
+let editTargetsBound = false;
 let pageChartsResizeBound = false;
 let pageChartsResizeTimer = null;
 
@@ -351,109 +352,157 @@ function renderWeeklyTargets(weeklyAverages, targets) {
   }
 }
 
-async function promptAndSaveMacroTarget(macro) {
-  const current = Number(state.dashboardData?.targets?.[macro] || 0);
-  const unit = macroUnit(macro);
-  const input = window.prompt(
-    `Set ${macro} target (${unit}). Leave blank to clear target.`,
-    current > 0 ? String(current) : ''
-  );
+function showEditTargetsModal() {
+  let overlay = document.getElementById('entry-modal-overlay');
+  if (overlay) overlay.remove();
 
-  if (input === null) {
-    return;
-  }
+  const targets = state.dashboardData?.targets || {};
+  const macros = ['calories', 'protein', 'carbs', 'fat'];
 
-  const trimmed = String(input).trim();
-  const nextTarget = trimmed ? Number(trimmed) : 0;
-  if (!Number.isFinite(nextTarget) || nextTarget < 0) {
-    setActionBanner('Target must be a number greater than or equal to 0.', 'error');
-    return;
-  }
+  overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal entry-modal">
+      <h3>Edit Macro Targets</h3>
+      ${macros.map((m) => {
+        const val = Number(targets[m] || 0);
+        return `<label for="target-modal-${m}">${m.charAt(0).toUpperCase() + m.slice(1)} (${macroUnit(m)})</label>
+      <input id="target-modal-${m}" type="number" step="1" min="0" value="${val > 0 ? val : ''}" placeholder="No target" />`;
+      }).join('\n      ')}
+      <div class="combine-modal-actions">
+        <button type="button" class="btn-muted table-action-btn" id="target-modal-cancel-btn">Cancel</button>
+        <button type="button" class="btn-success table-action-btn" id="target-modal-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('target-modal-calories').focus();
 
-  try {
-    await api(`/api/macro-targets/${macro}`, {
-      method: 'PUT',
-      body: JSON.stringify({ target: nextTarget })
-    });
-    if (state.dashboardData) {
-      state.dashboardData.targets = state.dashboardData.targets || {};
-      state.dashboardData.targets[macro] = nextTarget;
-      renderDashboard(state.dashboardData);
-    }
-    setActionBanner('Macro target updated.', 'success');
-  } catch (error) {
-    setActionBanner(error.message, 'error');
-  }
-}
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('target-modal-cancel-btn').addEventListener('click', () => overlay.remove());
 
-function bindMacroTargetCards() {
-  if (macroTargetBound) {
-    return;
-  }
-
-  for (const card of macroTargetCards) {
-    const macro = String(card.dataset.targetMacro || '');
-    if (!macro) {
-      continue;
-    }
-
-    card.addEventListener('click', () => {
-      promptAndSaveMacroTarget(macro);
-    });
-
-    card.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') {
+  document.getElementById('target-modal-save-btn').addEventListener('click', async () => {
+    const updates = {};
+    for (const m of macros) {
+      const raw = document.getElementById(`target-modal-${m}`).value.trim();
+      const val = raw ? Number(raw) : 0;
+      if (raw && (!Number.isFinite(val) || val < 0)) {
+        setActionBanner(`${m} target must be a number >= 0.`, 'error');
         return;
       }
-      event.preventDefault();
-      promptAndSaveMacroTarget(macro);
-    });
-  }
+      updates[m] = val;
+    }
+    overlay.remove();
+    try {
+      for (const m of macros) {
+        await api(`/api/macro-targets/${m}`, {
+          method: 'PUT',
+          body: JSON.stringify({ target: updates[m] })
+        });
+      }
+      if (state.dashboardData) {
+        state.dashboardData.targets = state.dashboardData.targets || {};
+        Object.assign(state.dashboardData.targets, updates);
+        renderDashboard(state.dashboardData);
+      }
+      setActionBanner('Macro targets updated.', 'success');
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
 
-  macroTargetBound = true;
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('target-modal-save-btn').click(); }
+    if (e.key === 'Escape') overlay.remove();
+  });
 }
 
-function renderWorkoutTargetControl() {
-  if (!workoutTargetPerWeekEl) {
-    return;
+function bindEditTargetsLink() {
+  if (editTargetsBound) return;
+  if (editTargetsLinkEl) {
+    editTargetsLinkEl.addEventListener('click', (e) => {
+      e.preventDefault();
+      showEditTargetsModal();
+    });
   }
-  const target = Number(state.dashboardData?.targets?.workouts);
-  const safeTarget = Number.isFinite(target) ? Math.max(0, Math.min(14, Math.round(target))) : 5;
-  workoutTargetPerWeekEl.value = String(safeTarget);
+  editTargetsBound = true;
 }
 
-async function saveWorkoutTarget() {
-  const nextTarget = Number(workoutTargetPerWeekEl?.value || 0);
-  if (!Number.isFinite(nextTarget) || nextTarget < 0) {
-    setActionBanner('Workout target must be a number greater than or equal to 0.', 'error');
-    return;
-  }
+function showWorkoutTargetModal() {
+  let overlay = document.getElementById('entry-modal-overlay');
+  if (overlay) overlay.remove();
 
-  const roundedTarget = Math.max(0, Math.min(14, Math.round(nextTarget)));
+  const wTarget = Number(state.dashboardData?.targets?.workouts);
+  const currentWorkouts = Number.isFinite(wTarget) && wTarget > 0 ? wTarget : '';
+  const cTarget = Number(state.dashboardData?.targets?.workout_calories);
+  const currentCals = Number.isFinite(cTarget) && cTarget > 0 ? cTarget : '';
 
-  try {
-    if (saveWorkoutTargetBtnEl) {
-      saveWorkoutTargetBtnEl.disabled = true;
+  overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal entry-modal">
+      <h3>Edit Workout Targets</h3>
+      <label for="wkt-modal-target">Workouts per week</label>
+      <input id="wkt-modal-target" type="number" min="0" max="14" step="1" value="${currentWorkouts}" placeholder="No target" />
+      <label for="wkt-modal-cal-target">Calories burned per week</label>
+      <input id="wkt-modal-cal-target" type="number" min="0" step="50" value="${currentCals}" placeholder="No target" />
+      <div class="combine-modal-actions">
+        <button type="button" class="btn-muted table-action-btn" id="wkt-modal-cancel-btn">Cancel</button>
+        <button type="button" class="btn-success table-action-btn" id="wkt-modal-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('wkt-modal-target').focus();
+
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('wkt-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+
+  document.getElementById('wkt-modal-save-btn').addEventListener('click', async () => {
+    const rawWorkouts = document.getElementById('wkt-modal-target').value.trim();
+    const rawCals = document.getElementById('wkt-modal-cal-target').value.trim();
+    const nextWorkouts = rawWorkouts ? Number(rawWorkouts) : 0;
+    const nextCals = rawCals ? Number(rawCals) : 0;
+    if (rawWorkouts && (!Number.isFinite(nextWorkouts) || nextWorkouts < 0)) {
+      setActionBanner('Workouts target must be a number >= 0.', 'error');
+      return;
     }
-    await api('/api/macro-targets/workouts', {
-      method: 'PUT',
-      body: JSON.stringify({ target: roundedTarget })
-    });
-    if (state.dashboardData) {
-      state.dashboardData.targets = state.dashboardData.targets || {};
-      state.dashboardData.targets.workouts = roundedTarget;
+    if (rawCals && (!Number.isFinite(nextCals) || nextCals < 0)) {
+      setActionBanner('Calories target must be a number >= 0.', 'error');
+      return;
     }
-    if (workoutTargetPerWeekEl) {
-      workoutTargetPerWeekEl.value = String(roundedTarget);
+    const roundedWorkouts = Math.max(0, Math.min(14, Math.round(nextWorkouts)));
+    const roundedCals = Math.max(0, Math.round(nextCals));
+    overlay.remove();
+    try {
+      await Promise.all([
+        api('/api/macro-targets/workouts', {
+          method: 'PUT',
+          body: JSON.stringify({ target: roundedWorkouts })
+        }),
+        api('/api/macro-targets/workout_calories', {
+          method: 'PUT',
+          body: JSON.stringify({ target: roundedCals })
+        })
+      ]);
+      if (state.dashboardData) {
+        state.dashboardData.targets = state.dashboardData.targets || {};
+        state.dashboardData.targets.workouts = roundedWorkouts;
+        state.dashboardData.targets.workout_calories = roundedCals;
+      }
+      renderWorkoutCalChart();
+      setActionBanner('Workout targets updated.', 'success');
+    } catch (error) {
+      setActionBanner(error.message, 'error');
     }
-    setActionBanner('Workout target updated.', 'success');
-  } catch (error) {
-    setActionBanner(error.message, 'error');
-  } finally {
-    if (saveWorkoutTargetBtnEl) {
-      saveWorkoutTargetBtnEl.disabled = false;
-    }
-  }
+  });
+
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('wkt-modal-save-btn').click(); }
+    if (e.key === 'Escape') overlay.remove();
+  });
 }
 
 
@@ -1766,7 +1815,7 @@ function bindSnapshotToggles() {
 
   if (workoutPeriodToggleEl) {
     for (const btn of workoutPeriodToggleEl.querySelectorAll('.period-btn')) {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const period = btn.dataset.period;
         if (!period || period === state.workoutSnapshotPeriod) {
           return;
@@ -1776,7 +1825,7 @@ function bindSnapshotToggles() {
         if (workoutSnapshotHeadingEl) {
           workoutSnapshotHeadingEl.textContent = PERIOD_HEADING[period] || 'Snapshot';
         }
-        renderWorkoutChart();
+        await refreshWorkoutData();
       });
     }
   }
@@ -2628,10 +2677,9 @@ async function refreshDashboard() {
   renderProfile(me.user || null);
   renderSavedItems();
   renderDashboard(dashboard);
-  renderWorkoutTargetControl();
   bindTrendResize();
   bindTrendMacroCards();
-  bindMacroTargetCards();
+  bindEditTargetsLink();
   bindSnapshotToggles();
   await refreshMacroSnapshotData();
 }
@@ -3154,9 +3202,14 @@ function renderWeightChart() {
     targetValue: state.weightTarget
   });
   if (weightTargetDisplayEl) {
-    weightTargetDisplayEl.textContent = state.weightTarget != null
-      ? fmtNumber(state.weightTarget)
-      : '—';
+    if (state.weightTarget != null) {
+      const dateStr = state.weightTargetData?.targetDate;
+      const parsed = dateStr ? new Date(dateStr) : null;
+      const datePart = parsed && !isNaN(parsed) ? ` (${parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})` : '';
+      weightTargetDisplayEl.textContent = `${fmtNumber(state.weightTarget)}${datePart}`;
+    } else {
+      weightTargetDisplayEl.textContent = '—';
+    }
   }
 }
 
@@ -3298,8 +3351,31 @@ function drawWorkoutOccurrenceChart(entries, period) {
   workoutCanvasEl.setAttribute('aria-label', `${period === 'annual' ? '52-week' : period === 'monthly' ? '30-day' : '7-day'} workout occurrence chart`);
 }
 
+function renderWorkoutCalChart() {
+  const rows = state.workoutCalChartRows || [];
+  const calTarget = Number(state.dashboardData?.targets?.workout_calories || 0);
+  // Convert weekly target to daily for the chart
+  const dailyTarget = calTarget > 0 ? Math.round(calTarget / 7) : 0;
+  drawSimpleLineChart(workoutCalCanvasEl, rows, 'label', 'value', {
+    baseline: 'zero',
+    showYAxis: true,
+    showXAxisLabels: false,
+    yTickCount: 4,
+    showTrendLine: true,
+    trendLineMode: 'average',
+    averageValueEl: workoutCalAverageValueEl,
+    targetValue: dailyTarget > 0 ? dailyTarget : undefined
+  });
+  if (workoutCalTargetDisplayEl) {
+    workoutCalTargetDisplayEl.textContent = calTarget > 0
+      ? `${fmtNumber(calTarget)} cal/wk`
+      : '—';
+  }
+}
+
 function renderWorkoutChart() {
   drawWorkoutOccurrenceChart(state.workoutEntries, state.workoutSnapshotPeriod || 'weekly');
+  renderWorkoutCalChart();
 }
 
 function bindPageChartsResize() {
@@ -3370,7 +3446,7 @@ async function refreshWeightData() {
     const entries = Array.isArray(response.entries) ? response.entries : [];
     state.weightEntries = entries;
 
-    renderWeightTargetControl(target);
+    state.weightTargetData = target;
     const tw = Number(target?.targetWeight);
     state.weightTarget = Number.isFinite(tw) && tw > 0 ? tw : null;
 
@@ -3412,49 +3488,66 @@ async function refreshWeightData() {
 }
 
 
-function renderWeightTargetControl(target) {
-  if (weightTargetValueEl) {
-    const value = Number(target?.targetWeight);
-    weightTargetValueEl.value = Number.isFinite(value) && value > 0 ? String(value) : '';
-  }
-  if (weightTargetDateEl) {
-    const date = String(target?.targetDate || '').trim();
-    weightTargetDateEl.value = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : getLocalIsoDay();
-  }
-}
+function showWeightTargetModal() {
+  let overlay = document.getElementById('entry-modal-overlay');
+  if (overlay) overlay.remove();
 
-async function saveWeightTarget() {
-  const targetWeight = parseWeightInputValue(weightTargetValueEl?.value);
-  const targetDate = String(weightTargetDateEl?.value || '').trim();
-  if (!Number.isFinite(targetWeight) || targetWeight <= 0) {
-    setActionBanner('Target weight must be greater than 0.', 'error');
-    return;
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
-    setActionBanner('Target date must be in YYYY-MM-DD format.', 'error');
-    return;
-  }
+  const currentWeight = state.weightTargetData?.targetWeight || '';
+  const rawDate = state.weightTargetData?.targetDate;
+  const parsedDate = rawDate ? new Date(rawDate) : null;
+  const currentDate = parsedDate && !isNaN(parsedDate) ? parsedDate.toISOString().slice(0, 10) : getLocalIsoDay();
 
-  try {
-    if (saveWeightTargetBtnEl) {
-      saveWeightTargetBtnEl.disabled = true;
+  overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal entry-modal">
+      <h3>Edit Weight Target</h3>
+      <label for="wt-modal-weight">Target Weight</label>
+      <input id="wt-modal-weight" type="number" step="0.1" min="0" value="${currentWeight}" placeholder="Target" />
+      <label for="wt-modal-date">Target Date</label>
+      <input id="wt-modal-date" type="date" value="${currentDate}" />
+      <div class="combine-modal-actions">
+        <button type="button" class="btn-muted table-action-btn" id="wt-modal-cancel-btn">Cancel</button>
+        <button type="button" class="btn-success table-action-btn" id="wt-modal-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('wt-modal-weight').focus();
+
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('wt-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+
+  document.getElementById('wt-modal-save-btn').addEventListener('click', async () => {
+    const targetWeight = parseWeightInputValue(document.getElementById('wt-modal-weight').value);
+    const targetDate = String(document.getElementById('wt-modal-date').value || '').trim();
+    if (!Number.isFinite(targetWeight) || targetWeight <= 0) {
+      setActionBanner('Target weight must be greater than 0.', 'error');
+      return;
     }
-    const response = await api('/api/weight-target', {
-      method: 'PUT',
-      body: JSON.stringify({
-        targetWeight,
-        targetDate
-      })
-    });
-    renderWeightTargetControl(response);
-    setActionBanner('Weight target updated.', 'success');
-  } catch (error) {
-    setActionBanner(error.message, 'error');
-  } finally {
-    if (saveWeightTargetBtnEl) {
-      saveWeightTargetBtnEl.disabled = false;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+      setActionBanner('Target date must be in YYYY-MM-DD format.', 'error');
+      return;
     }
-  }
+    overlay.remove();
+    try {
+      const response = await api('/api/weight-target', {
+        method: 'PUT',
+        body: JSON.stringify({ targetWeight, targetDate })
+      });
+      state.weightTargetData = response;
+      setActionBanner('Weight target updated.', 'success');
+      await refreshWeightData();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('wt-modal-save-btn').click(); }
+    if (e.key === 'Escape') overlay.remove();
+  });
 }
 
 async function deleteWeightEntryApi(entryId) {
@@ -3634,7 +3727,9 @@ async function refreshWorkoutData() {
     return;
   }
   try {
-    const data = await api('/api/workouts');
+    const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
+    const workoutScope = periodToScope[state.workoutSnapshotPeriod] || 'week';
+    const data = await api(`/api/workouts?scope=${workoutScope}`);
     const entries = Array.isArray(data.entries) ? data.entries : [];
     const dailyCalories = Array.isArray(data.dailyCalories) ? data.dailyCalories : [];
 
@@ -3667,6 +3762,10 @@ async function refreshWorkoutData() {
 
     renderWorkoutQuickAdds(entries);
     state.workoutEntries = entries;
+    state.workoutCalChartRows = dailyCalories.map((d) => ({
+      label: new Date(d.day + 'T00:00:00').toLocaleDateString(),
+      value: Number(d.calories || 0)
+    }));
     renderWorkoutStats(entries);
     renderWorkoutChart();
   } catch (error) {
@@ -3707,10 +3806,6 @@ if (saveWeightBtnEl) {
   if (weightLoggedAtEl) {
     weightLoggedAtEl.value = toDateTimeLocalValue();
   }
-  if (weightTargetDateEl && !weightTargetDateEl.value) {
-    weightTargetDateEl.value = getLocalIsoDay();
-  }
-
   saveWeightBtnEl.addEventListener('click', async () => {
     try {
       await api('/api/weights', {
@@ -3733,29 +3828,10 @@ if (saveWeightBtnEl) {
   });
 }
 
-if (saveWeightTargetBtnEl) {
-  saveWeightTargetBtnEl.addEventListener('click', async () => {
-    await saveWeightTarget();
-  });
-}
-
-if (weightTargetValueEl) {
-  weightTargetValueEl.addEventListener('keydown', async (event) => {
-    if (event.key !== 'Enter') {
-      return;
-    }
-    event.preventDefault();
-    await saveWeightTarget();
-  });
-}
-
-if (weightTargetDateEl) {
-  weightTargetDateEl.addEventListener('keydown', async (event) => {
-    if (event.key !== 'Enter') {
-      return;
-    }
-    event.preventDefault();
-    await saveWeightTarget();
+if (editWeightTargetLinkEl) {
+  editWeightTargetLinkEl.addEventListener('click', (e) => {
+    e.preventDefault();
+    showWeightTargetModal();
   });
 }
 
@@ -3781,19 +3857,10 @@ if (weightLogListEl) {
   });
 }
 
-if (saveWorkoutTargetBtnEl) {
-  saveWorkoutTargetBtnEl.addEventListener('click', async () => {
-    await saveWorkoutTarget();
-  });
-}
-
-if (workoutTargetPerWeekEl) {
-  workoutTargetPerWeekEl.addEventListener('keydown', async (event) => {
-    if (event.key !== 'Enter') {
-      return;
-    }
-    event.preventDefault();
-    await saveWorkoutTarget();
+if (editWorkoutTargetLinkEl) {
+  editWorkoutTargetLinkEl.addEventListener('click', (e) => {
+    e.preventDefault();
+    showWorkoutTargetModal();
   });
 }
 
