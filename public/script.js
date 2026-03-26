@@ -87,6 +87,9 @@ const workoutPeriodToggleEl = document.getElementById('workout-period-toggle');
 const workoutOccurrenceStatEl = document.getElementById('workout-occurrence-stat');
 const avgWorkoutsPerWeekEl = document.getElementById('avg-workouts-per-week');
 const avgCalBurnedPerWeekEl = document.getElementById('avg-cal-burned-per-week');
+const workoutStatTargetEl = document.getElementById('workout-stat-target');
+const workoutCalStatTargetEl = document.getElementById('workout-cal-stat-target');
+const workoutStatsNoteEl = document.getElementById('workout-stats-note');
 const entriesByDayEl = document.getElementById('entries-by-day');
 const entriesPrevDayBtnEl = document.getElementById('entries-prev-day-btn');
 const entriesNextDayBtnEl = document.getElementById('entries-next-day-btn');
@@ -128,6 +131,8 @@ const workoutQuickListEl = document.getElementById('workout-quick-list');
 const workoutLogListEl = document.getElementById('workout-log-list');
 const workoutCanvasEl = document.getElementById('workout-canvas');
 const workoutCalCanvasEl = document.getElementById('workout-cal-canvas');
+const weightTooltipEl = document.getElementById('weight-tooltip');
+const workoutCalTooltipEl = document.getElementById('workout-cal-tooltip');
 const workoutCalAverageValueEl = document.getElementById('workout-cal-average-value');
 const workoutCalTargetDisplayEl = document.getElementById('workout-cal-target-display');
 const editWorkoutTargetLinkEl = document.getElementById('edit-workout-target-link');
@@ -540,7 +545,7 @@ function showTrendTooltipFromClient(clientX, clientY, persist = false) {
     }
   }
 
-  const threshold = persist ? 42 : 20;
+  const threshold = persist ? 42 : 40;
   if (!nearest || minDist > threshold) {
     hideTrendTooltip();
     return;
@@ -2974,6 +2979,8 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   const showTrendLine = options.showTrendLine !== false;
   const trendLineMode = options.trendLineMode === 'average' ? 'average' : 'regression';
   const averageValueEl = options.averageValueEl || null;
+  const tooltipEl = options.tooltipEl || null;
+  const tooltipUnit = options.tooltipUnit || '';
   const dpr = window.devicePixelRatio || 1;
   const width = Math.max(
     200,
@@ -3068,7 +3075,7 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
     const y = hasFlatRange
       ? pad.top + plotH / 2
       : pad.top + plotH - ((value - yMin) / ySpan) * plotH;
-    coords.push({ x, y });
+    coords.push({ x, y, label: row[labelKey], value });
     if (index === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
@@ -3131,8 +3138,7 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
         ctx.fillText(`Avg ${fmtNumber(average)}`, width - pad.right, Math.max(12, avgY - 3));
       }
       ctx.restore();
-      return;
-    }
+    } else {
 
     const n = rows.length;
     let sumX = 0;
@@ -3173,9 +3179,10 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
       ctx.setLineDash([]);
       ctx.restore();
     }
+    }
   }
 
-  if (averageValueEl) {
+  if (averageValueEl && !(showTrendLine && rows.length >= 2 && trendLineMode === 'average')) {
     averageValueEl.textContent = 'none';
   }
 
@@ -3187,8 +3194,92 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
     ctx.fillText(String(rows[rows.length - 1][labelKey] || ''), width - pad.right, height - 6);
     ctx.textAlign = 'left';
   }
+
+  if (tooltipEl && coords.length) {
+    bindSimpleChartTooltip(canvasEl, tooltipEl, coords, tooltipUnit);
+  }
 }
 
+function bindSimpleChartTooltip(canvasEl, tooltipEl, coords, unit) {
+  const key = '_simpleChartTooltipBound';
+  // Store coords for reuse; always update on redraw
+  canvasEl._tooltipCoords = coords;
+  canvasEl._tooltipUnit = unit;
+  canvasEl._tooltipEl = tooltipEl;
+
+  if (canvasEl[key]) {
+    return;
+  }
+
+  function showTooltip(clientX, clientY, persist) {
+    const pts = canvasEl._tooltipCoords;
+    const tip = canvasEl._tooltipEl;
+    const u = canvasEl._tooltipUnit || '';
+    if (!pts || !pts.length || !tip) return;
+
+    const rect = canvasEl.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const scaleX = canvasEl.width / rect.width;
+    const scaleY = canvasEl.height / rect.height;
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
+
+    let nearest = null;
+    let minDist = Number.POSITIVE_INFINITY;
+    for (const point of pts) {
+      const dx = point.x - x;
+      const dy = point.y - y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = point;
+      }
+    }
+
+    const threshold = persist ? 42 : 40;
+    if (!nearest || minDist > threshold) {
+      tip.hidden = true;
+      return;
+    }
+
+    const suffix = u ? ` ${u}` : '';
+    tip.textContent = `${nearest.label}: ${fmtNumber(nearest.value)}${suffix}`;
+    tip.hidden = false;
+
+    const wrap = canvasEl.parentElement;
+    if (!wrap) return;
+
+    const wrapRect = wrap.getBoundingClientRect();
+    const canvasOffsetX = rect.left - wrapRect.left;
+    const canvasOffsetY = rect.top - wrapRect.top;
+    const cssX = nearest.x / scaleX;
+    const cssY = nearest.y / scaleY;
+
+    const tipW = tip.offsetWidth || 0;
+    const tipH = tip.offsetHeight || 0;
+    const minLeft = tipW / 2 + 8;
+    const maxLeft = wrap.clientWidth - tipW / 2 - 8;
+
+    const left = Math.min(Math.max(canvasOffsetX + cssX, minLeft), maxLeft);
+    const top = Math.max(canvasOffsetY + cssY, tipH + 10);
+
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  }
+
+  canvasEl.addEventListener('mousemove', (e) => showTooltip(e.clientX, e.clientY, false));
+  canvasEl.addEventListener('mouseleave', () => { canvasEl._tooltipEl.hidden = true; });
+  canvasEl.addEventListener('click', (e) => showTooltip(e.clientX, e.clientY, true));
+  canvasEl.addEventListener('touchstart', (e) => {
+    const touch = e.touches && e.touches[0];
+    if (!touch) return;
+    showTooltip(touch.clientX, touch.clientY, true);
+    e.preventDefault();
+  }, { passive: false });
+
+  canvasEl[key] = true;
+}
 
 function renderWeightChart() {
   drawSimpleLineChart(weightCanvasEl, state.weightChartRows, 'label', 'value', {
@@ -3199,7 +3290,9 @@ function renderWeightChart() {
     showTrendLine: true,
     trendLineMode: 'average',
     averageValueEl: weightAverageValueEl,
-    targetValue: state.weightTarget
+    targetValue: state.weightTarget,
+    tooltipEl: weightTooltipEl,
+    tooltipUnit: 'lbs'
   });
   if (weightTargetDisplayEl) {
     if (state.weightTarget != null) {
@@ -3226,6 +3319,20 @@ function renderWorkoutStats(entries) {
   }
   if (avgCalBurnedPerWeekEl) {
     avgCalBurnedPerWeekEl.textContent = recent.length ? Math.round(avgCal).toLocaleString() : '—';
+  }
+  const targets = state.dashboardData?.targets || {};
+  const wktTarget = Number(targets.workouts || 0);
+  const calTarget = Number(targets.workout_calories || 0);
+  if (workoutStatTargetEl) {
+    workoutStatTargetEl.textContent = wktTarget > 0 ? `Target: ${wktTarget}/wk` : '—';
+  }
+  if (workoutCalStatTargetEl) {
+    workoutCalStatTargetEl.textContent = calTarget > 0 ? `Target: ${fmtNumber(calTarget)}/wk` : '—';
+  }
+  if (workoutStatsNoteEl) {
+    workoutStatsNoteEl.textContent = recent.length
+      ? `Based on ${recent.length} workout${recent.length === 1 ? '' : 's'} in the last 30 days.`
+      : '';
   }
 }
 
@@ -3364,7 +3471,9 @@ function renderWorkoutCalChart() {
     showTrendLine: true,
     trendLineMode: 'average',
     averageValueEl: workoutCalAverageValueEl,
-    targetValue: dailyTarget > 0 ? dailyTarget : undefined
+    targetValue: dailyTarget > 0 ? dailyTarget : undefined,
+    tooltipEl: workoutCalTooltipEl,
+    tooltipUnit: 'cal'
   });
   if (workoutCalTargetDisplayEl) {
     workoutCalTargetDisplayEl.textContent = calTarget > 0

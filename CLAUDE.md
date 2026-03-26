@@ -108,7 +108,12 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 - **Frontend**: Single HTML page (`public/index.html`) with all state in `public/script.js`.
 - **Modal-based editing**: All editing (entries, meals, quick adds, weight, workouts) uses modal popups (`showEntryModal`, `showCombineModal`, `showWeightEditModal`, `showWorkoutEditModal`). Target editing also uses modals: `showEditTargetsModal` (macro targets), `showWeightTargetModal` (weight target + date), `showWorkoutTargetModal` (workouts/week + calories/week). Each is accessed via "(edit targets)" or "(edit target)" links in the Logged Entries heading of each tab. No inline edit rows remain.
 - **Macro targets**: Stored in `macro_targets` table. Valid macros: `calories`, `protein`, `carbs`, `fat`, `workouts`, `workout_calories`. Defaults via `getMacroTargets()`.
-- **Workout calories chart**: `drawSimpleLineChart` on `#workout-cal-canvas` shows daily calories burned with average and target lines. Target is stored as weekly (`workout_calories`) and converted to daily for chart display. Workout API (`/api/workouts`) accepts `scope` param (week/month/year) for dailyCalories date range.
+- **Timezone**: All database date grouping uses `AT TIME ZONE 'America/New_York'` (Eastern time) so daily boundaries align with the user's local day.
+- **Chart tooltips**: All charts (macros trend, weight, workout calories) support hover/click/touch tooltips via `bindSimpleChartTooltip()`. Tooltip threshold is 40px for hover, 42px for click/touch.
+- **Weight chart**: `drawSimpleLineChart` on `#weight-canvas` shows weight trend with average and target lines. Weight page has period toggles (week/month/year).
+- **Workout stats**: Workout page shows stats chips (workouts/week, cal burned/week) with target values and a data source note. Workout graphs (occurrence + calories) have been removed.
+- **Tab order**: Macros, Workouts, Weight, Analysis.
+- **Branding**: App name is "DailyMacros" with "DM" logo icon.
 - **Meal grouping**: Entries can be combined into meals via `meal_group` UUID. API endpoints: `POST /api/entries/combine`, `POST /api/meal-group/:id/split`, `POST /api/entries/:id/remove-from-group`, `PUT /api/meal-group/:id/scale`.
 - **Entry multi-select**: Custom-styled checkboxes (neon accent, `appearance: none`) hidden by default behind "(edit)" link in table header. Toggle adds `.editing` class to `#entries-by-day`. Sub-item checkboxes are indented within meal groups. Mobile-friendly tap targets for both edit link and checkboxes. Selection modes: meals, items, sub-items (no mixing). Action bar appears with context-sensitive buttons (Edit, Delete, Combine, Split, Remove).
 
@@ -166,7 +171,7 @@ The server sets a strict CSP header. Key constraints for frontend development:
 
 - All state lives in the global `state` object in `public/script.js`
 - Period toggles (weekly/monthly/annual) controlled by `state.macroSnapshotPeriod`, `state.weightSnapshotPeriod`, `state.workoutSnapshotPeriod`. Switching period triggers a server request with `scope` param (e.g. `/api/daily-totals?scope=month`) to fetch the full date range.
-- Charts are drawn on `<canvas>` elements with device pixel ratio scaling. Weight chart renders data point dots along the trend line.
+- Charts are drawn on `<canvas>` elements with device pixel ratio scaling. All charts support tooltips on hover/click/touch.
 - TDEE/energy balance feature was removed — no longer present in the codebase.
 - Meal photo preview: uses base64 data URL (`state.mealImageDataUrl`) for `<img src>` — not blob URLs (blocked by CSP)
 - OpenAI API key is required; no fallback parsing exists

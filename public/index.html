@@ -28,15 +28,15 @@
               </linearGradient>
             </defs>
             <rect x="6" y="6" width="52" height="52" rx="14" fill="url(#brand-grad)" />
-            <path d="M18 42V22h6l8 11 8-11h6v20h-6V31l-8 10-8-10v11z" fill="#fff" />
-            <circle cx="50" cy="14" r="4" fill="#fff" />
+            <text x="32" y="43" text-anchor="middle" font-family="'Avenir Next', 'Helvetica Neue', system-ui, sans-serif" font-weight="700" font-size="28" fill="#fff" letter-spacing="-2" opacity="0.95">DM</text>
+            <rect x="14" y="48" width="36" height="2.5" rx="1.25" fill="#fff" opacity="0.4" />
           </svg>
-          <span class="brand-wordmark">MacroFlow</span>
+          <span class="brand-wordmark">DailyMacros</span>
         </div>
         <nav class="main-nav" aria-label="App navigation">
           <button type="button" class="nav-tab is-active" data-page="macros">Macros</button>
-          <button type="button" class="nav-tab" data-page="weight">Weight</button>
           <button type="button" class="nav-tab" data-page="workout">Workouts</button>
+          <button type="button" class="nav-tab" data-page="weight">Weight</button>
           <button type="button" class="nav-tab" data-page="analysis">Analysis</button>
         </nav>
         <div class="topbar-right">
@@ -228,52 +228,6 @@
       </section>
       </section>
 
-      <section id="weight-page" class="app-page" hidden>
-        <section id="weight-log-section" class="panel glass">
-          <div class="section-head-row">
-            <h2>Log Weight</h2>
-            <div class="consumed-inline">
-              <input id="weight-logged-at" type="datetime-local" />
-            </div>
-          </div>
-          <div class="weight-log-inputs">
-            <input id="weight-value" type="number" step="0.1" min="0" placeholder="Weight" />
-          </div>
-          <button id="save-weight-btn" type="button">Save Weight</button>
-          <p id="weight-note" role="status" aria-live="polite"></p>
-        </section>
-
-        <section id="weight-entries-section" class="panel glass">
-          <h2>Logged Entries <a href="#" id="edit-weight-target-link" class="edit-items-link">(edit target)</a></h2>
-          <div id="weight-log-list" class="simple-log-list"></div>
-        </section>
-
-        <section id="weight-snapshot-section" class="panel glass">
-          <div class="snapshot-header">
-            <h2 id="weight-snapshot-heading">Weekly Snapshot</h2>
-            <div class="period-toggle" id="weight-period-toggle" role="group" aria-label="Snapshot time period">
-              <button class="period-btn is-active" data-period="weekly">Week</button>
-              <button class="period-btn" data-period="monthly">Month</button>
-              <button class="period-btn" data-period="annual">Year</button>
-            </div>
-          </div>
-          <div class="trend-wrap">
-            <canvas id="weight-canvas" height="130" aria-label="Weekly weight trend graph"></canvas>
-            <div class="trend-legend" aria-live="polite">
-              <span class="trend-legend-item">
-                <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
-                Average: <span id="weight-average-value">none</span>
-              </span>
-              <span class="trend-legend-item">
-                <span class="trend-legend-swatch trend-legend-swatch-target" aria-hidden="true"></span>
-                Target: <span id="weight-target-display">—</span>
-              </span>
-            </div>
-          </div>
-        </section>
-
-      </section>
-
       <section id="workout-page" class="app-page" hidden>
         <section class="panel glass">
           <div class="section-head-row">
@@ -326,51 +280,67 @@
         </section>
 
         <section id="workout-snapshot-section" class="panel glass">
+          <div class="cards stats-cards avg-cards" aria-label="Monthly workout averages">
+            <article class="card metric" data-workout-stat="workouts">
+              <span class="metric-label">Workouts / week</span>
+              <strong class="metric-value" id="avg-workouts-per-week">—</strong>
+              <span class="metric-target" id="workout-stat-target">—</span>
+            </article>
+            <article class="card metric" data-workout-stat="calories">
+              <span class="metric-label">Cal burned / week</span>
+              <strong class="metric-value" id="avg-cal-burned-per-week">—</strong>
+              <span class="metric-target" id="workout-cal-stat-target">—</span>
+            </article>
+          </div>
+          <p class="avg-note" id="workout-stats-note" style="margin-top:4px"></p>
+        </section>
+      </section>
+
+      <section id="weight-page" class="app-page" hidden>
+        <section id="weight-log-section" class="panel glass">
+          <div class="section-head-row">
+            <h2>Log Weight</h2>
+            <div class="consumed-inline">
+              <input id="weight-logged-at" type="datetime-local" />
+            </div>
+          </div>
+          <div class="weight-log-inputs">
+            <input id="weight-value" type="number" step="0.1" min="0" placeholder="Weight" />
+          </div>
+          <button id="save-weight-btn" type="button">Save Weight</button>
+          <p id="weight-note" role="status" aria-live="polite"></p>
+        </section>
+
+        <section id="weight-entries-section" class="panel glass">
+          <h2>Logged Entries <a href="#" id="edit-weight-target-link" class="edit-items-link">(edit target)</a></h2>
+          <div id="weight-log-list" class="simple-log-list"></div>
+        </section>
+
+        <section id="weight-snapshot-section" class="panel glass">
           <div class="snapshot-header">
-            <h2 id="workout-snapshot-heading">Weekly Snapshot</h2>
-            <div class="period-toggle" id="workout-period-toggle" role="group" aria-label="Snapshot time period">
+            <h2 id="weight-snapshot-heading">Weekly Snapshot</h2>
+            <div class="period-toggle" id="weight-period-toggle" role="group" aria-label="Snapshot time period">
               <button class="period-btn is-active" data-period="weekly">Week</button>
               <button class="period-btn" data-period="monthly">Month</button>
               <button class="period-btn" data-period="annual">Year</button>
             </div>
           </div>
           <div class="trend-wrap">
-            <canvas id="workout-canvas" height="64" aria-label="Weekly workout occurrence chart"></canvas>
-            <div class="trend-legend" aria-live="polite">
-              <span class="trend-legend-item">
-                <span class="trend-legend-swatch trend-legend-swatch-workout" aria-hidden="true"></span>
-                <span id="workout-occurrence-stat">—</span>
-              </span>
-            </div>
-          </div>
-
-          <div class="trend-wrap">
-            <canvas id="workout-cal-canvas" height="130" aria-label="Workout calories burned chart"></canvas>
+            <canvas id="weight-canvas" height="130" aria-label="Weekly weight trend graph"></canvas>
+            <div id="weight-tooltip" class="trend-tooltip" hidden></div>
             <div class="trend-legend" aria-live="polite">
               <span class="trend-legend-item">
                 <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
-                Average: <span id="workout-cal-average-value">none</span>
+                Average: <span id="weight-average-value">none</span>
               </span>
               <span class="trend-legend-item">
                 <span class="trend-legend-swatch trend-legend-swatch-target" aria-hidden="true"></span>
-                Target: <span id="workout-cal-target-display">—</span>
+                Target: <span id="weight-target-display">—</span>
               </span>
             </div>
           </div>
-
-          <div class="cards stats-cards avg-cards" aria-label="Monthly workout averages">
-            <article class="card metric" data-workout-stat="workouts">
-              <span class="metric-label">Workouts / week</span>
-              <strong class="metric-value" id="avg-workouts-per-week">—</strong>
-              <span class="metric-target">Last 30 days</span>
-            </article>
-            <article class="card metric" data-workout-stat="calories">
-              <span class="metric-label">Cal burned / week</span>
-              <strong class="metric-value" id="avg-cal-burned-per-week">—</strong>
-              <span class="metric-target">Last 30 days</span>
-            </article>
-          </div>
         </section>
+
       </section>
 
       <section id="analysis-page" class="app-page" hidden>
