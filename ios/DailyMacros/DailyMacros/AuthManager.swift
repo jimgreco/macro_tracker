@@ -70,6 +70,28 @@ class AuthManager: ObservableObject {
         isAuthenticated = true
     }
 
+    /// Handle callback URL from Google OAuth (via ASWebAuthenticationSession)
+    func handleGoogleCallback(url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let queryItems = components.queryItems else { return }
+
+        let params = Dictionary(uniqueKeysWithValues: queryItems.compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+
+        if let token = params["token"], !token.isEmpty {
+            api.token = token
+            user = User(
+                id: params["id"] ?? "",
+                name: params["name"],
+                email: params["email"],
+                picture: nil,
+                provider: "google"
+            )
+            isAuthenticated = true
+        }
+    }
+
     func signOut() {
         api.token = nil
         user = nil

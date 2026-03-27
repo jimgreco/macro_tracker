@@ -180,6 +180,11 @@ struct OkResponse: Codable {
     let ok: Bool
 }
 
+struct CombineResponse: Codable {
+    let ok: Bool
+    let mealGroup: String
+}
+
 struct ErrorResponse: Codable {
     let error: String
 }

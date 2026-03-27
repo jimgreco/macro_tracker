@@ -156,8 +156,50 @@ class APIClient: ObservableObject {
         let _: OkResponse = try await perform(request)
     }
 
+    func updateEntry(id: Int, itemName: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double) async throws {
+        let payload: [String: Any] = [
+            "itemName": itemName,
+            "quantity": quantity,
+            "unit": unit,
+            "calories": calories,
+            "protein": protein,
+            "carbs": carbs,
+            "fat": fat
+        ]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/entries/\(id)"), method: "PUT", body: body)
+        let _: OkResponse = try await perform(request)
+    }
+
     func deleteEntry(id: Int) async throws {
         let request = try authorizedRequest(apiURL("/entries/\(id)"), method: "DELETE")
+        let _: OkResponse = try await perform(request)
+    }
+
+    // MARK: - Meal Groups
+
+    func combineEntries(entryIds: [Int], mealName: String = "Meal") async throws {
+        let payload: [String: Any] = ["entryIds": entryIds, "mealName": mealName]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/entries/combine"), method: "POST", body: body)
+        let _: CombineResponse = try await perform(request)
+    }
+
+    func removeFromGroup(entryId: Int) async throws {
+        let request = try authorizedRequest(apiURL("/entries/\(entryId)/remove-from-group"), method: "POST")
+        let _: OkResponse = try await perform(request)
+    }
+
+    func splitMealGroup(mealGroup: String) async throws {
+        let request = try authorizedRequest(apiURL("/meal-group/\(mealGroup)/split"), method: "POST")
+        let _: OkResponse = try await perform(request)
+    }
+
+    func scaleMealGroup(mealGroup: String, quantity: Double, unit: String = "serving", name: String? = nil) async throws {
+        var payload: [String: Any] = ["quantity": quantity, "unit": unit]
+        if let name { payload["name"] = name }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/meal-group/\(mealGroup)/scale"), method: "PUT", body: body)
         let _: OkResponse = try await perform(request)
     }
 

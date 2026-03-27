@@ -980,13 +980,34 @@ app.get('/login.js', (req, res) => {
 
 app.use('/auth', createRateLimiter({ windowMs: 15 * 60 * 1000, maxRequests: 30 }));
 
-app.get('/auth/google', (req, res, next) => {
+app.get('/auth/google', async (req, res, next) => {
   if (localDevUser) {
+    // Mobile auth bypass: create a token for the dev user and redirect to app
+    if (req.query.mobile === '1') {
+      try {
+        await upsertUser(localDevUser);
+        const tokenResult = await createApiToken(localDevUser.id, 'DailyMacros iOS', null);
+        const params = new URLSearchParams({
+          token: tokenResult.token,
+          name: localDevUser.name || '',
+          email: localDevUser.email || '',
+          id: localDevUser.id
+        });
+        return res.redirect(`dailymacros://auth/callback?${params.toString()}`);
+      } catch (error) {
+        return res.redirect('dailymacros://auth/callback?error=token_creation_failed');
+      }
+    }
     return res.redirect('/');
   }
 
   if (!isAuthConfigured()) {
     return res.status(500).send('Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.');
+  }
+
+  // Store mobile flag in session so callback knows to return a token
+  if (req.query.mobile === '1') {
+    req.session.mobileAuth = true;
   }
 
   return passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
@@ -1014,6 +1035,24 @@ app.get(
         // Don't block login if upsert fails
       }
     }
+
+    // Mobile auth: create API token and redirect to app URL scheme
+    if (req.session.mobileAuth) {
+      delete req.session.mobileAuth;
+      try {
+        const tokenResult = await createApiToken(req.user.id, 'DailyMacros iOS', null);
+        const params = new URLSearchParams({
+          token: tokenResult.token,
+          name: req.user.name || '',
+          email: req.user.email || '',
+          id: req.user.id
+        });
+        return res.redirect(`dailymacros://auth/callback?${params.toString()}`);
+      } catch (error) {
+        return res.redirect('dailymacros://auth/callback?error=token_creation_failed');
+      }
+    }
+
     res.redirect('/');
   }
 );
