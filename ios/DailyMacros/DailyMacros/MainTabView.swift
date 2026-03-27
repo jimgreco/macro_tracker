@@ -10,14 +10,19 @@ struct MainTabView: View {
                     Label("Macros", systemImage: "fork.knife")
                 }
 
+            WorkoutsView()
+                .tabItem {
+                    Label("Workouts", systemImage: "figure.run")
+                }
+
             WeightView()
                 .tabItem {
                     Label("Weight", systemImage: "scalemass")
                 }
 
-            WorkoutsView()
+            AnalysisView()
                 .tabItem {
-                    Label("Workouts", systemImage: "figure.run")
+                    Label("Analysis", systemImage: "chart.bar")
                 }
 
             SettingsView()

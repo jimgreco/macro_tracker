@@ -179,6 +179,24 @@ class APIClient: ObservableObject {
         let _: OkResponse = try await perform(request)
     }
 
+    // MARK: - Daily Totals
+
+    func getDailyTotals(scope: String = "week") async throws -> DailyTotalsResponse {
+        var components = URLComponents(url: apiURL("/daily-totals"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [.init(name: "scope", value: scope)]
+        let request = try authorizedRequest(components.url!)
+        return try await perform(request)
+    }
+
+    // MARK: - Macro Targets
+
+    func setMacroTarget(macro: String, target: Double) async throws {
+        let payload: [String: Any] = ["target": target]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/macro-targets/\(macro)"), method: "PUT", body: body)
+        let _: OkResponse = try await perform(request)
+    }
+
     // MARK: - Weight
 
     func getWeights(scope: String = "month") async throws -> [WeightEntry] {
@@ -206,14 +224,23 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
+    func setWeightTarget(targetWeight: Double?, targetDate: String?) async throws {
+        var payload: [String: Any] = [:]
+        if let targetWeight { payload["targetWeight"] = targetWeight }
+        if let targetDate { payload["targetDate"] = targetDate }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/weight-target"), method: "PUT", body: body)
+        let _: OkResponse = try await perform(request)
+    }
+
     // MARK: - Workouts
 
-    func getWorkouts(limit: Int = 100, offset: Int = 0) async throws -> WorkoutsResponse {
+    func getWorkouts(limit: Int = 100, offset: Int = 0, scope: String = "week") async throws -> WorkoutsResponse {
         var components = URLComponents(url: apiURL("/workouts"), resolvingAgainstBaseURL: false)!
-        var queryItems: [URLQueryItem] = []
+        var queryItems: [URLQueryItem] = [.init(name: "scope", value: scope)]
         if limit != 100 { queryItems.append(.init(name: "limit", value: "\(limit)")) }
         if offset > 0 { queryItems.append(.init(name: "offset", value: "\(offset)")) }
-        if !queryItems.isEmpty { components.queryItems = queryItems }
+        components.queryItems = queryItems
 
         let request = try authorizedRequest(components.url!)
         return try await perform(request)
@@ -237,6 +264,34 @@ class APIClient: ObservableObject {
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/workouts"), method: "POST", body: body)
         let _: OkResponse = try await perform(request)
+    }
+
+    func updateWorkout(id: Int, description: String, intensity: String, durationHours: Double, caloriesBurned: Double) async throws {
+        let payload: [String: Any] = [
+            "description": description,
+            "intensity": intensity,
+            "durationHours": durationHours,
+            "caloriesBurned": caloriesBurned
+        ]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/workouts/\(id)"), method: "PUT", body: body)
+        let _: OkResponse = try await perform(request)
+    }
+
+    // MARK: - Analysis
+
+    func getLatestAnalysis() async throws -> AnalysisReport? {
+        let request = try authorizedRequest(apiURL("/analysis/latest"))
+        let response: AnalysisReportResponse = try await perform(request)
+        return response.report
+    }
+
+    func generateAnalysis(days: Int = 90) async throws -> AnalysisReport? {
+        let payload: [String: Any] = ["days": days]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/analysis"), method: "POST", body: body)
+        let response: AnalysisReportResponse = try await perform(request)
+        return response.report
     }
 
     // MARK: - Subscription

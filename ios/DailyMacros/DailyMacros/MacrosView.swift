@@ -11,8 +11,24 @@ struct MacrosView: View {
     @State private var isSaving = false
     @State private var showParsed = false
     @State private var showQuickAdd = false
+    @State private var showEditTargets = false
     @State private var errorMessage: String?
     @State private var selectedDate = Date()
+
+    // Trend chart state
+    @State private var trendPeriod = "week"
+    @State private var trendData: [DailyTotals] = []
+    @State private var trendTargets: MacroTargets?
+    @State private var selectedTrendMacro = "calories"
+
+    // Target editing state
+    @State private var editCalories = ""
+    @State private var editProtein = ""
+    @State private var editCarbs = ""
+    @State private var editFat = ""
+
+    private let trendPeriods = ["week", "month", "year"]
+    private let macroOptions = ["calories", "protein", "carbs", "fat"]
 
     private var dateString: String {
         let f = DateFormatter()
@@ -37,6 +53,8 @@ struct MacrosView: View {
                         macroSummaryCard(dash)
                         entriesList(dash.entries)
                     }
+
+                    trendSection
                 }
                 .padding()
             }
@@ -60,8 +78,17 @@ struct MacrosView: View {
             .sheet(isPresented: $showQuickAdd) {
                 quickAddSheet
             }
-            .task { await loadDashboard() }
-            .refreshable { await loadDashboard() }
+            .sheet(isPresented: $showEditTargets) {
+                editTargetsSheet
+            }
+            .task {
+                await loadDashboard()
+                await loadTrend()
+            }
+            .refreshable {
+                await loadDashboard()
+                await loadTrend()
+            }
             .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: {
@@ -95,6 +122,21 @@ struct MacrosView: View {
         let targets = dash.targets
 
         return VStack(spacing: 12) {
+            HStack {
+                Text("Daily Totals")
+                    .font(.subheadline.bold())
+                Spacer()
+                Button("edit targets") {
+                    editCalories = "\(Int(targets.calories))"
+                    editProtein = "\(Int(targets.protein))"
+                    editCarbs = "\(Int(targets.carbs))"
+                    editFat = "\(Int(targets.fat))"
+                    showEditTargets = true
+                }
+                .font(.caption)
+                .foregroundStyle(.cyan)
+            }
+
             macroRow("Calories", value: totals.calories, target: targets.calories, unit: "kcal", color: .cyan)
             macroRow("Protein", value: totals.protein, target: targets.protein, unit: "g", color: .red)
             macroRow("Carbs", value: totals.carbs, target: targets.carbs, unit: "g", color: .blue)
@@ -185,6 +227,193 @@ struct MacrosView: View {
         }
     }
 
+    // MARK: - Trend Section
+
+    private var trendSection: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("Trend")
+                    .font(.headline)
+                Spacer()
+            }
+
+            Picker("Period", selection: $trendPeriod) {
+                ForEach(trendPeriods, id: \.self) { p in
+                    Text(p.capitalized).tag(p)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: trendPeriod) { _, _ in
+                Task { await loadTrend() }
+            }
+
+            // Macro selector
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(macroOptions, id: \.self) { macro in
+                        Button {
+                            selectedTrendMacro = macro
+                        } label: {
+                            Text(macro.capitalized)
+                                .font(.caption.bold())
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(selectedTrendMacro == macro ? macroColor(macro) : Color(.systemGray5))
+                                .foregroundStyle(selectedTrendMacro == macro ? .white : .primary)
+                                .cornerRadius(16)
+                        }
+                    }
+                }
+            }
+
+            if trendData.count >= 2 {
+                trendChart
+            } else if !trendData.isEmpty {
+                Text("Need at least 2 days of data for chart")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 20)
+            }
+
+            // Running averages
+            if !trendData.isEmpty {
+                trendAverages
+            }
+        }
+    }
+
+    private var trendChart: some View {
+        Canvas { context, size in
+            let values = trendData.map { valueForMacro($0, macro: selectedTrendMacro) }
+            let targetValue = targetForMacro(selectedTrendMacro)
+            let allValues = values + (targetValue > 0 ? [targetValue] : [])
+            let minV = max(0, (allValues.min() ?? 0) * 0.8)
+            let maxV = (allValues.max() ?? 0) * 1.1
+            let range = max(maxV - minV, 1)
+
+            let stepX = size.width / CGFloat(max(values.count - 1, 1))
+
+            // Target line
+            if targetValue > 0 {
+                let targetY = size.height - ((targetValue - minV) / range) * size.height
+                var targetPath = Path()
+                targetPath.move(to: CGPoint(x: 0, y: targetY))
+                targetPath.addLine(to: CGPoint(x: size.width, y: targetY))
+                context.stroke(targetPath, with: .color(.white.opacity(0.3)), style: StrokeStyle(lineWidth: 1, dash: [5, 5]))
+            }
+
+            // Average line
+            let avg = values.reduce(0, +) / Double(values.count)
+            let avgY = size.height - ((avg - minV) / range) * size.height
+            var avgPath = Path()
+            avgPath.move(to: CGPoint(x: 0, y: avgY))
+            avgPath.addLine(to: CGPoint(x: size.width, y: avgY))
+            context.stroke(avgPath, with: .color(.white.opacity(0.2)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+
+            // Data line
+            var path = Path()
+            for (i, val) in values.enumerated() {
+                let x = CGFloat(i) * stepX
+                let y = size.height - ((val - minV) / range) * size.height
+                if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                else { path.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            context.stroke(path, with: .color(macroColor(selectedTrendMacro)), lineWidth: 2)
+
+            // Dots
+            for (i, val) in values.enumerated() {
+                let x = CGFloat(i) * stepX
+                let y = size.height - ((val - minV) / range) * size.height
+                context.fill(Circle().path(in: CGRect(x: x - 3, y: y - 3, width: 6, height: 6)), with: .color(macroColor(selectedTrendMacro)))
+            }
+        }
+        .frame(height: 180)
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
+    }
+
+    private var trendAverages: some View {
+        let daysWithData = trendData.count
+        let avgCal = trendData.reduce(0) { $0 + $1.calories } / Double(daysWithData)
+        let avgProt = trendData.reduce(0) { $0 + $1.protein } / Double(daysWithData)
+        let avgCarbs = trendData.reduce(0) { $0 + $1.carbs } / Double(daysWithData)
+        let avgFat = trendData.reduce(0) { $0 + $1.fat } / Double(daysWithData)
+
+        return VStack(spacing: 8) {
+            HStack {
+                Text("Averages (\(daysWithData) days)")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            HStack(spacing: 16) {
+                avgChip("Cal", value: avgCal, color: .cyan)
+                avgChip("P", value: avgProt, color: .red)
+                avgChip("C", value: avgCarbs, color: .blue)
+                avgChip("F", value: avgFat, color: .yellow)
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
+    }
+
+    private func avgChip(_ label: String, value: Double, color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text("\(Int(value))")
+                .font(.subheadline.bold())
+                .foregroundStyle(color)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Edit Targets Sheet
+
+    private var editTargetsSheet: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                targetField("Calories (kcal)", text: $editCalories)
+                targetField("Protein (g)", text: $editProtein)
+                targetField("Carbs (g)", text: $editCarbs)
+                targetField("Fat (g)", text: $editFat)
+
+                Button {
+                    Task { await saveTargets() }
+                } label: {
+                    Text("Save Targets").font(.headline).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.cyan)
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Edit Targets")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showEditTargets = false }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func targetField(_ label: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField(label, text: text)
+                .textFieldStyle(.roundedBorder)
+                .keyboardType(.numberPad)
+        }
+    }
+
     // MARK: - Meal Entry Sheet
 
     private var mealEntrySheet: some View {
@@ -263,7 +492,7 @@ struct MacrosView: View {
             HStack {
                 Text("Total").font(.subheadline.bold())
                 Spacer()
-                Text("\(Int(totalCal)) kcal · P:\(Int(totalP)) C:\(Int(totalC)) F:\(Int(totalF))")
+                Text("\(Int(totalCal)) kcal \u{00B7} P:\(Int(totalP)) C:\(Int(totalC)) F:\(Int(totalF))")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -295,7 +524,7 @@ struct MacrosView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(item.name).font(.subheadline)
-                            Text("\(Int(item.calories)) kcal · P:\(Int(item.protein)) C:\(Int(item.carbs)) F:\(Int(item.fat))")
+                            Text("\(Int(item.calories)) kcal \u{00B7} P:\(Int(item.protein)) C:\(Int(item.carbs)) F:\(Int(item.fat))")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -327,6 +556,16 @@ struct MacrosView: View {
             dashboard = try await api.getDashboard(date: dateString)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func loadTrend() async {
+        do {
+            let response = try await api.getDailyTotals(scope: trendPeriod)
+            trendData = response.dailyTotals
+            trendTargets = response.targets
+        } catch {
+            // Non-critical
         }
     }
 
@@ -394,6 +633,53 @@ struct MacrosView: View {
             await loadDashboard()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func saveTargets() async {
+        do {
+            if let cal = Double(editCalories) { try await api.setMacroTarget(macro: "calories", target: cal) }
+            if let prot = Double(editProtein) { try await api.setMacroTarget(macro: "protein", target: prot) }
+            if let carbs = Double(editCarbs) { try await api.setMacroTarget(macro: "carbs", target: carbs) }
+            if let fat = Double(editFat) { try await api.setMacroTarget(macro: "fat", target: fat) }
+            showEditTargets = false
+            await loadDashboard()
+            await loadTrend()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func valueForMacro(_ totals: DailyTotals, macro: String) -> Double {
+        switch macro {
+        case "calories": return totals.calories
+        case "protein": return totals.protein
+        case "carbs": return totals.carbs
+        case "fat": return totals.fat
+        default: return totals.calories
+        }
+    }
+
+    private func targetForMacro(_ macro: String) -> Double {
+        guard let targets = trendTargets else { return 0 }
+        switch macro {
+        case "calories": return targets.calories
+        case "protein": return targets.protein
+        case "carbs": return targets.carbs
+        case "fat": return targets.fat
+        default: return targets.calories
+        }
+    }
+
+    private func macroColor(_ macro: String) -> Color {
+        switch macro {
+        case "calories": return .cyan
+        case "protein": return .red
+        case "carbs": return .blue
+        case "fat": return .yellow
+        default: return .cyan
         }
     }
 }

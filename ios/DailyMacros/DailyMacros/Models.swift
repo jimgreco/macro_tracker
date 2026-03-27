@@ -53,6 +53,12 @@ struct MacroTargets: Codable {
     let carbs: Double
     let fat: Double
     let workouts: Double
+    let workoutCalories: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case calories, protein, carbs, fat, workouts
+        case workoutCalories = "workout_calories"
+    }
 }
 
 struct Pagination: Codable {
@@ -180,6 +186,75 @@ struct ErrorResponse: Codable {
 
 struct CheckoutResponse: Codable {
     let url: String
+}
+
+// MARK: - Daily Totals
+
+struct DailyTotalsResponse: Codable {
+    let dailyTotals: [DailyTotals]
+    let targets: MacroTargets
+}
+
+// MARK: - Analysis
+
+struct AnalysisReport: Codable, Identifiable {
+    let id: Int
+    let periodDays: Int
+    let report: AnalysisReportJson
+    let createdAt: String
+}
+
+struct AnalysisReportJson: Codable {
+    let summary: String?
+    let goalAlignment: GoalAlignment?
+    let progress: [String]?
+    let needsImprovement: [String]?
+    let nextWeekPlan: [String]?
+    let weekOverWeek: WeekOverWeek?
+    let nutritionSignals: NutritionSignals?
+    let adherence: AnalysisAdherence?
+    let dataConfidence: DataConfidence?
+    let confidence: String?
+}
+
+struct GoalAlignment: Codable {
+    let goal: String?
+    let status: String?
+    let score: Double?
+    let reason: String?
+}
+
+struct WeekOverWeek: Codable {
+    let weightChangeDelta: Double?
+    let avgCaloriesDelta: Double?
+    let avgProteinDelta: Double?
+    let workoutHoursDelta: Double?
+}
+
+struct AnalysisAdherence: Codable {
+    let mealLoggingPct: Double?
+    let calorieTargetDelta: Double?
+    let calorieTargetDeltaPct: Double?
+    let proteinTargetDelta: Double?
+    let proteinTargetDeltaPct: Double?
+    let completedWorkoutCount: Int?
+    let plannedWorkoutCount: Int?
+}
+
+struct NutritionSignals: Codable {
+    let proteinConsistency: String?
+    let calorieVolatility: Double?
+    let lateNightEatingPct: Double?
+    let weekendCalorieDrift: Double?
+}
+
+struct DataConfidence: Codable {
+    let score: Double?
+    let notes: String?
+}
+
+struct AnalysisReportResponse: Codable {
+    let report: AnalysisReport?
 }
 
 struct AppleSignInUser: Codable {
