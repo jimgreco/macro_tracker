@@ -280,6 +280,24 @@
         </section>
 
         <section id="workout-snapshot-section" class="panel glass">
+          <div class="snapshot-header">
+            <h2 id="workout-snapshot-heading">Weekly Snapshot</h2>
+            <div class="period-toggle" id="workout-period-toggle" role="group" aria-label="Snapshot time period">
+              <button class="period-btn is-active" data-period="weekly">Week</button>
+              <button class="period-btn" data-period="monthly">Month</button>
+              <button class="period-btn" data-period="annual">Year</button>
+            </div>
+          </div>
+          <div class="trend-wrap">
+            <canvas id="workout-canvas" height="64" aria-label="Weekly workout occurrence chart"></canvas>
+            <div class="trend-legend" aria-live="polite">
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch trend-legend-swatch-workout" aria-hidden="true"></span>
+                <span id="workout-occurrence-stat">—</span>
+              </span>
+            </div>
+          </div>
+
           <div class="cards stats-cards avg-cards" aria-label="Monthly workout averages">
             <article class="card metric" data-workout-stat="workouts">
               <span class="metric-label">Workouts / week</span>
