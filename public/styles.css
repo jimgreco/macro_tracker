@@ -1136,15 +1136,18 @@ button[disabled] {
 .editing .entry-checkbox-col,
 #entries-by-day.editing .table th.entry-checkbox-col {
   display: table-cell;
-  width: 2rem;
+  width: 1.4rem;
+  max-width: 1.4rem;
+  padding: 0 0.15rem !important;
 }
 
 .editing .table td.entry-checkbox-cell,
 .editing .entry-checkbox-cell,
 #entries-by-day.editing .table td.entry-checkbox-cell {
   display: table-cell;
-  width: 2rem;
-  padding: 0 !important;
+  width: 1.4rem;
+  max-width: 1.4rem;
+  padding: 0 0.15rem !important;
   text-align: center;
   vertical-align: middle;
 }
@@ -1170,6 +1173,8 @@ button[disabled] {
   margin-left: 0.3em;
   cursor: pointer;
   transition: opacity 0.15s;
+  padding: 0.4em 0.5em;
+  margin: -0.4em -0.5em -0.4em 0;
 }
 
 .entry-edit-icon:hover {

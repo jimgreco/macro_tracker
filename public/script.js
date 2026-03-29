@@ -3089,6 +3089,7 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   const averageValueEl = options.averageValueEl || null;
   const tooltipEl = options.tooltipEl || null;
   const tooltipUnit = options.tooltipUnit || '';
+  const timeKey = options.timeKey || null;
   const dpr = window.devicePixelRatio || 1;
   const width = Math.max(
     200,
@@ -3120,6 +3121,23 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
+
+  // Time-based x positioning
+  let tMin = 0, tSpan = 1;
+  if (timeKey && rows.length >= 2) {
+    const times = rows.map(r => Number(r[timeKey] || 0));
+    tMin = Math.min(...times);
+    const tMax = Math.max(...times);
+    tSpan = Math.max(tMax - tMin, 1);
+  }
+  function xForIndex(index) {
+    if (timeKey && rows.length >= 2) {
+      const t = Number(rows[index][timeKey] || 0);
+      return pad.left + ((t - tMin) / tSpan) * plotW;
+    }
+    return pad.left + (index / Math.max(rows.length - 1, 1)) * plotW;
+  }
+
   const values = rows.map((row) => Number(row[valueKey] || 0));
   const maxValue = Math.max(...values, 1);
   const minValue = Math.min(...values);
@@ -3178,7 +3196,7 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   const coords = [];
   ctx.beginPath();
   rows.forEach((row, index) => {
-    const x = pad.left + (index / Math.max(rows.length - 1, 1)) * plotW;
+    const x = xForIndex(index);
     const value = Number(row[valueKey] || 0);
     const y = hasFlatRange
       ? pad.top + plotH / 2
@@ -3297,10 +3315,42 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   if (showXAxisLabels) {
     ctx.fillStyle = 'rgba(160, 180, 204, 0.85)';
     ctx.font = '11px sans-serif';
-    ctx.fillText(String(rows[0][labelKey] || ''), pad.left, height - 6);
-    ctx.textAlign = 'right';
-    ctx.fillText(String(rows[rows.length - 1][labelKey] || ''), width - pad.right, height - 6);
-    ctx.textAlign = 'left';
+    const xLabelCount = options.xLabelCount || 2;
+    if (xLabelCount <= 2 || rows.length <= 2) {
+      ctx.fillText(String(rows[0][labelKey] || ''), pad.left, height - 6);
+      ctx.textAlign = 'right';
+      ctx.fillText(String(rows[rows.length - 1][labelKey] || ''), width - pad.right, height - 6);
+      ctx.textAlign = 'left';
+    } else if (timeKey && rows.length >= 2) {
+      // Place labels at evenly-spaced time intervals
+      const count = Math.min(xLabelCount, rows.length);
+      for (let i = 0; i < count; i++) {
+        const tTarget = tMin + (i / (count - 1)) * tSpan;
+        // Find the row closest to this time
+        let bestIdx = 0, bestDist = Infinity;
+        for (let j = 0; j < rows.length; j++) {
+          const d = Math.abs(Number(rows[j][timeKey]) - tTarget);
+          if (d < bestDist) { bestDist = d; bestIdx = j; }
+        }
+        const x = xForIndex(bestIdx);
+        if (i === 0) ctx.textAlign = 'left';
+        else if (i === count - 1) ctx.textAlign = 'right';
+        else ctx.textAlign = 'center';
+        ctx.fillText(String(rows[bestIdx][labelKey] || ''), x, height - 6);
+      }
+      ctx.textAlign = 'left';
+    } else {
+      const count = Math.min(xLabelCount, rows.length);
+      for (let i = 0; i < count; i++) {
+        const idx = Math.round(i * (rows.length - 1) / (count - 1));
+        const x = xForIndex(idx);
+        if (i === 0) ctx.textAlign = 'left';
+        else if (i === count - 1) ctx.textAlign = 'right';
+        else ctx.textAlign = 'center';
+        ctx.fillText(String(rows[idx][labelKey] || ''), x, height - 6);
+      }
+      ctx.textAlign = 'left';
+    }
   }
 
   if (tooltipEl && coords.length) {
@@ -3393,7 +3443,9 @@ function renderWeightChart() {
   drawSimpleLineChart(weightCanvasEl, state.weightChartRows, 'label', 'value', {
     baseline: 'range',
     showYAxis: true,
-    showXAxisLabels: false,
+    showXAxisLabels: true,
+    xLabelCount: 4,
+    timeKey: 'time',
     yTickCount: 4,
     showTrendLine: true,
     trendLineMode: 'average',
@@ -3684,7 +3736,8 @@ async function refreshWeightData() {
 
     const sorted = entries.slice().reverse().map((entry) => ({
       label: new Date(entry.loggedAt).toLocaleDateString(),
-      value: Number(entry.weight || 0)
+      value: Number(entry.weight || 0),
+      time: new Date(entry.loggedAt).getTime()
     }));
     state.weightChartRows = sorted;
     renderWeightChart();
