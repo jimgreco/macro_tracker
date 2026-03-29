@@ -1162,6 +1162,21 @@ button[disabled] {
   text-decoration: underline;
 }
 
+.entry-edit-icon {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.85em;
+  opacity: 0.5;
+  margin-left: 0.3em;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.entry-edit-icon:hover {
+  opacity: 1;
+  color: var(--accent);
+}
+
 .entry-checkbox,
 .meal-group-checkbox {
   -webkit-appearance: none;
@@ -1239,6 +1254,8 @@ button[disabled] {
   padding: 1.2rem 1.4rem;
   width: 92%;
   max-width: 340px;
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
@@ -1346,6 +1363,21 @@ button[disabled] {
 .parsed-item-quickadd {
   font-size: 0.7rem;
   margin: 0;
+}
+
+.combine-modal label.entry-modal-quickadd {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  margin: 0.3rem 0 0.6rem;
+}
+
+.entry-modal-quickadd input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .parsed-meal-header {

@@ -1388,7 +1388,7 @@ function renderReadOnlyRow(entry) {
   const inGroup = Boolean(entry.mealGroup);
   return `
     <td data-label="" class="entry-checkbox-cell"><input type="checkbox" class="entry-checkbox" data-entry-id="${entry.id}" ${inGroup ? `data-in-group="1" data-meal-group="${entry.mealGroup}"` : ''} ${checked} /></td>
-    <td data-label="Item">${entry.itemName}</td>
+    <td data-label="Item">${entry.itemName} <a href="#" class="entry-edit-icon" data-edit-entry-id="${entry.id}" title="Edit">&#9998;</a></td>
     <td data-label="Quantity">${fmtNumber(entry.quantity)} ${entry.unit || ''}</td>
     <td data-label="Calories">${fmtNumber(entry.calories)}</td>
     <td data-label="Protein">${fmtNumber(entry.protein)}</td>
@@ -1927,8 +1927,8 @@ function renderDashboard(data) {
   const table = document.createElement('table');
   table.className = 'table';
   table.innerHTML = compactMobile
-    ? `<thead><tr><th class="entry-checkbox-col"></th><th>Item <a href="#" class="edit-items-link" data-edit-entries>${state.editingEntries ? '(done)' : '(edit)'}</a></th><th>Qty</th><th>Cal</th><th>P</th><th>C</th><th>F</th><th>Time</th></tr></thead>`
-    : `<thead><tr><th class="entry-checkbox-col"></th><th>Item <a href="#" class="edit-items-link" data-edit-entries>${state.editingEntries ? '(done)' : '(edit)'}</a></th><th>Quantity</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Time</th></tr></thead>`;
+    ? `<thead><tr><th class="entry-checkbox-col"></th><th>Item <a href="#" class="edit-items-link" data-edit-entries>${state.editingEntries ? '(done)' : '(edit meals)'}</a></th><th>Qty</th><th>Cal</th><th>P</th><th>C</th><th>F</th><th>Time</th></tr></thead>`
+    : `<thead><tr><th class="entry-checkbox-col"></th><th>Item <a href="#" class="edit-items-link" data-edit-entries>${state.editingEntries ? '(done)' : '(edit meals)'}</a></th><th>Quantity</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Time</th></tr></thead>`;
 
   const tbody = document.createElement('tbody');
 
@@ -1960,7 +1960,7 @@ function renderDashboard(data) {
       const mealGroupChecked = state.selectedMealGroups.has(item.mealGroup) ? 'checked' : '';
       groupRow.innerHTML = `
         <td data-label="" class="entry-checkbox-cell"><input type="checkbox" class="meal-group-checkbox" data-meal-group="${item.mealGroup}" ${mealGroupChecked} /></td>
-        <td data-label="Item"><span class="meal-group-toggle">${isExpanded ? '\u25BC' : '\u25B6'}</span> <strong>${item.mealName || 'Meal'}</strong></td>
+        <td data-label="Item"><span class="meal-group-toggle">${isExpanded ? '\u25BC' : '\u25B6'}</span> <strong>${item.mealName || 'Meal'}</strong> <a href="#" class="entry-edit-icon" data-edit-meal-group="${item.mealGroup}" title="Edit meal">&#9998;</a></td>
         <td data-label="${compactMobile ? 'Qty' : 'Quantity'}">${fmtNumber(mealQty)} ${mealUnit}</td>
         <td data-label="${compactMobile ? 'Cal' : 'Calories'}">${fmtNumber(totals.calories)}</td>
         <td data-label="Protein">${fmtNumber(totals.protein)}</td>
@@ -2036,24 +2036,12 @@ function renderSelectionActions() {
 
   if (mode === 'meals') {
     html += `<span class="selection-count">${mealCount} meal${mealCount > 1 ? 's' : ''} selected</span>`;
-    if (mealCount === 1) {
-      html += '<button type="button" class="btn-warning table-action-btn" data-sel-action="edit-meal">Edit</button>';
-    }
-    html += '<button type="button" class="btn-danger table-action-btn" data-sel-action="delete-meal">Delete</button>';
     html += '<button type="button" class="btn-info table-action-btn" data-sel-action="split-meal">Split</button>';
   } else if (mode === 'sub-items') {
     html += `<span class="selection-count">${entryCount} item${entryCount > 1 ? 's' : ''} selected</span>`;
-    if (entryCount === 1) {
-      html += '<button type="button" class="btn-warning table-action-btn" data-sel-action="edit-item">Edit</button>';
-    }
-    html += '<button type="button" class="btn-danger table-action-btn" data-sel-action="delete-item">Delete</button>';
     html += '<button type="button" class="btn-info table-action-btn" data-sel-action="remove-from-meal">Remove</button>';
   } else {
     html += `<span class="selection-count">${entryCount} item${entryCount > 1 ? 's' : ''} selected</span>`;
-    if (entryCount === 1) {
-      html += '<button type="button" class="btn-warning table-action-btn" data-sel-action="edit-item">Edit</button>';
-    }
-    html += '<button type="button" class="btn-danger table-action-btn" data-sel-action="delete-item">Delete</button>';
     if (entryCount >= 2) {
       html += '<button type="button" class="btn-success table-action-btn" data-sel-action="combine">Combine</button>';
     }
@@ -2066,7 +2054,7 @@ function toggleEditEntries() {
   state.editingEntries = !state.editingEntries;
   entriesByDayEl.classList.toggle('editing', state.editingEntries);
   entriesByDayEl.querySelectorAll('[data-edit-entries]').forEach(el => {
-    el.textContent = state.editingEntries ? '(done)' : '(edit)';
+    el.textContent = state.editingEntries ? '(done)' : '(edit meals)';
   });
   if (!state.editingEntries) {
     clearSelection();
@@ -2079,6 +2067,72 @@ entriesByDayEl.addEventListener('click', (event) => {
   if (editLink) {
     event.preventDefault();
     toggleEditEntries();
+    return;
+  }
+
+  // Pencil icon: edit individual entry
+  const editEntryIcon = event.target.closest('[data-edit-entry-id]');
+  if (editEntryIcon) {
+    event.preventDefault();
+    event.stopPropagation();
+    const entryId = Number(editEntryIcon.dataset.editEntryId);
+    const entries = state.dashboardData?.entries || [];
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    showEntryModal(entry, {
+      title: 'Edit Item',
+      onSave: async (updated) => {
+        try {
+          await api(`/api/entries/${entryId}`, {
+            method: 'PUT',
+            body: JSON.stringify(updated)
+          });
+          setActionBanner('Entry updated.', 'success');
+          await refreshDashboard();
+        } catch (error) {
+          setActionBanner(error.message, 'error');
+        }
+      },
+      onDelete: async () => {
+        if (!window.confirm('Delete this entry?')) return;
+        try {
+          await api(`/api/entries/${entryId}`, { method: 'DELETE' });
+          setActionBanner('Entry deleted.', 'success');
+          await refreshDashboard();
+        } catch (error) {
+          setActionBanner(error.message, 'error');
+        }
+      }
+    });
+    return;
+  }
+
+  // Pencil icon: edit meal group
+  const editMealIcon = event.target.closest('[data-edit-meal-group]');
+  if (editMealIcon) {
+    event.preventDefault();
+    event.stopPropagation();
+    const groupId = editMealIcon.dataset.editMealGroup;
+    const mealEntry = (state.dashboardData?.entries || []).find(e => e.mealGroup === groupId);
+    if (!mealEntry) return;
+    showCombineModal([], {
+      name: mealEntry.mealName || 'Meal',
+      quantity: mealEntry.mealQuantity || 1,
+      unit: mealEntry.mealUnit || 'serving',
+      onSave: async (name, quantity, unit) => {
+        try {
+          await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
+            method: 'PUT',
+            body: JSON.stringify({ quantity, unit, name: name || undefined })
+          });
+          setActionBanner('Meal updated.', 'success');
+          await refreshDashboard();
+        } catch (error) {
+          setActionBanner(error.message, 'error');
+        }
+      }
+    });
+    return;
   }
 });
 
@@ -2437,6 +2491,7 @@ function showEntryModal(entry, { onSave, onDelete, title } = {}) {
         </div>
       </div>
       ${consumedAtValue ? `<label for="entry-modal-time">Time</label><input id="entry-modal-time" type="datetime-local" value="${consumedAtValue}" />` : ''}
+      <label class="inline-check entry-modal-quickadd"><input type="checkbox" id="entry-modal-save-quickadd" /><span>Save as quick add</span></label>
       <div class="combine-modal-actions">
         ${onDelete ? '<button type="button" class="btn-danger table-action-btn" id="entry-modal-delete-btn">Delete</button>' : ''}
         <span style="flex:1"></span>
@@ -2479,7 +2534,7 @@ function showEntryModal(entry, { onSave, onDelete, title } = {}) {
     document.getElementById('entry-modal-fat').value = formatScaledMacroValue(baseFat * factor);
   });
 
-  document.getElementById('entry-modal-save-btn').addEventListener('click', () => {
+  document.getElementById('entry-modal-save-btn').addEventListener('click', async () => {
     const result = {
       itemName: document.getElementById('entry-modal-name').value.trim() || 'Item',
       quantity: Number(document.getElementById('entry-modal-qty').value) || 1,
@@ -2493,7 +2548,27 @@ function showEntryModal(entry, { onSave, onDelete, title } = {}) {
     if (timeEl) {
       result.consumedAt = asIso(timeEl.value);
     }
+    const saveQuickAdd = document.getElementById('entry-modal-save-quickadd').checked;
     overlay.remove();
+    if (saveQuickAdd) {
+      try {
+        await api('/api/saved-items', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: result.itemName,
+            quantity: result.quantity,
+            unit: result.unit,
+            calories: result.calories,
+            protein: result.protein,
+            carbs: result.carbs,
+            fat: result.fat
+          })
+        });
+        setActionBanner('Quick add item saved.', 'success');
+      } catch (error) {
+        setActionBanner(error.message, 'error');
+      }
+    }
     if (onSave) onSave(result);
   });
 
