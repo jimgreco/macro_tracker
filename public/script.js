@@ -2119,6 +2119,7 @@ entriesByDayEl.addEventListener('click', (event) => {
       name: mealEntry.mealName || 'Meal',
       quantity: mealEntry.mealQuantity || 1,
       unit: mealEntry.mealUnit || 'serving',
+      mealGroup: groupId,
       onSave: async (name, quantity, unit) => {
         try {
           await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
@@ -2279,6 +2280,7 @@ entriesByDayEl.addEventListener('click', async (event) => {
       name: mealEntry?.mealName || 'Meal',
       quantity: mealEntry?.mealQuantity || 1,
       unit: mealEntry?.mealUnit || 'serving',
+      mealGroup: groupId,
       onSave: async (name, quantity, unit) => {
         try {
           await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
@@ -2393,6 +2395,7 @@ function showCombineModal(entryIds, options) {
       <input id="combine-qty" type="number" step="0.1" min="0.1" value="${defaultQty}" />
       <label for="combine-unit">Unit</label>
       <input id="combine-unit" type="text" value="${String(defaultUnit).replace(/"/g, '&quot;')}" />
+      ${isEdit ? '<label class="inline-check entry-modal-quickadd"><input type="checkbox" id="combine-save-quickadd" /><span>Save as quick add</span></label>' : ''}
       <div class="combine-modal-actions">
         <button type="button" class="btn-muted table-action-btn" id="combine-cancel-btn">Cancel</button>
         <button type="button" class="btn-success table-action-btn" id="combine-confirm-btn">${btnLabel}</button>
@@ -2415,9 +2418,38 @@ function showCombineModal(entryIds, options) {
     const mealName = nameInput.value.trim() || 'Meal';
     const quantity = Number(document.getElementById('combine-qty').value) || 1;
     const unit = document.getElementById('combine-unit').value.trim() || 'serving';
+    const saveQuickAdd = isEdit && document.getElementById('combine-save-quickadd')?.checked;
     overlay.remove();
 
     if (isEdit) {
+      if (saveQuickAdd && options.mealGroup) {
+        try {
+          const entries = state.dashboardData?.entries || [];
+          const subItems = entries.filter(e => e.mealGroup === options.mealGroup);
+          const totals = subItems.reduce((acc, e) => {
+            acc.calories += Number(e.calories) || 0;
+            acc.protein += Number(e.protein) || 0;
+            acc.carbs += Number(e.carbs) || 0;
+            acc.fat += Number(e.fat) || 0;
+            return acc;
+          }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+          await api('/api/saved-items', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: mealName,
+              quantity,
+              unit,
+              calories: totals.calories,
+              protein: totals.protein,
+              carbs: totals.carbs,
+              fat: totals.fat
+            })
+          });
+          setActionBanner('Quick add item saved.', 'success');
+        } catch (error) {
+          setActionBanner(error.message, 'error');
+        }
+      }
       options.onSave(mealName, quantity, unit);
       return;
     }
@@ -2989,6 +3021,7 @@ entriesByDayEl.addEventListener('click', async (event) => {
       name: mealEntry?.mealName || 'Meal',
       quantity: mealEntry?.mealQuantity || 1,
       unit: mealEntry?.mealUnit || 'serving',
+      mealGroup: groupId,
       onSave: async (name, quantity, unit) => {
         try {
           await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
@@ -3587,12 +3620,7 @@ function bindPageChartsResize() {
 function renderWeightReadOnlyRow(entry) {
   return `
     <td data-label="Date/Time">${new Date(entry.loggedAt).toLocaleString()}</td>
-    <td data-label="Weight">${fmtNumber(entry.weight)}</td>
-    <td data-label="Actions">
-      <div class="action-row">
-        <button type="button" class="btn-warning table-action-btn" data-weight-action="edit" data-weight-id="${entry.id}">Edit</button>
-      </div>
-    </td>
+    <td data-label="Weight">${fmtNumber(entry.weight)} <a href="#" class="entry-edit-icon" data-weight-action="edit" data-weight-id="${entry.id}" title="Edit">&#9998;</a></td>
   `;
 }
 
@@ -3603,15 +3631,10 @@ function renderWorkoutReadOnlyRow(entry) {
   const intensity = normalizeWorkoutIntensity(entry.intensity);
   return `
     <td data-label="Dt">${dateText}</td>
-    <td data-label="Desc">${entry.description}</td>
+    <td data-label="Desc">${entry.description} <a href="#" class="entry-edit-icon" data-workout-action="edit" data-workout-id="${entry.id}" title="Edit">&#9998;</a></td>
     <td data-label="Int">${intensity}</td>
     <td data-label="Dur">${fmtNumber(entry.durationHours)} hr</td>
     <td data-label="Cal">${fmtNumber(entry.caloriesBurned)}</td>
-    <td data-label="Act">
-      <div class="action-row">
-        <button type="button" class="btn-warning table-action-btn" data-workout-action="edit" data-workout-id="${entry.id}">Edit</button>
-      </div>
-    </td>
   `;
 }
 
@@ -3648,7 +3671,6 @@ async function refreshWeightData() {
             <tr>
               <th>Date/Time</th>
               <th>Weight</th>
-              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -3932,7 +3954,6 @@ async function refreshWorkoutData() {
               <th>Int</th>
               <th>Dur</th>
               <th>Cal</th>
-              <th>Act</th>
             </tr>
           </thead>
           <tbody>
@@ -4021,22 +4042,18 @@ if (editWeightTargetLinkEl) {
 
 if (weightLogListEl) {
   weightLogListEl.addEventListener('click', async (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
+    const target = event.target.closest('[data-weight-action]');
+    if (!target) return;
 
+    event.preventDefault();
     const action = target.dataset.weightAction;
     const entryId = Number(target.dataset.weightId);
-    if (!action || !entryId) {
-      return;
-    }
+    if (!action || !entryId) return;
 
     if (action === 'edit') {
       const entry = (state.weightEntries || []).find(e => e.id === entryId);
       if (!entry) return;
       showWeightEditModal(entry);
-      return;
     }
   });
 }
@@ -4129,22 +4146,18 @@ if (saveWorkoutBtnEl) {
 
 if (workoutLogListEl) {
   workoutLogListEl.addEventListener('click', async (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
+    const target = event.target.closest('[data-workout-action]');
+    if (!target) return;
 
+    event.preventDefault();
     const action = target.dataset.workoutAction;
     const entryId = Number(target.dataset.workoutId);
-    if (!action || !entryId) {
-      return;
-    }
+    if (!action || !entryId) return;
 
     if (action === 'edit') {
       const entry = (state.workoutEntries || []).find(e => e.id === entryId);
       if (!entry) return;
       showWorkoutEditModal(entry);
-      return;
     }
   });
 }

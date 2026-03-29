@@ -484,7 +484,7 @@ async function removeFromMealGroup(userId, entryId) {
     [entryId, userId]
   );
   if (!entry.rows.length) throw new Error('Entry not found.');
-  if (!entry.rows[0].meal_group) throw new Error('Entry is not part of a meal.');
+  if (!entry.rows[0].meal_group) return; // already ungrouped (e.g. auto-dissolved)
 
   const mealGroup = entry.rows[0].meal_group;
 
