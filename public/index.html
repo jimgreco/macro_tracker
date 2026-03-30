@@ -38,6 +38,7 @@
           <button type="button" class="nav-tab is-active" data-page="macros">Macros</button>
           <button type="button" class="nav-tab" data-page="workout">Workouts</button>
           <button type="button" class="nav-tab" data-page="weight">Weight</button>
+          <button type="button" class="nav-tab" data-page="health">Health</button>
           <button type="button" class="nav-tab" data-page="analysis">Analysis</button>
         </nav>
         <div class="topbar-right">
@@ -360,6 +361,69 @@
           </div>
         </section>
 
+      </section>
+
+      <section id="health-page" class="app-page" hidden>
+        <section class="panel glass">
+          <div class="section-head-row">
+            <h2>Sexual Health</h2>
+            <div class="consumed-inline">
+              <input id="ejaculation-logged-at" type="datetime-local" />
+            </div>
+          </div>
+          <div class="ejaculation-log-inputs">
+            <select id="ejaculation-type">
+              <option value="masturbation">Masturbation</option>
+              <option value="oral sex">Oral Sex</option>
+              <option value="vaginal sex">Vaginal Sex</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <button id="save-ejaculation-btn" type="button">Log Entry</button>
+          <p id="ejaculation-note" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="panel glass">
+          <h2>Logged Entries</h2>
+          <div id="ejaculation-log-list" class="simple-log-list"></div>
+        </section>
+
+        <section id="health-snapshot-section" class="panel glass">
+          <div class="snapshot-header">
+            <h2 id="health-snapshot-heading">Weekly Snapshot</h2>
+            <div class="period-toggle" id="health-period-toggle" role="group" aria-label="Snapshot time period">
+              <button class="period-btn is-active" data-period="weekly">Week</button>
+              <button class="period-btn" data-period="monthly">Month</button>
+              <button class="period-btn" data-period="annual">Year</button>
+            </div>
+          </div>
+          <div class="trend-wrap">
+            <canvas id="health-canvas" height="64" aria-label="Weekly sexual health occurrence chart"></canvas>
+            <div class="trend-legend health-legend" aria-live="polite">
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch-dot" style="background: #ff6b9d;" aria-hidden="true"></span>
+                Masturbation
+              </span>
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch-dot" style="background: #00cfff;" aria-hidden="true"></span>
+                Oral Sex
+              </span>
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch-dot" style="background: #05ffa1;" aria-hidden="true"></span>
+                Vaginal Sex
+              </span>
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch-dot" style="background: #c48aff;" aria-hidden="true"></span>
+                Other
+              </span>
+            </div>
+            <div class="trend-legend" aria-live="polite">
+              <span class="trend-legend-item">
+                <span id="health-occurrence-stat">—</span>
+              </span>
+            </div>
+          </div>
+        </section>
       </section>
 
       <section id="analysis-page" class="app-page" hidden>

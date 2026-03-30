@@ -21,6 +21,8 @@ const state = {
   macroSnapshotPeriod: 'weekly',
   weightSnapshotPeriod: 'weekly',
   workoutSnapshotPeriod: 'weekly',
+  healthSnapshotPeriod: 'weekly',
+  ejaculationEntries: [],
   weightEntries: [],
   workoutEntries: [],
   expandedMealGroups: new Set(),
@@ -107,6 +109,7 @@ const appPages = {
   macros: document.getElementById('macros-page'),
   weight: document.getElementById('weight-page'),
   workout: document.getElementById('workout-page'),
+  health: document.getElementById('health-page'),
   analysis: document.getElementById('analysis-page')
 };
 const weightLoggedAtEl = document.getElementById('weight-logged-at');
@@ -136,6 +139,15 @@ const workoutCalTooltipEl = document.getElementById('workout-cal-tooltip');
 const workoutCalAverageValueEl = document.getElementById('workout-cal-average-value');
 const workoutCalTargetDisplayEl = document.getElementById('workout-cal-target-display');
 const editWorkoutTargetLinkEl = document.getElementById('edit-workout-target-link');
+const ejaculationLoggedAtEl = document.getElementById('ejaculation-logged-at');
+const ejaculationTypeEl = document.getElementById('ejaculation-type');
+const saveEjaculationBtnEl = document.getElementById('save-ejaculation-btn');
+const ejaculationNoteEl = document.getElementById('ejaculation-note');
+const ejaculationLogListEl = document.getElementById('ejaculation-log-list');
+const healthCanvasEl = document.getElementById('health-canvas');
+const healthSnapshotHeadingEl = document.getElementById('health-snapshot-heading');
+const healthPeriodToggleEl = document.getElementById('health-period-toggle');
+const healthOccurrenceStatEl = document.getElementById('health-occurrence-stat');
 const analysisDaysEl = document.getElementById('analysis-days');
 const analysisGenerateBtnEl = document.getElementById('analysis-generate-btn');
 const analysisNoteEl = document.getElementById('analysis-note');
@@ -3662,6 +3674,8 @@ function bindPageChartsResize() {
         renderWeightChart();
       } else if (state.selectedPage === 'workout') {
         renderWorkoutChart();
+      } else if (state.selectedPage === 'health') {
+        drawHealthOccurrenceChart(state.ejaculationEntries, state.healthSnapshotPeriod || 'weekly');
       }
     }, 80);
   });
@@ -3966,6 +3980,272 @@ function parseWorkoutInput(text) {
   };
 }
 
+// ── Health / Sexual Health ──
+
+const EJACULATION_TYPE_COLORS = {
+  'masturbation': '#ff6b9d',
+  'oral sex': '#00cfff',
+  'vaginal sex': '#05ffa1',
+  'other': '#c48aff'
+};
+
+function renderEjaculationReadOnlyRow(entry) {
+  const loggedAt = new Date(entry.loggedAt);
+  const dateText = loggedAt.toLocaleString();
+  const typeLabel = entry.type.charAt(0).toUpperCase() + entry.type.slice(1);
+  return `
+    <td data-label="Date/Time">${dateText}</td>
+    <td data-label="Type">${typeLabel} <a href="#" class="entry-edit-icon" data-ejaculation-action="edit" data-ejaculation-id="${entry.id}" title="Edit">&#9998;</a></td>
+  `;
+}
+
+function showEjaculationEditModal(entry) {
+  let overlay = document.getElementById('entry-modal-overlay');
+  if (overlay) overlay.remove();
+
+  const loggedAtValue = isoToLocalInputValue(entry.loggedAt);
+  overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal entry-modal">
+      <h3>Edit Entry</h3>
+      <div class="entry-modal-row">
+        <div class="entry-modal-field">
+          <label for="ejaculation-modal-date">Date/Time</label>
+          <input id="ejaculation-modal-date" type="datetime-local" value="${loggedAtValue}" />
+        </div>
+        <div class="entry-modal-field">
+          <label for="ejaculation-modal-type">Type</label>
+          <select id="ejaculation-modal-type">
+            <option value="masturbation" ${entry.type === 'masturbation' ? 'selected' : ''}>Masturbation</option>
+            <option value="oral sex" ${entry.type === 'oral sex' ? 'selected' : ''}>Oral Sex</option>
+            <option value="vaginal sex" ${entry.type === 'vaginal sex' ? 'selected' : ''}>Vaginal Sex</option>
+            <option value="other" ${entry.type === 'other' ? 'selected' : ''}>Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="combine-modal-actions">
+        <button type="button" class="btn-danger table-action-btn" id="ejaculation-modal-delete-btn">Delete</button>
+        <span style="flex:1"></span>
+        <button type="button" class="btn-muted table-action-btn" id="ejaculation-modal-cancel-btn">Cancel</button>
+        <button type="button" class="btn-success table-action-btn" id="ejaculation-modal-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('ejaculation-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+
+  document.getElementById('ejaculation-modal-delete-btn').addEventListener('click', async () => {
+    if (!window.confirm('Delete this entry?')) return;
+    overlay.remove();
+    try {
+      await api(`/api/ejaculations/${entry.id}`, { method: 'DELETE' });
+      setActionBanner('Entry deleted.', 'success');
+      await refreshHealthData();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+
+  document.getElementById('ejaculation-modal-save-btn').addEventListener('click', async () => {
+    const loggedAt = asIso(document.getElementById('ejaculation-modal-date').value || toDateTimeLocalValue());
+    const type = document.getElementById('ejaculation-modal-type').value;
+    overlay.remove();
+    try {
+      await api(`/api/ejaculations/${entry.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ type, loggedAt })
+      });
+      setActionBanner('Entry updated.', 'success');
+      await refreshHealthData();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ejaculation-modal-save-btn').click(); }
+    if (e.key === 'Escape') overlay.remove();
+  });
+}
+
+function drawHealthOccurrenceChart(entries, period) {
+  if (!healthCanvasEl) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const cssWidth = Math.max(200, Math.floor(healthCanvasEl.clientWidth || healthCanvasEl.parentElement?.clientWidth || 0));
+  const cssHeight = 64;
+  healthCanvasEl.style.width = '100%';
+  healthCanvasEl.style.height = `${cssHeight}px`;
+  healthCanvasEl.width = cssWidth * dpr;
+  healthCanvasEl.height = cssHeight * dpr;
+
+  const ctx = healthCanvasEl.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+  const today = getLocalIsoDay();
+
+  // Build a map of day -> set of types
+  const dayTypesMap = new Map();
+  for (const entry of entries || []) {
+    const day = getLocalIsoDay(entry.loggedAt);
+    if (!dayTypesMap.has(day)) dayTypesMap.set(day, new Set());
+    dayTypesMap.get(day).add(entry.type || 'other');
+  }
+
+  const points = [];
+  if (period === 'annual') {
+    for (let w = 51; w >= 0; w -= 1) {
+      const weekEndDay = shiftIsoDay(today, -w * 7);
+      const weekStartDay = shiftIsoDay(weekEndDay, -6);
+      const typesInWeek = new Set();
+      for (let d = 0; d <= 6; d += 1) {
+        const day = shiftIsoDay(weekStartDay, d);
+        const types = dayTypesMap.get(day);
+        if (types) types.forEach((t) => typesInWeek.add(t));
+      }
+      points.push({ day: weekStartDay, active: typesInWeek.size > 0, types: typesInWeek });
+    }
+  } else {
+    const numDays = period === 'monthly' ? 30 : 7;
+    for (let i = numDays - 1; i >= 0; i -= 1) {
+      const day = shiftIsoDay(today, -i);
+      const types = dayTypesMap.get(day) || new Set();
+      points.push({ day, active: types.size > 0, types, isToday: day === today });
+    }
+  }
+
+  const activeCount = points.filter((p) => p.active).length;
+  if (healthOccurrenceStatEl) {
+    const total = points.length;
+    const unit = period === 'annual' ? 'weeks active' : 'days active';
+    healthOccurrenceStatEl.textContent = `${activeCount} / ${total} ${unit}`;
+  }
+
+  const padX = 10;
+  const labelH = 14;
+  const plotH = cssHeight - labelH;
+  const dotY = plotH / 2;
+  const plotW = cssWidth - padX * 2;
+  const maxDotR = period === 'weekly' ? 10 : period === 'monthly' ? 5 : 4;
+  const spacingRaw = points.length > 1 ? plotW / (points.length - 1) : plotW;
+  const dotR = Math.min(maxDotR, spacingRaw / 2 - 1);
+
+  const inactiveStroke = 'rgba(255, 255, 255, 0.13)';
+  const todayStroke = 'rgba(0, 207, 255, 0.45)';
+
+  // Priority order for which color to show when multiple types on same day
+  const typePriority = ['vaginal sex', 'oral sex', 'masturbation', 'other'];
+
+  for (let i = 0; i < points.length; i += 1) {
+    const p = points[i];
+    const x = padX + (points.length > 1 ? (i / (points.length - 1)) * plotW : plotW / 2);
+
+    if (p.active) {
+      // Pick the highest-priority type for the dot color
+      let dotColor = EJACULATION_TYPE_COLORS['other'];
+      for (const t of typePriority) {
+        if (p.types.has(t)) {
+          dotColor = EJACULATION_TYPE_COLORS[t];
+          break;
+        }
+      }
+
+      ctx.save();
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = dotColor.replace(')', ', 0.65)').replace('rgb(', 'rgba(');
+      ctx.beginPath();
+      ctx.arc(x, dotY, dotR, 0, Math.PI * 2);
+      ctx.fillStyle = dotColor;
+      ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.beginPath();
+      ctx.arc(x, dotY, dotR, 0, Math.PI * 2);
+      ctx.strokeStyle = p.isToday ? todayStroke : inactiveStroke;
+      ctx.lineWidth = p.isToday ? 1.5 : 1;
+      ctx.stroke();
+    }
+  }
+
+  // Labels
+  ctx.fillStyle = 'rgba(160, 180, 204, 0.6)';
+  ctx.font = '10px system-ui, -apple-system, sans-serif';
+  ctx.textBaseline = 'bottom';
+  const labelY = cssHeight - 1;
+  const DAY_ABBREVS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+  if (period === 'weekly') {
+    for (let i = 0; i < points.length; i += 1) {
+      const x = padX + (i / (points.length - 1)) * plotW;
+      const d = fromIsoDayLocal(points[i].day);
+      ctx.textAlign = 'center';
+      ctx.fillText(DAY_ABBREVS[d.getDay()], x, labelY);
+    }
+  } else if (period === 'monthly') {
+    ctx.textAlign = 'left';
+    ctx.fillText(fromIsoDayLocal(points[0].day).toLocaleDateString([], { month: 'short', day: 'numeric' }), padX, labelY);
+    ctx.textAlign = 'right';
+    ctx.fillText(fromIsoDayLocal(points[points.length - 1].day).toLocaleDateString([], { month: 'short', day: 'numeric' }), cssWidth - padX, labelY);
+  } else {
+    let lastMonth = -1;
+    for (let i = 0; i < points.length; i += 1) {
+      const d = fromIsoDayLocal(points[i].day);
+      const month = d.getMonth();
+      if (month !== lastMonth) {
+        lastMonth = month;
+        const x = padX + (i / (points.length - 1)) * plotW;
+        ctx.textAlign = i === 0 ? 'left' : i >= points.length - 2 ? 'right' : 'center';
+        ctx.fillText(d.toLocaleDateString([], { month: 'short' }), x, labelY);
+      }
+    }
+  }
+}
+
+async function refreshHealthData() {
+  if (!ejaculationLogListEl) return;
+  try {
+    const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
+    const scope = periodToScope[state.healthSnapshotPeriod] || 'week';
+    const data = await api(`/api/ejaculations?scope=${scope}`);
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    state.ejaculationEntries = entries;
+
+    const tenDaysCutoff = new Date();
+    tenDaysCutoff.setDate(tenDaysCutoff.getDate() - 10);
+    tenDaysCutoff.setHours(0, 0, 0, 0);
+    const recentEntries = entries.filter((e) => new Date(e.loggedAt) >= tenDaysCutoff);
+
+    if (!recentEntries.length) {
+      ejaculationLogListEl.innerHTML = '<p class="empty-note">No entries in the last 10 days.</p>';
+    } else {
+      ejaculationLogListEl.innerHTML = `
+        <table class="table" aria-label="Logged sexual health entries">
+          <thead>
+            <tr>
+              <th>Date/Time</th>
+              <th>Type</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${recentEntries.map((entry) =>
+              `<tr data-ejaculation-row-id="${entry.id}">${renderEjaculationReadOnlyRow(entry)}</tr>`
+            ).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    drawHealthOccurrenceChart(entries, state.healthSnapshotPeriod || 'weekly');
+  } catch (error) {
+    if (ejaculationNoteEl) ejaculationNoteEl.textContent = error.message;
+  }
+}
+
 function renderWorkoutQuickAdds(entries) {
   if (!workoutQuickListEl) {
     return;
@@ -4044,6 +4324,9 @@ for (const item of pageMenuItems) {
     if (page === 'workout') {
       await refreshWorkoutData();
     }
+    if (page === 'health') {
+      await refreshHealthData();
+    }
     if (page === 'analysis') {
       await refreshAnalysisData();
       if (!state.analysisAutoRan && isAnalysisDueWeekly(state.analysisReport)) {
@@ -4107,6 +4390,63 @@ if (weightLogListEl) {
       const entry = (state.weightEntries || []).find(e => e.id === entryId);
       if (!entry) return;
       showWeightEditModal(entry);
+    }
+  });
+}
+
+// ── Health / Ejaculation event wiring ──
+
+if (saveEjaculationBtnEl) {
+  if (ejaculationLoggedAtEl) {
+    ejaculationLoggedAtEl.value = toDateTimeLocalValue();
+  }
+  saveEjaculationBtnEl.addEventListener('click', async () => {
+    try {
+      await api('/api/ejaculations', {
+        method: 'POST',
+        body: JSON.stringify({
+          loggedAt: asIso(ejaculationLoggedAtEl?.value || toDateTimeLocalValue()),
+          type: ejaculationTypeEl?.value || 'masturbation'
+        })
+      });
+      if (ejaculationNoteEl) ejaculationNoteEl.textContent = 'Entry saved.';
+      if (ejaculationLoggedAtEl) ejaculationLoggedAtEl.value = toDateTimeLocalValue();
+      setActionBanner('Entry saved.', 'success');
+      await refreshHealthData();
+    } catch (error) {
+      if (ejaculationNoteEl) ejaculationNoteEl.textContent = error.message;
+      setActionBanner(error.message, 'error');
+    }
+  });
+}
+
+if (healthPeriodToggleEl) {
+  for (const btn of healthPeriodToggleEl.querySelectorAll('.period-btn')) {
+    btn.addEventListener('click', async () => {
+      const period = btn.dataset.period;
+      if (!period || period === state.healthSnapshotPeriod) return;
+      state.healthSnapshotPeriod = period;
+      syncPeriodToggle(healthPeriodToggleEl, period);
+      if (healthSnapshotHeadingEl) {
+        healthSnapshotHeadingEl.textContent = PERIOD_HEADING[period] || 'Snapshot';
+      }
+      await refreshHealthData();
+    });
+  }
+}
+
+if (ejaculationLogListEl) {
+  ejaculationLogListEl.addEventListener('click', async (event) => {
+    const target = event.target.closest('[data-ejaculation-action]');
+    if (!target) return;
+    event.preventDefault();
+    const action = target.dataset.ejaculationAction;
+    const entryId = Number(target.dataset.ejaculationId);
+    if (!action || !entryId) return;
+    if (action === 'edit') {
+      const entry = (state.ejaculationEntries || []).find(e => e.id === entryId);
+      if (!entry) return;
+      showEjaculationEditModal(entry);
     }
   });
 }
