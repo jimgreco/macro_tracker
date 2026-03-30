@@ -1395,18 +1395,25 @@ function renderSavedItems() {
   quickEditToggleBtnEl.disabled = !selectedTemplate;
 }
 
-function renderReadOnlyRow(entry) {
+function renderMacroCard(entry) {
   const checked = state.selectedEntryIds.has(entry.id) ? 'checked' : '';
   const inGroup = Boolean(entry.mealGroup);
+  const timeStr = new Date(entry.consumedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   return `
-    <td data-label="" class="entry-checkbox-cell"><input type="checkbox" class="entry-checkbox" data-entry-id="${entry.id}" ${inGroup ? `data-in-group="1" data-meal-group="${entry.mealGroup}"` : ''} ${checked} /></td>
-    <td data-label="Item">${entry.itemName} <a href="#" class="entry-edit-icon" data-edit-entry-id="${entry.id}" title="Edit">&#9998;</a></td>
-    <td data-label="Quantity">${fmtNumber(entry.quantity)} ${entry.unit || ''}</td>
-    <td data-label="Calories">${fmtNumber(entry.calories)}</td>
-    <td data-label="Protein">${fmtNumber(entry.protein)}</td>
-    <td data-label="Carbs">${fmtNumber(entry.carbs)}</td>
-    <td data-label="Fat">${fmtNumber(entry.fat)}</td>
-    <td data-label="Time">${new Date(entry.consumedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+    <div class="macro-card" data-entry-id="${entry.id}">
+      <div class="macro-card-check"><input type="checkbox" class="entry-checkbox" data-entry-id="${entry.id}" ${inGroup ? `data-in-group="1" data-meal-group="${entry.mealGroup}"` : ''} ${checked} /></div>
+      <div class="macro-card-body" data-edit-entry-id="${entry.id}">
+        <div class="macro-card-title">${entry.itemName}</div>
+        <div class="entry-card-chips">
+          <span class="entry-card-chip">${fmtNumber(entry.quantity)} ${entry.unit || ''}</span>
+          <span class="entry-card-chip entry-card-chip--accent">${fmtNumber(entry.calories)} cal</span>
+          <span class="entry-card-chip">${fmtNumber(entry.protein)}P</span>
+          <span class="entry-card-chip">${fmtNumber(entry.carbs)}C</span>
+          <span class="entry-card-chip">${fmtNumber(entry.fat)}F</span>
+        </div>
+      </div>
+      <div class="macro-card-time">${timeStr}</div>
+    </div>
   `;
 }
 
@@ -1936,13 +1943,14 @@ function renderDashboard(data) {
     return;
   }
 
-  const table = document.createElement('table');
-  table.className = 'table';
-  table.innerHTML = compactMobile
-    ? `<thead><tr><th class="entry-checkbox-col"></th><th>Item <a href="#" class="edit-items-link" data-edit-entries>${state.editingEntries ? '(done)' : '(edit meals)'}</a></th><th>Qty</th><th>Cal</th><th>P</th><th>C</th><th>F</th><th>Time</th></tr></thead>`
-    : `<thead><tr><th class="entry-checkbox-col"></th><th>Item <a href="#" class="edit-items-link" data-edit-entries>${state.editingEntries ? '(done)' : '(edit meals)'}</a></th><th>Quantity</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Time</th></tr></thead>`;
+  // Edit meals link
+  const editBar = document.createElement('div');
+  editBar.className = 'macro-cards-header';
+  editBar.innerHTML = `<a href="#" class="edit-items-link" data-edit-entries>${state.editingEntries ? '(done)' : '(edit meals)'}</a>`;
+  entriesByDayEl.appendChild(editBar);
 
-  const tbody = document.createElement('tbody');
+  const container = document.createElement('div');
+  container.className = 'entry-cards';
 
   const rendered = new Set();
   for (const item of dayItems) {
@@ -1961,49 +1969,59 @@ function renderDashboard(data) {
       }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
       const isExpanded = state.expandedMealGroups && state.expandedMealGroups.has(item.mealGroup);
-
-      const groupRow = document.createElement('tr');
-      groupRow.className = 'meal-group-header' + (isExpanded ? ' expanded' : '');
-      groupRow.dataset.mealGroup = item.mealGroup;
-      const timeStr = new Date(item.consumedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const timeStr = new Date(item.consumedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       const mealQty = item.mealQuantity || 1;
       const mealUnit = item.mealUnit || 'serving';
-
       const mealGroupChecked = state.selectedMealGroups.has(item.mealGroup) ? 'checked' : '';
-      groupRow.innerHTML = `
-        <td data-label="" class="entry-checkbox-cell"><input type="checkbox" class="meal-group-checkbox" data-meal-group="${item.mealGroup}" ${mealGroupChecked} /></td>
-        <td data-label="Item"><span class="meal-group-toggle">${isExpanded ? '\u25BC' : '\u25B6'}</span> <strong>${item.mealName || 'Meal'}</strong> <a href="#" class="entry-edit-icon" data-edit-meal-group="${item.mealGroup}" title="Edit meal">&#9998;</a></td>
-        <td data-label="${compactMobile ? 'Qty' : 'Quantity'}">${fmtNumber(mealQty)} ${mealUnit}</td>
-        <td data-label="${compactMobile ? 'Cal' : 'Calories'}">${fmtNumber(totals.calories)}</td>
-        <td data-label="Protein">${fmtNumber(totals.protein)}</td>
-        <td data-label="Carbs">${fmtNumber(totals.carbs)}</td>
-        <td data-label="Fat">${fmtNumber(totals.fat)}</td>
-        <td data-label="Time">${timeStr}</td>
-      `;
-      tbody.appendChild(groupRow);
 
-
+      let childrenHtml = '';
       for (const child of groupItems) {
         rendered.add(child.id);
-        const childRow = document.createElement('tr');
-        childRow.dataset.entryId = String(child.id);
-        childRow.dataset.mealGroup = item.mealGroup;
-        childRow.className = 'meal-group-child';
-        if (!isExpanded) childRow.style.display = 'none';
-        childRow.innerHTML = renderReadOnlyRow(child);
-        tbody.appendChild(childRow);
+        const childChecked = state.selectedEntryIds.has(child.id) ? 'checked' : '';
+        childrenHtml += `
+          <div class="macro-card-child" data-entry-id="${child.id}" data-meal-group="${item.mealGroup}">
+            <div class="macro-card-check"><input type="checkbox" class="entry-checkbox" data-entry-id="${child.id}" data-in-group="1" data-meal-group="${child.mealGroup}" ${childChecked} /></div>
+            <div class="macro-card-child-body" data-edit-entry-id="${child.id}">
+              <span class="macro-card-child-name">${child.itemName}</span>
+              <span class="macro-card-child-detail">${fmtNumber(child.quantity)} ${child.unit || ''} · ${fmtNumber(child.calories)} cal · ${fmtNumber(child.protein)}P ${fmtNumber(child.carbs)}C ${fmtNumber(child.fat)}F</span>
+            </div>
+          </div>
+        `;
       }
+
+      const mealCard = document.createElement('div');
+      mealCard.className = 'macro-card macro-card--meal' + (isExpanded ? ' expanded' : '');
+      mealCard.dataset.mealGroup = item.mealGroup;
+      mealCard.innerHTML = `
+        <div class="meal-group-header" data-meal-group="${item.mealGroup}">
+          <div class="macro-card-check"><input type="checkbox" class="meal-group-checkbox" data-meal-group="${item.mealGroup}" ${mealGroupChecked} /></div>
+          <div class="macro-card-toggle">${isExpanded ? '\u25BC' : '\u25B6'}</div>
+          <div class="macro-card-body" data-edit-meal-group="${item.mealGroup}">
+            <div class="macro-card-title"><strong>${item.mealName || 'Meal'}</strong></div>
+            <div class="entry-card-chips">
+              <span class="entry-card-chip">${fmtNumber(mealQty)} ${mealUnit}</span>
+              <span class="entry-card-chip entry-card-chip--accent">${fmtNumber(totals.calories)} cal</span>
+              <span class="entry-card-chip">${fmtNumber(totals.protein)}P</span>
+              <span class="entry-card-chip">${fmtNumber(totals.carbs)}C</span>
+              <span class="entry-card-chip">${fmtNumber(totals.fat)}F</span>
+            </div>
+          </div>
+          <div class="macro-card-time">${timeStr}</div>
+        </div>
+        <div class="macro-card-children" ${isExpanded ? '' : 'style="display:none"'}>
+          ${childrenHtml}
+        </div>
+      `;
+      container.appendChild(mealCard);
     } else {
       rendered.add(item.id);
-      const row = document.createElement('tr');
-      row.dataset.entryId = String(item.id);
-      row.innerHTML = renderReadOnlyRow(item);
-      tbody.appendChild(row);
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = renderMacroCard(item);
+      container.appendChild(wrapper.firstElementChild);
     }
   }
 
-  table.appendChild(tbody);
-  entriesByDayEl.appendChild(table);
+  entriesByDayEl.appendChild(container);
 
   renderSelectionActions();
 }
@@ -3683,24 +3701,40 @@ function bindPageChartsResize() {
   pageChartsResizeBound = true;
 }
 
-function renderWeightReadOnlyRow(entry) {
+function renderWeightCard(entry) {
+  const loggedAt = new Date(entry.loggedAt);
+  const dateText = loggedAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const timeText = loggedAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   return `
-    <td data-label="Date/Time">${new Date(entry.loggedAt).toLocaleString()}</td>
-    <td data-label="Weight">${fmtNumber(entry.weight)} <a href="#" class="entry-edit-icon" data-weight-action="edit" data-weight-id="${entry.id}" title="Edit">&#9998;</a></td>
+    <div class="entry-card" data-weight-action="edit" data-weight-id="${entry.id}">
+      <div class="entry-card-icon entry-card-icon--weight">⚖</div>
+      <div class="entry-card-body">
+        <div class="entry-card-title">${dateText}</div>
+        <div class="entry-card-sub">${timeText}</div>
+      </div>
+      <div class="entry-card-value">${fmtNumber(entry.weight)}<small>lbs</small></div>
+    </div>
   `;
 }
 
 
-function renderWorkoutReadOnlyRow(entry) {
+function renderWorkoutCard(entry) {
   const loggedAt = new Date(entry.loggedAt);
-  const dateText = loggedAt.toLocaleDateString();
+  const dateText = loggedAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const intensity = normalizeWorkoutIntensity(entry.intensity);
+  const intensityIcon = intensity === 'high' ? '🔥' : intensity === 'medium' ? '⚡' : '🌿';
   return `
-    <td data-label="Dt">${dateText}</td>
-    <td data-label="Desc">${entry.description} <a href="#" class="entry-edit-icon" data-workout-action="edit" data-workout-id="${entry.id}" title="Edit">&#9998;</a></td>
-    <td data-label="Int">${intensity}</td>
-    <td data-label="Dur">${fmtNumber(entry.durationHours)} hr</td>
-    <td data-label="Cal">${fmtNumber(entry.caloriesBurned)}</td>
+    <div class="entry-card" data-workout-action="edit" data-workout-id="${entry.id}">
+      <div class="entry-card-icon entry-card-icon--${intensity}">${intensityIcon}</div>
+      <div class="entry-card-body">
+        <div class="entry-card-title">${entry.description || 'Workout'}</div>
+        <div class="entry-card-chips">
+          <span class="entry-card-chip">${dateText}</span>
+          <span class="entry-card-chip">${fmtNumber(entry.durationHours)} hr</span>
+          <span class="entry-card-chip entry-card-chip--accent">${fmtNumber(entry.caloriesBurned)} cal</span>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -3731,21 +3765,7 @@ async function refreshWeightData() {
     if (!recentEntries.length) {
       weightLogListEl.innerHTML = '<p class="empty-note">No weight entries in the last 10 days.</p>';
     } else {
-      weightLogListEl.innerHTML = `
-        <table class="table" aria-label="Last 10 days logged weight entries">
-          <thead>
-            <tr>
-              <th>Date/Time</th>
-              <th>Weight</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${recentEntries.map((entry) => {
-              return `<tr data-weight-row-id="${entry.id}">${renderWeightReadOnlyRow(entry)}</tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      `;
+      weightLogListEl.innerHTML = `<div class="entry-cards">${recentEntries.map((entry) => renderWeightCard(entry)).join('')}</div>`;
     }
 
     const sorted = entries.slice().reverse().map((entry) => ({
@@ -3989,13 +4009,19 @@ const EJACULATION_TYPE_COLORS = {
   'other': '#c48aff'
 };
 
-function renderEjaculationReadOnlyRow(entry) {
+function renderHealthCard(entry) {
   const loggedAt = new Date(entry.loggedAt);
-  const dateText = loggedAt.toLocaleDateString();
+  const dateText = loggedAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const typeLabel = entry.type.charAt(0).toUpperCase() + entry.type.slice(1);
+  const color = EJACULATION_TYPE_COLORS[entry.type] || '#c48aff';
   return `
-    <td data-label="Date">${dateText}</td>
-    <td data-label="Type">${typeLabel} <a href="#" class="entry-edit-icon" data-ejaculation-action="edit" data-ejaculation-id="${entry.id}" title="Edit">&#9998;</a></td>
+    <div class="entry-card" data-ejaculation-action="edit" data-ejaculation-id="${entry.id}">
+      <div class="entry-card-icon entry-card-icon--health" style="background:${color}22;color:${color}">●</div>
+      <div class="entry-card-body">
+        <div class="entry-card-title">${typeLabel}</div>
+        <div class="entry-card-sub">${dateText}</div>
+      </div>
+    </div>
   `;
 }
 
@@ -4223,21 +4249,7 @@ async function refreshHealthData() {
     if (!recentEntries.length) {
       ejaculationLogListEl.innerHTML = '<p class="empty-note">No entries in the last 10 days.</p>';
     } else {
-      ejaculationLogListEl.innerHTML = `
-        <table class="table" aria-label="Logged sexual health entries">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Type</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${recentEntries.map((entry) =>
-              `<tr data-ejaculation-row-id="${entry.id}">${renderEjaculationReadOnlyRow(entry)}</tr>`
-            ).join('')}
-          </tbody>
-        </table>
-      `;
+      ejaculationLogListEl.innerHTML = `<div class="entry-cards">${recentEntries.map((entry) => renderHealthCard(entry)).join('')}</div>`;
     }
 
     drawHealthOccurrenceChart(entries, state.healthSnapshotPeriod || 'weekly');
@@ -4278,24 +4290,7 @@ async function refreshWorkoutData() {
     const recentWorkouts = entries.filter((e) => new Date(e.loggedAt) >= tenDaysCutoff);
 
     workoutLogListEl.innerHTML = recentWorkouts.length
-      ? `
-        <table class="table" aria-label="Logged workout entries">
-          <thead>
-            <tr>
-              <th>Dt</th>
-              <th>Desc</th>
-              <th>Int</th>
-              <th>Dur</th>
-              <th>Cal</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${recentWorkouts.map((entry) => {
-              return `<tr data-workout-row-id="${entry.id}">${renderWorkoutReadOnlyRow(entry)}</tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      `
+      ? `<div class="entry-cards">${recentWorkouts.map((entry) => renderWorkoutCard(entry)).join('')}</div>`
       : '<p class="empty-note">No workouts logged in the last 10 days.</p>';
 
     renderWorkoutQuickAdds(entries);

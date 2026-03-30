@@ -385,6 +385,245 @@ body {
   margin: 0;
 }
 
+/* ── Entry Cards (Weight, Workout, Health) ── */
+
+.entry-cards {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.entry-card {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  padding: 0.6rem 0.75rem;
+  transition: background 0.15s, border-color 0.15s;
+  cursor: pointer;
+}
+
+.entry-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.entry-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.entry-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry-card-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entry-card-sub {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.1rem;
+}
+
+.entry-card-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.entry-card-value small {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted);
+  margin-left: 0.15rem;
+}
+
+.entry-card-chips {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.2rem;
+  flex-wrap: wrap;
+}
+
+.entry-card-chip {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.12rem 0.4rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.entry-card-chip--accent {
+  background: rgba(0, 207, 255, 0.12);
+  color: var(--accent);
+}
+
+/* ── Macro Cards ── */
+
+.macro-cards-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.2rem;
+}
+
+.macro-card {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  padding: 0.55rem 0.7rem;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.macro-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.macro-card--meal {
+  display: block;
+  padding: 0;
+  cursor: default;
+}
+
+.macro-card--meal .meal-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  cursor: pointer;
+  border-radius: 12px;
+}
+
+.macro-card-check {
+  display: none;
+  flex-shrink: 0;
+}
+
+#entries-by-day.editing .macro-card-check {
+  display: flex;
+  align-items: center;
+}
+
+.macro-card-toggle {
+  font-size: 0.7rem;
+  color: var(--muted);
+  flex-shrink: 0;
+  width: 0.8rem;
+  text-align: center;
+}
+
+.macro-card-body {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.macro-card-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.macro-card-time {
+  font-size: 0.74rem;
+  color: var(--muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Meal sub-items */
+.macro-card-children {
+  padding: 0 0.7rem 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  margin-top: 0;
+}
+
+.macro-card-child {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.macro-card-child:last-child {
+  border-bottom: 0;
+}
+
+.macro-card-child-body {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+}
+
+.macro-card-child-name {
+  font-size: 0.82rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.macro-card-child-detail {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* Intensity colors */
+.entry-card-icon--low {
+  background: rgba(5, 255, 161, 0.12);
+  color: #05ffa1;
+}
+
+.entry-card-icon--medium {
+  background: rgba(255, 202, 40, 0.12);
+  color: #ffca28;
+}
+
+.entry-card-icon--high {
+  background: rgba(255, 45, 120, 0.12);
+  color: #ff2d78;
+}
+
+/* Weight icon */
+.entry-card-icon--weight {
+  background: rgba(0, 207, 255, 0.12);
+  color: var(--accent);
+}
+
+/* Health type icons */
+.entry-card-icon--health {
+  border-radius: 50%;
+}
+
 .workout-editor {
   margin-top: 0.55rem;
   display: grid;
