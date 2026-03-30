@@ -3991,10 +3991,10 @@ const EJACULATION_TYPE_COLORS = {
 
 function renderEjaculationReadOnlyRow(entry) {
   const loggedAt = new Date(entry.loggedAt);
-  const dateText = loggedAt.toLocaleString();
+  const dateText = loggedAt.toLocaleDateString();
   const typeLabel = entry.type.charAt(0).toUpperCase() + entry.type.slice(1);
   return `
-    <td data-label="Date/Time">${dateText}</td>
+    <td data-label="Date">${dateText}</td>
     <td data-label="Type">${typeLabel} <a href="#" class="entry-edit-icon" data-ejaculation-action="edit" data-ejaculation-id="${entry.id}" title="Edit">&#9998;</a></td>
   `;
 }
@@ -4227,7 +4227,7 @@ async function refreshHealthData() {
         <table class="table" aria-label="Logged sexual health entries">
           <thead>
             <tr>
-              <th>Date/Time</th>
+              <th>Date</th>
               <th>Type</th>
             </tr>
           </thead>

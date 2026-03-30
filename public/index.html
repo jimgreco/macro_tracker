@@ -317,17 +317,17 @@
       </section>
 
       <section id="weight-page" class="app-page" hidden>
-        <section id="weight-log-section" class="panel glass">
+        <section id="weight-log-section" class="panel glass panel-compact">
           <div class="section-head-row">
             <h2>Log Weight</h2>
             <div class="consumed-inline">
               <input id="weight-logged-at" type="datetime-local" />
             </div>
           </div>
-          <div class="weight-log-inputs">
+          <div class="inline-log-row">
             <input id="weight-value" type="number" step="0.1" min="0" placeholder="Weight" />
+            <button id="save-weight-btn" type="button">Save Weight</button>
           </div>
-          <button id="save-weight-btn" type="button">Save Weight</button>
           <p id="weight-note" role="status" aria-live="polite"></p>
         </section>
 
@@ -364,22 +364,22 @@
       </section>
 
       <section id="health-page" class="app-page" hidden>
-        <section class="panel glass">
+        <section class="panel glass panel-compact">
           <div class="section-head-row">
-            <h2>Sexual Health</h2>
+            <h2>Sex</h2>
             <div class="consumed-inline">
               <input id="ejaculation-logged-at" type="datetime-local" />
             </div>
           </div>
-          <div class="ejaculation-log-inputs">
+          <div class="inline-log-row">
             <select id="ejaculation-type">
               <option value="masturbation">Masturbation</option>
               <option value="oral sex">Oral Sex</option>
               <option value="vaginal sex">Vaginal Sex</option>
               <option value="other">Other</option>
             </select>
+            <button id="save-ejaculation-btn" type="button">Log Entry</button>
           </div>
-          <button id="save-ejaculation-btn" type="button">Log Entry</button>
           <p id="ejaculation-note" role="status" aria-live="polite"></p>
         </section>
 
