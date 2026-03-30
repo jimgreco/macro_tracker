@@ -148,6 +148,17 @@ async function initDb() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS ejaculation_entries (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'masturbation',
+      logged_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS weight_targets (
       user_id TEXT PRIMARY KEY,
       target_weight DOUBLE PRECISION NOT NULL,
@@ -1115,6 +1126,92 @@ async function listWorkoutEntries(userId, options = {}) {
   };
 }
 
+const VALID_EJACULATION_TYPES = ['masturbation', 'oral sex', 'vaginal sex', 'other'];
+
+function normalizeEjaculationType(type) {
+  const normalized = String(type || '').trim().toLowerCase();
+  return VALID_EJACULATION_TYPES.includes(normalized) ? normalized : 'masturbation';
+}
+
+async function addEjaculationEntry(userId, payload) {
+  const type = normalizeEjaculationType(payload.type);
+  const loggedAt = new Date(payload.loggedAt || new Date().toISOString());
+  if (Number.isNaN(loggedAt.getTime())) {
+    throw new Error('Invalid loggedAt value.');
+  }
+
+  await pool.query(
+    `INSERT INTO ejaculation_entries (user_id, type, logged_at)
+     VALUES ($1, $2, $3)`,
+    [userId, type, loggedAt]
+  );
+}
+
+async function updateEjaculationEntry(userId, id, payload) {
+  const type = normalizeEjaculationType(payload.type);
+  const loggedAt = new Date(payload.loggedAt || new Date().toISOString());
+  if (Number.isNaN(loggedAt.getTime())) {
+    throw new Error('Invalid loggedAt value.');
+  }
+
+  const result = await pool.query(
+    `UPDATE ejaculation_entries
+     SET type = $3, logged_at = $4
+     WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
+    [userId, id, type, loggedAt]
+  );
+
+  return result.rowCount;
+}
+
+async function deleteEjaculationEntry(userId, id) {
+  const result = await pool.query(
+    `UPDATE ejaculation_entries SET deleted_at = NOW()
+     WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
+    [userId, id]
+  );
+  return result.rowCount;
+}
+
+async function listEjaculationEntries(userId, options = {}) {
+  const limit = Math.min(Math.max(1, Number(options.limit) || 100), 500);
+  const offset = Math.max(0, Number(options.offset) || 0);
+
+  const rowsResult = await pool.query(
+    `SELECT id, type, logged_at AS "loggedAt"
+     FROM ejaculation_entries
+     WHERE user_id = $1 AND deleted_at IS NULL
+     ORDER BY logged_at DESC, id DESC
+     LIMIT $2 OFFSET $3`,
+    [userId, limit, offset]
+  );
+
+  const scopeDays = parseScopeDays(options.scope || 'week');
+  const dailyResult = await pool.query(
+    `SELECT (logged_at AT TIME ZONE 'America/New_York')::date::text AS day,
+            array_agg(DISTINCT type) AS types
+     FROM ejaculation_entries
+     WHERE user_id = $1 AND deleted_at IS NULL
+       AND logged_at >= NOW() - INTERVAL '${scopeDays} days'
+     GROUP BY day
+     ORDER BY day ASC`,
+    [userId]
+  );
+
+  return {
+    entries: rowsResult.rows.map((row) => ({
+      id: Number(row.id),
+      type: row.type,
+      loggedAt: new Date(row.loggedAt).toISOString()
+    })),
+    dailyTypes: dailyResult.rows.map((row) => ({
+      day: row.day,
+      types: row.types || []
+    })),
+    pagination: { limit, offset, returned: rowsResult.rows.length }
+  };
+}
+
 function normalizeAnalysisDays(daysInput) {
   const parsed = Number(daysInput);
   if (!Number.isFinite(parsed)) {
@@ -1580,6 +1677,10 @@ module.exports = {
   addWorkoutEntry,
   updateWorkoutEntry,
   listWorkoutEntries,
+  addEjaculationEntry,
+  updateEjaculationEntry,
+  deleteEjaculationEntry,
+  listEjaculationEntries,
   getAnalysisSnapshot,
   saveAnalysisReport,
   getLatestAnalysisReport,

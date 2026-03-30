@@ -1042,10 +1042,35 @@ button[disabled] {
 }
 
 #weight-canvas,
-#workout-canvas {
+#workout-canvas,
+#health-canvas {
   width: 100%;
   height: 130px;
   display: block;
+}
+
+.ejaculation-log-inputs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.ejaculation-log-inputs select {
+  flex: 1;
+}
+
+.trend-legend-swatch-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.health-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
 }
 
 .trend-tooltip {
