@@ -42,10 +42,10 @@ const {
   addWorkoutEntry,
   updateWorkoutEntry,
   listWorkoutEntries,
-  addEjaculationEntry,
-  updateEjaculationEntry,
-  deleteEjaculationEntry,
-  listEjaculationEntries,
+  addSexualActivityEntry,
+  updateSexualActivityEntry,
+  deleteSexualActivityEntry,
+  listSexualActivityEntries,
   getAnalysisSnapshot,
   saveAnalysisReport,
   getLatestAnalysisReport,
@@ -1830,61 +1830,61 @@ apiRouter.post('/workouts/:id', async (req, res) => {
   }
 });
 
-// ── Ejaculation (Health) endpoints ──
+// ── Sexual Activity (Health) endpoints ──
 
-apiRouter.get('/ejaculations', async (req, res) => {
+apiRouter.get('/sexual-activity', async (req, res) => {
   try {
     const limit = Number(req.query.limit) || undefined;
     const offset = Number(req.query.offset) || undefined;
     const scope = String(req.query.scope || 'week').toLowerCase();
-    const data = await listEjaculationEntries(userIdFromReq(req), { limit, offset, scope });
+    const data = await listSexualActivityEntries(userIdFromReq(req), { limit, offset, scope });
     res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-apiRouter.post('/ejaculations', async (req, res) => {
+apiRouter.post('/sexual-activity', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
-    await addEjaculationEntry(userId, req.body || {});
-    logAudit(userId, 'create', 'ejaculation_entry');
+    await addSexualActivityEntry(userId, req.body || {});
+    logAudit(userId, 'create', 'sexual_activity_entry');
     res.json({ ok: true });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-apiRouter.put('/ejaculations/:id', async (req, res) => {
+apiRouter.put('/sexual-activity/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid entry id.' });
     }
     const userId = userIdFromReq(req);
-    const changes = await updateEjaculationEntry(userId, id, req.body || {});
+    const changes = await updateSexualActivityEntry(userId, id, req.body || {});
     if (!changes) {
       return res.status(404).json({ error: 'Entry not found.' });
     }
-    logAudit(userId, 'update', 'ejaculation_entry', String(id));
+    logAudit(userId, 'update', 'sexual_activity_entry', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
 });
 
-apiRouter.delete('/ejaculations/:id', async (req, res) => {
+apiRouter.delete('/sexual-activity/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid entry id.' });
     }
     const userId = userIdFromReq(req);
-    const changes = await deleteEjaculationEntry(userId, id);
+    const changes = await deleteSexualActivityEntry(userId, id);
     if (!changes) {
       return res.status(404).json({ error: 'Entry not found.' });
     }
-    logAudit(userId, 'delete', 'ejaculation_entry', String(id));
+    logAudit(userId, 'delete', 'sexual_activity_entry', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });

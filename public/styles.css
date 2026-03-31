@@ -800,7 +800,8 @@ h2 {
 
 #consumed-at,
 #weight-logged-at,
-#workout-logged-at {
+#workout-logged-at,
+#health-logged-at {
   width: 100%;
   margin-bottom: 0;
 }
@@ -1322,13 +1323,13 @@ button[disabled] {
   display: block;
 }
 
-.ejaculation-log-inputs {
+.health-log-inputs {
   display: flex;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
 
-.ejaculation-log-inputs select {
+.health-log-inputs select {
   flex: 1;
 }
 
@@ -2112,7 +2113,8 @@ button[disabled] {
 
   #consumed-at,
   #weight-logged-at,
-  #workout-logged-at {
+  #workout-logged-at,
+  #health-logged-at {
     padding: 0.36rem 0.42rem;
     font-size: 0.82rem;
   }

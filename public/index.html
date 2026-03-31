@@ -366,26 +366,26 @@
       <section id="health-page" class="app-page" hidden>
         <section class="panel glass panel-compact">
           <div class="section-head-row">
-            <h2>Sex</h2>
+            <h2>Log Activity</h2>
             <div class="consumed-inline">
-              <input id="ejaculation-logged-at" type="datetime-local" />
+              <input id="health-logged-at" type="datetime-local" />
             </div>
           </div>
           <div class="inline-log-row">
-            <select id="ejaculation-type">
+            <select id="health-activity-type">
               <option value="masturbation">Masturbation</option>
               <option value="oral sex">Oral Sex</option>
               <option value="vaginal sex">Vaginal Sex</option>
               <option value="other">Other</option>
             </select>
-            <button id="save-ejaculation-btn" type="button">Log Entry</button>
+            <button id="save-health-btn" type="button">Log Entry</button>
           </div>
-          <p id="ejaculation-note" role="status" aria-live="polite"></p>
+          <p id="health-note" role="status" aria-live="polite"></p>
         </section>
 
         <section class="panel glass">
           <h2>Logged Entries</h2>
-          <div id="ejaculation-log-list" class="simple-log-list"></div>
+          <div id="health-log-list" class="simple-log-list"></div>
         </section>
 
         <section id="health-snapshot-section" class="panel glass">
@@ -398,7 +398,7 @@
             </div>
           </div>
           <div class="trend-wrap">
-            <canvas id="health-canvas" height="64" aria-label="Weekly sexual health occurrence chart"></canvas>
+            <canvas id="health-canvas" height="64" aria-label="Weekly sexual activity occurrence chart"></canvas>
             <div class="trend-legend health-legend" aria-live="polite">
               <span class="trend-legend-item">
                 <span class="trend-legend-swatch-dot" style="background: #ff6b9d;" aria-hidden="true"></span>

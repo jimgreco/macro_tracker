@@ -147,8 +147,21 @@ async function initDb() {
     );
   `);
 
+  // Rename old table if it exists
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS ejaculation_entries (
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'ejaculation_entries')
+         AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sexual_activity_entries') THEN
+        ALTER TABLE ejaculation_entries RENAME TO sexual_activity_entries;
+      ELSIF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'ejaculation_entries')
+         AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sexual_activity_entries') THEN
+        DROP TABLE ejaculation_entries;
+      END IF;
+    END $$;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sexual_activity_entries (
       id BIGSERIAL PRIMARY KEY,
       user_id TEXT NOT NULL,
       type TEXT NOT NULL DEFAULT 'masturbation',
@@ -1126,36 +1139,36 @@ async function listWorkoutEntries(userId, options = {}) {
   };
 }
 
-const VALID_EJACULATION_TYPES = ['masturbation', 'oral sex', 'vaginal sex', 'other'];
+const VALID_ACTIVITY_TYPES = ['masturbation', 'oral sex', 'vaginal sex', 'other'];
 
-function normalizeEjaculationType(type) {
+function normalizeActivityType(type) {
   const normalized = String(type || '').trim().toLowerCase();
-  return VALID_EJACULATION_TYPES.includes(normalized) ? normalized : 'masturbation';
+  return VALID_ACTIVITY_TYPES.includes(normalized) ? normalized : 'masturbation';
 }
 
-async function addEjaculationEntry(userId, payload) {
-  const type = normalizeEjaculationType(payload.type);
+async function addSexualActivityEntry(userId, payload) {
+  const type = normalizeActivityType(payload.type);
   const loggedAt = new Date(payload.loggedAt || new Date().toISOString());
   if (Number.isNaN(loggedAt.getTime())) {
     throw new Error('Invalid loggedAt value.');
   }
 
   await pool.query(
-    `INSERT INTO ejaculation_entries (user_id, type, logged_at)
+    `INSERT INTO sexual_activity_entries (user_id, type, logged_at)
      VALUES ($1, $2, $3)`,
     [userId, type, loggedAt]
   );
 }
 
-async function updateEjaculationEntry(userId, id, payload) {
-  const type = normalizeEjaculationType(payload.type);
+async function updateSexualActivityEntry(userId, id, payload) {
+  const type = normalizeActivityType(payload.type);
   const loggedAt = new Date(payload.loggedAt || new Date().toISOString());
   if (Number.isNaN(loggedAt.getTime())) {
     throw new Error('Invalid loggedAt value.');
   }
 
   const result = await pool.query(
-    `UPDATE ejaculation_entries
+    `UPDATE sexual_activity_entries
      SET type = $3, logged_at = $4
      WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
     [userId, id, type, loggedAt]
@@ -1164,22 +1177,22 @@ async function updateEjaculationEntry(userId, id, payload) {
   return result.rowCount;
 }
 
-async function deleteEjaculationEntry(userId, id) {
+async function deleteSexualActivityEntry(userId, id) {
   const result = await pool.query(
-    `UPDATE ejaculation_entries SET deleted_at = NOW()
+    `UPDATE sexual_activity_entries SET deleted_at = NOW()
      WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
     [userId, id]
   );
   return result.rowCount;
 }
 
-async function listEjaculationEntries(userId, options = {}) {
+async function listSexualActivityEntries(userId, options = {}) {
   const limit = Math.min(Math.max(1, Number(options.limit) || 100), 500);
   const offset = Math.max(0, Number(options.offset) || 0);
 
   const rowsResult = await pool.query(
     `SELECT id, type, logged_at AS "loggedAt"
-     FROM ejaculation_entries
+     FROM sexual_activity_entries
      WHERE user_id = $1 AND deleted_at IS NULL
      ORDER BY logged_at DESC, id DESC
      LIMIT $2 OFFSET $3`,
@@ -1190,7 +1203,7 @@ async function listEjaculationEntries(userId, options = {}) {
   const dailyResult = await pool.query(
     `SELECT (logged_at AT TIME ZONE 'America/New_York')::date::text AS day,
             array_agg(DISTINCT type) AS types
-     FROM ejaculation_entries
+     FROM sexual_activity_entries
      WHERE user_id = $1 AND deleted_at IS NULL
        AND logged_at >= NOW() - INTERVAL '${scopeDays} days'
      GROUP BY day
@@ -1677,10 +1690,10 @@ module.exports = {
   addWorkoutEntry,
   updateWorkoutEntry,
   listWorkoutEntries,
-  addEjaculationEntry,
-  updateEjaculationEntry,
-  deleteEjaculationEntry,
-  listEjaculationEntries,
+  addSexualActivityEntry,
+  updateSexualActivityEntry,
+  deleteSexualActivityEntry,
+  listSexualActivityEntries,
   getAnalysisSnapshot,
   saveAnalysisReport,
   getLatestAnalysisReport,

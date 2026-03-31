@@ -22,7 +22,7 @@ const state = {
   weightSnapshotPeriod: 'weekly',
   workoutSnapshotPeriod: 'weekly',
   healthSnapshotPeriod: 'weekly',
-  ejaculationEntries: [],
+  healthEntries: [],
   weightEntries: [],
   workoutEntries: [],
   expandedMealGroups: new Set(),
@@ -139,11 +139,11 @@ const workoutCalTooltipEl = document.getElementById('workout-cal-tooltip');
 const workoutCalAverageValueEl = document.getElementById('workout-cal-average-value');
 const workoutCalTargetDisplayEl = document.getElementById('workout-cal-target-display');
 const editWorkoutTargetLinkEl = document.getElementById('edit-workout-target-link');
-const ejaculationLoggedAtEl = document.getElementById('ejaculation-logged-at');
-const ejaculationTypeEl = document.getElementById('ejaculation-type');
-const saveEjaculationBtnEl = document.getElementById('save-ejaculation-btn');
-const ejaculationNoteEl = document.getElementById('ejaculation-note');
-const ejaculationLogListEl = document.getElementById('ejaculation-log-list');
+const healthLoggedAtEl = document.getElementById('health-logged-at');
+const healthActivityTypeEl = document.getElementById('health-activity-type');
+const saveHealthBtnEl = document.getElementById('save-health-btn');
+const healthNoteEl = document.getElementById('health-note');
+const healthLogListEl = document.getElementById('health-log-list');
 const healthCanvasEl = document.getElementById('health-canvas');
 const healthSnapshotHeadingEl = document.getElementById('health-snapshot-heading');
 const healthPeriodToggleEl = document.getElementById('health-period-toggle');
@@ -3693,7 +3693,7 @@ function bindPageChartsResize() {
       } else if (state.selectedPage === 'workout') {
         renderWorkoutChart();
       } else if (state.selectedPage === 'health') {
-        drawHealthOccurrenceChart(state.ejaculationEntries, state.healthSnapshotPeriod || 'weekly');
+        drawHealthOccurrenceChart(state.healthEntries, state.healthSnapshotPeriod || 'weekly');
       }
     }, 80);
   });
@@ -4015,7 +4015,7 @@ function renderHealthCard(entry) {
   const typeLabel = entry.type.charAt(0).toUpperCase() + entry.type.slice(1);
   const color = EJACULATION_TYPE_COLORS[entry.type] || '#c48aff';
   return `
-    <div class="entry-card" data-ejaculation-action="edit" data-ejaculation-id="${entry.id}">
+    <div class="entry-card" data-health-action="edit" data-health-id="${entry.id}">
       <div class="entry-card-icon entry-card-icon--health" style="background:${color}22;color:${color}">●</div>
       <div class="entry-card-body">
         <div class="entry-card-title">${typeLabel}</div>
@@ -4025,7 +4025,7 @@ function renderHealthCard(entry) {
   `;
 }
 
-function showEjaculationEditModal(entry) {
+function showHealthEditModal(entry) {
   let overlay = document.getElementById('entry-modal-overlay');
   if (overlay) overlay.remove();
 
@@ -4038,12 +4038,12 @@ function showEjaculationEditModal(entry) {
       <h3>Edit Entry</h3>
       <div class="entry-modal-row">
         <div class="entry-modal-field">
-          <label for="ejaculation-modal-date">Date/Time</label>
-          <input id="ejaculation-modal-date" type="datetime-local" value="${loggedAtValue}" />
+          <label for="health-modal-date">Date/Time</label>
+          <input id="health-modal-date" type="datetime-local" value="${loggedAtValue}" />
         </div>
         <div class="entry-modal-field">
-          <label for="ejaculation-modal-type">Type</label>
-          <select id="ejaculation-modal-type">
+          <label for="health-modal-type">Type</label>
+          <select id="health-modal-type">
             <option value="masturbation" ${entry.type === 'masturbation' ? 'selected' : ''}>Masturbation</option>
             <option value="oral sex" ${entry.type === 'oral sex' ? 'selected' : ''}>Oral Sex</option>
             <option value="vaginal sex" ${entry.type === 'vaginal sex' ? 'selected' : ''}>Vaginal Sex</option>
@@ -4052,23 +4052,23 @@ function showEjaculationEditModal(entry) {
         </div>
       </div>
       <div class="combine-modal-actions">
-        <button type="button" class="btn-danger table-action-btn" id="ejaculation-modal-delete-btn">Delete</button>
+        <button type="button" class="btn-danger table-action-btn" id="health-modal-delete-btn">Delete</button>
         <span style="flex:1"></span>
-        <button type="button" class="btn-muted table-action-btn" id="ejaculation-modal-cancel-btn">Cancel</button>
-        <button type="button" class="btn-success table-action-btn" id="ejaculation-modal-save-btn">Save</button>
+        <button type="button" class="btn-muted table-action-btn" id="health-modal-cancel-btn">Cancel</button>
+        <button type="button" class="btn-success table-action-btn" id="health-modal-save-btn">Save</button>
       </div>
     </div>
   `;
   document.body.appendChild(overlay);
 
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-  document.getElementById('ejaculation-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  document.getElementById('health-modal-cancel-btn').addEventListener('click', () => overlay.remove());
 
-  document.getElementById('ejaculation-modal-delete-btn').addEventListener('click', async () => {
+  document.getElementById('health-modal-delete-btn').addEventListener('click', async () => {
     if (!window.confirm('Delete this entry?')) return;
     overlay.remove();
     try {
-      await api(`/api/ejaculations/${entry.id}`, { method: 'DELETE' });
+      await api(`/api/sexual-activity/${entry.id}`, { method: 'DELETE' });
       setActionBanner('Entry deleted.', 'success');
       await refreshHealthData();
     } catch (error) {
@@ -4076,12 +4076,12 @@ function showEjaculationEditModal(entry) {
     }
   });
 
-  document.getElementById('ejaculation-modal-save-btn').addEventListener('click', async () => {
-    const loggedAt = asIso(document.getElementById('ejaculation-modal-date').value || toDateTimeLocalValue());
-    const type = document.getElementById('ejaculation-modal-type').value;
+  document.getElementById('health-modal-save-btn').addEventListener('click', async () => {
+    const loggedAt = asIso(document.getElementById('health-modal-date').value || toDateTimeLocalValue());
+    const type = document.getElementById('health-modal-type').value;
     overlay.remove();
     try {
-      await api(`/api/ejaculations/${entry.id}`, {
+      await api(`/api/sexual-activity/${entry.id}`, {
         method: 'PUT',
         body: JSON.stringify({ type, loggedAt })
       });
@@ -4093,7 +4093,7 @@ function showEjaculationEditModal(entry) {
   });
 
   overlay.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ejaculation-modal-save-btn').click(); }
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('health-modal-save-btn').click(); }
     if (e.key === 'Escape') overlay.remove();
   });
 }
@@ -4233,13 +4233,13 @@ function drawHealthOccurrenceChart(entries, period) {
 }
 
 async function refreshHealthData() {
-  if (!ejaculationLogListEl) return;
+  if (!healthLogListEl) return;
   try {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const scope = periodToScope[state.healthSnapshotPeriod] || 'week';
-    const data = await api(`/api/ejaculations?scope=${scope}`);
+    const data = await api(`/api/sexual-activity?scope=${scope}`);
     const entries = Array.isArray(data.entries) ? data.entries : [];
-    state.ejaculationEntries = entries;
+    state.healthEntries = entries;
 
     const tenDaysCutoff = new Date();
     tenDaysCutoff.setDate(tenDaysCutoff.getDate() - 10);
@@ -4247,14 +4247,14 @@ async function refreshHealthData() {
     const recentEntries = entries.filter((e) => new Date(e.loggedAt) >= tenDaysCutoff);
 
     if (!recentEntries.length) {
-      ejaculationLogListEl.innerHTML = '<p class="empty-note">No entries in the last 10 days.</p>';
+      healthLogListEl.innerHTML = '<p class="empty-note">No entries in the last 10 days.</p>';
     } else {
-      ejaculationLogListEl.innerHTML = `<div class="entry-cards">${recentEntries.map((entry) => renderHealthCard(entry)).join('')}</div>`;
+      healthLogListEl.innerHTML = `<div class="entry-cards">${recentEntries.map((entry) => renderHealthCard(entry)).join('')}</div>`;
     }
 
     drawHealthOccurrenceChart(entries, state.healthSnapshotPeriod || 'weekly');
   } catch (error) {
-    if (ejaculationNoteEl) ejaculationNoteEl.textContent = error.message;
+    if (healthNoteEl) healthNoteEl.textContent = error.message;
   }
 }
 
@@ -4389,27 +4389,27 @@ if (weightLogListEl) {
   });
 }
 
-// ── Health / Ejaculation event wiring ──
+// ── Health / Sexual Activity event wiring ──
 
-if (saveEjaculationBtnEl) {
-  if (ejaculationLoggedAtEl) {
-    ejaculationLoggedAtEl.value = toDateTimeLocalValue();
+if (saveHealthBtnEl) {
+  if (healthLoggedAtEl) {
+    healthLoggedAtEl.value = toDateTimeLocalValue();
   }
-  saveEjaculationBtnEl.addEventListener('click', async () => {
+  saveHealthBtnEl.addEventListener('click', async () => {
     try {
-      await api('/api/ejaculations', {
+      await api('/api/sexual-activity', {
         method: 'POST',
         body: JSON.stringify({
-          loggedAt: asIso(ejaculationLoggedAtEl?.value || toDateTimeLocalValue()),
-          type: ejaculationTypeEl?.value || 'masturbation'
+          loggedAt: asIso(healthLoggedAtEl?.value || toDateTimeLocalValue()),
+          type: healthActivityTypeEl?.value || 'masturbation'
         })
       });
-      if (ejaculationNoteEl) ejaculationNoteEl.textContent = 'Entry saved.';
-      if (ejaculationLoggedAtEl) ejaculationLoggedAtEl.value = toDateTimeLocalValue();
+      if (healthNoteEl) healthNoteEl.textContent = 'Entry saved.';
+      if (healthLoggedAtEl) healthLoggedAtEl.value = toDateTimeLocalValue();
       setActionBanner('Entry saved.', 'success');
       await refreshHealthData();
     } catch (error) {
-      if (ejaculationNoteEl) ejaculationNoteEl.textContent = error.message;
+      if (healthNoteEl) healthNoteEl.textContent = error.message;
       setActionBanner(error.message, 'error');
     }
   });
@@ -4430,18 +4430,18 @@ if (healthPeriodToggleEl) {
   }
 }
 
-if (ejaculationLogListEl) {
-  ejaculationLogListEl.addEventListener('click', async (event) => {
-    const target = event.target.closest('[data-ejaculation-action]');
+if (healthLogListEl) {
+  healthLogListEl.addEventListener('click', async (event) => {
+    const target = event.target.closest('[data-health-action]');
     if (!target) return;
     event.preventDefault();
-    const action = target.dataset.ejaculationAction;
-    const entryId = Number(target.dataset.ejaculationId);
+    const action = target.dataset.healthAction;
+    const entryId = Number(target.dataset.healthId);
     if (!action || !entryId) return;
     if (action === 'edit') {
-      const entry = (state.ejaculationEntries || []).find(e => e.id === entryId);
+      const entry = (state.healthEntries || []).find(e => e.id === entryId);
       if (!entry) return;
-      showEjaculationEditModal(entry);
+      showHealthEditModal(entry);
     }
   });
 }
