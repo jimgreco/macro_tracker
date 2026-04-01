@@ -150,14 +150,17 @@ The iOS app communicates with the backend via Bearer token auth. Sign in with Ap
 
 ### Deployment Process
 
+Deployment is automated via GitHub Actions (`.github/workflows/deploy.yml`). Every push to `main` automatically deploys to production on AWS Elastic Beanstalk. No manual `eb deploy` step is needed.
+
 When asked to deploy or "push live", always run these steps in order — no skipping:
 
 1. **`git status`** — identify all modified/untracked files
 2. **`git add`** all changed files relevant to the work
 3. **Update `CLAUDE.md`** if anything was learned (new gotchas, architecture decisions, changed patterns) — then `git add CLAUDE.md`
 4. **`git commit`** with a clear message describing what changed and why
-5. **`git push`** to GitHub
-6. **`eb deploy macro-tracker-prod`** to ship to production
+5. **`git push origin main`** — GitHub Actions will automatically deploy to `macro-tracker-prod`
+
+The workflow uses `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` GitHub secrets and deploys to the `macro-tracker` EB application, `macro-tracker-prod` environment in `us-east-2`.
 
 ## Content Security Policy
 
