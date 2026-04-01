@@ -2829,12 +2829,10 @@ async function refreshDashboard() {
 parseBtnEl.addEventListener('click', async () => {
   if (state.mealImageLoading) {
     const message = 'Photo is still processing. Please wait a moment and try again.';
-    parseNoteEl.textContent = message;
     setActionBanner(message, 'info');
     return;
   }
 
-  parseNoteEl.textContent = 'Parsing meal...';
   setActionBanner('Parsing meal...', 'info');
 
   try {
@@ -2849,10 +2847,8 @@ parseBtnEl.addEventListener('click', async () => {
 
     state.parsedMeal = parsed;
     renderParsedItems(parsed);
-    parseNoteEl.textContent = parsed.notes || 'Meal parsed.';
-    setActionBanner(parseNoteEl.textContent, 'success');
+    setActionBanner(parsed.notes || 'Meal parsed.', 'success');
   } catch (error) {
-    parseNoteEl.textContent = error.message;
     setActionBanner(error.message, 'error');
     state.parsedMeal = null;
     parsedItemsContainerEl.innerHTML = '';
@@ -2930,7 +2926,6 @@ saveParsedBtnEl.addEventListener('click', async () => {
       })
     });
 
-    parseNoteEl.textContent = 'Saved parsed items.';
     setActionBanner('Saved parsed items.', 'success');
     mealTextEl.value = '';
     state.parsedMeal = null;
@@ -2939,7 +2934,6 @@ saveParsedBtnEl.addEventListener('click', async () => {
     saveParsedBtnEl.disabled = true;
     await refreshDashboard();
   } catch (error) {
-    parseNoteEl.textContent = error.message;
     setActionBanner(error.message, 'error');
   }
 });
@@ -2959,7 +2953,6 @@ quickAddBtnEl.addEventListener('click', async () => {
     setActionBanner('Quick add logged.', 'success');
     await refreshDashboard();
   } catch (error) {
-    parseNoteEl.textContent = error.message;
     setActionBanner(error.message, 'error');
   }
 });
@@ -2992,11 +2985,9 @@ quickEditToggleBtnEl.addEventListener('click', () => {
         if (!confirmed) return;
         try {
           await api(`/api/saved-items/${selected.id}`, { method: 'DELETE' });
-          parseNoteEl.textContent = 'Quick add item deleted.';
           setActionBanner('Quick add item deleted.', 'success');
           await refreshDashboard();
         } catch (error) {
-          parseNoteEl.textContent = error.message;
           setActionBanner(error.message, 'error');
         }
       } : null,
@@ -3016,19 +3007,16 @@ quickEditToggleBtnEl.addEventListener('click', () => {
               method: 'PUT',
               body: JSON.stringify(payload)
             });
-            parseNoteEl.textContent = 'Quick add item updated.';
             setActionBanner('Quick add item updated.', 'success');
           } else {
             await api('/api/saved-items', {
               method: 'POST',
               body: JSON.stringify(payload)
             });
-            parseNoteEl.textContent = 'Quick add item saved.';
             setActionBanner('Quick add item saved.', 'success');
           }
           await refreshDashboard();
         } catch (error) {
-          parseNoteEl.textContent = error.message;
           setActionBanner(error.message, 'error');
         }
       }
@@ -3776,7 +3764,7 @@ async function refreshWeightData() {
     state.weightChartRows = sorted;
     renderWeightChart();
   } catch (error) {
-    weightNoteEl.textContent = error.message;
+    setActionBanner(error.message, 'error');
   }
 }
 
@@ -4254,7 +4242,7 @@ async function refreshHealthData() {
 
     drawHealthOccurrenceChart(entries, state.healthSnapshotPeriod || 'weekly');
   } catch (error) {
-    if (healthNoteEl) healthNoteEl.textContent = error.message;
+    setActionBanner(error.message, 'error');
   }
 }
 
@@ -4351,14 +4339,12 @@ if (saveWeightBtnEl) {
           weight: parseWeightInputValue(weightValueEl?.value)
         })
       });
-      weightNoteEl.textContent = 'Weight saved.';
       if (weightValueEl) {
         weightValueEl.value = '';
       }
       setActionBanner('Weight saved.', 'success');
       await refreshWeightData();
     } catch (error) {
-      weightNoteEl.textContent = error.message;
       setActionBanner(error.message, 'error');
     }
   });
@@ -4404,12 +4390,10 @@ if (saveHealthBtnEl) {
           type: healthActivityTypeEl?.value || 'masturbation'
         })
       });
-      if (healthNoteEl) healthNoteEl.textContent = 'Entry saved.';
       if (healthLoggedAtEl) healthLoggedAtEl.value = toDateTimeLocalValue();
       setActionBanner('Entry saved.', 'success');
       await refreshHealthData();
     } catch (error) {
-      if (healthNoteEl) healthNoteEl.textContent = error.message;
       setActionBanner(error.message, 'error');
     }
   });
@@ -4577,8 +4561,7 @@ renderActivePage('macros');
 bindPageChartsResize();
 
 refreshDashboard().catch((error) => {
-  parseNoteEl.textContent = error.message;
-    setActionBanner(error.message, 'error');
+  setActionBanner(error.message, 'error');
 });
 
 if (profileChipEl) {
