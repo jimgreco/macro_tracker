@@ -172,6 +172,19 @@ async function initDb() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS sleep_entries (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      duration_hours DOUBLE PRECISION NOT NULL,
+      wake_ups INTEGER NOT NULL DEFAULT 0,
+      logged_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+  `);
+  await pool.query(`ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS wake_ups INTEGER NOT NULL DEFAULT 0;`);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS weight_targets (
       user_id TEXT PRIMARY KEY,
       target_weight DOUBLE PRECISION NOT NULL,
@@ -281,6 +294,7 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_macro_targets_user ON macro_targets(user_id);
     CREATE INDEX IF NOT EXISTS idx_weight_entries_user_logged ON weight_entries(user_id, logged_at DESC);
     CREATE INDEX IF NOT EXISTS idx_workout_entries_user_logged ON workout_entries(user_id, logged_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_sleep_entries_user_logged ON sleep_entries(user_id, logged_at DESC);
     CREATE INDEX IF NOT EXISTS idx_analysis_reports_user_created ON analysis_reports(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
     CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
@@ -1225,6 +1239,98 @@ async function listSexualActivityEntries(userId, options = {}) {
   };
 }
 
+// ── Sleep entries ──
+
+async function addSleepEntry(userId, payload) {
+  const durationHours = Number(payload.durationHours);
+  if (!Number.isFinite(durationHours) || durationHours <= 0 || durationHours > 24) {
+    throw new Error('Duration must be between 0 and 24 hours.');
+  }
+  const loggedAt = new Date(payload.loggedAt || new Date().toISOString());
+  if (Number.isNaN(loggedAt.getTime())) {
+    throw new Error('Invalid loggedAt value.');
+  }
+
+  const wakeUps = Math.max(0, Math.min(99, Math.round(Number(payload.wakeUps) || 0)));
+
+  await pool.query(
+    `INSERT INTO sleep_entries (user_id, duration_hours, wake_ups, logged_at)
+     VALUES ($1, $2, $3, $4)`,
+    [userId, Number(durationHours.toFixed(2)), wakeUps, loggedAt]
+  );
+}
+
+async function updateSleepEntry(userId, id, payload) {
+  const durationHours = Number(payload.durationHours);
+  if (!Number.isFinite(durationHours) || durationHours <= 0 || durationHours > 24) {
+    throw new Error('Duration must be between 0 and 24 hours.');
+  }
+  const loggedAt = new Date(payload.loggedAt || new Date().toISOString());
+  if (Number.isNaN(loggedAt.getTime())) {
+    throw new Error('Invalid loggedAt value.');
+  }
+
+  const wakeUps = Math.max(0, Math.min(99, Math.round(Number(payload.wakeUps) || 0)));
+
+  const result = await pool.query(
+    `UPDATE sleep_entries
+     SET duration_hours = $3, wake_ups = $4, logged_at = $5
+     WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
+    [userId, id, Number(durationHours.toFixed(2)), wakeUps, loggedAt]
+  );
+
+  return result.rowCount;
+}
+
+async function deleteSleepEntry(userId, id) {
+  const result = await pool.query(
+    `UPDATE sleep_entries SET deleted_at = NOW()
+     WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
+    [userId, id]
+  );
+  return result.rowCount;
+}
+
+async function listSleepEntries(userId, options = {}) {
+  const limit = Math.min(Math.max(1, Number(options.limit) || 100), 500);
+  const offset = Math.max(0, Number(options.offset) || 0);
+
+  const rowsResult = await pool.query(
+    `SELECT id, duration_hours AS "durationHours", wake_ups AS "wakeUps", logged_at AS "loggedAt"
+     FROM sleep_entries
+     WHERE user_id = $1 AND deleted_at IS NULL
+     ORDER BY logged_at DESC, id DESC
+     LIMIT $2 OFFSET $3`,
+    [userId, limit, offset]
+  );
+
+  const scopeDays = parseScopeDays(options.scope || 'week');
+  const dailyResult = await pool.query(
+    `SELECT (logged_at AT TIME ZONE 'America/New_York')::date::text AS day,
+            ROUND(SUM(duration_hours)::numeric, 2) AS total_hours
+     FROM sleep_entries
+     WHERE user_id = $1 AND deleted_at IS NULL
+       AND logged_at >= NOW() - INTERVAL '${scopeDays} days'
+     GROUP BY day
+     ORDER BY day ASC`,
+    [userId]
+  );
+
+  return {
+    entries: rowsResult.rows.map((row) => ({
+      id: Number(row.id),
+      durationHours: Number(row.durationHours),
+      wakeUps: Number(row.wakeUps || 0),
+      loggedAt: new Date(row.loggedAt).toISOString()
+    })),
+    dailyTotals: dailyResult.rows.map((row) => ({
+      day: row.day,
+      totalHours: Number(row.total_hours)
+    })),
+    pagination: { limit, offset, returned: rowsResult.rows.length }
+  };
+}
+
 function normalizeAnalysisDays(daysInput) {
   const parsed = Number(daysInput);
   if (!Number.isFinite(parsed)) {
@@ -1237,7 +1343,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
   const days = normalizeAnalysisDays(daysInput);
   const daysParam = String(days);
 
-  const [mealDailyResult, topMealsResult, mealTimingResult, workoutDailyResult, workoutTypesResult, weightsResult, targets, weightTarget, dataStartResult] =
+  const [mealDailyResult, topMealsResult, mealTimingResult, workoutDailyResult, workoutTypesResult, weightsResult, sleepResult, targets, weightTarget, dataStartResult] =
     await Promise.all([
       pool.query(
         `SELECT
@@ -1308,6 +1414,16 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
          WHERE user_id = $1 AND deleted_at IS NULL
            AND logged_at >= NOW() - ($2::text || ' days')::interval
          ORDER BY logged_at ASC`,
+        [userId, daysParam]
+      ),
+      pool.query(
+        `SELECT (logged_at AT TIME ZONE 'America/New_York')::date::text AS day,
+                ROUND(SUM(duration_hours)::numeric, 2) AS total_hours
+         FROM sleep_entries
+         WHERE user_id = $1 AND deleted_at IS NULL
+           AND logged_at >= NOW() - ($2::text || ' days')::interval
+         GROUP BY day
+         ORDER BY day ASC`,
         [userId, daysParam]
       ),
       getMacroTargets(userId),
@@ -1408,6 +1524,16 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
         date: targetDate,
         daysRemaining: Number.isFinite(targetDaysRemaining) ? targetDaysRemaining : null
       }
+    },
+    sleep: {
+      dailyTotals: sleepResult.rows.map((row) => ({
+        day: row.day,
+        totalHours: Number(row.total_hours || 0)
+      })),
+      daysLogged: sleepResult.rows.length,
+      avgHours: sleepResult.rows.length
+        ? Number((sleepResult.rows.reduce((sum, row) => sum + Number(row.total_hours || 0), 0) / sleepResult.rows.length).toFixed(2))
+        : 0
     }
   };
 }
@@ -1525,7 +1651,7 @@ async function deleteApiToken(userId, tokenId) {
 // ── GDPR ──
 
 async function exportUserData(userId) {
-  const [user, entries, savedItems, macroTargets, weightEntries, workoutEntries, weightTarget, analysisReports] =
+  const [user, entries, savedItems, macroTargets, weightEntries, workoutEntries, sleepEntries, weightTarget, analysisReports] =
     await Promise.all([
       pool.query('SELECT id, email, name, provider, created_at, updated_at FROM users WHERE id = $1', [userId]),
       pool.query('SELECT id, item_name, quantity, unit, calories, protein, carbs, fat, consumed_at, meal_group, meal_name, meal_quantity, meal_unit, created_at FROM entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY consumed_at DESC', [userId]),
@@ -1533,6 +1659,7 @@ async function exportUserData(userId) {
       pool.query('SELECT macro, target, updated_at FROM macro_targets WHERE user_id = $1', [userId]),
       pool.query('SELECT id, weight, logged_at, created_at FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       pool.query('SELECT id, description, intensity, duration_hours, calories_burned, logged_at, created_at FROM workout_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
+      pool.query('SELECT id, duration_hours, logged_at, created_at FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       getWeightTarget(userId),
       pool.query('SELECT id, period_days, report_json, created_at FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC', [userId])
     ]);
@@ -1545,6 +1672,7 @@ async function exportUserData(userId) {
     macroTargets: macroTargets.rows,
     weightEntries: weightEntries.rows,
     workoutEntries: workoutEntries.rows,
+    sleepEntries: sleepEntries.rows,
     weightTarget,
     analysisReports: analysisReports.rows
   };
@@ -1559,6 +1687,7 @@ async function deleteUserAccount(userId) {
     await client.query('DELETE FROM macro_targets WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM weight_entries WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM workout_entries WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM sleep_entries WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM weight_targets WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM analysis_reports WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM api_tokens WHERE user_id = $1', [userId]);
@@ -1694,6 +1823,10 @@ module.exports = {
   updateSexualActivityEntry,
   deleteSexualActivityEntry,
   listSexualActivityEntries,
+  addSleepEntry,
+  updateSleepEntry,
+  deleteSleepEntry,
+  listSleepEntries,
   getAnalysisSnapshot,
   saveAnalysisReport,
   getLatestAnalysisReport,

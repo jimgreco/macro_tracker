@@ -364,6 +364,7 @@
       </section>
 
       <section id="health-page" class="app-page" hidden>
+        <h3 class="health-section-divider">Sexual Activity</h3>
         <section class="panel glass panel-compact">
           <div class="section-head-row">
             <h2>Log Activity</h2>
@@ -420,6 +421,47 @@
             <div class="trend-legend" aria-live="polite">
               <span class="trend-legend-item">
                 <span id="health-occurrence-stat">—</span>
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <h3 class="health-section-divider">Sleep</h3>
+        <section class="panel glass panel-compact">
+          <div class="section-head-row">
+            <h2>Log Sleep</h2>
+            <div class="consumed-inline">
+              <input id="sleep-logged-at" type="datetime-local" />
+            </div>
+          </div>
+          <div class="inline-log-row">
+            <input id="sleep-hours" type="number" step="0.25" min="0" max="24" placeholder="Hours" />
+            <input id="sleep-wake-ups" type="number" step="1" min="0" max="99" placeholder="Wake-ups" style="max-width:110px" />
+            <button id="save-sleep-btn" type="button">Log Sleep</button>
+          </div>
+        </section>
+
+        <section class="panel glass">
+          <h2>Sleep Log</h2>
+          <div id="sleep-log-list" class="simple-log-list"></div>
+        </section>
+
+        <section id="sleep-snapshot-section" class="panel glass">
+          <div class="snapshot-header">
+            <h2 id="sleep-snapshot-heading">Weekly Snapshot</h2>
+            <div class="period-toggle" id="sleep-period-toggle" role="group" aria-label="Sleep snapshot time period">
+              <button class="period-btn is-active" data-period="weekly">Week</button>
+              <button class="period-btn" data-period="monthly">Month</button>
+              <button class="period-btn" data-period="annual">Year</button>
+            </div>
+          </div>
+          <div class="trend-wrap">
+            <canvas id="sleep-canvas" height="130" aria-label="Sleep hours trend graph"></canvas>
+            <div id="sleep-tooltip" class="trend-tooltip" hidden></div>
+            <div class="trend-legend" aria-live="polite">
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
+                Average: <span id="sleep-average-value">none</span> hrs
               </span>
             </div>
           </div>

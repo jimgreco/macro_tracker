@@ -46,6 +46,10 @@ const {
   updateSexualActivityEntry,
   deleteSexualActivityEntry,
   listSexualActivityEntries,
+  addSleepEntry,
+  updateSleepEntry,
+  deleteSleepEntry,
+  listSleepEntries,
   getAnalysisSnapshot,
   saveAnalysisReport,
   getLatestAnalysisReport,
@@ -551,6 +555,9 @@ function buildAnalysisMetrics(snapshot, context) {
   const totalWorkoutHours = workoutDays.reduce((sum, row) => sum + toFinite(row.durationHours), 0);
   const totalWorkoutCalories = workoutDays.reduce((sum, row) => sum + toFinite(row.caloriesBurned), 0);
   const weightChange = toFinite(snapshot?.weight?.change);
+  const sleepDays = Array.isArray(snapshot?.sleep?.dailyTotals) ? snapshot.sleep.dailyTotals : [];
+  const sleepHoursArr = sleepDays.map((row) => toFinite(row.totalHours));
+  const avgSleepHours = sleepHoursArr.length ? sleepHoursArr.reduce((a, b) => a + b, 0) / sleepHoursArr.length : 0;
   const dailyCalories = mealDays.map((row) => toFinite(row.calories));
   const dailyProtein = mealDays.map((row) => toFinite(row.protein));
 
@@ -659,7 +666,9 @@ function buildAnalysisMetrics(snapshot, context) {
       totalWorkoutHours: Number(totalWorkoutHours.toFixed(2)),
       totalWorkoutCalories: Number(totalWorkoutCalories.toFixed(1)),
       weightEntryCount: weightEntries.length,
-      weightChange: Number(weightChange.toFixed(2))
+      weightChange: Number(weightChange.toFixed(2)),
+      sleepDaysLogged: sleepDays.length,
+      avgSleepHours: Number(avgSleepHours.toFixed(2))
     },
     goalAlignment: {
       goal,
@@ -750,7 +759,7 @@ async function generateAiAnalysis(snapshot, context) {
       {
         role: 'system',
         content:
-          'You are a direct fitness and nutrition coach. Be honest, specific, and practical. Use only the data provided. Return strict JSON only. Next-week plan items must be numeric and measurable. IMPORTANT: completedWorkoutCount and plannedWorkoutCount represent distinct days with at least one workout — not total session counts. Two workouts logged on the same day still count as only one workout day.'
+          'You are a direct fitness and nutrition coach. Be honest, specific, and practical. Use only the data provided. Return strict JSON only. Next-week plan items must be numeric and measurable. IMPORTANT: completedWorkoutCount and plannedWorkoutCount represent distinct days with at least one workout — not total session counts. Two workouts logged on the same day still count as only one workout day. If sleep data is available, incorporate sleep patterns into your analysis and recommendations (e.g. average hours, consistency, impact on recovery).'
       },
       {
         role: 'user',
@@ -1885,6 +1894,67 @@ apiRouter.delete('/sexual-activity/:id', async (req, res) => {
       return res.status(404).json({ error: 'Entry not found.' });
     }
     logAudit(userId, 'delete', 'sexual_activity_entry', String(id));
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+// ── Sleep endpoints ──
+
+apiRouter.get('/sleep', async (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || undefined;
+    const offset = Number(req.query.offset) || undefined;
+    const scope = String(req.query.scope || 'week').toLowerCase();
+    const data = await listSleepEntries(userIdFromReq(req), { limit, offset, scope });
+    res.json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/sleep', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    await addSleepEntry(userId, req.body || {});
+    logAudit(userId, 'create', 'sleep_entry');
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.put('/sleep/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid entry id.' });
+    }
+    const userId = userIdFromReq(req);
+    const changes = await updateSleepEntry(userId, id, req.body || {});
+    if (!changes) {
+      return res.status(404).json({ error: 'Entry not found.' });
+    }
+    logAudit(userId, 'update', 'sleep_entry', String(id));
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.delete('/sleep/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid entry id.' });
+    }
+    const userId = userIdFromReq(req);
+    const changes = await deleteSleepEntry(userId, id);
+    if (!changes) {
+      return res.status(404).json({ error: 'Entry not found.' });
+    }
+    logAudit(userId, 'delete', 'sleep_entry', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });

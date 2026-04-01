@@ -139,6 +139,16 @@ const workoutCalTooltipEl = document.getElementById('workout-cal-tooltip');
 const workoutCalAverageValueEl = document.getElementById('workout-cal-average-value');
 const workoutCalTargetDisplayEl = document.getElementById('workout-cal-target-display');
 const editWorkoutTargetLinkEl = document.getElementById('edit-workout-target-link');
+const sleepLoggedAtEl = document.getElementById('sleep-logged-at');
+const sleepHoursEl = document.getElementById('sleep-hours');
+const sleepWakeUpsEl = document.getElementById('sleep-wake-ups');
+const saveSleepBtnEl = document.getElementById('save-sleep-btn');
+const sleepLogListEl = document.getElementById('sleep-log-list');
+const sleepCanvasEl = document.getElementById('sleep-canvas');
+const sleepSnapshotHeadingEl = document.getElementById('sleep-snapshot-heading');
+const sleepPeriodToggleEl = document.getElementById('sleep-period-toggle');
+const sleepAverageValueEl = document.getElementById('sleep-average-value');
+const sleepTooltipEl = document.getElementById('sleep-tooltip');
 const healthLoggedAtEl = document.getElementById('health-logged-at');
 const healthActivityTypeEl = document.getElementById('health-activity-type');
 const saveHealthBtnEl = document.getElementById('save-health-btn');
@@ -838,7 +848,7 @@ function renderProfile(user) {
 }
 
 function formatMacros(item) {
-  return `${fmtNumber(item.calories)} cal | P ${fmtNumber(item.protein)}g | C ${fmtNumber(item.carbs)}g | F ${fmtNumber(item.fat)}g`;
+  return `${fmtNumber(item.calories)} cal | ${fmtNumber(item.protein)}g protein | ${fmtNumber(item.carbs)}g carbs | ${fmtNumber(item.fat)}g fat`;
 }
 
 function isCompactMobileView() {
@@ -1064,7 +1074,7 @@ function renderParsedItems(parsedMeal) {
     header.innerHTML = `
       <div class="parsed-item-summary">
         <span class="parsed-item-name">${parsedMeal.mealName || 'Meal'}</span>
-        <span class="parsed-item-macros">${fmtNumber(mealQty)} ${mealUnit} &middot; ${fmtNumber(totals.calories)} cal &middot; ${fmtNumber(totals.protein)}P &middot; ${fmtNumber(totals.carbs)}C &middot; ${fmtNumber(totals.fat)}F</span>
+        <span class="parsed-item-macros">${fmtNumber(mealQty)} ${mealUnit} &middot; ${fmtNumber(totals.calories)} cal &middot; ${fmtNumber(totals.protein)}g protein &middot; ${fmtNumber(totals.carbs)}g carbs &middot; ${fmtNumber(totals.fat)}g fat</span>
       </div>
       <div class="parsed-item-right">
         <div class="parsed-item-btn-row">
@@ -1103,7 +1113,7 @@ function renderParsedItems(parsedMeal) {
     summary.className = 'parsed-item-summary';
     summary.innerHTML = `
       <span class="parsed-item-name">${item.itemName}</span>
-      <span class="parsed-item-macros">${fmtNumber(item.calories)} cal &middot; ${fmtNumber(item.protein)}P &middot; ${fmtNumber(item.carbs)}C &middot; ${fmtNumber(item.fat)}F</span>
+      <span class="parsed-item-macros">${fmtNumber(item.calories)} cal &middot; ${fmtNumber(item.protein)}g protein &middot; ${fmtNumber(item.carbs)}g carbs &middot; ${fmtNumber(item.fat)}g fat</span>
     `;
 
     const editBtn = document.createElement('button');
@@ -1407,9 +1417,9 @@ function renderMacroCard(entry) {
         <div class="entry-card-chips">
           <span class="entry-card-chip">${fmtNumber(entry.quantity)} ${entry.unit || ''}</span>
           <span class="entry-card-chip entry-card-chip--accent">${fmtNumber(entry.calories)} cal</span>
-          <span class="entry-card-chip">${fmtNumber(entry.protein)}P</span>
-          <span class="entry-card-chip">${fmtNumber(entry.carbs)}C</span>
-          <span class="entry-card-chip">${fmtNumber(entry.fat)}F</span>
+          <span class="entry-card-chip">${fmtNumber(entry.protein)}g protein</span>
+          <span class="entry-card-chip">${fmtNumber(entry.carbs)}g carbs</span>
+          <span class="entry-card-chip">${fmtNumber(entry.fat)}g fat</span>
         </div>
       </div>
       <div class="macro-card-time">${timeStr}</div>
@@ -1983,7 +1993,7 @@ function renderDashboard(data) {
             <div class="macro-card-check"><input type="checkbox" class="entry-checkbox" data-entry-id="${child.id}" data-in-group="1" data-meal-group="${child.mealGroup}" ${childChecked} /></div>
             <div class="macro-card-child-body" data-edit-entry-id="${child.id}">
               <span class="macro-card-child-name">${child.itemName}</span>
-              <span class="macro-card-child-detail">${fmtNumber(child.quantity)} ${child.unit || ''} · ${fmtNumber(child.calories)} cal · ${fmtNumber(child.protein)}P ${fmtNumber(child.carbs)}C ${fmtNumber(child.fat)}F</span>
+              <span class="macro-card-child-detail">${fmtNumber(child.quantity)} ${child.unit || ''} · ${fmtNumber(child.calories)} cal · ${fmtNumber(child.protein)}g protein · ${fmtNumber(child.carbs)}g carbs · ${fmtNumber(child.fat)}g fat</span>
             </div>
           </div>
         `;
@@ -2001,9 +2011,9 @@ function renderDashboard(data) {
             <div class="entry-card-chips">
               <span class="entry-card-chip">${fmtNumber(mealQty)} ${mealUnit}</span>
               <span class="entry-card-chip entry-card-chip--accent">${fmtNumber(totals.calories)} cal</span>
-              <span class="entry-card-chip">${fmtNumber(totals.protein)}P</span>
-              <span class="entry-card-chip">${fmtNumber(totals.carbs)}C</span>
-              <span class="entry-card-chip">${fmtNumber(totals.fat)}F</span>
+              <span class="entry-card-chip">${fmtNumber(totals.protein)}g protein</span>
+              <span class="entry-card-chip">${fmtNumber(totals.carbs)}g carbs</span>
+              <span class="entry-card-chip">${fmtNumber(totals.fat)}g fat</span>
             </div>
           </div>
           <div class="macro-card-time">${timeStr}</div>
@@ -3988,6 +3998,143 @@ function parseWorkoutInput(text) {
   };
 }
 
+// ── Sleep Tracking ──
+
+function renderSleepCard(entry) {
+  const loggedAt = new Date(entry.loggedAt);
+  const dateText = loggedAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const hours = Number(entry.durationHours || 0);
+  const wakeUps = Number(entry.wakeUps || 0);
+  const hoursLabel = hours === 1 ? '1 hour' : `${fmtNumber(hours)} hours`;
+  const wakeUpsLabel = wakeUps > 0 ? ` · ${wakeUps} wake-up${wakeUps === 1 ? '' : 's'}` : '';
+  return `
+    <div class="entry-card" data-sleep-action="edit" data-sleep-id="${entry.id}">
+      <div class="entry-card-icon entry-card-icon--health" style="background:#7c4dff22;color:#7c4dff">●</div>
+      <div class="entry-card-body">
+        <div class="entry-card-title">${hoursLabel}${wakeUpsLabel}</div>
+        <div class="entry-card-sub">${dateText}</div>
+      </div>
+    </div>
+  `;
+}
+
+function showSleepEditModal(entry) {
+  let overlay = document.getElementById('entry-modal-overlay');
+  if (overlay) overlay.remove();
+
+  const loggedAtValue = isoToLocalInputValue(entry.loggedAt);
+  overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal entry-modal">
+      <h3>Edit Sleep Entry</h3>
+      <div class="entry-modal-row">
+        <div class="entry-modal-field">
+          <label for="sleep-modal-date">Date/Time</label>
+          <input id="sleep-modal-date" type="datetime-local" value="${loggedAtValue}" />
+        </div>
+      </div>
+      <div class="entry-modal-row">
+        <div class="entry-modal-field">
+          <label for="sleep-modal-hours">Hours</label>
+          <input id="sleep-modal-hours" type="number" step="0.25" min="0" max="24" value="${entry.durationHours}" />
+        </div>
+        <div class="entry-modal-field">
+          <label for="sleep-modal-wake-ups">Wake-ups</label>
+          <input id="sleep-modal-wake-ups" type="number" step="1" min="0" max="99" value="${entry.wakeUps || 0}" />
+        </div>
+      </div>
+      <div class="combine-modal-actions">
+        <button id="sleep-modal-cancel-btn" class="btn-secondary">Cancel</button>
+        <button id="sleep-modal-delete-btn" class="btn-danger">Delete</button>
+        <button id="sleep-modal-save-btn" class="btn-success">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  document.getElementById('sleep-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  document.getElementById('sleep-modal-save-btn').addEventListener('click', async () => {
+    try {
+      const loggedAt = asIso(document.getElementById('sleep-modal-date').value);
+      const durationHours = Number(document.getElementById('sleep-modal-hours').value);
+      const wakeUps = Number(document.getElementById('sleep-modal-wake-ups').value) || 0;
+      await api(`/api/sleep/${entry.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ durationHours, wakeUps, loggedAt })
+      });
+      overlay.remove();
+      setActionBanner('Sleep entry updated.', 'success');
+      await refreshSleepData();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+  document.getElementById('sleep-modal-delete-btn').addEventListener('click', async () => {
+    if (!window.confirm('Delete this sleep entry?')) return;
+    try {
+      await api(`/api/sleep/${entry.id}`, { method: 'DELETE' });
+      overlay.remove();
+      setActionBanner('Sleep entry deleted.', 'success');
+      await refreshSleepData();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+}
+
+async function refreshSleepData() {
+  if (!sleepLogListEl) return;
+  try {
+    const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
+    const scope = periodToScope[state.sleepSnapshotPeriod] || 'week';
+    const data = await api(`/api/sleep?scope=${scope}`);
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    state.sleepEntries = entries;
+
+    const tenDaysCutoff = new Date();
+    tenDaysCutoff.setDate(tenDaysCutoff.getDate() - 10);
+    tenDaysCutoff.setHours(0, 0, 0, 0);
+    const recentEntries = entries.filter((e) => new Date(e.loggedAt) >= tenDaysCutoff);
+
+    if (!recentEntries.length) {
+      sleepLogListEl.innerHTML = '<p class="empty-note">No sleep entries in the last 10 days.</p>';
+    } else {
+      sleepLogListEl.innerHTML = `<div class="entry-cards">${recentEntries.map((entry) => renderSleepCard(entry)).join('')}</div>`;
+    }
+
+    const dailyTotals = Array.isArray(data.dailyTotals) ? data.dailyTotals : [];
+    state.sleepChartRows = dailyTotals.map((d) => ({
+      label: new Date(d.day + 'T00:00:00').toLocaleDateString(),
+      value: Number(d.totalHours || 0),
+      time: new Date(d.day + 'T00:00:00').getTime()
+    }));
+    renderSleepChart();
+  } catch (error) {
+    setActionBanner(error.message, 'error');
+  }
+}
+
+function renderSleepChart() {
+  drawSimpleLineChart(sleepCanvasEl, state.sleepChartRows || [], 'label', 'value', {
+    baseline: 'zero',
+    showYAxis: true,
+    showXAxisLabels: true,
+    yTickCount: 4,
+    showTrendLine: true,
+    trendLineMode: 'average',
+    averageValueEl: sleepAverageValueEl,
+    tooltipEl: sleepTooltipEl,
+    tooltipUnit: 'hrs',
+    timeKey: 'time',
+    targetValue: 8
+  });
+}
+
 // ── Health / Sexual Health ──
 
 const EJACULATION_TYPE_COLORS = {
@@ -4309,6 +4456,7 @@ for (const item of pageMenuItems) {
     }
     if (page === 'health') {
       await refreshHealthData();
+      await refreshSleepData();
     }
     if (page === 'analysis') {
       await refreshAnalysisData();
@@ -4371,6 +4519,70 @@ if (weightLogListEl) {
       const entry = (state.weightEntries || []).find(e => e.id === entryId);
       if (!entry) return;
       showWeightEditModal(entry);
+    }
+  });
+}
+
+// ── Sleep event wiring ──
+
+if (saveSleepBtnEl) {
+  if (sleepLoggedAtEl) {
+    sleepLoggedAtEl.value = toDateTimeLocalValue();
+  }
+  saveSleepBtnEl.addEventListener('click', async () => {
+    try {
+      const durationHours = Number(sleepHoursEl?.value);
+      if (!Number.isFinite(durationHours) || durationHours <= 0) {
+        setActionBanner('Enter a valid number of hours.', 'error');
+        return;
+      }
+      const wakeUps = Number(sleepWakeUpsEl?.value) || 0;
+      await api('/api/sleep', {
+        method: 'POST',
+        body: JSON.stringify({
+          loggedAt: asIso(sleepLoggedAtEl?.value || toDateTimeLocalValue()),
+          durationHours,
+          wakeUps
+        })
+      });
+      if (sleepHoursEl) sleepHoursEl.value = '';
+      if (sleepWakeUpsEl) sleepWakeUpsEl.value = '';
+      if (sleepLoggedAtEl) sleepLoggedAtEl.value = toDateTimeLocalValue();
+      setActionBanner('Sleep logged.', 'success');
+      await refreshSleepData();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+}
+
+if (sleepPeriodToggleEl) {
+  for (const btn of sleepPeriodToggleEl.querySelectorAll('.period-btn')) {
+    btn.addEventListener('click', async () => {
+      const period = btn.dataset.period;
+      if (!period || period === state.sleepSnapshotPeriod) return;
+      state.sleepSnapshotPeriod = period;
+      syncPeriodToggle(sleepPeriodToggleEl, period);
+      if (sleepSnapshotHeadingEl) {
+        sleepSnapshotHeadingEl.textContent = PERIOD_HEADING[period] || 'Snapshot';
+      }
+      await refreshSleepData();
+    });
+  }
+}
+
+if (sleepLogListEl) {
+  sleepLogListEl.addEventListener('click', async (event) => {
+    const target = event.target.closest('[data-sleep-action]');
+    if (!target) return;
+    event.preventDefault();
+    const action = target.dataset.sleepAction;
+    const entryId = Number(target.dataset.sleepId);
+    if (!action || !entryId) return;
+    if (action === 'edit') {
+      const entry = (state.sleepEntries || []).find(e => e.id === entryId);
+      if (!entry) return;
+      showSleepEditModal(entry);
     }
   });
 }

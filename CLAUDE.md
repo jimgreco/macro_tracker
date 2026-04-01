@@ -41,10 +41,10 @@ Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google/Apple OAuth setup locally.
 
 | File | Purpose |
 |------|---------|
-| `src/server.js` | Express server, all routes, auth, Stripe webhooks (~2,000 lines) |
-| `src/db.js` | All PostgreSQL queries (~1,600 lines) |
+| `src/server.js` | Express server, all routes, auth, Stripe webhooks (~2,200 lines) |
+| `src/db.js` | All PostgreSQL queries (~1,850 lines) |
 | `src/parser.js` | OpenAI meal/workout parsing (~230 lines) |
-| `public/script.js` | Frontend SPA logic (~4,030 lines) |
+| `public/script.js` | Frontend SPA logic (~4,800 lines) |
 | `public/index.html` | Main app HTML |
 | `public/login.html` | Login page (Google + Apple buttons) |
 | `public/login.js` | Login page behavior |
@@ -103,7 +103,7 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 - **GDPR**: `GET /api/v1/account/export` (full data dump), `DELETE /api/v1/account` (hard delete all data).
 - **Pagination**: `getDashboard()` and `listWorkoutEntries()` accept `{ limit, offset }`, responses include `pagination` object.
 - **Stripe billing**: Webhook registered BEFORE `express.json()` for raw body access. Handles `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. Plan gating infrastructure exists but is currently disabled (no upgrade restrictions).
-- **Database**: Schema auto-created on startup. Tables: `users`, `entries`, `saved_items`, `macro_targets`, `weight_entries`, `workout_entries`, `weight_targets`, `analysis_reports`, `api_tokens`, `audit_log`, `subscriptions`, `billing_events`.
+- **Database**: Schema auto-created on startup. Tables: `users`, `entries`, `saved_items`, `macro_targets`, `weight_entries`, `workout_entries`, `weight_targets`, `analysis_reports`, `api_tokens`, `audit_log`, `subscriptions`, `billing_events`, `health_entries`, `sleep_entries`.
 - **API**: REST endpoints under `/api/v1/`. Rate-limited parse endpoints (15 req/min). See `src/server.js` for full route list.
 - **Frontend**: Single HTML page (`public/index.html`) with all state in `public/script.js`.
 - **Modal-based editing**: All editing (entries, meals, quick adds, weight, workouts) uses modal popups (`showEntryModal`, `showCombineModal`, `showWeightEditModal`, `showWorkoutEditModal`). Target editing also uses modals: `showEditTargetsModal` (macro targets), `showWeightTargetModal` (weight target + date), `showWorkoutTargetModal` (workouts/week + calories/week). Each is accessed via "(edit targets)" or "(edit target)" links in the Logged Entries heading of each tab. No inline edit rows remain.
@@ -112,9 +112,11 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 - **Chart tooltips**: All charts (macros trend, weight, workout calories) support hover/click/touch tooltips via `bindSimpleChartTooltip()`. Tooltip threshold is 40px for hover, 42px for click/touch.
 - **Weight chart**: `drawSimpleLineChart` on `#weight-canvas` shows weight trend with average and target lines. Weight page has period toggles (week/month/year).
 - **Workout stats**: Workout page shows stats chips (workouts/week, cal burned/week) with target values and a data source note. Workout graphs (occurrence + calories) have been removed.
-- **Tab order**: Macros, Workouts, Weight, Analysis.
+- **Tab order**: Macros, Workouts, Weight, Health.
 - **Branding**: App name is "DailyMacros" with "DM" logo icon.
 - **Meal grouping**: Entries can be combined into meals via `meal_group` UUID. API endpoints: `POST /api/entries/combine`, `POST /api/meal-group/:id/split`, `POST /api/entries/:id/remove-from-group`, `PUT /api/meal-group/:id/scale`.
+- **Health tab**: Contains two sub-sections separated by `health-section-divider` headings: "Sexual Activity" (log activity type, logged entries, weekly snapshot graph) and "Sleep" (log hours + wake-ups, sleep log, weekly snapshot graph with average line). Sleep entries store `duration_hours` (decimal) and `wake_ups` (integer). Both sections have week/month/year period toggles. Sleep data is included in the Analysis section. Edit modals: `showHealthEditModal` (sexual activity), `showSleepEditModal` (sleep — date/time on row 1, hours + wake-ups on row 2).
+- **Macro display format**: Logged entries show explicit labels: `28g protein · 12g carbs · 6g fat`. Calories shown as `220 cal`. Quick Add dropdown uses abbreviated format: `260cal/24P/12C/6F` (compact for space).
 - **Entry multi-select**: Custom-styled checkboxes (neon accent, `appearance: none`) hidden by default behind "(edit)" link in table header. Toggle adds `.editing` class to `#entries-by-day`. Sub-item checkboxes are indented within meal groups. Mobile-friendly tap targets for both edit link and checkboxes. Selection modes: meals, items, sub-items (no mixing). Action bar appears with context-sensitive buttons (Edit, Delete, Combine, Split, Remove).
 
 ## iOS App (`ios/DailyMacros/`)
