@@ -885,6 +885,12 @@ button[disabled] {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 
+.btn-sm {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  border-radius: 6px;
+}
+
 .btn-success {
   background: var(--btn-success);
   color: #030f07;

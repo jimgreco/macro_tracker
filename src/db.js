@@ -1115,6 +1115,14 @@ async function updateWorkoutEntry(userId, id, payload) {
   return result.rowCount;
 }
 
+async function deleteWorkoutEntry(userId, id) {
+  const result = await pool.query(
+    'UPDATE workout_entries SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+    [id, userId]
+  );
+  return result.rowCount;
+}
+
 async function listWorkoutEntries(userId, options = {}) {
   const limit = Math.min(Math.max(1, Number(options.limit) || 100), 500);
   const offset = Math.max(0, Number(options.offset) || 0);
@@ -1822,6 +1830,7 @@ module.exports = {
   setWeightTarget,
   addWorkoutEntry,
   updateWorkoutEntry,
+  deleteWorkoutEntry,
   listWorkoutEntries,
   addSexualActivityEntry,
   updateSexualActivityEntry,

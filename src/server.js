@@ -43,6 +43,7 @@ const {
   setWeightTarget,
   addWorkoutEntry,
   updateWorkoutEntry,
+  deleteWorkoutEntry,
   listWorkoutEntries,
   addSexualActivityEntry,
   updateSexualActivityEntry,
@@ -1903,6 +1904,26 @@ apiRouter.put('/workouts/:id', async (req, res) => {
     }
 
     logAudit(userId, 'update', 'workout_entry', String(id));
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.delete('/workouts/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid workout entry id.' });
+    }
+
+    const userId = userIdFromReq(req);
+    const changes = await deleteWorkoutEntry(userId, id);
+    if (!changes) {
+      return res.status(404).json({ error: 'Workout entry not found.' });
+    }
+
+    logAudit(userId, 'delete', 'workout_entry', String(id));
     return res.json({ ok: true });
   } catch (error) {
     return res.status(400).json({ error: error.message });

@@ -241,7 +241,6 @@
           <textarea id="workout-text" rows="3" placeholder="Example: 45 min run and 20 min core workout"></textarea>
           <div class="row workout-submit-row">
             <button id="parse-workout-btn" type="button">Parse Workout</button>
-            <button id="sync-workouts-btn" type="button" class="btn-secondary">Sync Workouts</button>
             <button id="save-workout-btn" type="button" disabled>Save</button>
           </div>
           <div id="workout-editor" class="workout-editor" hidden>
@@ -278,7 +277,10 @@
         </section>
 
         <section class="panel glass">
-          <h2>Logged Entries <a href="#" id="edit-workout-target-link" class="edit-items-link">(edit target)</a></h2>
+          <div class="snapshot-header">
+            <h2>Logged Entries <a href="#" id="edit-workout-target-link" class="edit-items-link">(edit target)</a></h2>
+            <button id="sync-workouts-btn" type="button" class="btn-secondary btn-sm">Sync Workouts</button>
+          </div>
           <div id="workout-log-list" class="simple-log-list"></div>
         </section>
 
