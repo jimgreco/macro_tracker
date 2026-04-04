@@ -20,6 +20,11 @@ struct MainTabView: View {
                     Label("Weight", systemImage: "scalemass")
                 }
 
+            HealthView()
+                .tabItem {
+                    Label("Health", systemImage: "heart.fill")
+                }
+
             AnalysisView()
                 .tabItem {
                     Label("Analysis", systemImage: "chart.bar")

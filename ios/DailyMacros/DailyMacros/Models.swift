@@ -262,6 +262,45 @@ struct AnalysisReportResponse: Codable {
     let report: AnalysisReport?
 }
 
+// MARK: - Health (Sexual Activity)
+
+struct HealthEntry: Codable, Identifiable {
+    let id: Int
+    let type: String
+    let loggedAt: String
+}
+
+struct HealthDailyTypes: Codable {
+    let day: String
+    let types: [String]
+}
+
+struct HealthEntriesResponse: Codable {
+    let entries: [HealthEntry]
+    let dailyTypes: [HealthDailyTypes]
+    let pagination: Pagination?
+}
+
+// MARK: - Sleep
+
+struct SleepEntry: Codable, Identifiable {
+    let id: Int
+    let durationHours: Double
+    let wakeUps: Int
+    let loggedAt: String
+}
+
+struct SleepDailyTotals: Codable {
+    let day: String
+    let totalHours: Double
+}
+
+struct SleepEntriesResponse: Codable {
+    let entries: [SleepEntry]
+    let dailyTotals: [SleepDailyTotals]
+    let pagination: Pagination?
+}
+
 struct AppleSignInUser: Codable {
     let id: String
     let name: String?

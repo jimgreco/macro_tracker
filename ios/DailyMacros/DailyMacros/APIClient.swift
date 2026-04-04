@@ -336,6 +336,62 @@ class APIClient: ObservableObject {
         return response.report
     }
 
+    // MARK: - Sexual Activity
+
+    func getHealthEntries(scope: String = "week") async throws -> HealthEntriesResponse {
+        var components = URLComponents(url: apiURL("/sexual-activity"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [.init(name: "scope", value: scope)]
+        let request = try authorizedRequest(components.url!)
+        return try await perform(request)
+    }
+
+    func addHealthEntry(type: String, loggedAt: String) async throws {
+        let payload: [String: Any] = ["type": type, "loggedAt": loggedAt]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/sexual-activity"), method: "POST", body: body)
+        let _: OkResponse = try await perform(request)
+    }
+
+    func updateHealthEntry(id: Int, type: String, loggedAt: String) async throws {
+        let payload: [String: Any] = ["type": type, "loggedAt": loggedAt]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/sexual-activity/\(id)"), method: "PUT", body: body)
+        let _: OkResponse = try await perform(request)
+    }
+
+    func deleteHealthEntry(id: Int) async throws {
+        let request = try authorizedRequest(apiURL("/sexual-activity/\(id)"), method: "DELETE")
+        let _: OkResponse = try await perform(request)
+    }
+
+    // MARK: - Sleep
+
+    func getSleepEntries(scope: String = "week") async throws -> SleepEntriesResponse {
+        var components = URLComponents(url: apiURL("/sleep"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [.init(name: "scope", value: scope)]
+        let request = try authorizedRequest(components.url!)
+        return try await perform(request)
+    }
+
+    func addSleepEntry(durationHours: Double, wakeUps: Int, loggedAt: String) async throws {
+        let payload: [String: Any] = ["durationHours": durationHours, "wakeUps": wakeUps, "loggedAt": loggedAt]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/sleep"), method: "POST", body: body)
+        let _: OkResponse = try await perform(request)
+    }
+
+    func updateSleepEntry(id: Int, durationHours: Double, wakeUps: Int, loggedAt: String) async throws {
+        let payload: [String: Any] = ["durationHours": durationHours, "wakeUps": wakeUps, "loggedAt": loggedAt]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/sleep/\(id)"), method: "PUT", body: body)
+        let _: OkResponse = try await perform(request)
+    }
+
+    func deleteSleepEntry(id: Int) async throws {
+        let request = try authorizedRequest(apiURL("/sleep/\(id)"), method: "DELETE")
+        let _: OkResponse = try await perform(request)
+    }
+
     // MARK: - Subscription
 
     func getSubscription() async throws -> SubscriptionResponse {
