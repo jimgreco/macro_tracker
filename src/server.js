@@ -1,3 +1,5 @@
+// --- Macro Tracker Server ---
+// Last Deployed: 2026-04-03
 require('dotenv').config();
 
 const path = require('path');
