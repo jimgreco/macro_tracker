@@ -14,6 +14,9 @@ Pushes to the `main` branch automatically deploy to the EC2 instance via GitHub 
 - **Mechanism**: `rsync` syncs code → `docker-compose build` rebuilds the app container.
 
 ## Key Architecture Notes
+- **Workout Sync**: Integrates with the Workout Planner app via an internal API. 
+  - **Logic**: Fetches logs from `WORKOUT_API_URL`, uses OpenAI to categorize them, and saves them to PostgreSQL.
+  - **Authentication**: Uses a shared `INTERNAL_SYNC_SECRET` for service-to-service communication.
 - **SSL Logic**: `src/db.js` has been patched to respect `PGSSL=false` for local Docker connections, even when `NODE_ENV=production`.
 - **Internal Networking**: Connects to the database via `postgresql://admin:${DB_PASSWORD}@db:5432/macro_tracker`.
 
@@ -30,3 +33,5 @@ Ensure the following are set in the server's `~/deploy/.env` file:
 - `MACROS_GOOGLE_CLIENT_ID / SECRET`
 - `MACROS_SESSION_SECRET`
 - `DB_PASSWORD` (Master password for Docker DB)
+- `INTERNAL_SYNC_SECRET` (Shared secret for Workout Planner sync)
+- `WORKOUT_API_URL` (Defaults to `http://workout_api:3001` in Docker)

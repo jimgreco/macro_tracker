@@ -100,12 +100,18 @@ Run the infrastructure hardening checklist in:
 - `GET /healthz`
 - `GET /api/me`
 - `POST /api/parse-meal`
+- **`POST /api/parse-workout`**
+- **`POST /api/sync-workouts`**
 - `POST /api/entries/bulk`
 - `PUT /api/entries/:id`
 - `DELETE /api/entries/:id`
 - `GET /api/saved-items`
 - `POST /api/saved-items`
 - `PUT /api/saved-items/:id`
+- `DELETE /api/saved-items/:id`
+- `POST /api/quick-add`
+- `GET /api/dashboard`
+UT /api/saved-items/:id`
 - `DELETE /api/saved-items/:id`
 - `POST /api/quick-add`
 - `GET /api/dashboard`
