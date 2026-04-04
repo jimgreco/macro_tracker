@@ -17,6 +17,10 @@ function toBoolean(value, defaultValue) {
 }
 
 function buildSslConfig(connectionString) {
+  if (process.env.PGSSL === 'false') {
+    return undefined;
+  }
+
   const useSsl =
     process.env.PGSSL === 'true' ||
     process.env.PGSSL === 'require' ||
