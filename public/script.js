@@ -123,6 +123,7 @@ const weightTargetDisplayEl = document.getElementById('weight-target-display');
 const weightLogListEl = document.getElementById('weight-log-list');
 const workoutTextEl = document.getElementById('workout-text');
 const parseWorkoutBtnEl = document.getElementById('parse-workout-btn');
+const syncWorkoutsBtnEl = document.getElementById('sync-workouts-btn');
 const workoutEditorEl = document.getElementById('workout-editor');
 const workoutDescriptionEl = document.getElementById('workout-description');
 const workoutHoursEl = document.getElementById('workout-hours');
@@ -4691,6 +4692,39 @@ if (parseWorkoutBtnEl) {
       if (saveWorkoutBtnEl) saveWorkoutBtnEl.disabled = false;
     } finally {
       parseWorkoutBtnEl.disabled = false;
+    }
+  });
+}
+
+if (syncWorkoutsBtnEl) {
+  syncWorkoutsBtnEl.addEventListener('click', async () => {
+    syncWorkoutsBtnEl.disabled = true;
+    const originalText = syncWorkoutsBtnEl.textContent;
+    syncWorkoutsBtnEl.textContent = 'Syncing...';
+
+    try {
+      const response = await fetch('/api/sync-workouts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        setActionBanner(data.message || 'Sync complete!');
+        if (data.syncedCount > 0) {
+          // Refresh data if something was synced
+          await refreshDashboard();
+          await refreshWorkoutData();
+        }
+      } else {
+        setActionBanner(data.error || 'Failed to sync workouts.', 'error');
+      }
+    } catch (error) {
+      console.error('Sync error:', error);
+      setActionBanner('An error occurred during sync.', 'error');
+    } finally {
+      syncWorkoutsBtnEl.disabled = false;
+      syncWorkoutsBtnEl.textContent = originalText;
     }
   });
 }

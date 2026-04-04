@@ -1400,6 +1400,95 @@ apiRouter.post('/parse-workout', async (req, res) => {
   }
 });
 
+apiRouter.post('/sync-workouts', async (req, res) => {
+  if (!req.user || (req.user.provider !== 'google' && req.user.provider !== 'local-dev')) {
+    return res.status(401).json({ error: 'Syncing requires a Google account.' });
+  }
+
+  try {
+    const userId = req.user.id;
+    const internalSecret = process.env.INTERNAL_SYNC_SECRET;
+    const workoutApiUrl = process.env.WORKOUT_API_URL || 'http://workout_api:3001';
+
+    if (!internalSecret) {
+      console.warn('INTERNAL_SYNC_SECRET not configured.');
+      return res.status(500).json({ error: 'Internal sync is not configured on the server.' });
+    }
+
+    // Fetch logs from Workout Planner API
+    const response = await fetch(`${workoutApiUrl}/logs`, {
+      headers: {
+        'X-Internal-Sync-Secret': internalSecret,
+        'X-Internal-User-Id': userId,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Workout API error: ${response.status} ${errorText}`);
+      return res.status(500).json({ error: 'Failed to fetch workouts from Workout Planner service.' });
+    }
+
+    const logs = await response.json();
+
+    if (!Array.isArray(logs) || logs.length === 0) {
+      return res.json({ message: 'No workouts found in Workout Planner.', syncedCount: 0 });
+    }
+
+    // Past 30 days filter
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const filteredLogs = logs.filter(l => new Date(l.date) >= thirtyDaysAgo);
+
+    if (filteredLogs.length === 0) {
+      return res.json({ message: 'No workouts found from the last 30 days.', syncedCount: 0 });
+    }
+
+    // Get existing workouts from PG to avoid duplicates
+    const existingResult = await listWorkoutEntries(userId, { limit: 100, scope: 'month' });
+    const existingDates = new Set(existingResult.entries.map(e => e.loggedAt.slice(0, 10)));
+
+    let syncedCount = 0;
+    for (const log of filteredLogs) {
+      const logDate = log.date.slice(0, 10);
+      if (existingDates.has(logDate)) {
+        continue;
+      }
+
+      // Format log for ChatGPT
+      const exerciseSummary = (log.items || []).map(item => {
+        const setsSummary = (item.sets || []).map(s => `${s.reps || 0} reps @ ${s.weight || 0} lbs`).join(', ');
+        return `${item.name || 'Exercise'}: ${setsSummary}`;
+      }).join('. ');
+
+      const text = `Workout: ${log.name || 'Unspecified'}. Exercises: ${exerciseSummary}. Notes: ${log.notes || ''}`;
+      
+      // Categorize with ChatGPT
+      const parsed = await parseWorkoutText({ text });
+      
+      // Save to PG
+      await addWorkoutEntry(userId, {
+        description: parsed.description,
+        intensity: parsed.intensity,
+        durationHours: parsed.durationHours,
+        caloriesBurned: parsed.caloriesBurned,
+        loggedAt: log.date
+      });
+      
+      syncedCount++;
+    }
+
+    return res.json({
+      message: syncedCount > 0 ? `Successfully synced ${syncedCount} workout(s).` : 'No new workouts to sync.',
+      syncedCount
+    });
+  } catch (error) {
+    console.error('Sync failed:', error);
+    return res.status(500).json({ error: 'Failed to sync workouts from Workout Planner.' });
+  }
+});
+
 apiRouter.post('/entries/bulk', async (req, res) => {
   try {
     const consumedAt = req.body.consumedAt || todayIsoString();
