@@ -1467,12 +1467,27 @@ apiRouter.post('/sync-workouts', async (req, res) => {
       
       // Categorize with ChatGPT
       const parsed = await parseWorkoutText({ text });
+
+      // Calculate duration from logs if available
+      let durationHours = parsed.durationHours;
+      if (log.startTime && log.endTime) {
+        const start = new Date(log.startTime);
+        const end = new Date(log.endTime);
+        const diffMs = end - start;
+        if (diffMs > 0) {
+          durationHours = Number((diffMs / (1000 * 60 * 60)).toFixed(2));
+          // If we have a real duration, re-estimate calories based on it if ChatGPT inferred a very different duration
+          if (Math.abs(durationHours - parsed.durationHours) > 0.2) {
+             parsed.caloriesBurned = estimateWorkoutCalories(parsed.description, durationHours);
+          }
+        }
+      }
       
       // Save to PG
       await addWorkoutEntry(userId, {
         description: parsed.description,
         intensity: parsed.intensity,
-        durationHours: parsed.durationHours,
+        durationHours: durationHours,
         caloriesBurned: parsed.caloriesBurned,
         loggedAt: log.date
       });
