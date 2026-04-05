@@ -1489,7 +1489,7 @@ apiRouter.post('/sync-workouts', async (req, res) => {
         intensity: parsed.intensity,
         durationHours: durationHours,
         caloriesBurned: parsed.caloriesBurned,
-        loggedAt: log.date
+        loggedAt: log.startTime || (log.date ? `${log.date}T09:00:00` : new Date().toISOString())
       });
       
       syncedCount++;
