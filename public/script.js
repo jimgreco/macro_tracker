@@ -220,6 +220,14 @@ function getLocalIsoDay(dateLike = new Date()) {
   return year + '-' + month + '-' + day;
 }
 
+function getTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York';
+  } catch (_e) {
+    return 'America/New_York';
+  }
+}
+
 function fromIsoDayLocal(isoDay) {
   const [year, month, day] = String(isoDay).split('-').map(Number);
   return new Date(year, (month || 1) - 1, day || 1);
@@ -1028,10 +1036,9 @@ async function generateAnalysis() {
   try {
     const response = await api('/api/analysis', {
       method: 'POST',
-      body: JSON.stringify({
-        days
-      })
+      body: JSON.stringify({ days, tz: getTimezone() })
     });
+
     renderAnalysisReport(response.report || null);
     if (analysisNoteEl) {
       analysisNoteEl.textContent = 'Analysis generated.';
@@ -1796,7 +1803,7 @@ async function refreshMacroSnapshotData() {
   const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
   const scope = periodToScope[state.macroSnapshotPeriod] || 'week';
   try {
-    const data = await api(`/api/daily-totals?scope=${scope}`);
+    const data = await api(`/api/daily-totals?scope=${scope}&tz=${encodeURIComponent(getTimezone())}`);
     state.macroDailyTotals = data.dailyTotals || [];
     if (data.targets) {
       state.dashboardData.targets = data.targets;
@@ -2819,8 +2826,9 @@ function showWorkoutEditModal(entry) {
 }
 
 async function refreshDashboard() {
+  const tz = encodeURIComponent(getTimezone());
   const [dashboard, saved, me] = await Promise.all([
-    api('/api/dashboard'),
+    api(`/api/dashboard?tz=${tz}`),
     api('/api/saved-items'),
     api('/api/me')
   ]);
@@ -3745,8 +3753,9 @@ async function refreshWeightData() {
   try {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const weightScope = periodToScope[state.weightSnapshotPeriod] || 'week';
+    const tz = encodeURIComponent(getTimezone());
     const [response, target] = await Promise.all([
-      api(`/api/weights?scope=${weightScope}`),
+      api(`/api/weights?scope=${weightScope}&tz=${tz}`),
       api('/api/weight-target')
     ]);
     const entries = Array.isArray(response.entries) ? response.entries : [];
@@ -4093,7 +4102,7 @@ async function refreshSleepData() {
   try {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const scope = periodToScope[state.sleepSnapshotPeriod] || 'week';
-    const data = await api(`/api/sleep?scope=${scope}`);
+    const data = await api(`/api/sleep?scope=${scope}&tz=${encodeURIComponent(getTimezone())}`);
     const entries = Array.isArray(data.entries) ? data.entries : [];
     state.sleepEntries = entries;
 
@@ -4373,7 +4382,7 @@ async function refreshHealthData() {
   try {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const scope = periodToScope[state.healthSnapshotPeriod] || 'week';
-    const data = await api(`/api/sexual-activity?scope=${scope}`);
+    const data = await api(`/api/sexual-activity?scope=${scope}&tz=${encodeURIComponent(getTimezone())}`);
     const entries = Array.isArray(data.entries) ? data.entries : [];
     state.healthEntries = entries;
 
@@ -4416,7 +4425,7 @@ async function refreshWorkoutData() {
   try {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const workoutScope = periodToScope[state.workoutSnapshotPeriod] || 'week';
-    const data = await api(`/api/workouts?scope=${workoutScope}`);
+    const data = await api(`/api/workouts?scope=${workoutScope}&tz=${encodeURIComponent(getTimezone())}`);
     const entries = Array.isArray(data.entries) ? data.entries : [];
     const dailyCalories = Array.isArray(data.dailyCalories) ? data.dailyCalories : [];
 

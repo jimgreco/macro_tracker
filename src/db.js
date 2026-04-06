@@ -765,6 +765,7 @@ function toIsoDate(date) {
 }
 
 async function getDashboard(userId, dateInput, options = {}) {
+  const timezone = options.timezone || 'America/New_York';
   const baseDate = normalizeDate(dateInput);
   const baseDay = toIsoDate(baseDate);
   const limit = Math.min(Math.max(1, Number(options.limit) || 100), 500);
@@ -772,7 +773,7 @@ async function getDashboard(userId, dateInput, options = {}) {
 
   const dailyTotalsResult = await pool.query(
     `SELECT
-       (consumed_at AT TIME ZONE 'America/New_York')::date::text AS day,
+       (consumed_at AT TIME ZONE $2)::date::text AS day,
        ROUND(SUM(calories)::numeric, 1) AS calories,
        ROUND(SUM(protein)::numeric, 1) AS protein,
        ROUND(SUM(carbs)::numeric, 1) AS carbs,
@@ -781,7 +782,7 @@ async function getDashboard(userId, dateInput, options = {}) {
      WHERE user_id = $1 AND deleted_at IS NULL
      GROUP BY day
      ORDER BY day DESC`,
-    [userId]
+    [userId, timezone]
   );
 
   const allDailyTotals = dailyTotalsResult.rows.map((row) => ({
@@ -803,17 +804,17 @@ async function getDashboard(userId, dateInput, options = {}) {
 
   const sevenDayRowsResult = await pool.query(
     `SELECT
-       (consumed_at AT TIME ZONE 'America/New_York')::date::text AS day,
+       (consumed_at AT TIME ZONE $4)::date::text AS day,
        SUM(calories) AS calories,
        SUM(protein) AS protein,
        SUM(carbs) AS carbs,
        SUM(fat) AS fat
      FROM entries
      WHERE user_id = $1 AND deleted_at IS NULL
-       AND (consumed_at AT TIME ZONE 'America/New_York')::date::text >= $2
-       AND (consumed_at AT TIME ZONE 'America/New_York')::date::text < $3
+       AND (consumed_at AT TIME ZONE $4)::date::text >= $2
+       AND (consumed_at AT TIME ZONE $4)::date::text < $3
      GROUP BY day`,
-    [userId, toIsoDate(sevenDayStart), baseDay]
+    [userId, toIsoDate(sevenDayStart), baseDay, timezone]
   );
 
   const totals = sevenDayRowsResult.rows.reduce(
@@ -846,7 +847,7 @@ async function getDashboard(userId, dateInput, options = {}) {
        carbs,
        fat,
        consumed_at AS "consumedAt",
-       (consumed_at AT TIME ZONE 'America/New_York')::date::text AS day,
+       (consumed_at AT TIME ZONE $4)::date::text AS day,
        meal_group AS "mealGroup",
        meal_name AS "mealName",
        meal_quantity AS "mealQuantity",
@@ -855,7 +856,7 @@ async function getDashboard(userId, dateInput, options = {}) {
      WHERE user_id = $1 AND deleted_at IS NULL
      ORDER BY consumed_at DESC, id DESC
      LIMIT $2 OFFSET $3`,
-    [userId, limit, offset]
+    [userId, limit, offset, timezone]
   );
 
   const entries = entriesResult.rows.map((row) => ({
@@ -887,21 +888,21 @@ async function getDashboard(userId, dateInput, options = {}) {
 
 
 
-async function getDailyTotals(userId, scope = 'week') {
+async function getDailyTotals(userId, scope = 'week', timezone = 'America/New_York') {
   const days = parseScopeDays(scope);
   const result = await pool.query(
     `SELECT
-       (consumed_at AT TIME ZONE 'America/New_York')::date::text AS day,
+       (consumed_at AT TIME ZONE $3)::date::text AS day,
        ROUND(SUM(calories)::numeric, 1) AS calories,
        ROUND(SUM(protein)::numeric, 1) AS protein,
        ROUND(SUM(carbs)::numeric, 1) AS carbs,
        ROUND(SUM(fat)::numeric, 1) AS fat
      FROM entries
      WHERE user_id = $1 AND deleted_at IS NULL
-       AND consumed_at >= NOW() - ($2::text || ' days')::interval
+       AND consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
      GROUP BY day
      ORDER BY day DESC`,
-    [userId, String(days)]
+    [userId, String(days), timezone]
   );
 
   return result.rows.map((row) => ({
@@ -979,15 +980,15 @@ async function deleteWeightEntry(userId, id) {
   return result.rowCount;
 }
 
-async function listWeightEntries(userId, scope = 'week') {
+async function listWeightEntries(userId, scope = 'week', timezone = 'America/New_York') {
   const days = parseScopeDays(scope);
   const result = await pool.query(
     `SELECT id, weight, logged_at AS "loggedAt"
      FROM weight_entries
      WHERE user_id = $1 AND deleted_at IS NULL
-       AND logged_at >= NOW() - ($2::text || ' days')::interval
+       AND logged_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
      ORDER BY logged_at DESC`,
-    [userId, String(days)]
+    [userId, String(days), timezone]
   );
 
   return result.rows.map((row) => ({
@@ -1126,6 +1127,7 @@ async function deleteWorkoutEntry(userId, id) {
 async function listWorkoutEntries(userId, options = {}) {
   const limit = Math.min(Math.max(1, Number(options.limit) || 100), 500);
   const offset = Math.max(0, Number(options.offset) || 0);
+  const timezone = options.timezone || 'America/New_York';
 
   const rowsResult = await pool.query(
     `SELECT id, description, intensity, duration_hours AS "durationHours", calories_burned AS "caloriesBurned", logged_at AS "loggedAt"
@@ -1138,14 +1140,14 @@ async function listWorkoutEntries(userId, options = {}) {
 
   const scopeDays = parseScopeDays(options.scope || 'week');
   const dailyResult = await pool.query(
-    `SELECT (logged_at AT TIME ZONE 'America/New_York')::date::text AS day,
+    `SELECT (logged_at AT TIME ZONE $2)::date::text AS day,
             ROUND(SUM(calories_burned)::numeric, 1) AS calories
      FROM workout_entries
      WHERE user_id = $1 AND deleted_at IS NULL
-       AND logged_at >= NOW() - INTERVAL '${scopeDays} days'
+       AND logged_at >= ((NOW() AT TIME ZONE $2)::date - ($3::text || ' days')::interval) AT TIME ZONE $2
      GROUP BY day
      ORDER BY day ASC`,
-    [userId]
+    [userId, timezone, String(scopeDays)]
   );
 
   return {
@@ -1215,6 +1217,7 @@ async function deleteSexualActivityEntry(userId, id) {
 async function listSexualActivityEntries(userId, options = {}) {
   const limit = Math.min(Math.max(1, Number(options.limit) || 100), 500);
   const offset = Math.max(0, Number(options.offset) || 0);
+  const timezone = options.timezone || 'America/New_York';
 
   const rowsResult = await pool.query(
     `SELECT id, type, logged_at AS "loggedAt"
@@ -1227,14 +1230,14 @@ async function listSexualActivityEntries(userId, options = {}) {
 
   const scopeDays = parseScopeDays(options.scope || 'week');
   const dailyResult = await pool.query(
-    `SELECT (logged_at AT TIME ZONE 'America/New_York')::date::text AS day,
+    `SELECT (logged_at AT TIME ZONE $2)::date::text AS day,
             array_agg(DISTINCT type) AS types
      FROM sexual_activity_entries
      WHERE user_id = $1 AND deleted_at IS NULL
-       AND logged_at >= NOW() - INTERVAL '${scopeDays} days'
+       AND logged_at >= ((NOW() AT TIME ZONE $2)::date - ($3::text || ' days')::interval) AT TIME ZONE $2
      GROUP BY day
      ORDER BY day ASC`,
-    [userId]
+    [userId, timezone, String(scopeDays)]
   );
 
   return {
@@ -1306,6 +1309,7 @@ async function deleteSleepEntry(userId, id) {
 async function listSleepEntries(userId, options = {}) {
   const limit = Math.min(Math.max(1, Number(options.limit) || 100), 500);
   const offset = Math.max(0, Number(options.offset) || 0);
+  const timezone = options.timezone || 'America/New_York';
 
   const rowsResult = await pool.query(
     `SELECT id, duration_hours AS "durationHours", wake_ups AS "wakeUps", logged_at AS "loggedAt"
@@ -1318,14 +1322,14 @@ async function listSleepEntries(userId, options = {}) {
 
   const scopeDays = parseScopeDays(options.scope || 'week');
   const dailyResult = await pool.query(
-    `SELECT (logged_at AT TIME ZONE 'America/New_York')::date::text AS day,
+    `SELECT (logged_at AT TIME ZONE $2)::date::text AS day,
             ROUND(SUM(duration_hours)::numeric, 2) AS total_hours
      FROM sleep_entries
      WHERE user_id = $1 AND deleted_at IS NULL
-       AND logged_at >= NOW() - INTERVAL '${scopeDays} days'
+       AND logged_at >= ((NOW() AT TIME ZONE $2)::date - ($3::text || ' days')::interval) AT TIME ZONE $2
      GROUP BY day
      ORDER BY day ASC`,
-    [userId]
+    [userId, timezone, String(scopeDays)]
   );
 
   return {
@@ -1351,7 +1355,7 @@ function normalizeAnalysisDays(daysInput) {
   return Math.max(14, Math.min(180, Math.round(parsed)));
 }
 
-async function getAnalysisSnapshot(userId, daysInput = 90) {
+async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/New_York') {
   const days = normalizeAnalysisDays(daysInput);
   const daysParam = String(days);
 
@@ -1359,7 +1363,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
     await Promise.all([
       pool.query(
         `SELECT
-           (consumed_at AT TIME ZONE 'America/New_York')::date::text AS day,
+           (consumed_at AT TIME ZONE $3)::date::text AS day,
            COUNT(*)::integer AS item_count,
            ROUND(SUM(calories)::numeric, 1) AS calories,
            ROUND(SUM(protein)::numeric, 1) AS protein,
@@ -1367,10 +1371,10 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
            ROUND(SUM(fat)::numeric, 1) AS fat
          FROM entries
          WHERE user_id = $1 AND deleted_at IS NULL
-           AND consumed_at >= NOW() - ($2::text || ' days')::interval
+           AND consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
          GROUP BY day
          ORDER BY day ASC`,
-        [userId, daysParam]
+        [userId, daysParam, timezone]
       ),
       pool.query(
         `SELECT
@@ -1379,33 +1383,33 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
            ROUND(SUM(calories)::numeric, 1) AS total_calories
          FROM entries
          WHERE user_id = $1 AND deleted_at IS NULL
-           AND consumed_at >= NOW() - ($2::text || ' days')::interval
+           AND consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
          GROUP BY lower(item_name)
          ORDER BY COUNT(*) DESC, SUM(calories) DESC
          LIMIT 12`,
-        [userId, daysParam]
+        [userId, daysParam, timezone]
       ),
       pool.query(
         `SELECT
            COUNT(*)::integer AS total_entries,
-           SUM(CASE WHEN EXTRACT(HOUR FROM consumed_at AT TIME ZONE 'America/New_York') >= 21 THEN 1 ELSE 0 END)::integer AS late_night_entries
+           SUM(CASE WHEN EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) >= 21 THEN 1 ELSE 0 END)::integer AS late_night_entries
          FROM entries
          WHERE user_id = $1 AND deleted_at IS NULL
-           AND consumed_at >= NOW() - ($2::text || ' days')::interval`,
-        [userId, daysParam]
+           AND consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3`,
+        [userId, daysParam, timezone]
       ),
       pool.query(
         `SELECT
-           (logged_at AT TIME ZONE 'America/New_York')::date::text AS day,
+           (logged_at AT TIME ZONE $3)::date::text AS day,
            COUNT(*)::integer AS sessions,
            ROUND(SUM(duration_hours)::numeric, 2) AS duration_hours,
            ROUND(SUM(calories_burned)::numeric, 1) AS calories_burned
          FROM workout_entries
          WHERE user_id = $1 AND deleted_at IS NULL
-           AND logged_at >= NOW() - ($2::text || ' days')::interval
+           AND logged_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
          GROUP BY day
          ORDER BY day ASC`,
-        [userId, daysParam]
+        [userId, daysParam, timezone]
       ),
       pool.query(
         `SELECT
@@ -1414,29 +1418,29 @@ async function getAnalysisSnapshot(userId, daysInput = 90) {
            ROUND(SUM(duration_hours)::numeric, 2) AS duration_hours
          FROM workout_entries
          WHERE user_id = $1 AND deleted_at IS NULL
-           AND logged_at >= NOW() - ($2::text || ' days')::interval
+           AND logged_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
          GROUP BY lower(description)
          ORDER BY COUNT(*) DESC, SUM(duration_hours) DESC
          LIMIT 10`,
-        [userId, daysParam]
+        [userId, daysParam, timezone]
       ),
       pool.query(
         `SELECT weight, logged_at AS "loggedAt"
          FROM weight_entries
          WHERE user_id = $1 AND deleted_at IS NULL
-           AND logged_at >= NOW() - ($2::text || ' days')::interval
+           AND logged_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
          ORDER BY logged_at ASC`,
-        [userId, daysParam]
+        [userId, daysParam, timezone]
       ),
       pool.query(
-        `SELECT (logged_at AT TIME ZONE 'America/New_York')::date::text AS day,
+        `SELECT (logged_at AT TIME ZONE $3)::date::text AS day,
                 ROUND(SUM(duration_hours)::numeric, 2) AS total_hours
          FROM sleep_entries
          WHERE user_id = $1 AND deleted_at IS NULL
-           AND logged_at >= NOW() - ($2::text || ' days')::interval
+           AND logged_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
          GROUP BY day
          ORDER BY day ASC`,
-        [userId, daysParam]
+        [userId, daysParam, timezone]
       ),
       getMacroTargets(userId),
       getWeightTarget(userId),

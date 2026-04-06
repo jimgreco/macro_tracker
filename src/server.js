@@ -1765,7 +1765,8 @@ apiRouter.put('/macro-targets/:macro', async (req, res) => {
 apiRouter.get('/weights', async (req, res) => {
   try {
     const scope = String(req.query.scope || 'week').toLowerCase();
-    const entries = await listWeightEntries(userIdFromReq(req), scope);
+    const tz = String(req.query.tz || 'America/New_York');
+    const entries = await listWeightEntries(userIdFromReq(req), scope, tz);
     res.json({ entries });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -1887,7 +1888,8 @@ apiRouter.get('/workouts', async (req, res) => {
     const limit = Number(req.query.limit) || undefined;
     const offset = Number(req.query.offset) || undefined;
     const scope = String(req.query.scope || 'week').toLowerCase();
-    const data = await listWorkoutEntries(userIdFromReq(req), { limit, offset, scope });
+    const tz = String(req.query.tz || 'America/New_York');
+    const data = await listWorkoutEntries(userIdFromReq(req), { limit, offset, scope, timezone: tz });
     res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -1973,7 +1975,8 @@ apiRouter.get('/sexual-activity', async (req, res) => {
     const limit = Number(req.query.limit) || undefined;
     const offset = Number(req.query.offset) || undefined;
     const scope = String(req.query.scope || 'week').toLowerCase();
-    const data = await listSexualActivityEntries(userIdFromReq(req), { limit, offset, scope });
+    const tz = String(req.query.tz || 'America/New_York');
+    const data = await listSexualActivityEntries(userIdFromReq(req), { limit, offset, scope, timezone: tz });
     res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -2034,7 +2037,8 @@ apiRouter.get('/sleep', async (req, res) => {
     const limit = Number(req.query.limit) || undefined;
     const offset = Number(req.query.offset) || undefined;
     const scope = String(req.query.scope || 'week').toLowerCase();
-    const data = await listSleepEntries(userIdFromReq(req), { limit, offset, scope });
+    const tz = String(req.query.tz || 'America/New_York');
+    const data = await listSleepEntries(userIdFromReq(req), { limit, offset, scope, timezone: tz });
     res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -2101,7 +2105,8 @@ apiRouter.post('/analysis', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
     const days = normalizeAnalysisDays(req.body?.days);
-    const snapshot = await getAnalysisSnapshot(userId, days);
+    const tz = String(req.body?.tz || 'America/New_York');
+    const snapshot = await getAnalysisSnapshot(userId, days, tz);
     const context = normalizeAnalysisContext(snapshot);
     const analysis = await generateAiAnalysis(snapshot, context);
     const saved = await saveAnalysisReport(userId, days, {
@@ -2119,7 +2124,8 @@ apiRouter.get('/dashboard', async (req, res) => {
   try {
     const limit = Number(req.query.limit) || undefined;
     const offset = Number(req.query.offset) || undefined;
-    const data = await getDashboard(userIdFromReq(req), req.query.date, { limit, offset });
+    const tz = String(req.query.tz || 'America/New_York');
+    const data = await getDashboard(userIdFromReq(req), req.query.date, { limit, offset, timezone: tz });
     res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -2129,7 +2135,8 @@ apiRouter.get('/dashboard', async (req, res) => {
 apiRouter.get('/daily-totals', async (req, res) => {
   try {
     const scope = String(req.query.scope || 'week').toLowerCase();
-    const totals = await getDailyTotals(userIdFromReq(req), scope);
+    const tz = String(req.query.tz || 'America/New_York');
+    const totals = await getDailyTotals(userIdFromReq(req), scope, tz);
     const targets = await getMacroTargets(userIdFromReq(req));
     res.json({ dailyTotals: totals, targets });
   } catch (error) {
