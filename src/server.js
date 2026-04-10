@@ -1458,7 +1458,8 @@ apiRouter.post('/sync-workouts', async (req, res) => {
       }
 
       // Format log for ChatGPT
-      const exerciseSummary = (log.items || []).map(item => {
+      const items = log.exerciseItems || log.items || [];
+      const exerciseSummary = items.map(item => {
         const setsSummary = (item.sets || []).map(s => `${s.reps || 0} reps @ ${s.weight || 0} lbs`).join(', ');
         return `${item.name || 'Exercise'}: ${setsSummary}`;
       }).join('. ');
@@ -1504,6 +1505,17 @@ apiRouter.post('/sync-workouts', async (req, res) => {
     return res.status(500).json({ error: 'Failed to sync workouts from Workout Planner.' });
   }
 });
+
+function estimateWorkoutCalories(text, hours) {
+  const lower = String(text || '').toLowerCase();
+  if (lower.includes('run') || lower.includes('cycling') || lower.includes('bike')) {
+    return Math.round(hours * 650);
+  }
+  if (lower.includes('lift') || lower.includes('strength')) {
+    return Math.round(hours * 420);
+  }
+  return Math.round(hours * 500);
+}
 
 apiRouter.post('/entries/bulk', async (req, res) => {
   try {

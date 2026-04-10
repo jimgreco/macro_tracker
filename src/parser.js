@@ -64,7 +64,7 @@ async function parseMealText({ text, consumedAt, imageDataUrl }) {
 
   try {
     const response = await client.responses.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
       input: [
         {
           role: 'system',
@@ -182,7 +182,7 @@ async function parseWorkoutText({ text }) {
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const response = await client.responses.create({
-    model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
     input: [
       {
         role: 'system',
