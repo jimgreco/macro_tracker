@@ -12,6 +12,10 @@ data/*.sqlite3
 # OS files
 .DS_Store
 
+# Xcode user state
+*.xcuserstate
+**/xcuserdata/
+
 # Runtime data
 data/
 certs/*.p8
