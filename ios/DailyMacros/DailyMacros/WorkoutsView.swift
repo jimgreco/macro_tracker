@@ -6,10 +6,17 @@ struct WorkoutsView: View {
     @State private var dailyCalories: [WorkoutDailyCalories] = []
     @State private var workoutText = ""
     @State private var parsedWorkout: ParseWorkoutResponse?
+    @State private var workoutLogDate = Date()
+    @State private var parsedDescription = ""
+    @State private var parsedIntensity = "medium"
+    @State private var parsedDurationHours = ""
+    @State private var parsedCalories = ""
     @State private var isParsing = false
     @State private var isSaving = false
+    @State private var isSyncing = false
     @State private var showLogSheet = false
     @State private var showEditTargets = false
+    @State private var editingWorkout: WorkoutEntry?
     @State private var errorMessage: String?
     @State private var scope = "week"
 
@@ -20,8 +27,16 @@ struct WorkoutsView: View {
     // Target editing state
     @State private var editWorkoutsPerWeek = ""
     @State private var editCaloriesPerWeek = ""
+    @State private var editWorkoutDescription = ""
+    @State private var editWorkoutIntensity = "medium"
+    @State private var editWorkoutDuration = ""
+    @State private var editWorkoutCalories = ""
+    @State private var editWorkoutDate = Date()
+    @State private var editWorkoutBaseDuration: Double = 0
+    @State private var editWorkoutBaseCalories: Double = 0
 
     private let scopes = ["week", "month", "year"]
+    private let intensityOptions = ["low", "medium", "high"]
 
     var body: some View {
         NavigationStack {
@@ -35,8 +50,22 @@ struct WorkoutsView: View {
             }
             .navigationTitle("Workouts")
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showLogSheet = true } label: {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        Task { await syncWorkouts() }
+                    } label: {
+                        if isSyncing {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .disabled(isSyncing)
+
+                    Button {
+                        workoutLogDate = Date()
+                        showLogSheet = true
+                    } label: {
                         Image(systemName: "plus")
                     }
                 }
@@ -46,6 +75,9 @@ struct WorkoutsView: View {
             }
             .sheet(isPresented: $showEditTargets) {
                 editTargetsSheet
+            }
+            .sheet(item: $editingWorkout) { workout in
+                editWorkoutSheet(workout)
             }
             .task { await loadWorkouts() }
             .refreshable { await loadWorkouts() }
@@ -199,6 +231,17 @@ struct WorkoutsView: View {
         .padding()
         .background(Color(.secondarySystemBackground))
         .cornerRadius(12)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            beginEditWorkout(workout)
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                Task { await deleteWorkout(workout) }
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
 
     // MARK: - Edit Targets Sheet
@@ -262,7 +305,7 @@ struct WorkoutsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showLogSheet = false; workoutText = ""; parsedWorkout = nil }
+                    Button("Cancel") { resetWorkoutSheet() }
                 }
             }
         }
@@ -271,6 +314,9 @@ struct WorkoutsView: View {
 
     private var workoutInputView: some View {
         VStack(spacing: 16) {
+            DatePicker("Logged At", selection: $workoutLogDate)
+                .datePickerStyle(.compact)
+
             TextField("Describe your workout...", text: $workoutText, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(3...6)
@@ -292,20 +338,48 @@ struct WorkoutsView: View {
         }
     }
 
-    private func parsedWorkoutView(_ parsed: ParseWorkoutResponse) -> some View {
+    private func parsedWorkoutView(_: ParseWorkoutResponse) -> some View {
         VStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                detailRow("Activity", value: parsed.description)
-                detailRow("Intensity", value: parsed.intensity.capitalized)
-                detailRow("Duration", value: formatDuration(parsed.durationHours))
-                detailRow("Calories", value: "\(Int(parsed.caloriesBurned)) kcal")
+                TextField("Activity", text: $parsedDescription)
+                    .textFieldStyle(.roundedBorder)
+
+                Picker("Intensity", selection: $parsedIntensity) {
+                    ForEach(intensityOptions, id: \.self) { option in
+                        Text(option.capitalized).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Hours")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("Hours", text: $parsedDurationHours)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.decimalPad)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Calories")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("Calories", text: $parsedCalories)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.numberPad)
+                    }
+                }
+
+                DatePicker("Logged At", selection: $workoutLogDate)
+                    .datePickerStyle(.compact)
             }
             .padding()
             .background(Color(.secondarySystemBackground))
             .cornerRadius(12)
 
             Button {
-                Task { await saveWorkout(parsed) }
+                Task { await saveWorkout() }
             } label: {
                 if isSaving {
                     ProgressView().frame(maxWidth: .infinity)
@@ -315,10 +389,96 @@ struct WorkoutsView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.cyan)
-            .disabled(isSaving)
+            .disabled(isSaving || parsedDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
             Spacer()
         }
+    }
+
+    // MARK: - Edit Workout Sheet
+
+    private func beginEditWorkout(_ workout: WorkoutEntry) {
+        editWorkoutDescription = workout.description
+        editWorkoutIntensity = normalizeWorkoutIntensity(workout.intensity)
+        editWorkoutDuration = String(format: "%.2g", workout.durationHours)
+        editWorkoutCalories = "\(Int(workout.caloriesBurned))"
+        editWorkoutDate = parseISO(workout.loggedAt)
+        editWorkoutBaseDuration = workout.durationHours
+        editWorkoutBaseCalories = workout.caloriesBurned
+        editingWorkout = workout
+    }
+
+    private func editWorkoutSheet(_ workout: WorkoutEntry) -> some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    TextField("Description", text: $editWorkoutDescription)
+                        .textFieldStyle(.roundedBorder)
+
+                    Picker("Intensity", selection: $editWorkoutIntensity) {
+                        ForEach(intensityOptions, id: \.self) { option in
+                            Text(option.capitalized).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Hours")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("Hours", text: $editWorkoutDuration)
+                                .textFieldStyle(.roundedBorder)
+                                .keyboardType(.decimalPad)
+                                .onChange(of: editWorkoutDuration) { _, newValue in
+                                    scaleWorkoutCalories(newDuration: newValue)
+                                }
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Calories")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("Calories", text: $editWorkoutCalories)
+                                .textFieldStyle(.roundedBorder)
+                                .keyboardType(.numberPad)
+                        }
+                    }
+
+                    DatePicker("Logged At", selection: $editWorkoutDate)
+                        .datePickerStyle(.compact)
+
+                    Button {
+                        Task { await updateWorkout(workout) }
+                    } label: {
+                        if isSaving {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Save").font(.headline).frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
+                    .disabled(editWorkoutDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+
+                    Button(role: .destructive) {
+                        Task { await deleteWorkout(workout) }
+                    } label: {
+                        Text("Delete Workout").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding()
+            }
+            .navigationTitle("Edit Workout")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { editingWorkout = nil }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 
     private func detailRow(_ label: String, value: String) -> some View {
@@ -354,28 +514,31 @@ struct WorkoutsView: View {
         isParsing = true
         defer { isParsing = false }
         do {
-            parsedWorkout = try await api.parseWorkout(text: workoutText)
+            let parsed = try await api.parseWorkout(text: workoutText)
+            parsedWorkout = parsed
+            parsedDescription = parsed.description
+            parsedIntensity = normalizeWorkoutIntensity(parsed.intensity)
+            parsedDurationHours = String(format: "%.2g", parsed.durationHours)
+            parsedCalories = "\(Int(parsed.caloriesBurned))"
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func saveWorkout(_ parsed: ParseWorkoutResponse) async {
+    private func saveWorkout() async {
         isSaving = true
         defer { isSaving = false }
         do {
             let f = ISO8601DateFormatter()
             f.timeZone = TimeZone(identifier: "America/New_York")
             try await api.addWorkout(
-                description: parsed.description,
-                intensity: parsed.intensity,
-                durationHours: parsed.durationHours,
-                caloriesBurned: parsed.caloriesBurned,
-                loggedAt: f.string(from: Date())
+                description: parsedDescription.trimmingCharacters(in: .whitespacesAndNewlines),
+                intensity: normalizeWorkoutIntensity(parsedIntensity),
+                durationHours: Double(parsedDurationHours) ?? 1,
+                caloriesBurned: Double(parsedCalories) ?? 0,
+                loggedAt: f.string(from: workoutLogDate)
             )
-            showLogSheet = false
-            workoutText = ""
-            parsedWorkout = nil
+            resetWorkoutSheet()
             await loadWorkouts()
         } catch {
             errorMessage = error.localizedDescription
@@ -397,6 +560,69 @@ struct WorkoutsView: View {
         }
     }
 
+    private func updateWorkout(_ workout: WorkoutEntry) async {
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            let f = ISO8601DateFormatter()
+            f.timeZone = TimeZone(identifier: "America/New_York")
+            try await api.updateWorkout(
+                id: workout.id,
+                description: editWorkoutDescription.trimmingCharacters(in: .whitespacesAndNewlines),
+                intensity: normalizeWorkoutIntensity(editWorkoutIntensity),
+                durationHours: Double(editWorkoutDuration) ?? workout.durationHours,
+                caloriesBurned: Double(editWorkoutCalories) ?? workout.caloriesBurned,
+                loggedAt: f.string(from: editWorkoutDate)
+            )
+            editingWorkout = nil
+            await loadWorkouts()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteWorkout(_ workout: WorkoutEntry) async {
+        do {
+            try await api.deleteWorkout(id: workout.id)
+            editingWorkout = nil
+            await loadWorkouts()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func syncWorkouts() async {
+        isSyncing = true
+        defer { isSyncing = false }
+        do {
+            let response = try await api.syncWorkouts()
+            if let message = response.message, response.syncedCount == 0 {
+                errorMessage = message
+            }
+            await loadWorkouts()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func resetWorkoutSheet() {
+        showLogSheet = false
+        workoutText = ""
+        parsedWorkout = nil
+        parsedDescription = ""
+        parsedIntensity = "medium"
+        parsedDurationHours = ""
+        parsedCalories = ""
+        workoutLogDate = Date()
+    }
+
+    private func scaleWorkoutCalories(newDuration: String) {
+        guard editWorkoutBaseDuration > 0,
+              let duration = Double(newDuration),
+              duration >= 0 else { return }
+        editWorkoutCalories = "\(Int(editWorkoutBaseCalories * (duration / editWorkoutBaseDuration)))"
+    }
+
     // MARK: - Helpers
 
     private func formatDuration(_ hours: Double) -> String {
@@ -410,15 +636,28 @@ struct WorkoutsView: View {
     }
 
     private func intensityBadge(_ intensity: String) -> String {
-        intensity.capitalized
+        normalizeWorkoutIntensity(intensity).capitalized
     }
 
     private func intensityColor(_ intensity: String) -> Color {
-        switch intensity.lowercased() {
-        case "light": return .green
-        case "moderate": return .yellow
-        case "intense", "high": return .red
+        switch normalizeWorkoutIntensity(intensity) {
+        case "low": return .green
+        case "medium": return .yellow
+        case "high": return .red
         default: return .cyan
+        }
+    }
+
+    private func normalizeWorkoutIntensity(_ intensity: String) -> String {
+        switch intensity.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "low", "light", "easy":
+            return "low"
+        case "high", "intense", "hard":
+            return "high"
+        case "medium", "moderate", "":
+            return "medium"
+        default:
+            return "medium"
         }
     }
 
@@ -431,5 +670,16 @@ struct WorkoutsView: View {
             return f.string(from: date)
         }
         return String(iso.prefix(10))
+    }
+
+    private func parseISO(_ iso: String) -> Date {
+        let isoFormatter = ISO8601DateFormatter()
+        if let date = isoFormatter.date(from: iso) {
+            return date
+        }
+
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+        return f.date(from: iso) ?? Date()
     }
 }

@@ -124,18 +124,20 @@ struct SavedItem: Codable, Identifiable {
 }
 
 struct ParsedMealItem: Codable {
-    let itemName: String
-    let quantity: Double
-    let unit: String?
-    let calories: Double
-    let protein: Double
-    let carbs: Double
-    let fat: Double
+    var itemName: String
+    var quantity: Double
+    var unit: String?
+    var calories: Double
+    var protein: Double
+    var carbs: Double
+    var fat: Double
 }
 
 struct ParseMealResponse: Codable {
     let items: [ParsedMealItem]
     let mealName: String?
+    let mealQuantity: Double?
+    let mealUnit: String?
 }
 
 struct ParseWorkoutResponse: Codable {
@@ -180,9 +182,18 @@ struct OkResponse: Codable {
     let ok: Bool
 }
 
+struct CreatedIdResponse: Codable {
+    let id: Int
+}
+
 struct CombineResponse: Codable {
     let ok: Bool
     let mealGroup: String
+}
+
+struct SyncWorkoutsResponse: Codable {
+    let message: String?
+    let syncedCount: Int
 }
 
 struct ErrorResponse: Codable {

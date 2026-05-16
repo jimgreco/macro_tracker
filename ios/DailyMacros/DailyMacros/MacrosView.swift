@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 import UniformTypeIdentifiers
 
 // MARK: - Neon Color Palette (matches web app)
@@ -27,13 +29,37 @@ extension UTType {
     static let entryDrag = UTType(exportedAs: "com.dailymacros.entry-drag")
 }
 
+private struct QuickAddTemplate: Identifiable {
+    let id: String
+    let savedItemId: Int?
+    let name: String
+    let quantity: Double
+    let unit: String
+    let calories: Double
+    let protein: Double
+    let carbs: Double
+    let fat: Double
+    let lastUsedAt: String?
+
+    var isSaved: Bool { savedItemId != nil }
+}
+
 struct MacrosView: View {
     @EnvironmentObject var api: APIClient
     @State private var dashboard: DashboardResponse?
     @State private var savedItems: [SavedItem] = []
     @State private var mealText = ""
+    @State private var consumedAt = Date()
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var mealImageDataUrl = ""
+    @State private var mealPreviewImage: UIImage?
+    @State private var isLoadingImage = false
+    @State private var showCamera = false
     @State private var parsedItems: [ParsedMealItem] = []
     @State private var parsedMealName: String?
+    @State private var parsedMealQuantity = "1"
+    @State private var parsedMealUnit = "serving"
+    @State private var saveParsedAsQuickAdd = false
     @State private var isParsing = false
     @State private var isSaving = false
     @State private var showParsed = false
@@ -41,6 +67,7 @@ struct MacrosView: View {
     @State private var showEditTargets = false
     @State private var showEditEntry = false
     @State private var showEditMeal = false
+    @State private var showEditParsedItem = false
     @State private var errorMessage: String?
     @State private var selectedDate = Date()
 
@@ -53,6 +80,8 @@ struct MacrosView: View {
     @State private var editEntryProtein = ""
     @State private var editEntryCarbs = ""
     @State private var editEntryFat = ""
+    @State private var editEntryDate = Date()
+    @State private var saveEditedEntryAsQuickAdd = false
     // Store originals for scaling
     @State private var origQuantity: Double = 0
     @State private var origCal: Double = 0
@@ -66,7 +95,34 @@ struct MacrosView: View {
     @State private var editMealName = ""
     @State private var editMealQuantity = ""
     @State private var editMealUnit = ""
+    @State private var saveEditedMealAsQuickAdd = false
     @State private var origMealQuantity: Double = 0
+
+    // Parsed item editing state
+    @State private var editingParsedIndex: Int?
+    @State private var editParsedName = ""
+    @State private var editParsedQuantity = ""
+    @State private var editParsedUnit = ""
+    @State private var editParsedCal = ""
+    @State private var editParsedProtein = ""
+    @State private var editParsedCarbs = ""
+    @State private var editParsedFat = ""
+    @State private var origParsedQuantity: Double = 0
+    @State private var origParsedCal: Double = 0
+    @State private var origParsedProtein: Double = 0
+    @State private var origParsedCarbs: Double = 0
+    @State private var origParsedFat: Double = 0
+
+    // Quick add editing state
+    @State private var quickMultiplier = "1"
+    @State private var editingQuickTemplate: QuickAddTemplate?
+    @State private var editQuickName = ""
+    @State private var editQuickQuantity = ""
+    @State private var editQuickUnit = ""
+    @State private var editQuickCal = ""
+    @State private var editQuickProtein = ""
+    @State private var editQuickCarbs = ""
+    @State private var editQuickFat = ""
 
     // Drag state
     @State private var isDragging = false
@@ -86,6 +142,76 @@ struct MacrosView: View {
     private let trendPeriods = ["week", "month", "year"]
     private let macroOptions = ["calories", "protein", "carbs", "fat"]
 
+    private var quickTemplates: [QuickAddTemplate] {
+        var templates = savedItems.map { item in
+            QuickAddTemplate(
+                id: "saved-\(item.id)",
+                savedItemId: item.id,
+                name: item.name,
+                quantity: item.quantity,
+                unit: item.unit ?? "serving",
+                calories: item.calories,
+                protein: item.protein,
+                carbs: item.carbs,
+                fat: item.fat,
+                lastUsedAt: nil
+            )
+        }
+
+        guard let entries = dashboard?.entries else { return templates }
+
+        let savedSignatures = Set(savedItems.map { savedSignature(
+            name: $0.name,
+            quantity: $0.quantity,
+            unit: $0.unit ?? "serving",
+            calories: $0.calories,
+            protein: $0.protein,
+            carbs: $0.carbs,
+            fat: $0.fat
+        ) })
+
+        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+        var historyBySignature: [String: QuickAddTemplate] = [:]
+        for entry in entries {
+            let loggedAt = parseISO(entry.consumedAt)
+            guard loggedAt >= cutoff else { continue }
+
+            let signature = savedSignature(
+                name: entry.itemName,
+                quantity: entry.quantity,
+                unit: entry.unit ?? "serving",
+                calories: entry.calories,
+                protein: entry.protein,
+                carbs: entry.carbs,
+                fat: entry.fat
+            )
+            guard !savedSignatures.contains(signature) else { continue }
+
+            let existing = historyBySignature[signature]
+            if let existing, let existingLast = existing.lastUsedAt, parseISO(existingLast) >= loggedAt {
+                continue
+            }
+
+            historyBySignature[signature] = QuickAddTemplate(
+                id: "history-\(signature.hashValue)",
+                savedItemId: nil,
+                name: entry.itemName,
+                quantity: entry.quantity,
+                unit: entry.unit ?? "serving",
+                calories: entry.calories,
+                protein: entry.protein,
+                carbs: entry.carbs,
+                fat: entry.fat,
+                lastUsedAt: entry.consumedAt
+            )
+        }
+
+        templates.append(contentsOf: historyBySignature.values.sorted {
+            parseISO($0.lastUsedAt ?? "") > parseISO($1.lastUsedAt ?? "")
+        })
+        return templates
+    }
+
     private var dateString: String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
@@ -96,7 +222,7 @@ struct MacrosView: View {
     private var isoTimestamp: String {
         let f = ISO8601DateFormatter()
         f.timeZone = TimeZone(identifier: "America/New_York")
-        return f.string(from: selectedDate)
+        return f.string(from: consumedAt)
     }
 
     var body: some View {
@@ -134,6 +260,8 @@ struct MacrosView: View {
                     Button {
                         showParsed = false
                         mealText = ""
+                        consumedAt = selectedDate
+                        clearMealImage()
                         Task { await loadSavedItems() }
                         showAddSheet = true
                     } label: {
@@ -153,6 +281,20 @@ struct MacrosView: View {
             }
             .sheet(isPresented: $showEditMeal) {
                 editMealSheet
+            }
+            .sheet(isPresented: $showEditParsedItem) {
+                editParsedItemSheet
+            }
+            .sheet(item: $editingQuickTemplate) { template in
+                editQuickAddSheet(template)
+            }
+            .sheet(isPresented: $showCamera) {
+                CameraPicker(image: $mealPreviewImage, imageDataUrl: $mealImageDataUrl) { message in
+                    errorMessage = message
+                }
+            }
+            .onChange(of: selectedPhotoItem) { _, newItem in
+                Task { await loadSelectedPhoto(newItem) }
             }
             .task {
                 await loadDashboard()
@@ -465,6 +607,8 @@ struct MacrosView: View {
         editEntryProtein = "\(Int(entry.protein))"
         editEntryCarbs = "\(Int(entry.carbs))"
         editEntryFat = "\(Int(entry.fat))"
+        editEntryDate = parseISO(entry.consumedAt)
+        saveEditedEntryAsQuickAdd = false
         origQuantity = entry.quantity
         origCal = entry.calories
         origProtein = entry.protein
@@ -501,6 +645,13 @@ struct MacrosView: View {
                         editEntryField("Carbs (g)", text: $editEntryCarbs, keyboard: .numberPad)
                         editEntryField("Fat (g)", text: $editEntryFat, keyboard: .numberPad)
                     }
+
+                    DatePicker("Logged At", selection: $editEntryDate)
+                        .datePickerStyle(.compact)
+
+                    Toggle("Save as Quick Add", isOn: $saveEditedEntryAsQuickAdd)
+                        .font(.subheadline)
+                        .tint(Color.neonGreen)
 
                     Button {
                         Task { await saveEditedEntry() }
@@ -594,6 +745,7 @@ struct MacrosView: View {
         editMealName = first.mealName ?? "Meal"
         editMealQuantity = "\(first.mealQuantity ?? 1)"
         editMealUnit = first.mealUnit ?? "serving"
+        saveEditedMealAsQuickAdd = false
         origMealQuantity = first.mealQuantity ?? 1
         showEditMeal = true
     }
@@ -670,6 +822,10 @@ struct MacrosView: View {
                     .padding()
                     .background(Color.panelBg)
                     .cornerRadius(10)
+
+                    Toggle("Save as Quick Add", isOn: $saveEditedMealAsQuickAdd)
+                        .font(.subheadline)
+                        .tint(Color.neonGreen)
 
                     Button {
                         Task { await saveEditedMeal() }
@@ -989,9 +1145,56 @@ struct MacrosView: View {
     private var addInputView: some View {
         VStack(spacing: 0) {
             VStack(spacing: 12) {
+                DatePicker("Logged At", selection: $consumedAt)
+                    .datePickerStyle(.compact)
+                    .foregroundStyle(.white)
+
                 TextField("Describe your meal...", text: $mealText, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(3...6)
+
+                HStack(spacing: 10) {
+                    PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                        Label("Photo", systemImage: "photo")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Color.neonCyan)
+
+                    Button {
+                        showCamera = true
+                    } label: {
+                        Label("Camera", systemImage: "camera")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Color.neonCyan)
+                    .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+                }
+
+                if isLoadingImage {
+                    ProgressView("Preparing photo...")
+                        .font(.caption)
+                        .foregroundStyle(Color.mutedText)
+                } else if let mealPreviewImage {
+                    ZStack(alignment: .topTrailing) {
+                        Image(uiImage: mealPreviewImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 160)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        Button {
+                            clearMealImage()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title3)
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, Color.neonPink)
+                        }
+                        .padding(8)
+                    }
+                }
 
                 Button {
                     Task { await parseMeal() }
@@ -1004,11 +1207,11 @@ struct MacrosView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Color.neonCyan)
-                .disabled(mealText.isEmpty || isParsing)
+                .disabled((mealText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && mealImageDataUrl.isEmpty) || isParsing || isLoadingImage)
             }
             .padding()
 
-            if !savedItems.isEmpty {
+            if !quickTemplates.isEmpty {
                 Divider()
                 HStack {
                     Text("Quick Items")
@@ -1020,22 +1223,50 @@ struct MacrosView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 4)
 
-                List(savedItems) { item in
-                    Button {
-                        Task { await quickAddItem(item) }
-                    } label: {
-                        HStack {
+                HStack(spacing: 8) {
+                    Text("Multiplier")
+                        .font(.caption)
+                        .foregroundStyle(Color.mutedText)
+                    TextField("1", text: $quickMultiplier)
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.decimalPad)
+                        .frame(width: 72)
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 4)
+
+                List(quickTemplates) { template in
+                    HStack {
+                        Button {
+                            Task { await quickAddItem(template) }
+                        } label: {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(item.name).font(.subheadline)
-                                Text("\(Int(item.calories)) kcal \u{00B7} P:\(Int(item.protein)) C:\(Int(item.carbs)) F:\(Int(item.fat))")
+                                HStack(spacing: 6) {
+                                    Text(template.name).font(.subheadline)
+                                    if !template.isSaved {
+                                        Text("recent")
+                                            .font(.caption2.bold())
+                                            .foregroundStyle(Color.neonYellow)
+                                    }
+                                }
+                                Text("\(Int(template.calories)) kcal \u{00B7} P:\(Int(template.protein)) C:\(Int(template.carbs)) F:\(Int(template.fat))")
                                     .font(.caption2).foregroundStyle(Color.mutedText)
                             }
                             Spacer()
                             Image(systemName: "plus.circle.fill")
                                 .foregroundStyle(Color.neonCyan)
                         }
+                        .tint(.primary)
+
+                        Button {
+                            beginEditQuickAdd(template)
+                        } label: {
+                            Image(systemName: "pencil")
+                                .foregroundStyle(Color.neonYellow)
+                        }
+                        .buttonStyle(.borderless)
                     }
-                    .tint(.primary)
                 }
                 .listStyle(.plain)
             }
@@ -1044,13 +1275,29 @@ struct MacrosView: View {
 
     private var parsedResultsView: some View {
         VStack(spacing: 12) {
-            if let name = parsedMealName {
+            if parsedItems.count > 1 {
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("Meal name", text: Binding(
+                        get: { parsedMealName ?? "" },
+                        set: { parsedMealName = $0 }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+
+                    HStack(spacing: 12) {
+                        editEntryField("Quantity", text: $parsedMealQuantity, keyboard: .decimalPad)
+                        editEntryField("Unit", text: $parsedMealUnit, keyboard: .default)
+                    }
+                }
+                .padding()
+                .background(Color.panelBg)
+                .cornerRadius(12)
+            } else if let name = parsedMealName {
                 Text(name)
                     .font(.headline)
                     .foregroundStyle(Color.neonGreen)
             }
 
-            ForEach(Array(parsedItems.enumerated()), id: \.offset) { _, item in
+            ForEach(Array(parsedItems.enumerated()), id: \.offset) { index, item in
                 HStack {
                     VStack(alignment: .leading) {
                         Text(item.itemName).font(.subheadline)
@@ -1063,6 +1310,13 @@ struct MacrosView: View {
                         Text("P:\(Int(item.protein)) C:\(Int(item.carbs)) F:\(Int(item.fat))")
                             .font(.caption2).foregroundStyle(Color.mutedText)
                     }
+                    Button {
+                        beginEditParsedItem(at: index)
+                    } label: {
+                        Image(systemName: "pencil")
+                            .foregroundStyle(Color.neonYellow)
+                    }
+                    .buttonStyle(.borderless)
                 }
                 .padding(.vertical, 2)
             }
@@ -1081,6 +1335,10 @@ struct MacrosView: View {
                     .foregroundStyle(Color.neonGreen)
             }
 
+            Toggle("Save as Quick Add", isOn: $saveParsedAsQuickAdd)
+                .font(.subheadline)
+                .tint(Color.neonGreen)
+
             Button {
                 Task { await saveParsedMeal() }
             } label: {
@@ -1094,6 +1352,175 @@ struct MacrosView: View {
             .tint(Color.neonGreen)
             .disabled(isSaving)
         }
+    }
+
+    // MARK: - Edit Parsed Item Sheet
+
+    private func beginEditParsedItem(at index: Int) {
+        guard parsedItems.indices.contains(index) else { return }
+        let item = parsedItems[index]
+        editingParsedIndex = index
+        editParsedName = item.itemName
+        editParsedQuantity = "\(item.quantity)"
+        editParsedUnit = item.unit ?? "serving"
+        editParsedCal = "\(Int(item.calories))"
+        editParsedProtein = "\(Int(item.protein))"
+        editParsedCarbs = "\(Int(item.carbs))"
+        editParsedFat = "\(Int(item.fat))"
+        origParsedQuantity = item.quantity
+        origParsedCal = item.calories
+        origParsedProtein = item.protein
+        origParsedCarbs = item.carbs
+        origParsedFat = item.fat
+        showEditParsedItem = true
+    }
+
+    private var editParsedItemSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    editEntryField("Item Name", text: $editParsedName, keyboard: .default)
+
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Quantity")
+                                .font(.caption)
+                                .foregroundStyle(Color.mutedText)
+                            TextField("Quantity", text: $editParsedQuantity)
+                                .textFieldStyle(.roundedBorder)
+                                .keyboardType(.decimalPad)
+                                .onChange(of: editParsedQuantity) { _, newValue in
+                                    scaleParsedMacros(newQuantityStr: newValue)
+                                }
+                        }
+                        editEntryField("Unit", text: $editParsedUnit, keyboard: .default)
+                    }
+
+                    editEntryField("Calories", text: $editParsedCal, keyboard: .decimalPad)
+
+                    HStack(spacing: 12) {
+                        editEntryField("Protein (g)", text: $editParsedProtein, keyboard: .decimalPad)
+                        editEntryField("Carbs (g)", text: $editParsedCarbs, keyboard: .decimalPad)
+                        editEntryField("Fat (g)", text: $editParsedFat, keyboard: .decimalPad)
+                    }
+
+                    Button {
+                        saveEditedParsedItem()
+                    } label: {
+                        Text("Save").font(.headline).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.neonCyan)
+                    .disabled(editParsedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .padding()
+            }
+            .background(Color.deepBg)
+            .navigationTitle("Edit Parsed Item")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showEditParsedItem = false; editingParsedIndex = nil }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func scaleParsedMacros(newQuantityStr: String) {
+        guard let newQty = Double(newQuantityStr), origParsedQuantity > 0 else { return }
+        let scale = newQty / origParsedQuantity
+        editParsedCal = "\(Int(origParsedCal * scale))"
+        editParsedProtein = "\(Int(origParsedProtein * scale))"
+        editParsedCarbs = "\(Int(origParsedCarbs * scale))"
+        editParsedFat = "\(Int(origParsedFat * scale))"
+    }
+
+    private func saveEditedParsedItem() {
+        guard let index = editingParsedIndex, parsedItems.indices.contains(index) else { return }
+        parsedItems[index] = ParsedMealItem(
+            itemName: editParsedName.trimmingCharacters(in: .whitespacesAndNewlines),
+            quantity: Double(editParsedQuantity) ?? parsedItems[index].quantity,
+            unit: editParsedUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "serving" : editParsedUnit,
+            calories: Double(editParsedCal) ?? parsedItems[index].calories,
+            protein: Double(editParsedProtein) ?? parsedItems[index].protein,
+            carbs: Double(editParsedCarbs) ?? parsedItems[index].carbs,
+            fat: Double(editParsedFat) ?? parsedItems[index].fat
+        )
+        showEditParsedItem = false
+        editingParsedIndex = nil
+    }
+
+    // MARK: - Edit Quick Add Sheet
+
+    private func beginEditQuickAdd(_ template: QuickAddTemplate) {
+        editingQuickTemplate = template
+        editQuickName = template.name
+        editQuickQuantity = "\(template.quantity)"
+        editQuickUnit = template.unit
+        editQuickCal = "\(Int(template.calories))"
+        editQuickProtein = "\(Int(template.protein))"
+        editQuickCarbs = "\(Int(template.carbs))"
+        editQuickFat = "\(Int(template.fat))"
+    }
+
+    private func editQuickAddSheet(_ template: QuickAddTemplate) -> some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    editEntryField("Name", text: $editQuickName, keyboard: .default)
+
+                    HStack(spacing: 12) {
+                        editEntryField("Quantity", text: $editQuickQuantity, keyboard: .decimalPad)
+                        editEntryField("Unit", text: $editQuickUnit, keyboard: .default)
+                    }
+
+                    editEntryField("Calories", text: $editQuickCal, keyboard: .decimalPad)
+
+                    HStack(spacing: 12) {
+                        editEntryField("Protein (g)", text: $editQuickProtein, keyboard: .decimalPad)
+                        editEntryField("Carbs (g)", text: $editQuickCarbs, keyboard: .decimalPad)
+                        editEntryField("Fat (g)", text: $editQuickFat, keyboard: .decimalPad)
+                    }
+
+                    Button {
+                        Task { await saveQuickAdd(template) }
+                    } label: {
+                        if isSaving {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text(template.isSaved ? "Save Quick Add" : "Save as Quick Add")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.neonCyan)
+                    .disabled(editQuickName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+
+                    if let savedItemId = template.savedItemId {
+                        Button(role: .destructive) {
+                            Task { await deleteQuickAdd(id: savedItemId) }
+                        } label: {
+                            Text("Delete Quick Add")
+                                .font(.subheadline)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                .padding()
+            }
+            .background(Color.deepBg)
+            .navigationTitle(template.isSaved ? "Edit Quick Add" : "Recent Item")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { editingQuickTemplate = nil }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 
     // MARK: - Actions
@@ -1128,9 +1555,16 @@ struct MacrosView: View {
         isParsing = true
         defer { isParsing = false }
         do {
-            let response = try await api.parseMeal(text: mealText, consumedAt: isoTimestamp)
+            let response = try await api.parseMeal(
+                text: mealText,
+                consumedAt: isoTimestamp,
+                imageDataUrl: mealImageDataUrl.isEmpty ? nil : mealImageDataUrl
+            )
             parsedItems = response.items
             parsedMealName = response.mealName
+            parsedMealQuantity = "\(response.mealQuantity ?? 1)"
+            parsedMealUnit = response.mealUnit ?? "serving"
+            saveParsedAsQuickAdd = false
             showParsed = true
         } catch {
             errorMessage = error.localizedDescription
@@ -1153,21 +1587,50 @@ struct MacrosView: View {
                 if let unit = item.unit { dict["unit"] = unit }
                 return dict
             }
-            try await api.saveMealEntries(items: items, consumedAt: isoTimestamp, mealName: parsedMealName)
+            let shouldSaveQuickAdd = saveParsedAsQuickAdd
+            let saveItems = shouldSaveQuickAdd ? parsedQuickAddPayload() : []
+            try await api.saveMealEntries(
+                items: items,
+                consumedAt: isoTimestamp,
+                mealName: parsedMealName,
+                mealQuantity: Double(parsedMealQuantity),
+                mealUnit: parsedMealUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : parsedMealUnit,
+                saveItems: saveItems
+            )
             showAddSheet = false
             mealText = ""
+            clearMealImage()
             showParsed = false
             parsedItems = []
             parsedMealName = nil
+            saveParsedAsQuickAdd = false
             await loadDashboard()
+            if shouldSaveQuickAdd {
+                await loadSavedItems()
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func quickAddItem(_ item: SavedItem) async {
+    private func quickAddItem(_ template: QuickAddTemplate) async {
         do {
-            try await api.quickAdd(savedItemId: item.id, consumedAt: isoTimestamp)
+            let multiplier = Double(quickMultiplier) ?? 1
+            if let savedItemId = template.savedItemId {
+                try await api.quickAdd(savedItemId: savedItemId, multiplier: multiplier, consumedAt: isoTimestamp)
+            } else {
+                let item: [String: Any] = [
+                    "itemName": template.name,
+                    "quantity": template.quantity * multiplier,
+                    "unit": template.unit,
+                    "calories": template.calories * multiplier,
+                    "protein": template.protein * multiplier,
+                    "carbs": template.carbs * multiplier,
+                    "fat": template.fat * multiplier,
+                    "consumedAt": isoTimestamp
+                ]
+                try await api.saveMealEntries(items: [item], consumedAt: isoTimestamp)
+            }
             showAddSheet = false
             await loadDashboard()
         } catch {
@@ -1188,8 +1651,21 @@ struct MacrosView: View {
                 calories: Double(editEntryCal) ?? entry.calories,
                 protein: Double(editEntryProtein) ?? entry.protein,
                 carbs: Double(editEntryCarbs) ?? entry.carbs,
-                fat: Double(editEntryFat) ?? entry.fat
+                fat: Double(editEntryFat) ?? entry.fat,
+                consumedAt: isoString(from: editEntryDate)
             )
+            if saveEditedEntryAsQuickAdd {
+                _ = try await api.addSavedItem(
+                    name: editItemName,
+                    quantity: Double(editQuantity) ?? entry.quantity,
+                    unit: editUnit,
+                    calories: Double(editEntryCal) ?? entry.calories,
+                    protein: Double(editEntryProtein) ?? entry.protein,
+                    carbs: Double(editEntryCarbs) ?? entry.carbs,
+                    fat: Double(editEntryFat) ?? entry.fat
+                )
+                await loadSavedItems()
+            }
             showEditEntry = false
             editingEntry = nil
             await loadDashboard()
@@ -1204,6 +1680,27 @@ struct MacrosView: View {
         defer { isSaving = false }
         do {
             let newQty = Double(editMealQuantity) ?? origMealQuantity
+            if saveEditedMealAsQuickAdd {
+                let scale = origMealQuantity > 0 ? newQty / origMealQuantity : 1
+                let totals = editingMealItems.reduce((calories: 0.0, protein: 0.0, carbs: 0.0, fat: 0.0)) { acc, item in
+                    (
+                        calories: acc.calories + item.calories,
+                        protein: acc.protein + item.protein,
+                        carbs: acc.carbs + item.carbs,
+                        fat: acc.fat + item.fat
+                    )
+                }
+                _ = try await api.addSavedItem(
+                    name: editMealName,
+                    quantity: newQty,
+                    unit: editMealUnit,
+                    calories: totals.calories * scale,
+                    protein: totals.protein * scale,
+                    carbs: totals.carbs * scale,
+                    fat: totals.fat * scale
+                )
+                await loadSavedItems()
+            }
             try await api.scaleMealGroup(
                 mealGroup: mealGroup,
                 quantity: newQty,
@@ -1212,6 +1709,60 @@ struct MacrosView: View {
             )
             showEditMeal = false
             editingMealGroup = nil
+            await loadDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func saveQuickAdd(_ template: QuickAddTemplate) async {
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            let name = editQuickName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let quantity = Double(editQuickQuantity) ?? template.quantity
+            let unit = editQuickUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "serving" : editQuickUnit
+            let calories = Double(editQuickCal) ?? template.calories
+            let protein = Double(editQuickProtein) ?? template.protein
+            let carbs = Double(editQuickCarbs) ?? template.carbs
+            let fat = Double(editQuickFat) ?? template.fat
+
+            if let savedItemId = template.savedItemId {
+                try await api.updateSavedItem(
+                    id: savedItemId,
+                    name: name,
+                    quantity: quantity,
+                    unit: unit,
+                    calories: calories,
+                    protein: protein,
+                    carbs: carbs,
+                    fat: fat
+                )
+            } else {
+                _ = try await api.addSavedItem(
+                    name: name,
+                    quantity: quantity,
+                    unit: unit,
+                    calories: calories,
+                    protein: protein,
+                    carbs: carbs,
+                    fat: fat
+                )
+            }
+
+            editingQuickTemplate = nil
+            await loadSavedItems()
+            await loadDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteQuickAdd(id: Int) async {
+        do {
+            try await api.deleteSavedItem(id: id)
+            editingQuickTemplate = nil
+            await loadSavedItems()
             await loadDashboard()
         } catch {
             errorMessage = error.localizedDescription
@@ -1295,6 +1846,112 @@ struct MacrosView: View {
 
     // MARK: - Helpers
 
+    private func parsedQuickAddPayload() -> [[String: Any]] {
+        guard !parsedItems.isEmpty else { return [] }
+
+        if parsedItems.count == 1, let item = parsedItems.first {
+            let quantity = max(item.quantity, 0.0001)
+            return [[
+                "name": item.itemName,
+                "quantity": 1,
+                "unit": item.unit ?? "serving",
+                "calories": (item.calories / quantity).rounded(toPlaces: 2),
+                "protein": (item.protein / quantity).rounded(toPlaces: 2),
+                "carbs": (item.carbs / quantity).rounded(toPlaces: 2),
+                "fat": (item.fat / quantity).rounded(toPlaces: 2)
+            ]]
+        }
+
+        let mealQuantity = max(Double(parsedMealQuantity) ?? 1, 0.0001)
+        let totals = parsedItems.reduce((calories: 0.0, protein: 0.0, carbs: 0.0, fat: 0.0)) { acc, item in
+            (
+                calories: acc.calories + item.calories,
+                protein: acc.protein + item.protein,
+                carbs: acc.carbs + item.carbs,
+                fat: acc.fat + item.fat
+            )
+        }
+        return [[
+            "name": (parsedMealName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? parsedMealName! : "Meal"),
+            "quantity": 1,
+            "unit": parsedMealUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "serving" : parsedMealUnit,
+            "calories": (totals.calories / mealQuantity).rounded(toPlaces: 2),
+            "protein": (totals.protein / mealQuantity).rounded(toPlaces: 2),
+            "carbs": (totals.carbs / mealQuantity).rounded(toPlaces: 2),
+            "fat": (totals.fat / mealQuantity).rounded(toPlaces: 2)
+        ]]
+    }
+
+    private func isoString(from date: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.timeZone = TimeZone(identifier: "America/New_York")
+        return f.string(from: date)
+    }
+
+    private func parseISO(_ iso: String) -> Date {
+        let isoFormatter = ISO8601DateFormatter()
+        if let date = isoFormatter.date(from: iso) {
+            return date
+        }
+
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+        return f.date(from: iso) ?? Date.distantPast
+    }
+
+    private func savedSignature(name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double) -> String {
+        [
+            name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            unit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            String(format: "%.3f", quantity),
+            String(format: "%.3f", calories),
+            String(format: "%.3f", protein),
+            String(format: "%.3f", carbs),
+            String(format: "%.3f", fat)
+        ].joined(separator: "|")
+    }
+
+    private func loadSelectedPhoto(_ item: PhotosPickerItem?) async {
+        guard let item else { return }
+        isLoadingImage = true
+        defer { isLoadingImage = false }
+
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                throw APIError.serverError("Unable to read selected image.")
+            }
+            let mimeType = item.supportedContentTypes.first?.preferredMIMEType ?? inferredImageMimeType(from: data)
+            mealImageDataUrl = "data:\(mimeType);base64,\(data.base64EncodedString())"
+            mealPreviewImage = UIImage(data: data)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func clearMealImage() {
+        selectedPhotoItem = nil
+        mealImageDataUrl = ""
+        mealPreviewImage = nil
+    }
+
+    private func inferredImageMimeType(from data: Data) -> String {
+        let bytes = [UInt8](data.prefix(12))
+        if bytes.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
+        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
+        if bytes.starts(with: [0x47, 0x49, 0x46]) { return "image/gif" }
+        if bytes.count >= 12,
+           String(bytes: bytes[8..<12], encoding: .ascii) == "WEBP" {
+            return "image/webp"
+        }
+        if bytes.count >= 12 {
+            let brand = String(bytes: bytes[4..<12], encoding: .ascii) ?? ""
+            if brand.contains("ftypheic") || brand.contains("ftypheif") || brand.contains("ftypmif1") {
+                return "image/heic"
+            }
+        }
+        return "image/jpeg"
+    }
+
     private func valueForMacro(_ totals: DailyTotals, macro: String) -> Double {
         switch macro {
         case "calories": return totals.calories
@@ -1323,6 +1980,60 @@ struct MacrosView: View {
         case "carbs": return .neonCyan
         case "fat": return .neonPink
         default: return .neonCyan
+        }
+    }
+}
+
+private extension Double {
+    func rounded(toPlaces places: Int) -> Double {
+        let divisor = pow(10.0, Double(places))
+        return (self * divisor).rounded() / divisor
+    }
+}
+
+private struct CameraPicker: UIViewControllerRepresentable {
+    @Binding var image: UIImage?
+    @Binding var imageDataUrl: String
+    var onError: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        private let parent: CameraPicker
+
+        init(parent: CameraPicker) {
+            self.parent = parent
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            defer { parent.dismiss() }
+            guard let pickedImage = info[.originalImage] as? UIImage else {
+                parent.onError("Unable to capture photo.")
+                return
+            }
+            guard let data = pickedImage.jpegData(compressionQuality: 0.82) else {
+                parent.onError("Unable to prepare captured photo.")
+                return
+            }
+            parent.image = pickedImage
+            parent.imageDataUrl = "data:image/jpeg;base64,\(data.base64EncodedString())"
         }
     }
 }

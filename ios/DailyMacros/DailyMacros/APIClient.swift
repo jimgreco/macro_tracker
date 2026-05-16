@@ -33,14 +33,22 @@ class APIClient: ObservableObject {
 
     var baseURL: URL {
         let stored = UserDefaults.standard.string(forKey: "api_base_url") ?? ""
-        if stored.isEmpty {
-            #if DEBUG
-            return URL(string: "http://localhost:3000")!
-            #else
-            return URL(string: "https://yourdomain.com")!
-            #endif
+        if !stored.isEmpty, let url = URL(string: stored) {
+            return url
         }
-        return URL(string: stored) ?? URL(string: "http://localhost:3000")!
+
+        if let configured = Bundle.main.object(forInfoDictionaryKey: "APIBaseURL") as? String {
+            let trimmed = configured.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, !trimmed.contains("$("), let url = URL(string: trimmed) {
+                return url
+            }
+        }
+
+        #if DEBUG
+        return URL(string: "http://localhost:3000")!
+        #else
+        return URL(string: "https://yourdomain.com")!
+        #endif
     }
 
     @Published var token: String? {
@@ -124,6 +132,14 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
+    func signInWithDevBypass() async throws -> AppleSignInResponse {
+        let url = baseURL.appendingPathComponent("auth/dev/mobile")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return try await perform(request)
+    }
+
     // MARK: - Dashboard
 
     func getDashboard(date: String? = nil, limit: Int = 100, offset: Int = 0) async throws -> DashboardResponse {
@@ -140,24 +156,45 @@ class APIClient: ObservableObject {
 
     // MARK: - Meal Parsing
 
-    func parseMeal(text: String, consumedAt: String? = nil) async throws -> ParseMealResponse {
+    func parseMeal(text: String, consumedAt: String? = nil, imageDataUrl: String? = nil) async throws -> ParseMealResponse {
         var payload: [String: Any] = ["text": text]
         if let consumedAt { payload["consumedAt"] = consumedAt }
+        if let imageDataUrl { payload["imageDataUrl"] = imageDataUrl }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/parse-meal"), method: "POST", body: body)
         return try await perform(request)
     }
 
-    func saveMealEntries(items: [[String: Any]], consumedAt: String, mealName: String? = nil) async throws {
+    func saveMealEntries(
+        items: [[String: Any]],
+        consumedAt: String,
+        mealName: String? = nil,
+        mealQuantity: Double? = nil,
+        mealUnit: String? = nil,
+        saveItems: [[String: Any]] = []
+    ) async throws {
         var payload: [String: Any] = ["items": items, "consumedAt": consumedAt]
         if let mealName { payload["mealName"] = mealName }
+        if let mealQuantity { payload["mealQuantity"] = mealQuantity }
+        if let mealUnit { payload["mealUnit"] = mealUnit }
+        if !saveItems.isEmpty { payload["saveItems"] = saveItems }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/entries/bulk"), method: "POST", body: body)
         let _: OkResponse = try await perform(request)
     }
 
-    func updateEntry(id: Int, itemName: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double) async throws {
-        let payload: [String: Any] = [
+    func updateEntry(
+        id: Int,
+        itemName: String,
+        quantity: Double,
+        unit: String,
+        calories: Double,
+        protein: Double,
+        carbs: Double,
+        fat: Double,
+        consumedAt: String? = nil
+    ) async throws {
+        var payload: [String: Any] = [
             "itemName": itemName,
             "quantity": quantity,
             "unit": unit,
@@ -166,6 +203,7 @@ class APIClient: ObservableObject {
             "carbs": carbs,
             "fat": fat
         ]
+        if let consumedAt { payload["consumedAt"] = consumedAt }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/entries/\(id)"), method: "PUT", body: body)
         let _: OkResponse = try await perform(request)
@@ -208,6 +246,42 @@ class APIClient: ObservableObject {
     func getSavedItems() async throws -> [SavedItem] {
         let request = try authorizedRequest(apiURL("/saved-items"))
         return try await perform(request)
+    }
+
+    func addSavedItem(name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double) async throws -> Int {
+        let payload: [String: Any] = [
+            "name": name,
+            "quantity": quantity,
+            "unit": unit,
+            "calories": calories,
+            "protein": protein,
+            "carbs": carbs,
+            "fat": fat
+        ]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/saved-items"), method: "POST", body: body)
+        let response: CreatedIdResponse = try await perform(request)
+        return response.id
+    }
+
+    func updateSavedItem(id: Int, name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double) async throws {
+        let payload: [String: Any] = [
+            "name": name,
+            "quantity": quantity,
+            "unit": unit,
+            "calories": calories,
+            "protein": protein,
+            "carbs": carbs,
+            "fat": fat
+        ]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/saved-items/\(id)"), method: "PUT", body: body)
+        let _: OkResponse = try await perform(request)
+    }
+
+    func deleteSavedItem(id: Int) async throws {
+        let request = try authorizedRequest(apiURL("/saved-items/\(id)"), method: "DELETE")
+        let _: OkResponse = try await perform(request)
     }
 
     func quickAdd(savedItemId: Int, multiplier: Double = 1, consumedAt: String) async throws {
@@ -253,6 +327,13 @@ class APIClient: ObservableObject {
         let payload: [String: Any] = ["weight": weight, "loggedAt": loggedAt]
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/weights"), method: "POST", body: body)
+        let _: OkResponse = try await perform(request)
+    }
+
+    func updateWeight(id: Int, weight: Double, loggedAt: String) async throws {
+        let payload: [String: Any] = ["weight": weight, "loggedAt": loggedAt]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/weights/\(id)"), method: "PUT", body: body)
         let _: OkResponse = try await perform(request)
     }
 
@@ -308,16 +389,27 @@ class APIClient: ObservableObject {
         let _: OkResponse = try await perform(request)
     }
 
-    func updateWorkout(id: Int, description: String, intensity: String, durationHours: Double, caloriesBurned: Double) async throws {
+    func updateWorkout(id: Int, description: String, intensity: String, durationHours: Double, caloriesBurned: Double, loggedAt: String) async throws {
         let payload: [String: Any] = [
             "description": description,
             "intensity": intensity,
             "durationHours": durationHours,
-            "caloriesBurned": caloriesBurned
+            "caloriesBurned": caloriesBurned,
+            "loggedAt": loggedAt
         ]
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/workouts/\(id)"), method: "PUT", body: body)
         let _: OkResponse = try await perform(request)
+    }
+
+    func deleteWorkout(id: Int) async throws {
+        let request = try authorizedRequest(apiURL("/workouts/\(id)"), method: "DELETE")
+        let _: OkResponse = try await perform(request)
+    }
+
+    func syncWorkouts() async throws -> SyncWorkoutsResponse {
+        let request = try authorizedRequest(apiURL("/sync-workouts"), method: "POST")
+        return try await perform(request)
     }
 
     // MARK: - Analysis
@@ -432,6 +524,17 @@ class APIClient: ObservableObject {
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/auth/tokens"), method: "POST", body: body)
         return try await perform(request)
+    }
+
+    func listTokens() async throws -> [ApiToken] {
+        let request = try authorizedRequest(apiURL("/auth/tokens"))
+        let response: ApiTokenListResponse = try await perform(request)
+        return response.tokens
+    }
+
+    func deleteToken(id: Int) async throws {
+        let request = try authorizedRequest(apiURL("/auth/tokens/\(id)"), method: "DELETE")
+        let _: OkResponse = try await perform(request)
     }
 }
 

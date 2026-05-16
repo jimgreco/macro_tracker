@@ -15,31 +15,32 @@ class AuthManager: ObservableObject {
     }
 
     func checkAuth() async {
-        guard api.token != nil else {
-            isLoading = false
-            return
+        defer { isLoading = false }
+
+        if api.token != nil {
+            do {
+                user = try await api.getMe()
+                isAuthenticated = user != nil
+                if isAuthenticated {
+                    return
+                }
+            } catch {
+                api.token = nil
+                isAuthenticated = false
+                user = nil
+            }
         }
 
+        #if DEBUG
+        guard shouldAttemptLocalDevBypass else { return }
+
         do {
-            user = try await api.getMe()
-            isAuthenticated = user != nil
+            try await signInWithDevBypass()
         } catch {
             isAuthenticated = false
             user = nil
         }
-        isLoading = false
-    }
-
-    /// Sign in by entering an API token generated from the web app.
-    func signIn(token: String) async throws {
-        api.token = token
-        let fetchedUser = try await api.getMe()
-        guard fetchedUser != nil else {
-            api.token = nil
-            throw APIError.notAuthenticated
-        }
-        user = fetchedUser
-        isAuthenticated = true
+        #endif
     }
 
     /// Sign in with Apple — sends the identity token to the backend for verification.
@@ -70,6 +71,19 @@ class AuthManager: ObservableObject {
         isAuthenticated = true
     }
 
+    func signInWithDevBypass() async throws {
+        let result = try await api.signInWithDevBypass()
+        api.token = result.token
+        user = User(
+            id: result.user.id,
+            name: result.user.name,
+            email: result.user.email,
+            picture: nil,
+            provider: "local-dev"
+        )
+        isAuthenticated = true
+    }
+
     /// Handle callback URL from Google OAuth (via ASWebAuthenticationSession)
     func handleGoogleCallback(url: URL) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -96,5 +110,10 @@ class AuthManager: ObservableObject {
         api.token = nil
         user = nil
         isAuthenticated = false
+    }
+
+    private var shouldAttemptLocalDevBypass: Bool {
+        guard let host = api.baseURL.host?.lowercased() else { return false }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1"
     }
 }

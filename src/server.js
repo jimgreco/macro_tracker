@@ -1211,6 +1211,28 @@ app.post('/auth/apple/mobile', express.json(), async (req, res) => {
   }
 });
 
+app.post('/auth/dev/mobile', async (req, res) => {
+  if (!localDevUser) {
+    return res.status(404).json({ error: 'Dev auth bypass is not enabled.' });
+  }
+
+  try {
+    await upsertUser(localDevUser);
+    const tokenResult = await createApiToken(localDevUser.id, 'DailyMacros iOS Dev', null);
+    return res.json({
+      ok: true,
+      token: tokenResult.token,
+      user: {
+        id: localDevUser.id,
+        name: localDevUser.name || null,
+        email: localDevUser.email || null
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Unable to create dev auth token.' });
+  }
+});
+
 app.post('/auth/logout', (req, res) => {
   req.logout(() => {
     req.session.destroy(() => {

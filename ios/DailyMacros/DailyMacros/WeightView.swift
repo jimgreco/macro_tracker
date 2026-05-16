@@ -6,14 +6,18 @@ struct WeightView: View {
     @State private var target: WeightTarget?
     @State private var scope = "month"
     @State private var newWeight = ""
+    @State private var newWeightDate = Date()
     @State private var showAddSheet = false
     @State private var showEditTarget = false
+    @State private var editingEntry: WeightEntry?
     @State private var isLoading = false
     @State private var errorMessage: String?
 
     // Target editing state
     @State private var editTargetWeight = ""
     @State private var editTargetDate = Date()
+    @State private var editWeightValue = ""
+    @State private var editWeightDate = Date()
 
     private let scopes = ["week", "month", "year"]
 
@@ -41,6 +45,9 @@ struct WeightView: View {
             }
             .sheet(isPresented: $showEditTarget) {
                 editTargetSheet
+            }
+            .sheet(item: $editingEntry) { entry in
+                editWeightSheet(entry)
             }
             .task { await loadData() }
             .refreshable { await loadData() }
@@ -220,6 +227,12 @@ struct WeightView: View {
                         .font(.subheadline.bold())
                 }
                 .padding(.vertical, 4)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    editWeightValue = String(format: "%.1f", entry.weight)
+                    editWeightDate = parseISO(entry.loggedAt)
+                    editingEntry = entry
+                }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
                         Task { await deleteWeight(entry.id) }
@@ -247,6 +260,9 @@ struct WeightView: View {
                     .textFieldStyle(.roundedBorder)
                     .keyboardType(.decimalPad)
 
+                DatePicker("Logged At", selection: $newWeightDate)
+                    .datePickerStyle(.compact)
+
                 Button {
                     Task { await addWeight() }
                 } label: {
@@ -268,6 +284,55 @@ struct WeightView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { showAddSheet = false }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    // MARK: - Edit Weight Sheet
+
+    private func editWeightSheet(_ entry: WeightEntry) -> some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                TextField("Weight (lbs)", text: $editWeightValue)
+                    .textFieldStyle(.roundedBorder)
+                    .keyboardType(.decimalPad)
+
+                DatePicker("Logged At", selection: $editWeightDate)
+                    .datePickerStyle(.compact)
+
+                Button {
+                    Task { await updateWeight(entry) }
+                } label: {
+                    if isLoading {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Text("Save").font(.headline).frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.cyan)
+                .disabled(editWeightValue.isEmpty || isLoading)
+
+                Button(role: .destructive) {
+                    Task {
+                        await deleteWeight(entry.id)
+                        editingEntry = nil
+                    }
+                } label: {
+                    Text("Delete Entry").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Edit Weight")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { editingEntry = nil }
                 }
             }
         }
@@ -344,9 +409,25 @@ struct WeightView: View {
         do {
             let f = ISO8601DateFormatter()
             f.timeZone = TimeZone(identifier: "America/New_York")
-            try await api.addWeight(weight, loggedAt: f.string(from: Date()))
+            try await api.addWeight(weight, loggedAt: f.string(from: newWeightDate))
             newWeight = ""
+            newWeightDate = Date()
             showAddSheet = false
+            await loadEntries()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func updateWeight(_ entry: WeightEntry) async {
+        guard let weight = Double(editWeightValue) else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let f = ISO8601DateFormatter()
+            f.timeZone = TimeZone(identifier: "America/New_York")
+            try await api.updateWeight(id: entry.id, weight: weight, loggedAt: f.string(from: editWeightDate))
+            editingEntry = nil
             await loadEntries()
         } catch {
             errorMessage = error.localizedDescription
@@ -398,5 +479,16 @@ struct WeightView: View {
             return f.string(from: date)
         }
         return dateStr
+    }
+
+    private func parseISO(_ iso: String) -> Date {
+        let isoFormatter = ISO8601DateFormatter()
+        if let date = isoFormatter.date(from: iso) {
+            return date
+        }
+
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+        return f.date(from: iso) ?? Date()
     }
 }
