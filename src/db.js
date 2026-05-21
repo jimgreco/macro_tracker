@@ -79,6 +79,17 @@ async function initDb() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_identities (
+      provider TEXT NOT NULL,
+      provider_user_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (provider, provider_user_id)
+    );
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS entries (
       id BIGSERIAL PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -300,6 +311,8 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_workout_entries_user_logged ON workout_entries(user_id, logged_at DESC);
     CREATE INDEX IF NOT EXISTS idx_sleep_entries_user_logged ON sleep_entries(user_id, logged_at DESC);
     CREATE INDEX IF NOT EXISTS idx_analysis_reports_user_created ON analysis_reports(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_users_normalized_email ON users(lower(email));
+    CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities(user_id);
     CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
     CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
     CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id, created_at DESC);
@@ -311,17 +324,113 @@ async function initDb() {
 
 // ── Users ──
 
+function normalizeUserEmail(email) {
+  const normalized = String(email || '').trim().toLowerCase();
+  return normalized || null;
+}
+
+function normalizeAuthProvider(provider) {
+  const normalized = String(provider || 'google').trim().toLowerCase();
+  return normalized || 'google';
+}
+
 async function upsertUser(user) {
-  await pool.query(
-    `INSERT INTO users (id, email, name, picture, provider, updated_at)
-     VALUES ($1, $2, $3, $4, $5, NOW())
-     ON CONFLICT (id) DO UPDATE
-       SET email = EXCLUDED.email,
-           name = EXCLUDED.name,
-           picture = EXCLUDED.picture,
-           updated_at = NOW()`,
-    [user.id, user.email || null, user.name || null, user.picture || null, user.provider || 'google']
+  const provider = normalizeAuthProvider(user.provider);
+  const providerUserId = String(user.providerUserId || user.provider_user_id || user.id || '').trim();
+  const requestedUserId = String(user.id || providerUserId || '').trim();
+  if (!requestedUserId) {
+    throw new Error('User id is required.');
+  }
+
+  const email = normalizeUserEmail(user.email);
+  const name = user.name || null;
+  const picture = user.picture || null;
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    let canonicalUserId = requestedUserId;
+    if (providerUserId) {
+      const identityResult = await client.query(
+        `SELECT user_id
+         FROM user_identities
+         WHERE provider = $1 AND provider_user_id = $2`,
+        [provider, providerUserId]
+      );
+      if (identityResult.rows[0]?.user_id) {
+        canonicalUserId = identityResult.rows[0].user_id;
+      }
+    }
+
+    if (canonicalUserId === requestedUserId && email) {
+      const existingUserResult = await client.query(
+        `SELECT id
+         FROM users
+         WHERE lower(email) = $1
+         ORDER BY created_at ASC
+         LIMIT 1`,
+        [email]
+      );
+      if (existingUserResult.rows[0]?.id) {
+        canonicalUserId = existingUserResult.rows[0].id;
+      }
+    }
+
+    const userResult = await client.query(
+      `INSERT INTO users (id, email, name, picture, provider, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (id) DO UPDATE
+         SET email = COALESCE(EXCLUDED.email, users.email),
+             name = COALESCE(EXCLUDED.name, users.name),
+             picture = COALESCE(EXCLUDED.picture, users.picture),
+             provider = CASE
+               WHEN EXCLUDED.provider = ANY(string_to_array(users.provider, ',')) THEN users.provider
+               ELSE users.provider || ',' || EXCLUDED.provider
+             END,
+             updated_at = NOW()
+       RETURNING id, email, name, picture, provider`,
+      [canonicalUserId, email, name, picture, provider]
+    );
+
+    if (providerUserId) {
+      await client.query(
+        `INSERT INTO user_identities (provider, provider_user_id, user_id, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (provider, provider_user_id) DO UPDATE
+           SET user_id = EXCLUDED.user_id,
+               updated_at = NOW()`,
+        [provider, providerUserId, canonicalUserId]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    return {
+      id: userResult.rows[0].id,
+      email: userResult.rows[0].email,
+      name: userResult.rows[0].name,
+      picture: userResult.rows[0].picture,
+      provider: userResult.rows[0].provider
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function getProviderUserId(userId, provider) {
+  const normalizedProvider = normalizeAuthProvider(provider);
+  const result = await pool.query(
+    `SELECT provider_user_id
+     FROM user_identities
+     WHERE user_id = $1 AND provider = $2`,
+    [userId, normalizedProvider]
   );
+
+  return result.rows[0]?.provider_user_id || null;
 }
 
 // ── Audit logging ──
@@ -1671,9 +1780,10 @@ async function deleteApiToken(userId, tokenId) {
 // ── GDPR ──
 
 async function exportUserData(userId) {
-  const [user, entries, savedItems, macroTargets, weightEntries, workoutEntries, sleepEntries, weightTarget, analysisReports] =
+  const [user, identities, entries, savedItems, macroTargets, weightEntries, workoutEntries, sleepEntries, weightTarget, analysisReports] =
     await Promise.all([
       pool.query('SELECT id, email, name, provider, created_at, updated_at FROM users WHERE id = $1', [userId]),
+      pool.query('SELECT provider, provider_user_id, created_at, updated_at FROM user_identities WHERE user_id = $1 ORDER BY provider', [userId]),
       pool.query('SELECT id, item_name, quantity, unit, calories, protein, carbs, fat, consumed_at, meal_group, meal_name, meal_quantity, meal_unit, created_at FROM entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY consumed_at DESC', [userId]),
       pool.query('SELECT id, name, quantity, unit, calories, protein, carbs, fat, usage_count, created_at FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL ORDER BY name', [userId]),
       pool.query('SELECT macro, target, updated_at FROM macro_targets WHERE user_id = $1', [userId]),
@@ -1687,6 +1797,7 @@ async function exportUserData(userId) {
   return {
     exportedAt: new Date().toISOString(),
     user: user.rows[0] || null,
+    identities: identities.rows,
     entries: entries.rows,
     savedItems: savedItems.rows,
     macroTargets: macroTargets.rows,
@@ -1702,6 +1813,7 @@ async function deleteUserAccount(userId) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query('DELETE FROM user_identities WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM entries WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM saved_items WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM macro_targets WHERE user_id = $1', [userId]);
@@ -1812,6 +1924,7 @@ module.exports = {
   getPool,
   checkDatabaseHealth,
   upsertUser,
+  getProviderUserId,
   logAudit,
   addEntries,
   updateEntry,

@@ -17,6 +17,7 @@ const {
   initDb,
   checkDatabaseHealth,
   upsertUser,
+  getProviderUserId,
   logAudit,
   addEntries,
   updateEntry,
@@ -137,6 +138,13 @@ function normalizeGoogleTokenBoolean(value) {
   return value === true || String(value).toLowerCase() === 'true';
 }
 
+function verifiedTokenEmail(payload) {
+  if (!payload?.email || !normalizeGoogleTokenBoolean(payload.email_verified)) {
+    return null;
+  }
+  return String(payload.email);
+}
+
 function getAllowedOrigins() {
   const origins = new Set();
   const appBaseUrl = String(process.env.APP_BASE_URL || '').trim();
@@ -250,6 +258,7 @@ if (googleClientId && googleClientSecret) {
 
         return done(null, {
           id: profile.id,
+          providerUserId: profile.id,
           name: profile.displayName,
           email,
           picture,
@@ -434,6 +443,13 @@ function userIdFromReq(req) {
 
 function hasAuthenticatedUser(req) {
   return Boolean(req.user && req.user.id);
+}
+
+function userHasProvider(user, provider) {
+  return String(user?.provider || '')
+    .split(',')
+    .map((value) => value.trim())
+    .includes(provider);
 }
 
 function isAuthConfigured() {
@@ -1008,13 +1024,13 @@ app.get('/auth/google', async (req, res, next) => {
     // Mobile auth bypass: create a token for the dev user and redirect to app
     if (req.query.mobile === '1') {
       try {
-        await upsertUser(localDevUser);
-        const tokenResult = await createApiToken(localDevUser.id, 'DailyMacros iOS', null);
+        const persistedUser = await upsertUser(localDevUser);
+        const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS', null);
         const params = new URLSearchParams({
           token: tokenResult.token,
-          name: localDevUser.name || '',
-          email: localDevUser.email || '',
-          id: localDevUser.id
+          name: persistedUser.name || '',
+          email: persistedUser.email || '',
+          id: persistedUser.id
         });
         return res.redirect(`dailymacros://auth/callback?${params.toString()}`);
       } catch (error) {
@@ -1051,9 +1067,13 @@ app.get(
   passport.authenticate('google', { failureRedirect: '/login?error=google_auth_failed' }),
   async (req, res) => {
     // Upsert user into the users table on every login
+    let signedInUser = req.user;
     if (req.user && req.user.id) {
       try {
-        await upsertUser(req.user);
+        signedInUser = await upsertUser(req.user);
+        await new Promise((resolve, reject) => {
+          req.login(signedInUser, (loginErr) => (loginErr ? reject(loginErr) : resolve()));
+        });
       } catch (_error) {
         // Don't block login if upsert fails
       }
@@ -1063,12 +1083,12 @@ app.get(
     if (req.session.mobileAuth) {
       delete req.session.mobileAuth;
       try {
-        const tokenResult = await createApiToken(req.user.id, 'DailyMacros iOS', null);
+        const tokenResult = await createApiToken(signedInUser.id, 'DailyMacros iOS', null);
         const params = new URLSearchParams({
           token: tokenResult.token,
-          name: req.user.name || '',
-          email: req.user.email || '',
-          id: req.user.id
+          name: signedInUser.name || '',
+          email: signedInUser.email || '',
+          id: signedInUser.id
         });
         return res.redirect(`dailymacros://auth/callback?${params.toString()}`);
       } catch (error) {
@@ -1129,19 +1149,20 @@ app.post('/auth/google/mobile', express.json(), async (req, res) => {
 
     const user = {
       id: tokenInfo.sub,
+      providerUserId: tokenInfo.sub,
       name: tokenInfo.name || tokenInfo.email || null,
       email: tokenInfo.email || null,
       picture: tokenInfo.picture || null,
       provider: 'google'
     };
 
-    await upsertUser(user);
-    const tokenResult = await createApiToken(user.id, 'DailyMacros iOS', null);
+    const persistedUser = await upsertUser(user);
+    const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS', null);
 
     return res.json({
       ok: true,
       token: tokenResult.token,
-      user: { id: user.id, name: user.name, email: user.email }
+      user: { id: persistedUser.id, name: persistedUser.name, email: persistedUser.email }
     });
   } catch (error) {
     return res.status(500).json({ error: 'Google mobile sign-in failed.' });
@@ -1198,7 +1219,7 @@ app.post('/auth/apple/callback', express.urlencoded({ extended: false }), async 
 
     // Apple only sends user info on first sign-in; parse it if present
     let userName = null;
-    let userEmail = payload.email || null;
+    const userEmail = verifiedTokenEmail(payload);
     if (userJson) {
       try {
         const parsed = typeof userJson === 'string' ? JSON.parse(userJson) : userJson;
@@ -1206,12 +1227,12 @@ app.post('/auth/apple/callback', express.urlencoded({ extended: false }), async 
           const parts = [parsed.name.firstName, parsed.name.lastName].filter(Boolean);
           userName = parts.join(' ') || null;
         }
-        if (parsed.email) userEmail = parsed.email;
       } catch (_e) { /* ignore parse errors */ }
     }
 
     const user = {
       id: `apple_${payload.sub}`,
+      providerUserId: payload.sub,
       name: userName,
       email: userEmail,
       picture: null,
@@ -1219,17 +1240,16 @@ app.post('/auth/apple/callback', express.urlencoded({ extended: false }), async 
     };
 
     try {
-      await upsertUser(user);
+      const persistedUser = await upsertUser(user);
+      return req.login(persistedUser, (loginErr) => {
+        if (loginErr) {
+          return res.redirect('/login?error=apple_auth_failed');
+        }
+        return res.redirect('/');
+      });
     } catch (_error) {
-      // Don't block login if upsert fails
+      return res.redirect('/login?error=apple_auth_failed');
     }
-
-    req.login(user, (loginErr) => {
-      if (loginErr) {
-        return res.redirect('/login?error=apple_auth_failed');
-      }
-      return res.redirect('/');
-    });
   } catch (error) {
     return res.redirect('/login?error=apple_auth_failed');
   }
@@ -1239,7 +1259,7 @@ app.post('/auth/apple/callback', express.urlencoded({ extended: false }), async 
 // iOS app sends the Apple identity token; we verify and return an API token
 
 app.post('/auth/apple/mobile', express.json(), async (req, res) => {
-  const { identityToken, fullName, email } = req.body;
+  const { identityToken, fullName } = req.body;
 
   if (!identityToken) {
     return res.status(400).json({ error: 'identityToken is required.' });
@@ -1265,21 +1285,22 @@ app.post('/auth/apple/mobile', express.json(), async (req, res) => {
 
     const user = {
       id: `apple_${payload.sub}`,
+      providerUserId: payload.sub,
       name: userName,
-      email: email || payload.email || null,
+      email: verifiedTokenEmail(payload),
       picture: null,
       provider: 'apple'
     };
 
-    await upsertUser(user);
+    const persistedUser = await upsertUser(user);
 
     // Create a long-lived API token for the mobile app
-    const tokenResult = await createApiToken(user.id, 'DailyMacros iOS', null);
+    const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS', null);
 
     return res.json({
       ok: true,
       token: tokenResult.token,
-      user: { id: user.id, name: user.name, email: user.email }
+      user: { id: persistedUser.id, name: persistedUser.name, email: persistedUser.email }
     });
   } catch (error) {
     return res.status(401).json({ error: 'Invalid Apple identity token.' });
@@ -1292,15 +1313,15 @@ app.post('/auth/dev/mobile', async (req, res) => {
   }
 
   try {
-    await upsertUser(localDevUser);
-    const tokenResult = await createApiToken(localDevUser.id, 'DailyMacros iOS Dev', null);
+    const persistedUser = await upsertUser(localDevUser);
+    const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS Dev', null);
     return res.json({
       ok: true,
       token: tokenResult.token,
       user: {
-        id: localDevUser.id,
-        name: localDevUser.name || null,
-        email: localDevUser.email || null
+        id: persistedUser.id,
+        name: persistedUser.name || null,
+        email: persistedUser.email || null
       }
     });
   } catch (error) {
@@ -1499,12 +1520,15 @@ apiRouter.post('/parse-workout', async (req, res) => {
 });
 
 apiRouter.post('/sync-workouts', async (req, res) => {
-  if (!req.user || (req.user.provider !== 'google' && req.user.provider !== 'local-dev')) {
+  if (!req.user || (!userHasProvider(req.user, 'google') && !userHasProvider(req.user, 'local-dev'))) {
     return res.status(401).json({ error: 'Syncing requires a Google account.' });
   }
 
   try {
     const userId = req.user.id;
+    const workoutPlannerUserId = userHasProvider(req.user, 'google')
+      ? (await getProviderUserId(userId, 'google')) || userId
+      : userId;
     const internalSecret = process.env.INTERNAL_SYNC_SECRET;
     const workoutApiUrl = process.env.WORKOUT_API_URL || 'http://workout_api:3001';
 
@@ -1517,7 +1541,7 @@ apiRouter.post('/sync-workouts', async (req, res) => {
     const response = await fetch(`${workoutApiUrl}/logs`, {
       headers: {
         'X-Internal-Sync-Secret': internalSecret,
-        'X-Internal-User-Id': userId,
+        'X-Internal-User-Id': workoutPlannerUserId,
         'Accept': 'application/json'
       }
     });

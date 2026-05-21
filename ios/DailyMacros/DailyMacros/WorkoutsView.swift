@@ -19,6 +19,9 @@ struct WorkoutsView: View {
     @State private var editingWorkout: WorkoutEntry?
     @State private var errorMessage: String?
     @State private var scope = "week"
+    @State private var workoutOffset = 0
+    @State private var hasMoreWorkouts = true
+    @State private var isLoadingWorkoutPage = false
 
     // Stats from dashboard targets
     @State private var workoutsTarget: Double = 5
@@ -37,11 +40,12 @@ struct WorkoutsView: View {
 
     private let scopes = ["week", "month", "year"]
     private let intensityOptions = ["low", "medium", "high"]
+    private let logPageSize = 30
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
+                LazyVStack(spacing: 16) {
                     scopePicker
                     statsSection
                     workoutOccurrenceSection
@@ -80,8 +84,8 @@ struct WorkoutsView: View {
             .sheet(item: $editingWorkout) { workout in
                 editWorkoutSheet(workout)
             }
-            .task { await loadWorkouts() }
-            .refreshable { await loadWorkouts() }
+            .task { await loadWorkouts(reset: true) }
+            .refreshable { await loadWorkouts(reset: true) }
             .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: {
@@ -100,7 +104,7 @@ struct WorkoutsView: View {
         }
         .pickerStyle(.segmented)
         .onChange(of: scope) { _, _ in
-            Task { await loadWorkouts() }
+            Task { await loadWorkouts(reset: true) }
         }
     }
 
@@ -382,10 +386,23 @@ struct WorkoutsView: View {
         VStack(spacing: 12) {
             ForEach(workouts) { workout in
                 workoutCard(workout)
+                    .onAppear {
+                        loadMoreWorkoutsIfNeeded(current: workout)
+                    }
             }
 
             if workouts.isEmpty {
-                ContentUnavailableView("No Workouts", systemImage: "figure.run", description: Text("Tap + to log your first workout."))
+                if isLoadingWorkoutPage {
+                    ProgressView("Loading workouts...")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                } else {
+                    ContentUnavailableView("No Workouts", systemImage: "figure.run", description: Text("Tap + to log your first workout."))
+                }
+            } else if isLoadingWorkoutPage {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
             }
         }
     }
@@ -695,20 +712,47 @@ struct WorkoutsView: View {
 
     // MARK: - Actions
 
-    private func loadWorkouts() async {
+    private func loadWorkouts(reset: Bool = true) async {
+        guard !isLoadingWorkoutPage else { return }
+        isLoadingWorkoutPage = true
+        defer { isLoadingWorkoutPage = false }
+
+        let offset = reset ? 0 : workoutOffset
+
         do {
-            let response = try await api.getWorkouts(scope: scope)
-            workouts = response.entries
+            let response = try await api.getWorkouts(limit: logPageSize, offset: offset, scope: scope)
+            if reset {
+                workouts = response.entries
+            } else {
+                appendUniqueWorkouts(response.entries)
+            }
             dailyCalories = response.dailyCalories
+            workoutOffset = offset + response.entries.count
+            hasMoreWorkouts = response.entries.count == logPageSize
         } catch {
             errorMessage = error.localizedDescription
         }
-        // Load targets
+
+        guard reset else { return }
+        await loadWorkoutTargets()
+    }
+
+    private func loadWorkoutTargets() async {
         do {
-            let dash = try await api.getDashboard()
+            let dash = try await api.getDashboard(limit: 1)
             workoutsTarget = dash.targets.workouts
             caloriesTarget = dash.targets.workoutCalories ?? 0
         } catch { /* non-critical */ }
+    }
+
+    private func appendUniqueWorkouts(_ entries: [WorkoutEntry]) {
+        let existingIds = Set(workouts.map(\.id))
+        workouts.append(contentsOf: entries.filter { !existingIds.contains($0.id) })
+    }
+
+    private func loadMoreWorkoutsIfNeeded(current workout: WorkoutEntry) {
+        guard hasMoreWorkouts, workout.id == workouts.last?.id else { return }
+        Task { await loadWorkouts(reset: false) }
     }
 
     private func parseWorkout() async {
@@ -740,7 +784,7 @@ struct WorkoutsView: View {
                 loggedAt: f.string(from: workoutLogDate)
             )
             resetWorkoutSheet()
-            await loadWorkouts()
+            await loadWorkouts(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -755,7 +799,7 @@ struct WorkoutsView: View {
                 try await api.setMacroTarget(macro: "workout_calories", target: c)
             }
             showEditTargets = false
-            await loadWorkouts()
+            await loadWorkouts(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -776,7 +820,7 @@ struct WorkoutsView: View {
                 loggedAt: f.string(from: editWorkoutDate)
             )
             editingWorkout = nil
-            await loadWorkouts()
+            await loadWorkouts(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -786,7 +830,7 @@ struct WorkoutsView: View {
         do {
             try await api.deleteWorkout(id: workout.id)
             editingWorkout = nil
-            await loadWorkouts()
+            await loadWorkouts(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -800,7 +844,7 @@ struct WorkoutsView: View {
             if let message = response.message, response.syncedCount == 0 {
                 errorMessage = message
             }
-            await loadWorkouts()
+            await loadWorkouts(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }

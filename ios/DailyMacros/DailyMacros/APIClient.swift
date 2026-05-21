@@ -447,9 +447,12 @@ class APIClient: ObservableObject {
 
     // MARK: - Sexual Activity
 
-    func getHealthEntries(scope: String = "week") async throws -> HealthEntriesResponse {
+    func getHealthEntries(scope: String = "week", limit: Int = 100, offset: Int = 0) async throws -> HealthEntriesResponse {
         var components = URLComponents(url: apiURL("/sexual-activity"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [.init(name: "scope", value: scope)]
+        var queryItems: [URLQueryItem] = [.init(name: "scope", value: scope)]
+        if limit != 100 { queryItems.append(.init(name: "limit", value: "\(limit)")) }
+        if offset > 0 { queryItems.append(.init(name: "offset", value: "\(offset)")) }
+        components.queryItems = queryItems
         let request = try authorizedRequest(components.url!)
         return try await perform(request)
     }
@@ -475,9 +478,12 @@ class APIClient: ObservableObject {
 
     // MARK: - Sleep
 
-    func getSleepEntries(scope: String = "week") async throws -> SleepEntriesResponse {
+    func getSleepEntries(scope: String = "week", limit: Int = 100, offset: Int = 0) async throws -> SleepEntriesResponse {
         var components = URLComponents(url: apiURL("/sleep"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [.init(name: "scope", value: scope)]
+        var queryItems: [URLQueryItem] = [.init(name: "scope", value: scope)]
+        if limit != 100 { queryItems.append(.init(name: "limit", value: "\(limit)")) }
+        if offset > 0 { queryItems.append(.init(name: "offset", value: "\(offset)")) }
+        components.queryItems = queryItems
         let request = try authorizedRequest(components.url!)
         return try await perform(request)
     }

@@ -11,6 +11,9 @@ struct HealthView: View {
     @State private var selectedActivityType = "masturbation"
     @State private var healthLogDate = Date()
     @State private var isSavingHealth = false
+    @State private var healthOffset = 0
+    @State private var hasMoreHealthEntries = true
+    @State private var isLoadingHealthPage = false
 
     // Sleep state
     @State private var sleepEntries: [SleepEntry] = []
@@ -25,6 +28,9 @@ struct HealthView: View {
     @State private var showEditSleepTargets = false
     @State private var editSleepTargetHours = "8"
     @State private var isSavingSleepTarget = false
+    @State private var sleepOffset = 0
+    @State private var hasMoreSleepEntries = true
+    @State private var isLoadingSleepPage = false
 
     // Edit state
     @State private var editingHealth: HealthEntry?
@@ -39,11 +45,12 @@ struct HealthView: View {
 
     private let activityTypes = ["masturbation", "oral sex", "vaginal sex", "other"]
     private let scopes = ["week", "month", "year"]
+    private let logPageSize = 30
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 24) {
+                LazyVStack(spacing: 24) {
                     sleepSection
                     sexualActivitySection
                 }
@@ -56,12 +63,12 @@ struct HealthView: View {
             .sheet(item: $editingHealth) { entry in editHealthSheet(entry) }
             .sheet(item: $editingSleep) { entry in editSleepSheet(entry) }
             .task {
-                await loadHealth()
-                await loadSleep()
+                await loadHealth(reset: true)
+                await loadSleep(reset: true)
             }
             .refreshable {
-                await loadHealth()
-                await loadSleep()
+                await loadHealth(reset: true)
+                await loadSleep(reset: true)
             }
             .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
@@ -92,7 +99,7 @@ struct HealthView: View {
             }
             .pickerStyle(.segmented)
             .onChange(of: healthScope) { _, _ in
-                Task { await loadHealth() }
+                Task { await loadHealth(reset: true) }
             }
 
             activityOccurrenceSection
@@ -338,9 +345,15 @@ struct HealthView: View {
             }
 
             if healthEntries.isEmpty {
-                ContentUnavailableView("No Entries", systemImage: "heart", description: Text("Tap + to log activity."))
+                if isLoadingHealthPage {
+                    ProgressView("Loading entries...")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                } else {
+                    ContentUnavailableView("No Entries", systemImage: "heart", description: Text("Tap + to log activity."))
+                }
             } else {
-                ForEach(healthEntries.prefix(20)) { entry in
+                ForEach(healthEntries) { entry in
                     SwipeToDeleteRow {
                         Task { await deleteHealth(entry) }
                     } content: {
@@ -352,6 +365,15 @@ struct HealthView: View {
                                 editingHealth = entry
                             }
                     }
+                    .onAppear {
+                        loadMoreHealthIfNeeded(current: entry)
+                    }
+                }
+
+                if isLoadingHealthPage {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
                 }
             }
         }
@@ -401,7 +423,7 @@ struct HealthView: View {
             }
             .pickerStyle(.segmented)
             .onChange(of: sleepScope) { _, _ in
-                Task { await loadSleep() }
+                Task { await loadSleep(reset: true) }
             }
 
             sleepChart
@@ -520,9 +542,15 @@ struct HealthView: View {
             }
 
             if sleepEntries.isEmpty {
-                ContentUnavailableView("No Sleep Data", systemImage: "moon.zzz", description: Text("Tap + to log sleep."))
+                if isLoadingSleepPage {
+                    ProgressView("Loading sleep...")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                } else {
+                    ContentUnavailableView("No Sleep Data", systemImage: "moon.zzz", description: Text("Tap + to log sleep."))
+                }
             } else {
-                ForEach(sleepEntries.prefix(20)) { entry in
+                ForEach(sleepEntries) { entry in
                     SwipeToDeleteRow {
                         Task { await deleteSleep(entry) }
                     } content: {
@@ -535,6 +563,15 @@ struct HealthView: View {
                                 editingSleep = entry
                             }
                     }
+                    .onAppear {
+                        loadMoreSleepIfNeeded(current: entry)
+                    }
+                }
+
+                if isLoadingSleepPage {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
                 }
             }
         }
@@ -841,25 +878,70 @@ struct HealthView: View {
 
     // MARK: - Actions
 
-    private func loadHealth() async {
+    private func loadHealth(reset: Bool = true) async {
+        guard !isLoadingHealthPage else { return }
+        isLoadingHealthPage = true
+        defer { isLoadingHealthPage = false }
+
+        let offset = reset ? 0 : healthOffset
+
         do {
-            let response = try await api.getHealthEntries(scope: healthScope)
-            healthEntries = response.entries
+            let response = try await api.getHealthEntries(scope: healthScope, limit: logPageSize, offset: offset)
+            if reset {
+                healthEntries = response.entries
+            } else {
+                appendUniqueHealthEntries(response.entries)
+            }
             dailyTypes = response.dailyTypes
+            healthOffset = offset + response.entries.count
+            hasMoreHealthEntries = response.entries.count == logPageSize
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func loadSleep() async {
+    private func loadSleep(reset: Bool = true) async {
+        guard !isLoadingSleepPage else { return }
+        isLoadingSleepPage = true
+        defer { isLoadingSleepPage = false }
+
+        let offset = reset ? 0 : sleepOffset
+
         do {
-            let response = try await api.getSleepEntries(scope: sleepScope)
-            sleepEntries = response.entries
+            let response = try await api.getSleepEntries(scope: sleepScope, limit: logPageSize, offset: offset)
+            if reset {
+                sleepEntries = response.entries
+            } else {
+                appendUniqueSleepEntries(response.entries)
+            }
             sleepDailyTotals = response.dailyTotals
+            sleepOffset = offset + response.entries.count
+            hasMoreSleepEntries = response.entries.count == logPageSize
         } catch {
             errorMessage = error.localizedDescription
         }
+        guard reset else { return }
         await loadSleepTarget()
+    }
+
+    private func appendUniqueHealthEntries(_ entries: [HealthEntry]) {
+        let existingIds = Set(healthEntries.map(\.id))
+        healthEntries.append(contentsOf: entries.filter { !existingIds.contains($0.id) })
+    }
+
+    private func appendUniqueSleepEntries(_ entries: [SleepEntry]) {
+        let existingIds = Set(sleepEntries.map(\.id))
+        sleepEntries.append(contentsOf: entries.filter { !existingIds.contains($0.id) })
+    }
+
+    private func loadMoreHealthIfNeeded(current entry: HealthEntry) {
+        guard hasMoreHealthEntries, entry.id == healthEntries.last?.id else { return }
+        Task { await loadHealth(reset: false) }
+    }
+
+    private func loadMoreSleepIfNeeded(current entry: SleepEntry) {
+        guard hasMoreSleepEntries, entry.id == sleepEntries.last?.id else { return }
+        Task { await loadSleep(reset: false) }
     }
 
     private func loadSleepTarget() async {
@@ -880,7 +962,7 @@ struct HealthView: View {
             try await api.addHealthEntry(type: selectedActivityType, loggedAt: f.string(from: healthLogDate))
             showLogHealth = false
             healthLogDate = Date()
-            await loadHealth()
+            await loadHealth(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -902,7 +984,7 @@ struct HealthView: View {
             sleepHours = "7.5"
             sleepWakeUps = "0"
             sleepLogDate = Date()
-            await loadSleep()
+            await loadSleep(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -930,7 +1012,7 @@ struct HealthView: View {
             f.timeZone = TimeZone(identifier: "America/New_York")
             try await api.updateHealthEntry(id: entry.id, type: editHealthType, loggedAt: f.string(from: editHealthDate))
             editingHealth = nil
-            await loadHealth()
+            await loadHealth(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -940,7 +1022,7 @@ struct HealthView: View {
         do {
             try await api.deleteHealthEntry(id: entry.id)
             editingHealth = nil
-            await loadHealth()
+            await loadHealth(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -957,7 +1039,7 @@ struct HealthView: View {
             f.timeZone = TimeZone(identifier: "America/New_York")
             try await api.updateSleepEntry(id: entry.id, durationHours: hours, wakeUps: wakeUps, loggedAt: f.string(from: editSleepDate))
             editingSleep = nil
-            await loadSleep()
+            await loadSleep(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -967,7 +1049,7 @@ struct HealthView: View {
         do {
             try await api.deleteSleepEntry(id: entry.id)
             editingSleep = nil
-            await loadSleep()
+            await loadSleep(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }

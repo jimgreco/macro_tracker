@@ -16,6 +16,7 @@ test('db.js exports all required functions', () => {
     'getPool',
     'checkDatabaseHealth',
     'upsertUser',
+    'getProviderUserId',
     'logAudit',
     'addEntries',
     'updateEntry',
@@ -60,6 +61,29 @@ test('db.js creates users table', () => {
   const db = read('src/db.js');
   assert.ok(db.includes('CREATE TABLE IF NOT EXISTS users'));
   assert.ok(db.includes("provider TEXT NOT NULL DEFAULT 'google'"));
+});
+
+test('db.js tracks auth provider identities for account linking', () => {
+  const db = read('src/db.js');
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS user_identities'));
+  assert.ok(db.includes('PRIMARY KEY (provider, provider_user_id)'));
+  assert.ok(db.includes('idx_user_identities_user'));
+});
+
+test('upsertUser links providers by normalized email and identity', () => {
+  const db = read('src/db.js');
+  const upsertSection = db.slice(db.indexOf('async function upsertUser'));
+  assert.ok(upsertSection.includes('lower(email) = $1'));
+  assert.ok(upsertSection.includes('FROM user_identities'));
+  assert.ok(upsertSection.includes('ON CONFLICT (provider, provider_user_id) DO UPDATE'));
+  assert.ok(upsertSection.includes('RETURNING id, email, name, picture, provider'));
+});
+
+test('db.js can resolve linked provider ids for downstream sync', () => {
+  const db = read('src/db.js');
+  const section = db.slice(db.indexOf('async function getProviderUserId'));
+  assert.ok(section.includes('SELECT provider_user_id'));
+  assert.ok(section.includes('WHERE user_id = $1 AND provider = $2'));
 });
 
 test('db.js creates api_tokens table', () => {
@@ -113,7 +137,7 @@ test('SELECT queries filter out soft-deleted rows', () => {
 
 test('GDPR deleteUserAccount performs hard delete across all tables', () => {
   const db = read('src/db.js');
-  const tables = ['entries', 'saved_items', 'macro_targets', 'weight_entries', 'workout_entries', 'weight_targets', 'analysis_reports', 'api_tokens', 'audit_log', 'users'];
+  const tables = ['user_identities', 'entries', 'saved_items', 'macro_targets', 'weight_entries', 'workout_entries', 'weight_targets', 'analysis_reports', 'api_tokens', 'audit_log', 'users'];
   for (const table of tables) {
     const pattern = `DELETE FROM ${table} WHERE`;
     assert.ok(db.includes(pattern), `deleteUserAccount must hard-delete from ${table}`);
@@ -123,6 +147,7 @@ test('GDPR deleteUserAccount performs hard delete across all tables', () => {
 test('GDPR exportUserData queries all data tables', () => {
   const db = read('src/db.js');
   assert.ok(db.includes('async function exportUserData'));
+  assert.ok(db.includes('FROM user_identities WHERE user_id = $1'));
   assert.ok(db.includes("FROM entries WHERE user_id = $1 AND deleted_at IS NULL"));
   assert.ok(db.includes("FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL"));
   assert.ok(db.includes("FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL"));
@@ -197,7 +222,8 @@ test('server.js supports native iOS Google sign-in code exchange', () => {
   assert.ok(server.includes('https://oauth2.googleapis.com/tokeninfo?id_token='));
   assert.ok(server.includes('code_verifier'));
   assert.ok(server.includes('tokenInfo.aud !== googleIOSClientId'));
-  assert.ok(server.includes("createApiToken(user.id, 'DailyMacros iOS'"));
+  assert.ok(server.includes('providerUserId: tokenInfo.sub'));
+  assert.ok(server.includes("createApiToken(persistedUser.id, 'DailyMacros iOS'"));
 });
 
 test('server.js supports native iOS Apple sign-in without web Apple secrets', () => {
@@ -206,7 +232,17 @@ test('server.js supports native iOS Apple sign-in without web Apple secrets', ()
   assert.ok(server.includes('process.env.APPLE_BUNDLE_ID || defaultAppleBundleId'));
   assert.ok(server.includes("app.post('/auth/apple/mobile'"));
   assert.ok(server.includes('const validAudiences = [appleClientId, appleBundleId].filter(Boolean)'));
-  assert.ok(server.includes("createApiToken(user.id, 'DailyMacros iOS'"));
+  assert.ok(server.includes('providerUserId: payload.sub'));
+  assert.ok(server.includes('email: verifiedTokenEmail(payload)'));
+  assert.ok(server.includes("createApiToken(persistedUser.id, 'DailyMacros iOS'"));
+});
+
+test('server.js allows linked Google accounts to sync workouts', () => {
+  const server = read('src/server.js');
+  assert.ok(server.includes('function userHasProvider'));
+  assert.ok(server.includes("userHasProvider(req.user, 'google')"));
+  assert.ok(server.includes("await getProviderUserId(userId, 'google')"));
+  assert.ok(server.includes("'X-Internal-User-Id': workoutPlannerUserId"));
 });
 
 test('server.js has GDPR endpoints', () => {
