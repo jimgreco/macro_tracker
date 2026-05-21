@@ -113,3 +113,16 @@ test('workout target input lives on workout page and not analysis form', () => {
   assert.equal(script.includes('/api/macro-targets/workouts'), true);
   assert.equal(script.includes('plannedWorkoutsPerWeek: Number(analysisPlannedWorkoutsEl?.value || 5)'), false);
 });
+
+test('mobile sleep target is editable and drives sleep chart', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+  const db = read('src/db.js');
+
+  assert.equal(html.includes('id="edit-sleep-target-link"'), true);
+  assert.equal(html.includes('id="sleep-target-value"'), true);
+  assert.equal(script.includes('showSleepTargetModal'), true);
+  assert.equal(script.includes('/api/macro-targets/sleep_hours'), true);
+  assert.equal(script.includes('targetValue: getSleepTargetHours()'), true);
+  assert.equal(db.includes('sleep_hours: 8'), true);
+});

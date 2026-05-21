@@ -22,7 +22,11 @@ const state = {
   weightSnapshotPeriod: 'weekly',
   workoutSnapshotPeriod: 'weekly',
   healthSnapshotPeriod: 'weekly',
+  sleepSnapshotPeriod: 'weekly',
+  sleepTargetHours: 8,
   healthEntries: [],
+  sleepEntries: [],
+  sleepChartRows: [],
   weightEntries: [],
   workoutEntries: [],
   expandedMealGroups: new Set(),
@@ -149,7 +153,9 @@ const sleepCanvasEl = document.getElementById('sleep-canvas');
 const sleepSnapshotHeadingEl = document.getElementById('sleep-snapshot-heading');
 const sleepPeriodToggleEl = document.getElementById('sleep-period-toggle');
 const sleepAverageValueEl = document.getElementById('sleep-average-value');
+const sleepTargetValueEl = document.getElementById('sleep-target-value');
 const sleepTooltipEl = document.getElementById('sleep-tooltip');
+const editSleepTargetLinkEl = document.getElementById('edit-sleep-target-link');
 const healthLoggedAtEl = document.getElementById('health-logged-at');
 const healthActivityTypeEl = document.getElementById('health-activity-type');
 const saveHealthBtnEl = document.getElementById('save-health-btn');
@@ -537,6 +543,81 @@ function showWorkoutTargetModal() {
 
   overlay.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('wkt-modal-save-btn').click(); }
+    if (e.key === 'Escape') overlay.remove();
+  });
+}
+
+function setSleepTargetFromTargets(targets) {
+  const targetHours = Number(targets?.sleep_hours);
+  if (Number.isFinite(targetHours) && targetHours > 0) {
+    state.sleepTargetHours = targetHours;
+  }
+}
+
+function getSleepTargetHours() {
+  const targetHours = Number(state.sleepTargetHours);
+  return Number.isFinite(targetHours) && targetHours > 0 ? targetHours : 8;
+}
+
+function renderSleepTargetLegend() {
+  const targetHours = getSleepTargetHours();
+  setText(sleepTargetValueEl, `${fmtNumber(targetHours)} hr${targetHours === 1 ? '' : 's'}`);
+}
+
+function showSleepTargetModal() {
+  let overlay = document.getElementById('entry-modal-overlay');
+  if (overlay) overlay.remove();
+
+  const currentTarget = getSleepTargetHours();
+  overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal entry-modal">
+      <h3>Edit Sleep Target</h3>
+      <label for="sleep-target-modal-hours">Target hours per night</label>
+      <input id="sleep-target-modal-hours" type="number" min="0.25" max="24" step="0.25" value="${fmtNumber(currentTarget)}" placeholder="8" />
+      <div class="combine-modal-actions">
+        <button type="button" class="btn-muted table-action-btn" id="sleep-target-modal-cancel-btn">Cancel</button>
+        <button type="button" class="btn-success table-action-btn" id="sleep-target-modal-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const input = document.getElementById('sleep-target-modal-hours');
+  input.focus();
+  input.select();
+
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('sleep-target-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+
+  document.getElementById('sleep-target-modal-save-btn').addEventListener('click', async () => {
+    const raw = input.value.trim();
+    const targetHours = Number(raw);
+    if (!raw || !Number.isFinite(targetHours) || targetHours <= 0 || targetHours > 24) {
+      setActionBanner('Sleep target must be greater than 0 and no more than 24 hours.', 'error');
+      return;
+    }
+    const roundedTarget = Math.round(targetHours * 4) / 4;
+    overlay.remove();
+    try {
+      await api('/api/macro-targets/sleep_hours', {
+        method: 'PUT',
+        body: JSON.stringify({ target: roundedTarget })
+      });
+      state.sleepTargetHours = roundedTarget;
+      state.dashboardData = state.dashboardData || {};
+      state.dashboardData.targets = state.dashboardData.targets || {};
+      state.dashboardData.targets.sleep_hours = roundedTarget;
+      renderSleepChart();
+      setActionBanner('Sleep target updated.', 'success');
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('sleep-target-modal-save-btn').click(); }
     if (e.key === 'Escape') overlay.remove();
   });
 }
@@ -1916,6 +1997,7 @@ function renderSnapshotStats(dailyTotals, targets) {
 
 function renderDashboard(data) {
   const compactMobile = isCompactMobileView();
+  setSleepTargetFromTargets(data.targets || {});
 
   if (state.macroDailyTotals) {
     drawTrend(state.macroDailyTotals);
@@ -3700,6 +3782,7 @@ function bindPageChartsResize() {
       } else if (state.selectedPage === 'workout') {
         renderWorkoutChart();
       } else if (state.selectedPage === 'health') {
+        renderSleepChart();
         drawHealthOccurrenceChart(state.healthEntries, state.healthSnapshotPeriod || 'weekly');
       }
     }, 80);
@@ -4102,7 +4185,19 @@ async function refreshSleepData() {
   try {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const scope = periodToScope[state.sleepSnapshotPeriod] || 'week';
-    const data = await api(`/api/sleep?scope=${scope}&tz=${encodeURIComponent(getTimezone())}`);
+    const tz = encodeURIComponent(getTimezone());
+    const [data, targetData] = await Promise.all([
+      api(`/api/sleep?scope=${scope}&tz=${tz}`),
+      api(`/api/daily-totals?scope=week&tz=${tz}`)
+    ]);
+    if (targetData?.targets) {
+      setSleepTargetFromTargets(targetData.targets);
+      state.dashboardData = state.dashboardData || {};
+      state.dashboardData.targets = {
+        ...(state.dashboardData.targets || {}),
+        ...targetData.targets
+      };
+    }
     const entries = Array.isArray(data.entries) ? data.entries : [];
     state.sleepEntries = entries;
 
@@ -4130,6 +4225,7 @@ async function refreshSleepData() {
 }
 
 function renderSleepChart() {
+  renderSleepTargetLegend();
   drawSimpleLineChart(sleepCanvasEl, state.sleepChartRows || [], 'label', 'value', {
     baseline: 'zero',
     showYAxis: true,
@@ -4141,7 +4237,7 @@ function renderSleepChart() {
     tooltipEl: sleepTooltipEl,
     tooltipUnit: 'hrs',
     timeKey: 'time',
-    targetValue: 8
+    targetValue: getSleepTargetHours()
   });
 }
 
@@ -4579,6 +4675,13 @@ if (sleepPeriodToggleEl) {
       await refreshSleepData();
     });
   }
+}
+
+if (editSleepTargetLinkEl) {
+  editSleepTargetLinkEl.addEventListener('click', (event) => {
+    event.preventDefault();
+    showSleepTargetModal();
+  });
 }
 
 if (sleepLogListEl) {

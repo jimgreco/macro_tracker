@@ -282,17 +282,6 @@ struct MacrosView: View {
             .sheet(isPresented: $showEditMeal) {
                 editMealSheet
             }
-            .sheet(isPresented: $showEditParsedItem) {
-                editParsedItemSheet
-            }
-            .sheet(item: $editingQuickTemplate) { template in
-                editQuickAddSheet(template)
-            }
-            .sheet(isPresented: $showCamera) {
-                CameraPicker(image: $mealPreviewImage, imageDataUrl: $mealImageDataUrl) { message in
-                    errorMessage = message
-                }
-            }
             .onChange(of: selectedPhotoItem) { _, newItem in
                 Task { await loadSelectedPhoto(newItem) }
             }
@@ -443,28 +432,32 @@ struct MacrosView: View {
     // MARK: - Single Entry Card
 
     private func singleEntryCard(_ entry: Entry, allEntries: [Entry]) -> some View {
-        entryRowContent(entry)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.panelBg)
-            .cornerRadius(10)
-            .contentShape(Rectangle())
-            .onTapGesture { beginEditEntry(entry) }
-            .draggable(EntryDragData(entryId: entry.id, mealGroup: nil)) {
-                // Drag preview
-                Text(entry.itemName)
-                    .font(.subheadline)
-                    .padding(8)
-                    .background(Color.panelBg)
-                    .cornerRadius(8)
-                    .onAppear { isDragging = true }
-            }
-            .dropDestination(for: EntryDragData.self) { items, _ in
-                guard let dropped = items.first, dropped.entryId != entry.id else { return false }
-                Task { await combineEntries(ids: [entry.id, dropped.entryId]) }
-                return true
-            } isTargeted: { targeted in
-                // Visual feedback handled by overlay
+        SwipeToDeleteRow(actionTint: Color.neonPink) {
+            Task { await deleteEntry(entry.id) }
+        } content: {
+            entryRowContent(entry)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.panelBg)
+                .cornerRadius(10)
+                .contentShape(Rectangle())
+                .onTapGesture { beginEditEntry(entry) }
+                .draggable(EntryDragData(entryId: entry.id, mealGroup: nil)) {
+                    // Drag preview
+                    Text(entry.itemName)
+                        .font(.subheadline)
+                        .padding(8)
+                        .background(Color.panelBg)
+                        .cornerRadius(8)
+                        .onAppear { isDragging = true }
+                }
+                .dropDestination(for: EntryDragData.self) { items, _ in
+                    guard let dropped = items.first, dropped.entryId != entry.id else { return false }
+                    Task { await combineEntries(ids: [entry.id, dropped.entryId]) }
+                    return true
+                } isTargeted: { _ in
+                    // Visual feedback handled by overlay
+                }
             }
     }
 
@@ -487,9 +480,11 @@ struct MacrosView: View {
                     Text("\(Int(totalCal)) kcal")
                         .font(.subheadline.bold())
                         .foregroundStyle(Color.neonGreen)
-                    Text("P:\(Int(totalP)) C:\(Int(totalC)) F:\(Int(totalF))")
+                    Text(macroBreakdownText(protein: totalP, carbs: totalC, fat: totalF))
                         .font(.caption2)
                         .foregroundStyle(Color.mutedText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
                 Image(systemName: "chevron.right")
                     .font(.caption)
@@ -538,33 +533,37 @@ struct MacrosView: View {
     }
 
     private func subItemRow(entry: Entry, items: [Entry]) -> some View {
-        entryRowContent(entry, isSubItem: true)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-            .onTapGesture { beginEditEntry(entry) }
-            .contextMenu {
-                Button { beginEditEntry(entry) } label: {
-                    Label("Edit Item", systemImage: "pencil")
+        SwipeToDeleteRow(actionTint: Color.neonPink) {
+            Task { await deleteEntry(entry.id) }
+        } content: {
+            entryRowContent(entry, isSubItem: true)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+                .onTapGesture { beginEditEntry(entry) }
+                .contextMenu {
+                    Button { beginEditEntry(entry) } label: {
+                        Label("Edit Item", systemImage: "pencil")
+                    }
+                    Button {
+                        Task { await removeFromGroup(entryId: entry.id) }
+                    } label: {
+                        Label("Remove from Meal", systemImage: "arrow.up.right.square")
+                    }
+                    Button(role: .destructive) {
+                        Task { await deleteEntry(entry.id) }
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
                 }
-                Button {
-                    Task { await removeFromGroup(entryId: entry.id) }
-                } label: {
-                    Label("Remove from Meal", systemImage: "arrow.up.right.square")
+                .draggable(EntryDragData(entryId: entry.id, mealGroup: entry.mealGroup)) {
+                    Text(entry.itemName)
+                        .font(.caption)
+                        .padding(8)
+                        .background(Color.panelBg)
+                        .cornerRadius(8)
+                        .onAppear { isDragging = true }
                 }
-                Button(role: .destructive) {
-                    Task { await deleteEntry(entry.id) }
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-            }
-            .draggable(EntryDragData(entryId: entry.id, mealGroup: entry.mealGroup)) {
-                Text(entry.itemName)
-                    .font(.caption)
-                    .padding(8)
-                    .background(Color.panelBg)
-                    .cornerRadius(8)
-                    .onAppear { isDragging = true }
             }
     }
 
@@ -589,9 +588,11 @@ struct MacrosView: View {
                 Text("\(Int(entry.calories)) kcal")
                     .font(isSubItem ? .caption : .subheadline)
                     .foregroundStyle(isSubItem ? Color.white.opacity(0.6) : Color.white)
-                Text("P:\(Int(entry.protein)) C:\(Int(entry.carbs)) F:\(Int(entry.fat))")
+                Text(macroBreakdownText(protein: entry.protein, carbs: entry.carbs, fat: entry.fat))
                     .font(.caption2)
                     .foregroundStyle(Color.mutedText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
         }
     }
@@ -620,13 +621,13 @@ struct MacrosView: View {
     private var editEntrySheet: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
-                    editEntryField("Item Name", text: $editItemName, keyboard: .default)
+                VStack(spacing: 10) {
+                    compactEditEntryField("Item Name", text: $editItemName, keyboard: .default)
 
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
                             Text("Quantity")
-                                .font(.caption)
+                                .font(.caption2)
                                 .foregroundStyle(Color.mutedText)
                             TextField("Quantity", text: $editQuantity)
                                 .textFieldStyle(.roundedBorder)
@@ -635,36 +636,24 @@ struct MacrosView: View {
                                     scaleEntryMacros(newQuantityStr: newValue)
                                 }
                         }
-                        editEntryField("Unit", text: $editUnit, keyboard: .default)
+                        compactEditEntryField("Unit", text: $editUnit, keyboard: .default)
                     }
 
-                    editEntryField("Calories", text: $editEntryCal, keyboard: .numberPad)
-
-                    HStack(spacing: 12) {
-                        editEntryField("Protein (g)", text: $editEntryProtein, keyboard: .numberPad)
-                        editEntryField("Carbs (g)", text: $editEntryCarbs, keyboard: .numberPad)
-                        editEntryField("Fat (g)", text: $editEntryFat, keyboard: .numberPad)
-                    }
+                    compactMacroFieldGrid(
+                        calories: $editEntryCal,
+                        protein: $editEntryProtein,
+                        carbs: $editEntryCarbs,
+                        fat: $editEntryFat,
+                        keyboard: .numberPad
+                    )
 
                     DatePicker("Logged At", selection: $editEntryDate)
                         .datePickerStyle(.compact)
+                        .font(.subheadline)
 
                     Toggle("Save as Quick Add", isOn: $saveEditedEntryAsQuickAdd)
                         .font(.subheadline)
                         .tint(Color.neonGreen)
-
-                    Button {
-                        Task { await saveEditedEntry() }
-                    } label: {
-                        if isSaving {
-                            ProgressView().frame(maxWidth: .infinity)
-                        } else {
-                            Text("Save").font(.headline).frame(maxWidth: .infinity)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.neonCyan)
-                    .disabled(editItemName.isEmpty || isSaving)
 
                     // Remove from meal button (if in a meal group)
                     if editingEntry?.mealGroup != nil {
@@ -685,24 +674,41 @@ struct MacrosView: View {
                         .tint(Color.neonYellow)
                     }
 
-                    Button(role: .destructive) {
-                        if let entry = editingEntry {
-                            Task {
-                                await deleteEntry(entry.id)
-                                showEditEntry = false
-                                editingEntry = nil
+                    HStack(spacing: 10) {
+                        Button(role: .destructive) {
+                            if let entry = editingEntry {
+                                Task {
+                                    await deleteEntry(entry.id)
+                                    showEditEntry = false
+                                    editingEntry = nil
+                                }
+                            }
+                        } label: {
+                            Text("Delete")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Color.neonPink)
+
+                        Button {
+                            Task { await saveEditedEntry() }
+                        } label: {
+                            if isSaving {
+                                ProgressView().frame(maxWidth: .infinity)
+                            } else {
+                                Text("Save").font(.headline).frame(maxWidth: .infinity)
                             }
                         }
-                    } label: {
-                        Text("Delete Entry")
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity)
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color.neonCyan)
+                        .disabled(editItemName.isEmpty || isSaving)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(Color.neonPink)
                 }
-                .padding()
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
             }
+            .scrollIndicators(.hidden)
             .background(Color.deepBg)
             .navigationTitle("Edit Entry")
             .navigationBarTitleDisplayMode(.inline)
@@ -733,6 +739,57 @@ struct MacrosView: View {
             TextField(label, text: text)
                 .textFieldStyle(.roundedBorder)
                 .keyboardType(keyboard)
+        }
+    }
+
+    private func compactEditEntryField(_ label: String, text: Binding<String>, keyboard: UIKeyboardType) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(Color.mutedText)
+            TextField(label, text: text)
+                .textFieldStyle(.roundedBorder)
+                .keyboardType(keyboard)
+        }
+    }
+
+    private func compactMacroFieldGrid(
+        calories: Binding<String>,
+        protein: Binding<String>,
+        carbs: Binding<String>,
+        fat: Binding<String>,
+        keyboard: UIKeyboardType
+    ) -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                compactEditEntryField("Calories", text: calories, keyboard: keyboard)
+                compactEditEntryField("Protein (g)", text: protein, keyboard: keyboard)
+            }
+
+            HStack(spacing: 10) {
+                compactEditEntryField("Carbs (g)", text: carbs, keyboard: keyboard)
+                compactEditEntryField("Fat (g)", text: fat, keyboard: keyboard)
+            }
+        }
+    }
+
+    private func macroFieldGrid(
+        calories: Binding<String>,
+        protein: Binding<String>,
+        carbs: Binding<String>,
+        fat: Binding<String>,
+        keyboard: UIKeyboardType
+    ) -> some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                editEntryField("Calories", text: calories, keyboard: keyboard)
+                editEntryField("Protein (g)", text: protein, keyboard: keyboard)
+            }
+
+            HStack(spacing: 12) {
+                editEntryField("Carbs (g)", text: carbs, keyboard: keyboard)
+                editEntryField("Fat (g)", text: fat, keyboard: keyboard)
+            }
         }
     }
 
@@ -884,6 +941,10 @@ struct MacrosView: View {
                 .foregroundStyle(color)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func macroBreakdownText(protein: Double, carbs: Double, fat: Double) -> String {
+        "Protein \(Int(protein))g | Carbs \(Int(carbs))g | Fat \(Int(fat))g"
     }
 
     // MARK: - Trend Section
@@ -1138,6 +1199,17 @@ struct MacrosView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showEditParsedItem) {
+                editParsedItemSheet
+            }
+            .sheet(item: $editingQuickTemplate) { template in
+                editQuickAddSheet(template)
+            }
+            .sheet(isPresented: $showCamera) {
+                CameraPicker(image: $mealPreviewImage, imageDataUrl: $mealImageDataUrl) { message in
+                    errorMessage = message
+                }
+            }
         }
         .presentationDetents([.large])
     }
@@ -1212,65 +1284,101 @@ struct MacrosView: View {
             .padding()
 
             if !quickTemplates.isEmpty {
-                Divider()
-                HStack {
-                    Text("Quick Items")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(Color.mutedText)
-                    Spacer()
-                }
-                .padding(.horizontal)
-                .padding(.top, 12)
-                .padding(.bottom, 4)
-
-                HStack(spacing: 8) {
-                    Text("Multiplier")
-                        .font(.caption)
-                        .foregroundStyle(Color.mutedText)
-                    TextField("1", text: $quickMultiplier)
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.decimalPad)
-                        .frame(width: 72)
-                    Spacer()
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 4)
-
-                List(quickTemplates) { template in
-                    HStack {
-                        Button {
-                            Task { await quickAddItem(template) }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(template.name).font(.subheadline)
-                                    if !template.isSaved {
-                                        Text("recent")
-                                            .font(.caption2.bold())
-                                            .foregroundStyle(Color.neonYellow)
-                                    }
-                                }
-                                Text("\(Int(template.calories)) kcal \u{00B7} P:\(Int(template.protein)) C:\(Int(template.carbs)) F:\(Int(template.fat))")
-                                    .font(.caption2).foregroundStyle(Color.mutedText)
-                            }
-                            Spacer()
-                            Image(systemName: "plus.circle.fill")
-                                .foregroundStyle(Color.neonCyan)
-                        }
-                        .tint(.primary)
-
-                        Button {
-                            beginEditQuickAdd(template)
-                        } label: {
-                            Image(systemName: "pencil")
-                                .foregroundStyle(Color.neonYellow)
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                }
-                .listStyle(.plain)
+                quickItemsSection
             }
         }
+    }
+
+    private var quickItemsSection: some View {
+        VStack(spacing: 0) {
+            Divider()
+
+            HStack(spacing: 10) {
+                Text("Quick Items")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(Color.mutedText)
+
+                Spacer()
+
+                Text("Multiplier")
+                    .font(.caption)
+                    .foregroundStyle(Color.mutedText)
+
+                TextField("1", text: $quickMultiplier)
+                    .textFieldStyle(.roundedBorder)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 58)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(quickTemplates) { template in
+                        quickAddRow(template)
+
+                        if template.id != quickTemplates.last?.id {
+                            Divider()
+                                .padding(.leading, 16)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func quickAddRow(_ template: QuickAddTemplate) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                Task { await quickAddItem(template) }
+            } label: {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 5) {
+                            Text(template.name)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+
+                            if !template.isSaved {
+                                Text("recent")
+                                    .font(.caption2.bold())
+                                    .foregroundStyle(Color.neonYellow)
+                                    .lineLimit(1)
+                            }
+                        }
+
+                        Text("\(Int(template.calories)) kcal | \(macroBreakdownText(protein: template.protein, carbs: template.carbs, fat: template.fat))")
+                            .font(.caption2)
+                            .foregroundStyle(Color.mutedText)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(Color.neonCyan)
+                }
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                beginEditQuickAdd(template)
+            } label: {
+                Image(systemName: "pencil")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.neonYellow)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .frame(minHeight: 54)
     }
 
     private var parsedResultsView: some View {
@@ -1307,8 +1415,10 @@ struct MacrosView: View {
                     Spacer()
                     VStack(alignment: .trailing) {
                         Text("\(Int(item.calories)) kcal").font(.subheadline)
-                        Text("P:\(Int(item.protein)) C:\(Int(item.carbs)) F:\(Int(item.fat))")
+                        Text(macroBreakdownText(protein: item.protein, carbs: item.carbs, fat: item.fat))
                             .font(.caption2).foregroundStyle(Color.mutedText)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     }
                     Button {
                         beginEditParsedItem(at: index)
@@ -1330,9 +1440,11 @@ struct MacrosView: View {
             HStack {
                 Text("Total").font(.subheadline.bold())
                 Spacer()
-                Text("\(Int(totalCal)) kcal \u{00B7} P:\(Int(totalP)) C:\(Int(totalC)) F:\(Int(totalF))")
+                Text("\(Int(totalCal)) kcal | \(macroBreakdownText(protein: totalP, carbs: totalC, fat: totalF))")
                     .font(.caption)
                     .foregroundStyle(Color.neonGreen)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
 
             Toggle("Save as Quick Add", isOn: $saveParsedAsQuickAdd)
@@ -1396,13 +1508,13 @@ struct MacrosView: View {
                         editEntryField("Unit", text: $editParsedUnit, keyboard: .default)
                     }
 
-                    editEntryField("Calories", text: $editParsedCal, keyboard: .decimalPad)
-
-                    HStack(spacing: 12) {
-                        editEntryField("Protein (g)", text: $editParsedProtein, keyboard: .decimalPad)
-                        editEntryField("Carbs (g)", text: $editParsedCarbs, keyboard: .decimalPad)
-                        editEntryField("Fat (g)", text: $editParsedFat, keyboard: .decimalPad)
-                    }
+                    macroFieldGrid(
+                        calories: $editParsedCal,
+                        protein: $editParsedProtein,
+                        carbs: $editParsedCarbs,
+                        fat: $editParsedFat,
+                        keyboard: .decimalPad
+                    )
 
                     Button {
                         saveEditedParsedItem()
@@ -1475,13 +1587,13 @@ struct MacrosView: View {
                         editEntryField("Unit", text: $editQuickUnit, keyboard: .default)
                     }
 
-                    editEntryField("Calories", text: $editQuickCal, keyboard: .decimalPad)
-
-                    HStack(spacing: 12) {
-                        editEntryField("Protein (g)", text: $editQuickProtein, keyboard: .decimalPad)
-                        editEntryField("Carbs (g)", text: $editQuickCarbs, keyboard: .decimalPad)
-                        editEntryField("Fat (g)", text: $editQuickFat, keyboard: .decimalPad)
-                    }
+                    macroFieldGrid(
+                        calories: $editQuickCal,
+                        protein: $editQuickProtein,
+                        carbs: $editQuickCarbs,
+                        fat: $editQuickFat,
+                        keyboard: .decimalPad
+                    )
 
                     Button {
                         Task { await saveQuickAdd(template) }

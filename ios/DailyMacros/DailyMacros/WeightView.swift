@@ -78,35 +78,35 @@ struct WeightView: View {
     private var targetCard: some View {
         Group {
             if let target, let tw = target.targetWeight {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
                         Text("Target Weight")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.subheadline.bold())
+
+                        Spacer()
+
+                        Button("edit targets") {
+                            editTargetWeight = String(format: "%.1f", tw)
+                            if let dateStr = target.targetDate {
+                                editTargetDate = parseTargetDate(dateStr) ?? Date()
+                            }
+                            showEditTarget = true
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.cyan)
+                    }
+
+                    HStack(alignment: .firstTextBaseline) {
                         Text(String(format: "%.1f lbs", tw))
                             .font(.title2.bold())
-                    }
-                    Spacer()
-                    if let date = target.targetDate {
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text("Target Date")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        if let date = target.targetDate {
                             Text(formatShortDate(date))
-                                .font(.subheadline)
+                                .font(.title3.weight(.semibold))
                         }
                     }
-                    Button("edit") {
-                        editTargetWeight = String(format: "%.1f", tw)
-                        if let dateStr = target.targetDate {
-                            let f = DateFormatter()
-                            f.dateFormat = "yyyy-MM-dd"
-                            editTargetDate = f.date(from: dateStr) ?? Date()
-                        }
-                        showEditTarget = true
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.cyan)
                 }
                 .padding()
                 .background(Color(.secondarySystemBackground))
@@ -219,25 +219,22 @@ struct WeightView: View {
                 .font(.headline)
 
             ForEach(entries) { entry in
-                HStack {
-                    Text(formatDate(entry.loggedAt))
-                        .font(.subheadline)
-                    Spacer()
-                    Text(String(format: "%.1f lbs", entry.weight))
-                        .font(.subheadline.bold())
-                }
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    editWeightValue = String(format: "%.1f", entry.weight)
-                    editWeightDate = parseISO(entry.loggedAt)
-                    editingEntry = entry
-                }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        Task { await deleteWeight(entry.id) }
-                    } label: {
-                        Label("Delete", systemImage: "trash")
+                SwipeToDeleteRow {
+                    Task { await deleteWeight(entry.id) }
+                } content: {
+                    HStack {
+                        Text(formatDate(entry.loggedAt))
+                            .font(.subheadline)
+                        Spacer()
+                        Text(String(format: "%.1f lbs", entry.weight))
+                            .font(.subheadline.bold())
+                    }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        editWeightValue = String(format: "%.1f", entry.weight)
+                        editWeightDate = parseISO(entry.loggedAt)
+                        editingEntry = entry
                     }
                 }
             }
@@ -471,14 +468,34 @@ struct WeightView: View {
     }
 
     private func formatShortDate(_ dateStr: String) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        if let date = f.date(from: dateStr) {
-            f.dateStyle = .medium
-            f.timeStyle = .none
-            return f.string(from: date)
+        guard let date = parseTargetDate(dateStr) else {
+            return String(dateStr.prefix(10))
         }
-        return dateStr
+
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f.string(from: date)
+    }
+
+    private func parseTargetDate(_ dateStr: String) -> Date? {
+        let trimmed = dateStr.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let dateOnlyFormatter = DateFormatter()
+        dateOnlyFormatter.dateFormat = "yyyy-MM-dd"
+        if let date = dateOnlyFormatter.date(from: trimmed) {
+            return date
+        }
+
+        let isoFormatter = ISO8601DateFormatter()
+        if let date = isoFormatter.date(from: trimmed) {
+            return date
+        }
+
+        let jsDateFormatter = DateFormatter()
+        jsDateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        jsDateFormatter.dateFormat = "EEE MMM d yyyy HH:mm:ss 'GMT'Z '('zzzz')'"
+        return jsDateFormatter.date(from: trimmed)
     }
 
     private func parseISO(_ iso: String) -> Date {

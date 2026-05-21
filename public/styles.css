@@ -1218,6 +1218,19 @@ button[disabled] {
   margin: 0;
 }
 
+.snapshot-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.snapshot-title-group .edit-items-link {
+  padding: 0;
+  white-space: nowrap;
+}
+
 .period-toggle {
   display: flex;
   background: rgba(8, 11, 22, 0.75);
@@ -1566,6 +1579,7 @@ button[disabled] {
   max-width: 340px;
   max-height: 90vh;
   overflow-y: auto;
+  box-sizing: border-box;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
@@ -1736,6 +1750,7 @@ button[disabled] {
   display: flex;
   gap: 0.4rem;
   justify-content: flex-end;
+  flex-wrap: wrap;
   margin-top: 0.3rem;
 }
 

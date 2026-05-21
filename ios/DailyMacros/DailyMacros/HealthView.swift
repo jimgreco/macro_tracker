@@ -21,6 +21,10 @@ struct HealthView: View {
     @State private var sleepWakeUps = "0"
     @State private var sleepLogDate = Date()
     @State private var isSavingSleep = false
+    @State private var sleepTargetHours: Double = 8
+    @State private var showEditSleepTargets = false
+    @State private var editSleepTargetHours = "8"
+    @State private var isSavingSleepTarget = false
 
     // Edit state
     @State private var editingHealth: HealthEntry?
@@ -40,14 +44,15 @@ struct HealthView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
-                    sexualActivitySection
                     sleepSection
+                    sexualActivitySection
                 }
                 .padding()
             }
             .navigationTitle("Health")
             .sheet(isPresented: $showLogHealth) { logHealthSheet }
             .sheet(isPresented: $showLogSleep) { logSleepSheet }
+            .sheet(isPresented: $showEditSleepTargets) { editSleepTargetsSheet }
             .sheet(item: $editingHealth) { entry in editHealthSheet(entry) }
             .sheet(item: $editingSleep) { entry in editSleepSheet(entry) }
             .task {
@@ -182,12 +187,17 @@ struct HealthView: View {
                 ContentUnavailableView("No Entries", systemImage: "heart", description: Text("Tap + to log activity."))
             } else {
                 ForEach(healthEntries.prefix(20)) { entry in
-                    healthEntryCard(entry)
-                        .onTapGesture {
-                            editHealthType = entry.type
-                            editHealthDate = parseISO(entry.loggedAt)
-                            editingHealth = entry
-                        }
+                    SwipeToDeleteRow {
+                        Task { await deleteHealth(entry) }
+                    } content: {
+                        healthEntryCard(entry)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                editHealthType = entry.type
+                                editHealthDate = parseISO(entry.loggedAt)
+                                editingHealth = entry
+                            }
+                    }
                 }
             }
         }
@@ -218,6 +228,12 @@ struct HealthView: View {
                 Text("Sleep")
                     .font(.title3.bold())
                 Spacer()
+                Button("edit targets") {
+                    editSleepTargetHours = formatTargetHours(sleepTargetHours)
+                    showEditSleepTargets = true
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.cyan)
                 Button { showLogSleep = true } label: {
                     Image(systemName: "plus.circle.fill")
                         .font(.title3)
@@ -265,7 +281,7 @@ struct HealthView: View {
                     }
                     HStack(spacing: 4) {
                         Rectangle().fill(.green.opacity(0.5)).frame(width: 16, height: 2)
-                        Text("Target: 8h")
+                        Text("Target: \(formatTargetHours(sleepTargetHours))h")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -291,7 +307,7 @@ struct HealthView: View {
             return
         }
 
-        let maxHours = max(data.map(\.totalHours).max() ?? 10, 10)
+        let maxHours = max(data.map(\.totalHours).max() ?? 10, sleepTargetHours, 10)
         let minHours: Double = 0
         let padding: CGFloat = 8
 
@@ -304,8 +320,8 @@ struct HealthView: View {
             return padding + chartH * (1 - CGFloat(ratio))
         }
 
-        // Target line at 8h
-        let targetY = yPos(8)
+        // Target line
+        let targetY = yPos(sleepTargetHours)
         var targetPath = Path()
         targetPath.move(to: CGPoint(x: padding, y: targetY))
         targetPath.addLine(to: CGPoint(x: size.width - padding, y: targetY))
@@ -353,13 +369,18 @@ struct HealthView: View {
                 ContentUnavailableView("No Sleep Data", systemImage: "moon.zzz", description: Text("Tap + to log sleep."))
             } else {
                 ForEach(sleepEntries.prefix(20)) { entry in
-                    sleepEntryCard(entry)
-                        .onTapGesture {
-                            editSleepHours = String(format: "%.2g", entry.durationHours)
-                            editSleepWakeUps = "\(entry.wakeUps)"
-                            editSleepDate = parseISO(entry.loggedAt)
-                            editingSleep = entry
-                        }
+                    SwipeToDeleteRow {
+                        Task { await deleteSleep(entry) }
+                    } content: {
+                        sleepEntryCard(entry)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                editSleepHours = String(format: "%.2g", entry.durationHours)
+                                editSleepWakeUps = "\(entry.wakeUps)"
+                                editSleepDate = parseISO(entry.loggedAt)
+                                editingSleep = entry
+                            }
+                    }
                 }
             }
         }
@@ -392,7 +413,7 @@ struct HealthView: View {
 
     private var logHealthSheet: some View {
         NavigationStack {
-            VStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Activity Type")
                         .font(.caption)
@@ -404,6 +425,7 @@ struct HealthView: View {
                     }
                     .pickerStyle(.menu)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Date & Time")
@@ -412,6 +434,7 @@ struct HealthView: View {
                     DatePicker("", selection: $healthLogDate)
                         .labelsHidden()
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button {
                     Task { await saveHealthEntry() }
@@ -444,7 +467,7 @@ struct HealthView: View {
 
     private var logSleepSheet: some View {
         NavigationStack {
-            VStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Hours")
@@ -453,7 +476,9 @@ struct HealthView: View {
                         TextField("7.5", text: $sleepHours)
                             .textFieldStyle(.roundedBorder)
                             .keyboardType(.decimalPad)
+                            .frame(maxWidth: .infinity)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Wake-ups")
@@ -462,8 +487,11 @@ struct HealthView: View {
                         TextField("0", text: $sleepWakeUps)
                             .textFieldStyle(.roundedBorder)
                             .keyboardType(.numberPad)
+                            .frame(maxWidth: .infinity)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Date & Time")
@@ -472,6 +500,7 @@ struct HealthView: View {
                     DatePicker("", selection: $sleepLogDate)
                         .labelsHidden()
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button {
                     Task { await saveSleepEntry() }
@@ -498,6 +527,48 @@ struct HealthView: View {
             }
         }
         .presentationDetents([.medium])
+    }
+
+    // MARK: - Edit Sleep Targets Sheet
+
+    private var editSleepTargetsSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Target Hours")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("8", text: $editSleepTargetHours)
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.decimalPad)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button {
+                    Task { await saveSleepTargets() }
+                } label: {
+                    if isSavingSleepTarget {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Text("Save").font(.headline).frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.cyan)
+                .disabled(isSavingSleepTarget)
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Edit Targets")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showEditSleepTargets = false }
+                }
+            }
+        }
+        .presentationDetents([.height(220), .medium])
     }
 
     // MARK: - Edit Health Sheet
@@ -634,6 +705,16 @@ struct HealthView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+        await loadSleepTarget()
+    }
+
+    private func loadSleepTarget() async {
+        do {
+            let response = try await api.getDailyTotals(scope: "week")
+            sleepTargetHours = response.targets.sleepHours ?? sleepTargetHours
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func saveHealthEntry() async {
@@ -668,6 +749,22 @@ struct HealthView: View {
             sleepWakeUps = "0"
             sleepLogDate = Date()
             await loadSleep()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func saveSleepTargets() async {
+        isSavingSleepTarget = true
+        defer { isSavingSleepTarget = false }
+        do {
+            guard let targetHours = Double(editSleepTargetHours), targetHours > 0, targetHours <= 24 else {
+                errorMessage = "Target hours must be between 0 and 24."
+                return
+            }
+            try await api.setMacroTarget(macro: "sleep_hours", target: targetHours)
+            sleepTargetHours = targetHours
+            showEditSleepTargets = false
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -723,6 +820,14 @@ struct HealthView: View {
     }
 
     // MARK: - Helpers
+
+    private func formatTargetHours(_ hours: Double) -> String {
+        let rounded = hours.rounded()
+        if abs(hours - rounded) < 0.01 {
+            return "\(Int(rounded))"
+        }
+        return String(format: "%.1f", hours)
+    }
 
     private func activityColor(_ type: String) -> Color {
         switch type.lowercased() {

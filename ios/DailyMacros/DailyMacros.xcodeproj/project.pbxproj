@@ -20,6 +20,7 @@
 		A1000011 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000011; };
 		A1000012 /* AnalysisView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000012; };
 		A1000013 /* HealthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013; };
+		A1000014 /* SwipeToDeleteRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +38,7 @@
 		A2000012 /* AnalysisView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisView.swift; sourceTree = "<group>"; };
 		A2000013 /* HealthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthView.swift; sourceTree = "<group>"; };
 		A2000014 /* DailyMacros.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DailyMacros.entitlements; sourceTree = "<group>"; };
+		A2000015 /* SwipeToDeleteRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeToDeleteRow.swift; sourceTree = "<group>"; };
 		A3000001 /* DailyMacros.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DailyMacros.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -64,6 +66,7 @@
 				A2000011 /* SettingsView.swift */,
 				A2000012 /* AnalysisView.swift */,
 				A2000013 /* HealthView.swift */,
+				A2000015 /* SwipeToDeleteRow.swift */,
 				A2000014 /* DailyMacros.entitlements */,
 				A2000010 /* Assets.xcassets */,
 			);
@@ -153,6 +156,7 @@
 				A1000011 /* SettingsView.swift in Sources */,
 				A1000012 /* AnalysisView.swift in Sources */,
 				A1000013 /* HealthView.swift in Sources */,
+				A1000014 /* SwipeToDeleteRow.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

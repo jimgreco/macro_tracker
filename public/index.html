@@ -389,7 +389,10 @@
 
         <section id="sleep-snapshot-section" class="panel glass">
           <div class="snapshot-header">
-            <h2 id="sleep-snapshot-heading">Weekly Snapshot</h2>
+            <div class="snapshot-title-group">
+              <h2 id="sleep-snapshot-heading">Weekly Snapshot</h2>
+              <a href="#" id="edit-sleep-target-link" class="edit-items-link">edit target</a>
+            </div>
             <div class="period-toggle" id="sleep-period-toggle" role="group" aria-label="Sleep snapshot time period">
               <button class="period-btn is-active" data-period="weekly">Week</button>
               <button class="period-btn" data-period="monthly">Month</button>
@@ -403,6 +406,10 @@
               <span class="trend-legend-item">
                 <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
                 Average: <span id="sleep-average-value">none</span> hrs
+              </span>
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch trend-legend-swatch-target" aria-hidden="true"></span>
+                Target: <span id="sleep-target-value">8 hrs</span>
               </span>
             </div>
           </div>

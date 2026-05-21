@@ -54,10 +54,12 @@ struct MacroTargets: Codable {
     let fat: Double
     let workouts: Double
     let workoutCalories: Double?
+    let sleepHours: Double?
 
     enum CodingKeys: String, CodingKey {
         case calories, protein, carbs, fat, workouts
         case workoutCalories = "workout_calories"
+        case sleepHours = "sleep_hours"
     }
 }
 

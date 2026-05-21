@@ -342,8 +342,8 @@ async function logAudit(userId, action, entityType, entityId, details) {
 
 function normalizeMacroName(macro) {
   const value = String(macro || '').toLowerCase();
-  if (!['calories', 'protein', 'carbs', 'fat', 'workouts', 'workout_calories'].includes(value)) {
-    throw new Error('Invalid macro. Use calories, protein, carbs, fat, workouts, or workout_calories.');
+  if (!['calories', 'protein', 'carbs', 'fat', 'workouts', 'workout_calories', 'sleep_hours'].includes(value)) {
+    throw new Error('Invalid macro. Use calories, protein, carbs, fat, workouts, workout_calories, or sleep_hours.');
   }
   return value;
 }
@@ -720,7 +720,8 @@ async function getMacroTargets(userId) {
     carbs: 0,
     fat: 0,
     workouts: 5,
-    workout_calories: 0
+    workout_calories: 0,
+    sleep_hours: 8
   };
 
   for (const row of result.rows) {
@@ -739,6 +740,9 @@ async function setMacroTarget(userId, macro, target) {
   }
   if (normalizedMacro === 'workouts') {
     normalizedTarget = Math.max(0, Math.min(14, Math.round(normalizedTarget)));
+  }
+  if (normalizedMacro === 'sleep_hours') {
+    normalizedTarget = Math.max(0, Math.min(24, Number(normalizedTarget.toFixed(2))));
   }
 
   await pool.query(
@@ -1000,7 +1004,7 @@ async function listWeightEntries(userId, scope = 'week', timezone = 'America/New
 
 async function getWeightTarget(userId) {
   const result = await pool.query(
-    `SELECT target_weight AS "targetWeight", target_date AS "targetDate"
+    `SELECT target_weight AS "targetWeight", target_date::text AS "targetDate"
      FROM weight_targets
      WHERE user_id = $1`,
     [userId]
