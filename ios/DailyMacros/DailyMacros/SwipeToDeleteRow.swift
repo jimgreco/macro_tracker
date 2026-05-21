@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SwipeToDeleteRow<Content: View>: View {
     private let actionWidth: CGFloat
@@ -8,7 +9,9 @@ struct SwipeToDeleteRow<Content: View>: View {
 
     @State private var offsetX: CGFloat = 0
     @State private var gestureStartOffsetX: CGFloat?
+    @State private var isDragging = false
     @State private var isDeleting = false
+    @State private var isRevealed = false
 
     init(
         actionWidth: CGFloat = 88,
@@ -26,8 +29,9 @@ struct SwipeToDeleteRow<Content: View>: View {
         ZStack(alignment: .trailing) {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(actionTint)
-                .frame(width: max(actionWidth, -offsetX))
-                .opacity(offsetX < 0 ? 1 : 0)
+                .frame(width: actionSurfaceWidth)
+                .opacity(actionOpacity)
+                .scaleEffect(x: 1, y: 0.94 + (0.06 * easedRevealProgress), anchor: .trailing)
 
             Button {
                 delete()
@@ -43,24 +47,58 @@ struct SwipeToDeleteRow<Content: View>: View {
             }
             .buttonStyle(.plain)
             .frame(width: actionWidth)
-            .opacity(offsetX < 0 ? 1 : 0)
-            .allowsHitTesting(offsetX < 0 && !isDeleting)
+            .opacity(actionOpacity)
+            .scaleEffect(0.92 + (0.08 * easedRevealProgress))
+            .offset(x: actionButtonOffset)
+            .allowsHitTesting(isRevealed && !isDeleting)
 
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .offset(x: offsetX)
                 .contentShape(Rectangle())
-                .allowsHitTesting(offsetX == 0)
+                .allowsHitTesting(!isRevealed && !isDragging && offsetX == 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .clipped()
         .simultaneousGesture(swipeGesture)
         .simultaneousGesture(TapGesture().onEnded {
-            guard offsetX < 0 else { return }
+            guard isRevealed && !isDeleting else { return }
             close()
         })
         .accessibilityAction(named: Text("Delete"), delete)
+    }
+
+    private var revealAmount: CGFloat {
+        min(actionWidth, max(0, -offsetX))
+    }
+
+    private var overshootAmount: CGFloat {
+        max(0, -offsetX - actionWidth)
+    }
+
+    private var revealProgress: CGFloat {
+        guard actionWidth > 0 else { return 0 }
+        return min(1, max(0, revealAmount / actionWidth))
+    }
+
+    private var easedRevealProgress: CGFloat {
+        let remainingProgress = 1 - revealProgress
+        return 1 - (remainingProgress * remainingProgress * remainingProgress)
+    }
+
+    private var actionSurfaceWidth: CGFloat {
+        guard revealAmount > 0 else { return 0 }
+        return revealAmount + overshootAmount
+    }
+
+    private var actionOpacity: CGFloat {
+        guard revealProgress > 0 else { return 0 }
+        return 0.5 + (0.5 * easedRevealProgress)
+    }
+
+    private var actionButtonOffset: CGFloat {
+        actionWidth * 0.18 * (1 - easedRevealProgress)
     }
 
     private var swipeGesture: some Gesture {
@@ -69,29 +107,23 @@ struct SwipeToDeleteRow<Content: View>: View {
                 guard isHorizontalSwipe(value) || offsetX < 0 else { return }
                 if gestureStartOffsetX == nil {
                     gestureStartOffsetX = offsetX
+                    isDragging = true
                 }
 
                 let baseOffset = gestureStartOffsetX ?? 0
-                offsetX = clampedOffset(baseOffset + value.translation.width)
+                offsetX = rubberBandedOffset(baseOffset + value.translation.width)
             }
             .onEnded { value in
-                defer { gestureStartOffsetX = nil }
+                defer {
+                    gestureStartOffsetX = nil
+                    isDragging = false
+                }
                 guard isHorizontalSwipe(value) || offsetX < 0 else { return }
 
                 let baseOffset = gestureStartOffsetX ?? 0
                 let predictedOffset = baseOffset + value.predictedEndTranslation.width
                 let draggedOffset = baseOffset + value.translation.width
-                let shouldDelete = draggedOffset < -actionWidth * 1.7 || predictedOffset < -actionWidth * 2.25
-                let shouldReveal = predictedOffset < -actionWidth * 0.45 || draggedOffset < -actionWidth * 0.5
-
-                if shouldDelete {
-                    delete()
-                    return
-                }
-
-                withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.86)) {
-                    offsetX = shouldReveal ? -actionWidth : 0
-                }
+                settle(revealed: shouldReveal(draggedOffset: draggedOffset, predictedOffset: predictedOffset))
             }
     }
 
@@ -99,26 +131,60 @@ struct SwipeToDeleteRow<Content: View>: View {
         abs(value.translation.width) > abs(value.translation.height) * 1.15
     }
 
-    private func clampedOffset(_ value: CGFloat) -> CGFloat {
-        min(0, max(-actionWidth * 2.4, value))
+    private func rubberBandedOffset(_ value: CGFloat) -> CGFloat {
+        let clampedValue = min(0, value)
+        guard clampedValue < -actionWidth else { return clampedValue }
+
+        let extraDistance = abs(clampedValue + actionWidth)
+        let rubberBandedDistance = min(actionWidth * 0.42, extraDistance * 0.22)
+        return -actionWidth - rubberBandedDistance
+    }
+
+    private func shouldReveal(draggedOffset: CGFloat, predictedOffset: CGFloat) -> Bool {
+        let referenceOffset = predictedOffset.isFinite ? predictedOffset : draggedOffset
+
+        if isRevealed {
+            return draggedOffset < -actionWidth * 0.62 || referenceOffset < -actionWidth * 0.54
+        }
+
+        return draggedOffset < -actionWidth * 0.50 || referenceOffset < -actionWidth * 0.38
+    }
+
+    private func settle(revealed: Bool) {
+        let wasRevealed = isRevealed
+
+        withAnimation(.snappy(duration: 0.28, extraBounce: revealed ? 0.08 : 0.02)) {
+            offsetX = revealed ? -actionWidth : 0
+            isRevealed = revealed
+        }
+
+        if revealed && !wasRevealed {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.65)
+        }
     }
 
     private func close() {
-        withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.86)) {
+        withAnimation(.snappy(duration: 0.24, extraBounce: 0.02)) {
             offsetX = 0
+            isRevealed = false
         }
     }
 
     private func delete() {
         guard !isDeleting else { return }
         isDeleting = true
-        withAnimation(.easeInOut(duration: 0.12)) {
-            offsetX = -actionWidth * 2.4
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.85)
+
+        withAnimation(.smooth(duration: 0.14)) {
+            offsetX = -actionWidth * 1.08
+            isRevealed = true
         }
+
+        onDelete()
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            close()
             isDeleting = false
-            onDelete()
+            close()
         }
     }
 }
