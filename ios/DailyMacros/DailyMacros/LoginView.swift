@@ -1,5 +1,6 @@
 import SwiftUI
 import AuthenticationServices
+import CryptoKit
 
 struct LoginView: View {
     @EnvironmentObject var auth: AuthManager
@@ -96,15 +97,35 @@ struct LoginView: View {
         isSigningIn = true
         defer { isSigningIn = false }
 
-        let authURL = api.baseURL.appendingPathComponent("auth/google")
-        guard var components = URLComponents(url: authURL, resolvingAgainstBaseURL: false) else {
-            errorMessage = "Invalid server URL."
+        guard let googleClientID = Bundle.main.object(forInfoDictionaryKey: "GoogleIOSClientID") as? String,
+              !googleClientID.isEmpty,
+              let googleRedirectScheme = googleRedirectScheme(for: googleClientID) else {
+            errorMessage = "Google sign-in is not configured."
             return
         }
-        components.queryItems = [URLQueryItem(name: "mobile", value: "1")]
+
+        let redirectURI = "\(googleRedirectScheme):/oauth2redirect"
+        let codeVerifier = makeCodeVerifier()
+        let codeChallenge = codeChallenge(for: codeVerifier)
+        let state = makeCodeVerifier()
+
+        guard var components = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth") else {
+            errorMessage = "Invalid Google sign-in URL."
+            return
+        }
+        components.queryItems = [
+            URLQueryItem(name: "client_id", value: googleClientID),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "scope", value: "openid email profile"),
+            URLQueryItem(name: "code_challenge", value: codeChallenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "prompt", value: "select_account")
+        ]
 
         guard let url = components.url else {
-            errorMessage = "Invalid server URL."
+            errorMessage = "Invalid Google sign-in URL."
             return
         }
 
@@ -112,7 +133,7 @@ struct LoginView: View {
             let callbackURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
                 let session = ASWebAuthenticationSession(
                     url: url,
-                    callbackURLScheme: "dailymacros"
+                    callbackURLScheme: googleRedirectScheme
                 ) { [self] callbackURL, error in
                     self.webAuthSession = nil
                     if let error {
@@ -129,16 +150,28 @@ struct LoginView: View {
                 session.start()
             }
 
-            auth.handleGoogleCallback(url: callbackURL)
-            if !auth.isAuthenticated {
-                // Check for error in callback
-                if let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-                   let error = components.queryItems?.first(where: { $0.name == "error" })?.value {
-                    errorMessage = "Sign-in failed: \(error)"
-                } else {
-                    errorMessage = "Google sign-in failed. No token received."
-                }
+            guard let callbackComponents = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+                  let queryItems = callbackComponents.queryItems else {
+                errorMessage = "Google sign-in failed. No callback received."
+                return
             }
+
+            if let error = queryItems.first(where: { $0.name == "error" })?.value {
+                errorMessage = "Sign-in failed: \(error)"
+                return
+            }
+
+            guard queryItems.first(where: { $0.name == "state" })?.value == state else {
+                errorMessage = "Google sign-in failed. Invalid callback."
+                return
+            }
+
+            guard let code = queryItems.first(where: { $0.name == "code" })?.value, !code.isEmpty else {
+                errorMessage = "Google sign-in failed. No code received."
+                return
+            }
+
+            try await auth.signInWithGoogle(code: code, redirectURI: redirectURI, codeVerifier: codeVerifier)
         } catch {
             // ASWebAuthenticationSessionError.canceledLogin = user dismissed
             if (error as NSError).domain == "com.apple.AuthenticationServices.WebAuthenticationSession",
@@ -149,6 +182,37 @@ struct LoginView: View {
         }
     }
 
+    private func googleRedirectScheme(for clientID: String) -> String? {
+        let suffix = ".apps.googleusercontent.com"
+        guard clientID.hasSuffix(suffix) else { return nil }
+        let idPart = String(clientID.dropLast(suffix.count))
+        guard !idPart.isEmpty else { return nil }
+        return "com.googleusercontent.apps.\(idPart)"
+    }
+
+    private func makeCodeVerifier() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        if status != errSecSuccess {
+            return UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        }
+        return Data(bytes).base64URLEncodedString()
+    }
+
+    private func codeChallenge(for verifier: String) -> String {
+        let digest = SHA256.hash(data: Data(verifier.utf8))
+        return Data(digest).base64URLEncodedString()
+    }
+
+}
+
+private extension Data {
+    func base64URLEncodedString() -> String {
+        base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
 }
 
 // MARK: - ASWebAuthenticationSession Context Provider

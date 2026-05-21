@@ -132,6 +132,23 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
+    /// Exchange a native Google OAuth authorization code for an API token via the backend.
+    func signInWithGoogle(code: String, redirectURI: String, codeVerifier: String) async throws -> AppleSignInResponse {
+        let payload: [String: Any] = [
+            "code": code,
+            "redirectUri": redirectURI,
+            "codeVerifier": codeVerifier
+        ]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+
+        let url = baseURL.appendingPathComponent("auth/google/mobile")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        return try await perform(request)
+    }
+
     func signInWithDevBypass() async throws -> AppleSignInResponse {
         let url = baseURL.appendingPathComponent("auth/dev/mobile")
         var request = URLRequest(url: url)

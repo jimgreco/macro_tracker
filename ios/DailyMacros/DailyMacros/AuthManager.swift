@@ -84,6 +84,19 @@ class AuthManager: ObservableObject {
         isAuthenticated = true
     }
 
+    func signInWithGoogle(code: String, redirectURI: String, codeVerifier: String) async throws {
+        let result = try await api.signInWithGoogle(code: code, redirectURI: redirectURI, codeVerifier: codeVerifier)
+        api.token = result.token
+        user = User(
+            id: result.user.id,
+            name: result.user.name,
+            email: result.user.email,
+            picture: nil,
+            provider: "google"
+        )
+        isAuthenticated = true
+    }
+
     /// Handle callback URL from Google OAuth (via ASWebAuthenticationSession)
     func handleGoogleCallback(url: URL) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),

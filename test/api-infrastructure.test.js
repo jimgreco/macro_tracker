@@ -188,6 +188,18 @@ test('server.js upserts user on OAuth callback', () => {
   assert.ok(server.includes('await upsertUser(req.user)'));
 });
 
+test('server.js supports native iOS Google sign-in code exchange', () => {
+  const server = read('src/server.js');
+  assert.ok(server.includes("process.env.GOOGLE_IOS_CLIENT_ID"));
+  assert.ok(server.includes('defaultGoogleIOSClientId'));
+  assert.ok(server.includes("app.post('/auth/google/mobile'"));
+  assert.ok(server.includes("'https://oauth2.googleapis.com/token'"));
+  assert.ok(server.includes('https://oauth2.googleapis.com/tokeninfo?id_token='));
+  assert.ok(server.includes('code_verifier'));
+  assert.ok(server.includes('tokenInfo.aud !== googleIOSClientId'));
+  assert.ok(server.includes("createApiToken(user.id, 'DailyMacros iOS'"));
+});
+
 test('server.js has GDPR endpoints', () => {
   const server = read('src/server.js');
   assert.ok(server.includes("apiRouter.get('/account/export'"));

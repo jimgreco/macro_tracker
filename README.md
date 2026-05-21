@@ -34,6 +34,7 @@ A web app for tracking macros with:
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`
    - `GOOGLE_CALLBACK_URL` (default: `http://localhost:3000/auth/google/callback`)
+   - `GOOGLE_IOS_CLIENT_ID` (iOS OAuth client ID used by the native app)
    - `SESSION_TTL_DAYS` (default: `30`)
 
    Optional DB overrides (defaults already work with `npm run db:up`):

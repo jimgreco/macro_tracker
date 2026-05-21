@@ -90,6 +90,8 @@ const isProduction = process.env.NODE_ENV === 'production';
 const sessionSecret = process.env.SESSION_SECRET || 'dev-session-secret-change-me';
 const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
+const defaultGoogleIOSClientId = '1018348991868-nbg9k2aht11942u6es07t564bgahd0er.apps.googleusercontent.com';
+const googleIOSClientId = process.env.GOOGLE_IOS_CLIENT_ID || defaultGoogleIOSClientId;
 const oauthCallbackUrl =
   process.env.GOOGLE_CALLBACK_URL || `http://localhost:${port}/auth/google/callback`;
 
@@ -128,6 +130,10 @@ function parsePositiveIntegerEnv(name, fallbackValue) {
     return fallbackValue;
   }
   return Math.floor(raw);
+}
+
+function normalizeGoogleTokenBoolean(value) {
+  return value === true || String(value).toLowerCase() === 'true';
 }
 
 function getAllowedOrigins() {
@@ -1072,6 +1078,74 @@ app.get(
     res.redirect('/');
   }
 );
+
+// ── Google Sign-In (mobile / native OAuth code exchange) ──
+// The iOS app uses its iOS OAuth client and redirects directly back to the app,
+// then sends the authorization code here for a backend-issued API token.
+
+app.post('/auth/google/mobile', express.json(), async (req, res) => {
+  const { code, codeVerifier, redirectUri } = req.body || {};
+
+  if (!googleIOSClientId) {
+    return res.status(500).json({ error: 'Google iOS Sign-In is not configured on the server.' });
+  }
+  if (!code || !codeVerifier || !redirectUri) {
+    return res.status(400).json({ error: 'code, codeVerifier, and redirectUri are required.' });
+  }
+
+  try {
+    const tokenParams = new URLSearchParams({
+      code,
+      client_id: googleIOSClientId,
+      code_verifier: codeVerifier,
+      grant_type: 'authorization_code',
+      redirect_uri: redirectUri
+    });
+
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: tokenParams
+    });
+    const tokenPayload = await tokenResponse.json().catch(() => ({}));
+
+    if (!tokenResponse.ok || !tokenPayload.id_token) {
+      return res.status(401).json({ error: 'Unable to exchange Google authorization code.' });
+    }
+
+    const tokenInfoResponse = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokenPayload.id_token)}`
+    );
+    const tokenInfo = await tokenInfoResponse.json().catch(() => ({}));
+
+    if (!tokenInfoResponse.ok || tokenInfo.aud !== googleIOSClientId || !tokenInfo.sub) {
+      return res.status(401).json({ error: 'Invalid Google identity token.' });
+    }
+
+    if (tokenInfo.email && !normalizeGoogleTokenBoolean(tokenInfo.email_verified)) {
+      return res.status(401).json({ error: 'Google email is not verified.' });
+    }
+
+    const user = {
+      id: tokenInfo.sub,
+      name: tokenInfo.name || tokenInfo.email || null,
+      email: tokenInfo.email || null,
+      picture: tokenInfo.picture || null,
+      provider: 'google'
+    };
+
+    await upsertUser(user);
+    const tokenResult = await createApiToken(user.id, 'DailyMacros iOS', null);
+
+    return res.json({
+      ok: true,
+      token: tokenResult.token,
+      user: { id: user.id, name: user.name, email: user.email }
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Google mobile sign-in failed.' });
+  }
+});
 
 // ── Apple Sign-In (web flow) ──
 
