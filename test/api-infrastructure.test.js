@@ -200,6 +200,15 @@ test('server.js supports native iOS Google sign-in code exchange', () => {
   assert.ok(server.includes("createApiToken(user.id, 'DailyMacros iOS'"));
 });
 
+test('server.js supports native iOS Apple sign-in without web Apple secrets', () => {
+  const server = read('src/server.js');
+  assert.ok(server.includes("const defaultAppleBundleId = 'com.dailymacros.app'"));
+  assert.ok(server.includes('process.env.APPLE_BUNDLE_ID || defaultAppleBundleId'));
+  assert.ok(server.includes("app.post('/auth/apple/mobile'"));
+  assert.ok(server.includes('const validAudiences = [appleClientId, appleBundleId].filter(Boolean)'));
+  assert.ok(server.includes("createApiToken(user.id, 'DailyMacros iOS'"));
+});
+
 test('server.js has GDPR endpoints', () => {
   const server = read('src/server.js');
   assert.ok(server.includes("apiRouter.get('/account/export'"));

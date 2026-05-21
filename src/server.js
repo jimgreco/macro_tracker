@@ -100,7 +100,8 @@ const appleTeamId = process.env.APPLE_TEAM_ID || '';
 const appleKeyId = process.env.APPLE_KEY_ID || '';
 const applePrivateKey = (process.env.APPLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
 const appleRedirectUri = process.env.APPLE_REDIRECT_URI || `${process.env.APP_BASE_URL || `http://localhost:${port}`}/auth/apple/callback`;
-const appleBundleId = process.env.APPLE_BUNDLE_ID || ''; // iOS app bundle ID (e.g. com.macroflow.app)
+const defaultAppleBundleId = 'com.dailymacros.app';
+const appleBundleId = process.env.APPLE_BUNDLE_ID || defaultAppleBundleId; // iOS app bundle ID
 
 function parseBooleanEnv(name, fallbackValue = false) {
   const normalized = String(process.env[name] || '').trim().toLowerCase();
@@ -1273,7 +1274,7 @@ app.post('/auth/apple/mobile', express.json(), async (req, res) => {
     await upsertUser(user);
 
     // Create a long-lived API token for the mobile app
-    const tokenResult = await createApiToken(user.id, 'MacroFlow iOS', null);
+    const tokenResult = await createApiToken(user.id, 'DailyMacros iOS', null);
 
     return res.json({
       ok: true,
