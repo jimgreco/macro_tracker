@@ -111,7 +111,27 @@ jobs:
           set -euo pipefail
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
-          printf '%s' "$API_KEY" > "$KEY_FILE"
+          export KEY_FILE
+          python3 - <<'PY'
+          import base64
+          import os
+
+          key = os.environ["API_KEY"].strip()
+          if "\\n" in key and "\n" not in key:
+              key = key.replace("\\n", "\n")
+
+          if "BEGIN PRIVATE KEY" not in key:
+              try:
+                  decoded = base64.b64decode(key).decode("utf-8")
+                  if "BEGIN PRIVATE KEY" in decoded:
+                      key = decoded
+              except Exception:
+                  pass
+
+          with open(os.environ["KEY_FILE"], "w", encoding="utf-8") as key_file:
+              key_file.write(key.rstrip() + "\n")
+          PY
+          chmod 600 "$KEY_FILE"
           echo "API_KEY_PATH=$KEY_FILE" >> "$GITHUB_ENV"
 
       - name: Archive
@@ -170,14 +190,22 @@ jobs:
           </dict></plist>
           EOF
 
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/DailyMacros.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -exportPath "$RUNNER_TEMP/export" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$API_KEY_PATH" \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID"
+          EXPORT_LOG="$RUNNER_TEMP/export.log"
+          if ! xcodebuild -exportArchive \
+              -archivePath "$RUNNER_TEMP/DailyMacros.xcarchive" \
+              -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+              -exportPath "$RUNNER_TEMP/export" \
+              -allowProvisioningUpdates \
+              -authenticationKeyPath "$API_KEY_PATH" \
+              -authenticationKeyID "$KEY_ID" \
+              -authenticationKeyIssuerID "$ISSUER_ID" 2>&1 | tee "$EXPORT_LOG"; then
+            exit 1
+          fi
+
+          if grep -Eiq "NOT_AUTHORIZED|failed to authenticate|Communication with Apple failed|Validation failed" "$EXPORT_LOG"; then
+            echo "App Store Connect export reported an authentication or validation failure."
+            exit 1
+          fi
 
           IPA_PATH="$(find "$RUNNER_TEMP/export" -name '*.ipa' -print -quit)"
           if [ -z "$IPA_PATH" ]; then
@@ -192,11 +220,19 @@ jobs:
           ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
           set -euo pipefail
-          xcrun altool --upload-app \
-            --type ios \
-            --file "$IPA_PATH" \
-            --apiKey "$KEY_ID" \
-            --apiIssuer "$ISSUER_ID"
+          UPLOAD_LOG="$RUNNER_TEMP/altool-upload.log"
+          if ! xcrun altool --upload-app \
+              --type ios \
+              --file "$IPA_PATH" \
+              --apiKey "$KEY_ID" \
+              --apiIssuer "$ISSUER_ID" 2>&1 | tee "$UPLOAD_LOG"; then
+            exit 1
+          fi
+
+          if grep -Eiq "ERROR|NOT_AUTHORIZED|UPLOAD FAILED|Validation failed|Failed to upload package|Failed to determine the Apple ID" "$UPLOAD_LOG"; then
+            echo "App Store Connect upload reported a failure."
+            exit 1
+          fi
 
       - name: Cleanup keychain
         if: always()
