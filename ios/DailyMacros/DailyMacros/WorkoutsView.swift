@@ -260,45 +260,81 @@ struct WorkoutsView: View {
     }
 
     private func occurrenceDotPlot(_ points: [WorkoutOccurrencePoint]) -> some View {
-        Canvas { context, size in
-            guard !points.isEmpty else { return }
+        Group {
+            if scope == "week" {
+                workoutWeekOccurrenceRow(points)
+            } else {
+                Canvas { context, size in
+                    guard !points.isEmpty else { return }
 
-            let padX: CGFloat = 8
-            let plotWidth = max(size.width - padX * 2, 1)
-            let dotY = size.height / 2
-            let spacing = points.count > 1 ? plotWidth / CGFloat(points.count - 1) : plotWidth
-            let maxDotRadius: CGFloat = scope == "week" ? 9 : scope == "month" ? 5 : 4
-            let dotRadius = max(1.6, min(maxDotRadius, spacing / 2 - 1))
+                    let padX: CGFloat = 8
+                    let plotWidth = max(size.width - padX * 2, 1)
+                    let dotY = size.height / 2
+                    let spacing = points.count > 1 ? plotWidth / CGFloat(points.count - 1) : plotWidth
+                    let maxDotRadius: CGFloat = scope == "month" ? 5 : 4
+                    let dotRadius = max(1.6, min(maxDotRadius, spacing / 2 - 1))
 
-            for (index, point) in points.enumerated() {
-                let x = padX + (points.count > 1 ? CGFloat(index) / CGFloat(points.count - 1) * plotWidth : plotWidth / 2)
-                let rect = CGRect(x: x - dotRadius, y: dotY - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
+                    for (index, point) in points.enumerated() {
+                        let x = padX + (points.count > 1 ? CGFloat(index) / CGFloat(points.count - 1) * plotWidth : plotWidth / 2)
+                        let rect = CGRect(x: x - dotRadius, y: dotY - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
 
-                if point.active {
-                    var activeContext = context
-                    activeContext.addFilter(.shadow(color: Color.green.opacity(0.45), radius: 5))
-                    activeContext.fill(Path(ellipseIn: rect), with: .color(.green.opacity(0.95)))
-                } else {
-                    let strokeColor: Color = point.isToday ? .cyan.opacity(0.55) : .white.opacity(0.15)
-                    context.stroke(Path(ellipseIn: rect), with: .color(strokeColor), lineWidth: point.isToday ? 1.5 : 1)
+                        if point.active {
+                            var activeContext = context
+                            activeContext.addFilter(.shadow(color: Color.green.opacity(0.45), radius: 5))
+                            activeContext.fill(Path(ellipseIn: rect), with: .color(.green.opacity(0.95)))
+                        } else {
+                            let strokeColor: Color = point.isToday ? .cyan.opacity(0.55) : .white.opacity(0.15)
+                            context.stroke(Path(ellipseIn: rect), with: .color(strokeColor), lineWidth: point.isToday ? 1.5 : 1)
+                        }
+                    }
                 }
             }
         }
-        .frame(height: 42)
+        .frame(height: scope == "week" ? 58 : 42)
         .accessibilityLabel("\(occurrenceTitle): \(points.filter(\.active).count) active \(scope == "year" ? "weeks" : "days")")
+    }
+
+    private func workoutWeekOccurrenceRow(_ points: [WorkoutOccurrencePoint]) -> some View {
+        GeometryReader { proxy in
+            let columnWidth = max(proxy.size.width / CGFloat(max(points.count, 1)), 1)
+
+            HStack(spacing: 0) {
+                ForEach(points) { point in
+                    VStack(spacing: 8) {
+                        workoutOccurrenceMarker(point)
+                        Text(weekdayLabel(for: point.date))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .frame(width: columnWidth, height: proxy.size.height, alignment: .center)
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
+        }
+    }
+
+    @ViewBuilder
+    private func workoutOccurrenceMarker(_ point: WorkoutOccurrencePoint) -> some View {
+        ZStack {
+            if point.active {
+                Circle()
+                    .fill(.green.opacity(0.95))
+                    .shadow(color: .green.opacity(0.45), radius: 5)
+                    .frame(width: 18, height: 18)
+            } else {
+                Circle()
+                    .stroke(point.isToday ? .cyan.opacity(0.55) : .white.opacity(0.15), lineWidth: point.isToday ? 1.5 : 1)
+                    .frame(width: 18, height: 18)
+            }
+        }
+        .frame(height: 30)
     }
 
     @ViewBuilder
     private func occurrenceLabels(_ points: [WorkoutOccurrencePoint]) -> some View {
         if scope == "week" {
-            HStack(spacing: 0) {
-                ForEach(points) { point in
-                    Text(weekdayLabel(for: point.date))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                }
-            }
+            EmptyView()
         } else {
             HStack {
                 if let first = points.first {

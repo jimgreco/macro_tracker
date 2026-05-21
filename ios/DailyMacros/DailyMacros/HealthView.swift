@@ -95,84 +95,238 @@ struct HealthView: View {
                 Task { await loadHealth() }
             }
 
-            healthChart
-
-            healthStats
+            activityOccurrenceSection
 
             healthEntriesList
         }
     }
 
-    private var healthChart: some View {
-        VStack(spacing: 4) {
-            if dailyTypes.isEmpty {
-                Text("No data for this period")
+    private struct ActivityOccurrencePoint: Identifiable {
+        let id: String
+        let date: Date
+        let types: [String]
+        let activeDayCount: Int
+        let isToday: Bool
+
+        var active: Bool { !types.isEmpty }
+    }
+
+    private var activityOccurrenceSection: some View {
+        let points = activityOccurrencePoints
+        let activeCount = points.filter(\.active).count
+        let unit = healthScope == "year" ? "weeks active" : "days active"
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(activityOccurrenceTitle)
+                    .font(.subheadline.bold())
+                Spacer()
+                Text("\(activeCount) / \(points.count) \(unit)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .frame(height: 80)
-            } else {
-                Canvas { context, size in
-                    drawHealthChart(context: context, size: size)
-                }
-                .frame(height: 80)
             }
 
-            HStack(spacing: 12) {
-                ForEach(activityTypes, id: \.self) { type in
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(activityColor(type))
-                            .frame(width: 8, height: 8)
-                        Text(type.capitalized)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
+            activityOccurrenceDotPlot(points)
+
+            activityOccurrenceLabels(points)
+
+            activityLegend
         }
         .padding()
         .background(Color(.secondarySystemBackground))
         .cornerRadius(12)
     }
 
-    private func drawHealthChart(context: GraphicsContext, size: CGSize) {
-        let days = dailyTypes
-        guard !days.isEmpty else { return }
+    private var activityOccurrenceTitle: String {
+        switch healthScope {
+        case "week": return "Activity Days"
+        case "month": return "Last 30 Days"
+        case "year": return "Last 52 Weeks"
+        default: return "Activity Days"
+        }
+    }
 
-        let dotRadius: CGFloat = 4
-        let rowHeight: CGFloat = 16
-        let padding: CGFloat = 4
+    private var activityOccurrencePoints: [ActivityOccurrencePoint] {
+        let calendar = healthCalendar
+        let today = calendar.startOfDay(for: Date())
+        let typesByDay = Dictionary(uniqueKeysWithValues: dailyTypes.map { ($0.day, orderedActivityTypes($0.types)) })
 
-        let dayCount = days.count
-        let stepX = dayCount > 1 ? (size.width - padding * 2) / CGFloat(dayCount - 1) : size.width / 2
+        if healthScope == "year" {
+            return (0..<52).reversed().compactMap { weekOffset in
+                guard let weekEnd = calendar.date(byAdding: .day, value: -weekOffset * 7, to: today),
+                      let weekStart = calendar.date(byAdding: .day, value: -6, to: weekEnd) else {
+                    return nil
+                }
 
-        for (i, day) in days.enumerated() {
-            let x = dayCount > 1 ? padding + CGFloat(i) * stepX : size.width / 2
-            for (j, type) in day.types.enumerated() {
-                let y = padding + CGFloat(j) * rowHeight + dotRadius
-                let rect = CGRect(x: x - dotRadius, y: y, width: dotRadius * 2, height: dotRadius * 2)
-                context.fill(Path(ellipseIn: rect), with: .color(activityColor(type)))
+                var weekTypes: [String] = []
+                var activeDays = 0
+                for dayOffset in 0...6 {
+                    guard let day = calendar.date(byAdding: .day, value: dayOffset, to: weekStart) else {
+                        continue
+                    }
+                    let isoDay = isoDayString(day)
+                    if let types = typesByDay[isoDay], !types.isEmpty {
+                        activeDays += 1
+                        weekTypes.append(contentsOf: types)
+                    }
+                }
+
+                return ActivityOccurrencePoint(
+                    id: isoDayString(weekStart),
+                    date: weekStart,
+                    types: orderedActivityTypes(weekTypes),
+                    activeDayCount: activeDays,
+                    isToday: false
+                )
+            }
+        }
+
+        let days = healthScope == "month" ? 30 : 7
+        return (0..<days).reversed().compactMap { dayOffset in
+            guard let day = calendar.date(byAdding: .day, value: -dayOffset, to: today) else {
+                return nil
+            }
+
+            let isoDay = isoDayString(day)
+            let types = typesByDay[isoDay] ?? []
+            return ActivityOccurrencePoint(
+                id: isoDay,
+                date: day,
+                types: types,
+                activeDayCount: types.isEmpty ? 0 : 1,
+                isToday: calendar.isDate(day, inSameDayAs: today)
+            )
+        }
+    }
+
+    private func activityOccurrenceDotPlot(_ points: [ActivityOccurrencePoint]) -> some View {
+        Group {
+            if healthScope == "week" {
+                activityWeekOccurrenceRow(points)
+            } else {
+                Canvas { context, size in
+                    drawActivityOccurrenceCanvas(points, context: context, size: size)
+                }
+            }
+        }
+        .frame(height: healthScope == "week" ? 58 : 42)
+        .accessibilityLabel("\(activityOccurrenceTitle): \(points.filter(\.active).count) active \(healthScope == "year" ? "weeks" : "days")")
+    }
+
+    private func activityWeekOccurrenceRow(_ points: [ActivityOccurrencePoint]) -> some View {
+        GeometryReader { proxy in
+            let columnWidth = max(proxy.size.width / CGFloat(max(points.count, 1)), 1)
+
+            HStack(spacing: 0) {
+                ForEach(points) { point in
+                    VStack(spacing: 8) {
+                        activityOccurrenceMarker(point)
+                        Text(weekdayLabel(for: point.date))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .frame(width: columnWidth, height: proxy.size.height, alignment: .center)
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
+        }
+    }
+
+    @ViewBuilder
+    private func activityOccurrenceMarker(_ point: ActivityOccurrencePoint) -> some View {
+        let types = orderedActivityTypes(point.types)
+
+        ZStack {
+            if point.active {
+                if types.count == 1, let type = types.first {
+                    Circle()
+                        .fill(activityColor(type))
+                        .shadow(color: activityColor(type).opacity(0.45), radius: 5)
+                        .frame(width: 18, height: 18)
+                } else {
+                    VStack(spacing: 3) {
+                        ForEach(Array(types.prefix(4)), id: \.self) { type in
+                            Circle()
+                                .fill(activityColor(type))
+                                .frame(width: 7, height: 7)
+                        }
+                    }
+                    .shadow(color: .white.opacity(0.12), radius: 4)
+                }
+            } else {
+                Circle()
+                    .stroke(point.isToday ? .cyan.opacity(0.55) : .white.opacity(0.15), lineWidth: point.isToday ? 1.5 : 1)
+                    .frame(width: 18, height: 18)
+            }
+        }
+        .frame(height: 30)
+    }
+
+    private func drawActivityOccurrenceCanvas(_ points: [ActivityOccurrencePoint], context: GraphicsContext, size: CGSize) {
+        guard !points.isEmpty else { return }
+
+        let padX: CGFloat = 8
+        let plotWidth = max(size.width - padX * 2, 1)
+        let dotY = size.height / 2
+        let spacing = points.count > 1 ? plotWidth / CGFloat(points.count - 1) : plotWidth
+        let maxDotRadius: CGFloat = healthScope == "month" ? 5 : 4
+        let dotRadius = max(1.6, min(maxDotRadius, spacing / 2 - 1))
+
+        for (index, point) in points.enumerated() {
+            let x = padX + (points.count > 1 ? CGFloat(index) / CGFloat(points.count - 1) * plotWidth : plotWidth / 2)
+            if point.active {
+                let types = orderedActivityTypes(point.types)
+                let type = types.first ?? "other"
+                let rect = CGRect(x: x - dotRadius, y: dotY - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
+                var activeContext = context
+                activeContext.addFilter(.shadow(color: activityColor(type).opacity(0.45), radius: 5))
+                activeContext.fill(Path(ellipseIn: rect), with: .color(activityColor(type)))
+            } else {
+                let rect = CGRect(x: x - dotRadius, y: dotY - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
+                let strokeColor: Color = point.isToday ? .cyan.opacity(0.55) : .white.opacity(0.15)
+                context.stroke(Path(ellipseIn: rect), with: .color(strokeColor), lineWidth: point.isToday ? 1.5 : 1)
             }
         }
     }
 
-    private var healthStats: some View {
-        let totalDays: Int = {
-            switch healthScope {
-            case "week": return 7
-            case "month": return 30
-            case "year": return 365
-            default: return 7
+    @ViewBuilder
+    private func activityOccurrenceLabels(_ points: [ActivityOccurrencePoint]) -> some View {
+        if healthScope == "week" {
+            EmptyView()
+        } else {
+            HStack {
+                if let first = points.first {
+                    Text(shortDateLabel(for: first.date))
+                }
+                Spacer()
+                if healthScope == "year" {
+                    Text("weekly")
+                }
+                Spacer()
+                if let last = points.last {
+                    Text(shortDateLabel(for: last.date))
+                }
             }
-        }()
-        let activeDays = dailyTypes.count
-
-        return HStack {
-            Text("\(activeDays) active day\(activeDays == 1 ? "" : "s") out of \(totalDays)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
+            .font(.caption2)
+            .foregroundStyle(.secondary)
         }
+    }
+
+    private var activityLegend: some View {
+        HStack(spacing: 12) {
+            ForEach(activityTypes, id: \.self) { type in
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(activityColor(type))
+                        .frame(width: 8, height: 8)
+                    Text(type.capitalized)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var healthEntriesList: some View {
@@ -820,6 +974,43 @@ struct HealthView: View {
     }
 
     // MARK: - Helpers
+
+    private var healthCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York") ?? .current
+        return calendar
+    }
+
+    private func isoDayString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = healthCalendar
+        formatter.timeZone = healthCalendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private func weekdayLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = healthCalendar
+        formatter.timeZone = healthCalendar.timeZone
+        formatter.dateFormat = "E"
+        return String(formatter.string(from: date).prefix(2))
+    }
+
+    private func shortDateLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = healthCalendar
+        formatter.timeZone = healthCalendar.timeZone
+        formatter.setLocalizedDateFormatFromTemplate("MMM d")
+        return formatter.string(from: date)
+    }
+
+    private func orderedActivityTypes(_ types: [String]) -> [String] {
+        let normalizedTypes = Set(types.map { $0.lowercased() })
+        let knownTypes = activityTypes.filter { normalizedTypes.contains($0) }
+        let unknownTypes = normalizedTypes.subtracting(Set(activityTypes)).sorted()
+        return knownTypes + unknownTypes
+    }
 
     private func formatTargetHours(_ hours: Double) -> String {
         let rounded = hours.rounded()
