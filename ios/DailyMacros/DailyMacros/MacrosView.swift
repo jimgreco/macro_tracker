@@ -115,6 +115,9 @@ struct MacrosView: View {
 
     // Quick add editing state
     @State private var quickMultiplier = "1"
+    @State private var quickSearchText = ""
+    @State private var isLoadingSavedItems = false
+    @State private var hasLoadedSavedItems = false
     @State private var editingQuickTemplate: QuickAddTemplate?
     @State private var editQuickName = ""
     @State private var editQuickQuantity = ""
@@ -212,6 +215,29 @@ struct MacrosView: View {
         return templates
     }
 
+    private var filteredQuickTemplates: [QuickAddTemplate] {
+        let query = quickSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return quickTemplates }
+
+        let tokens = query.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        return quickTemplates.filter { template in
+            let haystack = [
+                template.name,
+                template.unit,
+                "\(Int(template.calories))",
+                "\(Int(template.protein))",
+                "\(Int(template.carbs))",
+                "\(Int(template.fat))",
+                "kcal",
+                "protein",
+                "carbs",
+                "fat"
+            ].joined(separator: " ").lowercased()
+
+            return tokens.allSatisfy { haystack.contains($0) }
+        }
+    }
+
     private var dateString: String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
@@ -261,8 +287,11 @@ struct MacrosView: View {
                         showParsed = false
                         mealText = ""
                         consumedAt = selectedDate
+                        quickSearchText = ""
                         clearMealImage()
-                        Task { await loadSavedItems() }
+                        if !hasLoadedSavedItems {
+                            Task { await loadSavedItems() }
+                        }
                         showAddSheet = true
                     } label: {
                         Image(systemName: "plus")
@@ -286,6 +315,7 @@ struct MacrosView: View {
                 Task { await loadSelectedPhoto(newItem) }
             }
             .task {
+                Task { await loadSavedItems(showErrors: false) }
                 await loadDashboard()
                 await loadTrend()
             }
@@ -1283,44 +1313,80 @@ struct MacrosView: View {
             }
             .padding()
 
-            if !quickTemplates.isEmpty {
+            if isLoadingSavedItems || !quickTemplates.isEmpty || !quickSearchText.isEmpty {
                 quickItemsSection
             }
         }
     }
 
+    @ViewBuilder
     private var quickItemsSection: some View {
+        let visibleTemplates = filteredQuickTemplates
+
         VStack(spacing: 0) {
             Divider()
 
-            HStack(spacing: 10) {
-                Text("Quick Items")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(Color.mutedText)
+            VStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    Text("Quick Items")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(Color.mutedText)
 
-                Spacer()
+                    Spacer()
 
-                Text("Multiplier")
-                    .font(.caption)
-                    .foregroundStyle(Color.mutedText)
+                    Text("Multiplier")
+                        .font(.caption)
+                        .foregroundStyle(Color.mutedText)
 
-                TextField("1", text: $quickMultiplier)
-                    .textFieldStyle(.roundedBorder)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.center)
-                    .frame(width: 58)
+                    TextField("1", text: $quickMultiplier)
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 58)
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.mutedText)
+
+                    TextField("Search quick entries", text: $quickSearchText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.panelBg.opacity(0.8))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .padding(.horizontal)
             .padding(.vertical, 10)
 
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(quickTemplates) { template in
-                        quickAddRow(template)
+            if isLoadingSavedItems && visibleTemplates.isEmpty {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Loading quick entries...")
+                        .font(.caption)
+                        .foregroundStyle(Color.mutedText)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+            } else if visibleTemplates.isEmpty {
+                Text(quickSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No quick entries yet." : "No matching quick entries.")
+                    .font(.caption)
+                    .foregroundStyle(Color.mutedText)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(visibleTemplates) { template in
+                            quickAddRow(template)
 
-                        if template.id != quickTemplates.last?.id {
-                            Divider()
-                                .padding(.leading, 16)
+                            if template.id != visibleTemplates.last?.id {
+                                Divider()
+                                    .padding(.leading, 16)
+                            }
                         }
                     }
                 }
@@ -1655,11 +1721,18 @@ struct MacrosView: View {
         }
     }
 
-    private func loadSavedItems() async {
+    private func loadSavedItems(showErrors: Bool = true) async {
+        guard !isLoadingSavedItems else { return }
+        isLoadingSavedItems = true
+        defer { isLoadingSavedItems = false }
+
         do {
             savedItems = try await api.getSavedItems()
+            hasLoadedSavedItems = true
         } catch {
-            errorMessage = error.localizedDescription
+            if showErrors {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

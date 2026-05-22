@@ -2,6 +2,10 @@ const state = {
   parsedMeal: null,
   savedItems: [],
   historyQuickItems: [],
+  quickEntriesLoading: false,
+  quickEntriesLoaded: false,
+  quickEntriesError: '',
+  quickSearchQuery: '',
   editingEntryId: null,
   mealImageDataUrl: '',
   mealImagePreviewUrl: '',
@@ -48,6 +52,7 @@ const mealPhotoPreviewImageEl = document.getElementById('meal-photo-preview-imag
 const removePhotoBtnEl = document.getElementById('remove-photo-btn');
 const parseNoteEl = document.getElementById('parse-note');
 const parsedItemsContainerEl = document.getElementById('parsed-items-container');
+const quickSearchEl = document.getElementById('quick-entry-search');
 const savedSelectEl = document.getElementById('saved-item-select');
 const quickMultiplierEl = document.getElementById('quick-multiplier');
 const quickAddBtnEl = document.getElementById('quick-add-btn');
@@ -956,6 +961,82 @@ function formatSavedItemOption(item) {
   return `${compactName} (${fmtNumber(item.calories)}cal/${fmtNumber(item.protein)}P/${fmtNumber(item.carbs)}C/${fmtNumber(item.fat)}F)`;
 }
 
+function normalizeQuickSearch(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function quickEntrySearchText(item) {
+  return normalizeQuickSearch([
+    item.name,
+    item.unit,
+    fmtNumber(item.calories),
+    fmtNumber(item.protein),
+    fmtNumber(item.carbs),
+    fmtNumber(item.fat),
+    'cal',
+    'protein',
+    'carbs',
+    'fat'
+  ].join(' '));
+}
+
+function matchesQuickSearch(item, query) {
+  const normalizedQuery = normalizeQuickSearch(query);
+  if (!normalizedQuery) {
+    return true;
+  }
+  const haystack = quickEntrySearchText(item);
+  return normalizedQuery.split(/\s+/).every((token) => haystack.includes(token));
+}
+
+function syncHistoryQuickItems() {
+  state.historyQuickItems = buildHistoryQuickItems(state.dashboardData?.entries || [], state.savedItems);
+}
+
+let quickEntriesRequestId = 0;
+
+async function loadQuickEntries({ force = false } = {}) {
+  if (state.quickEntriesLoading && !force) {
+    return;
+  }
+  if (state.quickEntriesLoaded && !force) {
+    syncHistoryQuickItems();
+    renderSavedItems();
+    return;
+  }
+
+  const requestId = quickEntriesRequestId + 1;
+  quickEntriesRequestId = requestId;
+  state.quickEntriesLoading = true;
+  state.quickEntriesError = '';
+  renderSavedItems();
+
+  try {
+    const saved = await api('/api/saved-items');
+    if (requestId !== quickEntriesRequestId) {
+      return;
+    }
+    state.savedItems = Array.isArray(saved) ? saved : [];
+    state.quickEntriesLoaded = true;
+    syncHistoryQuickItems();
+  } catch (error) {
+    if (requestId !== quickEntriesRequestId) {
+      return;
+    }
+    state.quickEntriesError = error.message || 'Could not load quick entries.';
+  } finally {
+    if (requestId === quickEntriesRequestId) {
+      state.quickEntriesLoading = false;
+      renderSavedItems();
+    }
+  }
+}
+
+async function refreshProfile() {
+  const me = await api('/api/me');
+  renderProfile(me.user || null);
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -1449,48 +1530,95 @@ function buildHistoryQuickItems(entries, savedItems) {
 function renderSavedItems() {
   const selectedBefore = savedSelectEl.value;
   savedSelectEl.innerHTML = '';
+  state.quickSearchQuery = quickSearchEl ? quickSearchEl.value : state.quickSearchQuery;
+  const query = normalizeQuickSearch(state.quickSearchQuery);
+  const hasKnownEntries = Boolean(state.savedItems.length || state.historyQuickItems.length);
+
+  if (quickSearchEl) {
+    quickSearchEl.disabled = !hasKnownEntries && state.quickEntriesLoading;
+    quickSearchEl.placeholder = state.quickEntriesLoading && !hasKnownEntries
+      ? 'Loading quick entries...'
+      : 'Search quick entries';
+  }
+
+  if (state.quickEntriesLoading && !hasKnownEntries) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Loading quick entries...';
+    savedSelectEl.appendChild(option);
+    savedSelectEl.disabled = true;
+    quickAddBtnEl.disabled = true;
+    quickEditToggleBtnEl.disabled = true;
+    return;
+  }
+
+  if (state.quickEntriesError && !hasKnownEntries) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Quick entries unavailable';
+    savedSelectEl.appendChild(option);
+    savedSelectEl.disabled = true;
+    quickAddBtnEl.disabled = true;
+    quickEditToggleBtnEl.disabled = true;
+    return;
+  }
 
   if (!state.savedItems.length && !state.historyQuickItems.length) {
     const option = document.createElement('option');
     option.value = '';
     option.textContent = 'No quick add history yet';
     savedSelectEl.appendChild(option);
+    savedSelectEl.disabled = true;
     quickAddBtnEl.disabled = true;
     quickEditToggleBtnEl.disabled = true;
     return;
   }
 
-  for (const item of state.savedItems) {
+  const savedMatches = state.savedItems.filter((item) => matchesQuickSearch(item, query));
+  const historyMatches = state.historyQuickItems.filter((item) => matchesQuickSearch(item, query));
+
+  if (!savedMatches.length && !historyMatches.length) {
     const option = document.createElement('option');
-    option.value = 'saved:' + String(item.id);
-    option.textContent = formatSavedItemOption(item);
+    option.value = '';
+    option.textContent = query ? 'No matching quick entries' : 'No quick entries';
     savedSelectEl.appendChild(option);
+    savedSelectEl.disabled = true;
+    quickAddBtnEl.disabled = true;
+    quickEditToggleBtnEl.disabled = true;
+    return;
   }
 
-  if (state.historyQuickItems.length && state.savedItems.length) {
-    const divider = document.createElement('option');
-    divider.disabled = true;
-    divider.textContent = '--- Recent from previous days ---';
-    savedSelectEl.appendChild(divider);
-  }
-  for (const item of state.historyQuickItems) {
-    const option = document.createElement('option');
-    option.value = item.key;
-    option.textContent = formatSavedItemOption(item);
-    savedSelectEl.appendChild(option);
+  const appendGroup = (label, items, valueForItem) => {
+    if (!items.length) {
+      return;
+    }
+    const group = document.createElement('optgroup');
+    group.label = label;
+    for (const item of items) {
+      const option = document.createElement('option');
+      option.value = valueForItem(item);
+      option.textContent = formatSavedItemOption(item);
+      group.appendChild(option);
+    }
+    savedSelectEl.appendChild(group);
+  };
+
+  appendGroup('Saved quick entries', savedMatches, (item) => 'saved:' + String(item.id));
+  if (historyMatches.length) {
+    appendGroup('Recent from previous days', historyMatches, (item) => item.key);
   }
 
   const validValues = new Set([
-    ...state.savedItems.map((item) => 'saved:' + String(item.id)),
-    ...state.historyQuickItems.map((item) => item.key)
+    ...savedMatches.map((item) => 'saved:' + String(item.id)),
+    ...historyMatches.map((item) => item.key)
   ]);
   if (validValues.has(selectedBefore)) {
     savedSelectEl.value = selectedBefore;
   }
 
-  const selected = getSelectedSavedItem();
+  savedSelectEl.disabled = false;
   const selectedTemplate = getSelectedQuickTemplate();
-  quickAddBtnEl.disabled = false;
+  quickAddBtnEl.disabled = !selectedTemplate;
   quickEditToggleBtnEl.disabled = !selectedTemplate;
 }
 
@@ -2576,6 +2704,7 @@ function showCombineModal(entryIds, options) {
             })
           });
           setActionBanner('Quick add item saved.', 'success');
+          loadQuickEntries({ force: true });
         } catch (error) {
           setActionBanner(error.message, 'error');
         }
@@ -2727,6 +2856,7 @@ function showEntryModal(entry, { onSave, onDelete, title } = {}) {
           })
         });
         setActionBanner('Quick add item saved.', 'success');
+        loadQuickEntries({ force: true });
       } catch (error) {
         setActionBanner(error.message, 'error');
       }
@@ -2909,22 +3039,18 @@ function showWorkoutEditModal(entry) {
 
 async function refreshDashboard() {
   const tz = encodeURIComponent(getTimezone());
-  const [dashboard, saved, me] = await Promise.all([
-    api(`/api/dashboard?tz=${tz}`),
-    api('/api/saved-items'),
-    api('/api/me')
-  ]);
-  state.savedItems = saved;
-  state.historyQuickItems = buildHistoryQuickItems(dashboard.entries, state.savedItems);
+  const dashboard = await api(`/api/dashboard?tz=${tz}`);
   state.dashboardData = dashboard;
-  renderProfile(me.user || null);
+  syncHistoryQuickItems();
   renderSavedItems();
   renderDashboard(dashboard);
   bindTrendResize();
   bindTrendMacroCards();
   bindEditTargetsLink();
   bindSnapshotToggles();
-  await refreshMacroSnapshotData();
+  refreshMacroSnapshotData().catch((error) => {
+    console.error('Failed to refresh macro snapshot:', error);
+  });
 }
 
 parseBtnEl.addEventListener('click', async () => {
@@ -3034,6 +3160,9 @@ saveParsedBtnEl.addEventListener('click', async () => {
     parsedItemsContainerEl.innerHTML = '';
     saveParsedBtnEl.disabled = true;
     await refreshDashboard();
+    if (saveItems.length) {
+      loadQuickEntries({ force: true });
+    }
   } catch (error) {
     setActionBanner(error.message, 'error');
   }
@@ -3063,6 +3192,13 @@ savedSelectEl.addEventListener('change', () => {
   quickEditToggleBtnEl.disabled = !selectedTemplate;
 });
 
+if (quickSearchEl) {
+  quickSearchEl.addEventListener('input', () => {
+    state.quickSearchQuery = quickSearchEl.value;
+    renderSavedItems();
+  });
+}
+
 quickEditToggleBtnEl.addEventListener('click', () => {
   const selectedTemplate = getSelectedQuickTemplate();
   if (!selectedTemplate) return;
@@ -3087,6 +3223,7 @@ quickEditToggleBtnEl.addEventListener('click', () => {
         try {
           await api(`/api/saved-items/${selected.id}`, { method: 'DELETE' });
           setActionBanner('Quick add item deleted.', 'success');
+          await loadQuickEntries({ force: true });
           await refreshDashboard();
         } catch (error) {
           setActionBanner(error.message, 'error');
@@ -3116,6 +3253,7 @@ quickEditToggleBtnEl.addEventListener('click', () => {
             });
             setActionBanner('Quick add item saved.', 'success');
           }
+          await loadQuickEntries({ force: true });
           await refreshDashboard();
         } catch (error) {
           setActionBanner(error.message, 'error');
@@ -4917,6 +5055,12 @@ if (workoutQuickListEl) {
 
 renderActivePage('macros');
 bindPageChartsResize();
+
+loadQuickEntries({ force: true });
+
+refreshProfile().catch((error) => {
+  console.error('Failed to refresh profile:', error);
+});
 
 refreshDashboard().catch((error) => {
   setActionBanner(error.message, 'error');

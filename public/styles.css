@@ -970,6 +970,11 @@ button[disabled] {
   min-width: 16rem;
 }
 
+#quick-entry-search {
+  min-width: 12rem;
+  flex: 0 0 13rem;
+}
+
 #quick-multiplier {
   width: 4.5rem;
   min-width: 4.5rem;
@@ -2174,6 +2179,7 @@ button[disabled] {
     margin-top: 0.5rem;
   }
 
+  #quick-entry-search,
   #saved-item-select {
     width: 100%;
     min-width: 0;
@@ -2696,6 +2702,11 @@ button[disabled] {
   #saved-item-select {
     flex: 1 1 auto;
     min-width: 0;
+  }
+
+  #quick-entry-search {
+    flex: 0 0 14rem;
+    min-width: 12rem;
   }
 
   #quick-multiplier {

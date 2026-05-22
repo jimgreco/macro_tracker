@@ -92,6 +92,29 @@ test('weight entries support edit and delete actions', () => {
   assert.equal(server.includes("apiRouter.post('/weights/delete'"), true);
 });
 
+test('quick entries are searchable and load outside dashboard refresh', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+
+  assert.equal(html.includes('id="quick-entry-search"'), true);
+  assert.equal(script.includes('quickSearchEl.addEventListener'), true);
+  assert.equal(script.includes('loadQuickEntries({ force: true })'), true);
+
+  const start = script.indexOf('async function refreshDashboard()');
+  const end = script.indexOf("parseBtnEl.addEventListener", start);
+  const refreshSection = script.slice(start, end);
+  assert.equal(refreshSection.includes('/api/saved-items'), false);
+});
+
+test('iOS quick items are searchable and preload saved items in the background', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+
+  assert.equal(swift.includes('@State private var quickSearchText'), true);
+  assert.equal(swift.includes('TextField("Search quick entries"'), true);
+  assert.equal(swift.includes('Task { await loadSavedItems(showErrors: false) }'), true);
+  assert.equal(swift.includes('if !hasLoadedSavedItems'), true);
+});
+
 
 test('workout parser uses server endpoint with local fallback', () => {
   const script = read('public/script.js');
