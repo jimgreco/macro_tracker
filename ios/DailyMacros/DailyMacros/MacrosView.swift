@@ -473,15 +473,6 @@ struct MacrosView: View {
                 .cornerRadius(10)
                 .contentShape(Rectangle())
                 .onTapGesture { beginEditEntry(entry) }
-                .draggable(EntryDragData(entryId: entry.id, mealGroup: nil)) {
-                    // Drag preview
-                    Text(entry.itemName)
-                        .font(.subheadline)
-                        .padding(8)
-                        .background(Color.panelBg)
-                        .cornerRadius(8)
-                        .onAppear { isDragging = true }
-                }
                 .dropDestination(for: EntryDragData.self) { items, _ in
                     guard let dropped = items.first, dropped.entryId != entry.id else { return false }
                     Task { await combineEntries(ids: [entry.id, dropped.entryId]) }
@@ -587,14 +578,6 @@ struct MacrosView: View {
                         Label("Delete", systemImage: "trash")
                     }
                 }
-                .draggable(EntryDragData(entryId: entry.id, mealGroup: entry.mealGroup)) {
-                    Text(entry.itemName)
-                        .font(.caption)
-                        .padding(8)
-                        .background(Color.panelBg)
-                        .cornerRadius(8)
-                        .onAppear { isDragging = true }
-                }
             }
     }
 
@@ -606,6 +589,7 @@ struct MacrosView: View {
                     .frame(width: 4, height: 4)
                     .padding(.trailing, 4)
             }
+            entryDragHandle(for: entry, isSubItem: isSubItem)
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.itemName)
                     .font(isSubItem ? .caption : .subheadline)
@@ -626,6 +610,28 @@ struct MacrosView: View {
                     .minimumScaleFactor(0.75)
             }
         }
+    }
+
+    private func entryDragHandle(for entry: Entry, isSubItem: Bool) -> some View {
+        Image(systemName: "line.3.horizontal")
+            .font(isSubItem ? .caption2.weight(.semibold) : .caption.weight(.semibold))
+            .foregroundStyle(Color.mutedText.opacity(isSubItem ? 0.65 : 0.85))
+            .frame(width: isSubItem ? 20 : 24, height: isSubItem ? 24 : 28)
+            .contentShape(Rectangle())
+            .accessibilityLabel("Drag to combine meal items")
+            .draggable(EntryDragData(entryId: entry.id, mealGroup: entry.mealGroup)) {
+                entryDragPreview(for: entry, isSubItem: isSubItem)
+            }
+    }
+
+    private func entryDragPreview(for entry: Entry, isSubItem: Bool) -> some View {
+        Text(entry.itemName)
+            .font(isSubItem ? .caption : .subheadline)
+            .padding(8)
+            .background(Color.panelBg)
+            .cornerRadius(8)
+            .onAppear { isDragging = true }
+            .onDisappear { isDragging = false }
     }
 
     // MARK: - Edit Entry Sheet

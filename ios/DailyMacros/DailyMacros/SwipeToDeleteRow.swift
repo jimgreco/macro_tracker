@@ -2,6 +2,11 @@ import SwiftUI
 import UIKit
 
 struct SwipeToDeleteRow<Content: View>: View {
+    private enum DragAxis {
+        case horizontal
+        case vertical
+    }
+
     private let actionWidth: CGFloat
     private let actionTint: Color
     private let onDelete: () -> Void
@@ -9,6 +14,7 @@ struct SwipeToDeleteRow<Content: View>: View {
 
     @State private var offsetX: CGFloat = 0
     @State private var gestureStartOffsetX: CGFloat?
+    @State private var dragAxis: DragAxis?
     @State private var isDragging = false
     @State private var isDeleting = false
     @State private var isRevealed = false
@@ -102,9 +108,19 @@ struct SwipeToDeleteRow<Content: View>: View {
     }
 
     private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 8, coordinateSpace: .local)
+        DragGesture(minimumDistance: 14, coordinateSpace: .local)
             .onChanged { value in
-                guard isHorizontalSwipe(value) || offsetX < 0 else { return }
+                if dragAxis == nil {
+                    dragAxis = resolvedAxis(for: value)
+                }
+
+                guard dragAxis == .horizontal else {
+                    if isRevealed {
+                        close()
+                    }
+                    return
+                }
+
                 if gestureStartOffsetX == nil {
                     gestureStartOffsetX = offsetX
                     isDragging = true
@@ -116,9 +132,10 @@ struct SwipeToDeleteRow<Content: View>: View {
             .onEnded { value in
                 defer {
                     gestureStartOffsetX = nil
+                    dragAxis = nil
                     isDragging = false
                 }
-                guard isHorizontalSwipe(value) || offsetX < 0 else { return }
+                guard dragAxis == .horizontal else { return }
 
                 let baseOffset = gestureStartOffsetX ?? 0
                 let predictedOffset = baseOffset + value.predictedEndTranslation.width
@@ -127,8 +144,13 @@ struct SwipeToDeleteRow<Content: View>: View {
             }
     }
 
-    private func isHorizontalSwipe(_ value: DragGesture.Value) -> Bool {
-        abs(value.translation.width) > abs(value.translation.height) * 1.15
+    private func resolvedAxis(for value: DragGesture.Value) -> DragAxis? {
+        let horizontal = abs(value.translation.width)
+        let vertical = abs(value.translation.height)
+        let distance = max(horizontal, vertical)
+
+        guard distance >= 10 else { return nil }
+        return horizontal > vertical * 1.35 ? .horizontal : .vertical
     }
 
     private func rubberBandedOffset(_ value: CGFloat) -> CGFloat {
