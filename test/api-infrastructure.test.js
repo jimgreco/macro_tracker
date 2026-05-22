@@ -545,3 +545,12 @@ test('iOS settings exposes support privacy and build metadata', () => {
   assert.ok(plist.includes('<key>AppBuild</key>'));
   assert.ok(plist.includes('<key>GitCommitHash</key>'));
 });
+
+test('iOS list deletion wrapper does not intercept scroll drags', () => {
+  const row = read('ios/DailyMacros/DailyMacros/SwipeToDeleteRow.swift');
+
+  assert.equal(row.includes('DragGesture'), false);
+  assert.equal(row.includes('simultaneousGesture'), false);
+  assert.ok(row.includes('.contextMenu'));
+  assert.ok(row.includes('accessibilityAction'));
+});
