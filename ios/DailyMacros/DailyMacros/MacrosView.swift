@@ -144,6 +144,7 @@ struct MacrosView: View {
 
     private let trendPeriods = ["week", "month", "year"]
     private let macroOptions = ["calories", "protein", "carbs", "fat"]
+    private let addSheetTopAnchor = "add-sheet-top"
 
     private var quickTemplates: [QuickAddTemplate] {
         var templates = savedItems.map { item in
@@ -739,6 +740,7 @@ struct MacrosView: View {
                 .padding(.vertical, 10)
             }
             .scrollIndicators(.hidden)
+            .scrollDismissesKeyboard(.interactively)
             .background(Color.deepBg)
             .navigationTitle("Edit Entry")
             .navigationBarTitleDisplayMode(.inline)
@@ -749,6 +751,7 @@ struct MacrosView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationContentInteraction(.scrolls)
     }
 
     /// When quantity changes, auto-scale macros proportionally
@@ -944,6 +947,7 @@ struct MacrosView: View {
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(Color.deepBg)
             .navigationTitle("Edit Meal")
             .navigationBarTitleDisplayMode(.inline)
@@ -954,6 +958,7 @@ struct MacrosView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationContentInteraction(.scrolls)
     }
 
     private var mealScaleFactor: Double? {
@@ -1159,23 +1164,26 @@ struct MacrosView: View {
 
     private var editTargetsSheet: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                targetField("Calories (kcal)", text: $editCalories)
-                targetField("Protein (g)", text: $editProtein)
-                targetField("Carbs (g)", text: $editCarbs)
-                targetField("Fat (g)", text: $editFat)
+            ScrollView {
+                VStack(spacing: 16) {
+                    targetField("Calories (kcal)", text: $editCalories)
+                    targetField("Protein (g)", text: $editProtein)
+                    targetField("Carbs (g)", text: $editCarbs)
+                    targetField("Fat (g)", text: $editFat)
 
-                Button {
-                    Task { await saveTargets() }
-                } label: {
-                    Text("Save Targets").font(.headline).frame(maxWidth: .infinity)
+                    Button {
+                        Task { await saveTargets() }
+                    } label: {
+                        Text("Save Targets").font(.headline).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.neonCyan)
+
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.neonCyan)
-
-                Spacer()
+                .padding()
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Edit Targets")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1185,6 +1193,7 @@ struct MacrosView: View {
             }
         }
         .presentationDetents([.medium])
+        .presentationContentInteraction(.scrolls)
     }
 
     private func targetField(_ label: String, text: Binding<String>) -> some View {
@@ -1202,46 +1211,66 @@ struct MacrosView: View {
 
     private var addSheet: some View {
         NavigationStack {
-            Group {
-                if showParsed {
-                    ScrollView {
-                        parsedResultsView
-                            .padding()
-                    }
-                } else {
-                    addInputView
-                }
-            }
-            .background(Color.deepBg)
-            .navigationTitle(showParsed ? "Confirm Meal" : "Log Meal")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(showParsed ? "Back" : "Cancel") {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    Color.clear
+                        .frame(height: 1)
+                        .id(addSheetTopAnchor)
+
+                    Group {
                         if showParsed {
-                            showParsed = false
-                            parsedItems = []
-                            parsedMealName = nil
+                            parsedResultsView
+                                .padding()
                         } else {
-                            showAddSheet = false
-                            mealText = ""
+                            addInputView
+                        }
+                    }
+                    .background(Color.deepBg)
+                    .onChange(of: showParsed) { _, _ in
+                        resetAddSheetScroll(proxy)
+                    }
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .background(Color.deepBg)
+                .navigationTitle(showParsed ? "Confirm Meal" : "Log Meal")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(showParsed ? "Back" : "Cancel") {
+                            if showParsed {
+                                showParsed = false
+                                parsedItems = []
+                                parsedMealName = nil
+                            } else {
+                                showAddSheet = false
+                                mealText = ""
+                            }
                         }
                     }
                 }
-            }
-            .sheet(isPresented: $showEditParsedItem) {
-                editParsedItemSheet
-            }
-            .sheet(item: $editingQuickTemplate) { template in
-                editQuickAddSheet(template)
-            }
-            .sheet(isPresented: $showCamera) {
-                CameraPicker(image: $mealPreviewImage, imageDataUrl: $mealImageDataUrl) { message in
-                    errorMessage = message
+                .sheet(isPresented: $showEditParsedItem) {
+                    editParsedItemSheet
+                }
+                .sheet(item: $editingQuickTemplate) { template in
+                    editQuickAddSheet(template)
+                }
+                .sheet(isPresented: $showCamera) {
+                    CameraPicker(image: $mealPreviewImage, imageDataUrl: $mealImageDataUrl) { message in
+                        errorMessage = message
+                    }
                 }
             }
         }
         .presentationDetents([.large])
+        .presentationContentInteraction(.scrolls)
+    }
+
+    private func resetAddSheetScroll(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.16)) {
+                proxy.scrollTo(addSheetTopAnchor, anchor: .top)
+            }
+        }
     }
 
     private var addInputView: some View {
@@ -1378,21 +1407,19 @@ struct MacrosView: View {
                     .frame(maxWidth: .infinity)
                     .padding()
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(visibleTemplates) { template in
-                            quickAddRow(template)
+                LazyVStack(spacing: 0) {
+                    ForEach(visibleTemplates) { template in
+                        quickAddRow(template)
 
-                            if template.id != visibleTemplates.last?.id {
-                                Divider()
-                                    .padding(.leading, 16)
-                            }
+                        if template.id != visibleTemplates.last?.id {
+                            Divider()
+                                .padding(.leading, 16)
                         }
                     }
                 }
             }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
+        .padding(.bottom, 12)
     }
 
     private func quickAddRow(_ template: QuickAddTemplate) -> some View {
@@ -1593,6 +1620,7 @@ struct MacrosView: View {
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(Color.deepBg)
             .navigationTitle("Edit Parsed Item")
             .navigationBarTitleDisplayMode(.inline)
@@ -1603,6 +1631,7 @@ struct MacrosView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationContentInteraction(.scrolls)
     }
 
     private func scaleParsedMacros(newQuantityStr: String) {
@@ -1689,6 +1718,7 @@ struct MacrosView: View {
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(Color.deepBg)
             .navigationTitle(template.isSaved ? "Edit Quick Add" : "Recent Item")
             .navigationBarTitleDisplayMode(.inline)
@@ -1699,6 +1729,7 @@ struct MacrosView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationContentInteraction(.scrolls)
     }
 
     // MARK: - Actions

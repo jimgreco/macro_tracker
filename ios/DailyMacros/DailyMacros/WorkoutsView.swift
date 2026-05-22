@@ -41,6 +41,7 @@ struct WorkoutsView: View {
     private let scopes = ["week", "month", "year"]
     private let intensityOptions = ["low", "medium", "high"]
     private let logPageSize = 30
+    private let logWorkoutSheetTopAnchor = "log-workout-sheet-top"
 
     var body: some View {
         NavigationStack {
@@ -454,36 +455,39 @@ struct WorkoutsView: View {
 
     private var editTargetsSheet: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Workouts per Week")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField("Workouts/week", text: $editWorkoutsPerWeek)
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.numberPad)
-                }
+            ScrollView {
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Workouts per Week")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("Workouts/week", text: $editWorkoutsPerWeek)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.numberPad)
+                    }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Calories Burned per Week")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField("Cal/week", text: $editCaloriesPerWeek)
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.numberPad)
-                }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Calories Burned per Week")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("Cal/week", text: $editCaloriesPerWeek)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.numberPad)
+                    }
 
-                Button {
-                    Task { await saveWorkoutTargets() }
-                } label: {
-                    Text("Save Targets").font(.headline).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
+                    Button {
+                        Task { await saveWorkoutTargets() }
+                    } label: {
+                        Text("Save Targets").font(.headline).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
 
-                Spacer()
+                    Spacer(minLength: 0)
+                }
+                .padding()
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Workout Targets")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -493,29 +497,51 @@ struct WorkoutsView: View {
             }
         }
         .presentationDetents([.medium])
+        .presentationContentInteraction(.scrolls)
     }
 
     // MARK: - Log Workout Sheet
 
     private var logWorkoutSheet: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                if let parsed = parsedWorkout {
-                    parsedWorkoutView(parsed)
-                } else {
-                    workoutInputView
+            ScrollViewReader { proxy in
+                ScrollView {
+                    Color.clear
+                        .frame(height: 1)
+                        .id(logWorkoutSheetTopAnchor)
+
+                    VStack(spacing: 16) {
+                        if let parsed = parsedWorkout {
+                            parsedWorkoutView(parsed)
+                        } else {
+                            workoutInputView
+                        }
+                    }
+                    .padding()
+                    .onChange(of: parsedWorkout != nil) { _, _ in
+                        resetLogWorkoutSheetScroll(proxy)
+                    }
                 }
-            }
-            .padding()
-            .navigationTitle(parsedWorkout != nil ? "Confirm Workout" : "Log Workout")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { resetWorkoutSheet() }
+                .scrollDismissesKeyboard(.interactively)
+                .navigationTitle(parsedWorkout != nil ? "Confirm Workout" : "Log Workout")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { resetWorkoutSheet() }
+                    }
                 }
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationContentInteraction(.scrolls)
+    }
+
+    private func resetLogWorkoutSheetScroll(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.16)) {
+                proxy.scrollTo(logWorkoutSheetTopAnchor, anchor: .top)
+            }
+        }
     }
 
     private var workoutInputView: some View {
@@ -688,6 +714,7 @@ struct WorkoutsView: View {
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Edit Workout")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -697,6 +724,7 @@ struct WorkoutsView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationContentInteraction(.scrolls)
     }
 
     private func detailRow(_ label: String, value: String) -> some View {

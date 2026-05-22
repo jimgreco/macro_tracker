@@ -252,30 +252,33 @@ struct WeightView: View {
 
     private var addWeightSheet: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                TextField("Weight (lbs)", text: $newWeight)
-                    .textFieldStyle(.roundedBorder)
-                    .keyboardType(.decimalPad)
+            ScrollView {
+                VStack(spacing: 16) {
+                    TextField("Weight (lbs)", text: $newWeight)
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.decimalPad)
 
-                DatePicker("Logged At", selection: $newWeightDate)
-                    .datePickerStyle(.compact)
+                    DatePicker("Logged At", selection: $newWeightDate)
+                        .datePickerStyle(.compact)
 
-                Button {
-                    Task { await addWeight() }
-                } label: {
-                    if isLoading {
-                        ProgressView().frame(maxWidth: .infinity)
-                    } else {
-                        Text("Log Weight").font(.headline).frame(maxWidth: .infinity)
+                    Button {
+                        Task { await addWeight() }
+                    } label: {
+                        if isLoading {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Log Weight").font(.headline).frame(maxWidth: .infinity)
+                        }
                     }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
-                .disabled(newWeight.isEmpty || isLoading)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
+                    .disabled(newWeight.isEmpty || isLoading)
 
-                Spacer()
+                    Spacer(minLength: 0)
+                }
+                .padding()
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Log Weight")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -285,46 +288,50 @@ struct WeightView: View {
             }
         }
         .presentationDetents([.medium])
+        .presentationContentInteraction(.scrolls)
     }
 
     // MARK: - Edit Weight Sheet
 
     private func editWeightSheet(_ entry: WeightEntry) -> some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                TextField("Weight (lbs)", text: $editWeightValue)
-                    .textFieldStyle(.roundedBorder)
-                    .keyboardType(.decimalPad)
+            ScrollView {
+                VStack(spacing: 16) {
+                    TextField("Weight (lbs)", text: $editWeightValue)
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.decimalPad)
 
-                DatePicker("Logged At", selection: $editWeightDate)
-                    .datePickerStyle(.compact)
+                    DatePicker("Logged At", selection: $editWeightDate)
+                        .datePickerStyle(.compact)
 
-                Button {
-                    Task { await updateWeight(entry) }
-                } label: {
-                    if isLoading {
-                        ProgressView().frame(maxWidth: .infinity)
-                    } else {
-                        Text("Save").font(.headline).frame(maxWidth: .infinity)
+                    Button {
+                        Task { await updateWeight(entry) }
+                    } label: {
+                        if isLoading {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Save").font(.headline).frame(maxWidth: .infinity)
+                        }
                     }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
-                .disabled(editWeightValue.isEmpty || isLoading)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
+                    .disabled(editWeightValue.isEmpty || isLoading)
 
-                Button(role: .destructive) {
-                    Task {
-                        await deleteWeight(entry.id)
-                        editingEntry = nil
+                    Button(role: .destructive) {
+                        Task {
+                            await deleteWeight(entry.id)
+                            editingEntry = nil
+                        }
+                    } label: {
+                        Text("Delete Entry").frame(maxWidth: .infinity)
                     }
-                } label: {
-                    Text("Delete Entry").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
+                    .buttonStyle(.bordered)
 
-                Spacer()
+                    Spacer(minLength: 0)
+                }
+                .padding()
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Edit Weight")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -334,43 +341,47 @@ struct WeightView: View {
             }
         }
         .presentationDetents([.medium])
+        .presentationContentInteraction(.scrolls)
     }
 
     // MARK: - Edit Target Sheet
 
     private var editTargetSheet: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Target Weight (lbs)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField("Target Weight", text: $editTargetWeight)
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.decimalPad)
-                }
+            ScrollView {
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Target Weight (lbs)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("Target Weight", text: $editTargetWeight)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.decimalPad)
+                    }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Target Date")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    DatePicker("", selection: $editTargetDate, displayedComponents: .date)
-                        .datePickerStyle(.compact)
-                        .labelsHidden()
-                }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Target Date")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        DatePicker("", selection: $editTargetDate, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                            .labelsHidden()
+                    }
 
-                Button {
-                    Task { await saveTarget() }
-                } label: {
-                    Text("Save Target").font(.headline).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
-                .disabled(editTargetWeight.isEmpty)
+                    Button {
+                        Task { await saveTarget() }
+                    } label: {
+                        Text("Save Target").font(.headline).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
+                    .disabled(editTargetWeight.isEmpty)
 
-                Spacer()
+                    Spacer(minLength: 0)
+                }
+                .padding()
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Weight Target")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -380,6 +391,7 @@ struct WeightView: View {
             }
         }
         .presentationDetents([.medium])
+        .presentationContentInteraction(.scrolls)
     }
 
     // MARK: - Actions

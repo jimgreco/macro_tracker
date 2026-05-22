@@ -604,45 +604,48 @@ struct HealthView: View {
 
     private var logHealthSheet: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Activity Type")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker("Type", selection: $selectedActivityType) {
-                        ForEach(activityTypes, id: \.self) { type in
-                            Text(type.capitalized).tag(type)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Activity Type")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("Type", selection: $selectedActivityType) {
+                            ForEach(activityTypes, id: \.self) { type in
+                                Text(type.capitalized).tag(type)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Date & Time")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        DatePicker("", selection: $healthLogDate)
+                            .labelsHidden()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button {
+                        Task { await saveHealthEntry() }
+                    } label: {
+                        if isSavingHealth {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Log Entry").font(.headline).frame(maxWidth: .infinity)
                         }
                     }
-                    .pickerStyle(.menu)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
+                    .disabled(isSavingHealth)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Date & Time")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    DatePicker("", selection: $healthLogDate)
-                        .labelsHidden()
+                    Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button {
-                    Task { await saveHealthEntry() }
-                } label: {
-                    if isSavingHealth {
-                        ProgressView().frame(maxWidth: .infinity)
-                    } else {
-                        Text("Log Entry").font(.headline).frame(maxWidth: .infinity)
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
-                .disabled(isSavingHealth)
-
-                Spacer()
+                .padding()
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Log Activity")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -652,63 +655,67 @@ struct HealthView: View {
             }
         }
         .presentationDetents([.medium])
+        .presentationContentInteraction(.scrolls)
     }
 
     // MARK: - Log Sleep Sheet
 
     private var logSleepSheet: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Hours")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        TextField("7.5", text: $sleepHours)
-                            .textFieldStyle(.roundedBorder)
-                            .keyboardType(.decimalPad)
-                            .frame(maxWidth: .infinity)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Hours")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("7.5", text: $sleepHours)
+                                .textFieldStyle(.roundedBorder)
+                                .keyboardType(.decimalPad)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Wake-ups")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("0", text: $sleepWakeUps)
+                                .textFieldStyle(.roundedBorder)
+                                .keyboardType(.numberPad)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Wake-ups")
+                        Text("Date & Time")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        TextField("0", text: $sleepWakeUps)
-                            .textFieldStyle(.roundedBorder)
-                            .keyboardType(.numberPad)
-                            .frame(maxWidth: .infinity)
+                        DatePicker("", selection: $sleepLogDate)
+                            .labelsHidden()
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Date & Time")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    DatePicker("", selection: $sleepLogDate)
-                        .labelsHidden()
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button {
-                    Task { await saveSleepEntry() }
-                } label: {
-                    if isSavingSleep {
-                        ProgressView().frame(maxWidth: .infinity)
-                    } else {
-                        Text("Log Sleep").font(.headline).frame(maxWidth: .infinity)
+                    Button {
+                        Task { await saveSleepEntry() }
+                    } label: {
+                        if isSavingSleep {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Log Sleep").font(.headline).frame(maxWidth: .infinity)
+                        }
                     }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
-                .disabled(isSavingSleep)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
+                    .disabled(isSavingSleep)
 
-                Spacer()
+                    Spacer(minLength: 0)
+                }
+                .padding()
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Log Sleep")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -718,39 +725,43 @@ struct HealthView: View {
             }
         }
         .presentationDetents([.medium])
+        .presentationContentInteraction(.scrolls)
     }
 
     // MARK: - Edit Sleep Targets Sheet
 
     private var editSleepTargetsSheet: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Target Hours")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField("8", text: $editSleepTargetHours)
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.decimalPad)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button {
-                    Task { await saveSleepTargets() }
-                } label: {
-                    if isSavingSleepTarget {
-                        ProgressView().frame(maxWidth: .infinity)
-                    } else {
-                        Text("Save").font(.headline).frame(maxWidth: .infinity)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Target Hours")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("8", text: $editSleepTargetHours)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.decimalPad)
                     }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
-                .disabled(isSavingSleepTarget)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer()
+                    Button {
+                        Task { await saveSleepTargets() }
+                    } label: {
+                        if isSavingSleepTarget {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Save").font(.headline).frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
+                    .disabled(isSavingSleepTarget)
+
+                    Spacer(minLength: 0)
+                }
+                .padding()
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Edit Targets")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -760,50 +771,54 @@ struct HealthView: View {
             }
         }
         .presentationDetents([.height(220), .medium])
+        .presentationContentInteraction(.scrolls)
     }
 
     // MARK: - Edit Health Sheet
 
     private func editHealthSheet(_ entry: HealthEntry) -> some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Activity Type")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker("Type", selection: $editHealthType) {
-                        ForEach(activityTypes, id: \.self) { type in
-                            Text(type.capitalized).tag(type)
+            ScrollView {
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Activity Type")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("Type", selection: $editHealthType) {
+                            ForEach(activityTypes, id: \.self) { type in
+                                Text(type.capitalized).tag(type)
+                            }
                         }
+                        .pickerStyle(.menu)
                     }
-                    .pickerStyle(.menu)
-                }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Date & Time")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    DatePicker("", selection: $editHealthDate)
-                        .labelsHidden()
-                }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Date & Time")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        DatePicker("", selection: $editHealthDate)
+                            .labelsHidden()
+                    }
 
-                Button {
-                    Task { await updateHealth(entry) }
-                } label: {
-                    Text("Save").font(.headline).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
+                    Button {
+                        Task { await updateHealth(entry) }
+                    } label: {
+                        Text("Save").font(.headline).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
 
-                Button(role: .destructive) {
-                    Task { await deleteHealth(entry) }
-                } label: {
-                    Text("Delete Entry").font(.headline).frame(maxWidth: .infinity)
-                }
+                    Button(role: .destructive) {
+                        Task { await deleteHealth(entry) }
+                    } label: {
+                        Text("Delete Entry").font(.headline).frame(maxWidth: .infinity)
+                    }
 
-                Spacer()
+                    Spacer(minLength: 0)
+                }
+                .padding()
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Edit Activity")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -813,58 +828,62 @@ struct HealthView: View {
             }
         }
         .presentationDetents([.medium])
+        .presentationContentInteraction(.scrolls)
     }
 
     // MARK: - Edit Sleep Sheet
 
     private func editSleepSheet(_ entry: SleepEntry) -> some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Hours")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        TextField("7.5", text: $editSleepHours)
-                            .textFieldStyle(.roundedBorder)
-                            .keyboardType(.decimalPad)
+            ScrollView {
+                VStack(spacing: 16) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Hours")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("7.5", text: $editSleepHours)
+                                .textFieldStyle(.roundedBorder)
+                                .keyboardType(.decimalPad)
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Wake-ups")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("0", text: $editSleepWakeUps)
+                                .textFieldStyle(.roundedBorder)
+                                .keyboardType(.numberPad)
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Wake-ups")
+                        Text("Date & Time")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        TextField("0", text: $editSleepWakeUps)
-                            .textFieldStyle(.roundedBorder)
-                            .keyboardType(.numberPad)
+                        DatePicker("", selection: $editSleepDate)
+                            .labelsHidden()
                     }
-                }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Date & Time")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    DatePicker("", selection: $editSleepDate)
-                        .labelsHidden()
-                }
+                    Button {
+                        Task { await updateSleep(entry) }
+                    } label: {
+                        Text("Save").font(.headline).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
 
-                Button {
-                    Task { await updateSleep(entry) }
-                } label: {
-                    Text("Save").font(.headline).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
+                    Button(role: .destructive) {
+                        Task { await deleteSleep(entry) }
+                    } label: {
+                        Text("Delete Entry").font(.headline).frame(maxWidth: .infinity)
+                    }
 
-                Button(role: .destructive) {
-                    Task { await deleteSleep(entry) }
-                } label: {
-                    Text("Delete Entry").font(.headline).frame(maxWidth: .infinity)
+                    Spacer(minLength: 0)
                 }
-
-                Spacer()
+                .padding()
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Edit Sleep")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -874,6 +893,7 @@ struct HealthView: View {
             }
         }
         .presentationDetents([.medium])
+        .presentationContentInteraction(.scrolls)
     }
 
     // MARK: - Actions
