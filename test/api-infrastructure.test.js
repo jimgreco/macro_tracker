@@ -504,6 +504,9 @@ test('scheduled production smoke workflow can run public and authenticated check
 
   assert.ok(workflow.includes("cron: '17 * * * *'"));
   assert.ok(workflow.includes('PRODUCTION_SMOKE_API_TOKEN'));
+  assert.ok(workflow.includes('Skip when production URL is not configured'));
+  assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL == ''"));
+  assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL != ''"));
   assert.ok(workflow.includes('scripts/production-smoke.sh'));
   assert.ok(script.includes('$BASE_URL/healthz'));
   assert.ok(script.includes('$BASE_URL/version'));
