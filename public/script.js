@@ -36,7 +36,8 @@ const state = {
   expandedMealGroups: new Set(),
   selectedEntryIds: new Set(),
   selectedMealGroups: new Set(),
-  editingEntries: false
+  editingEntries: false,
+  appVersion: null
 };
 
 const mealTextEl = document.getElementById('meal-text');
@@ -112,6 +113,7 @@ const profilePopoverEl = document.getElementById('profile-popover');
 const profileAvatarEl = document.getElementById('profile-avatar');
 const profileNameEl = document.getElementById('profile-name');
 const profileEmailEl = document.getElementById('profile-email');
+const accountInfoBtnEl = document.getElementById('account-info-btn');
 const logoutBtnEl = document.getElementById('logout-btn');
 const pageMenuItems = Array.from(document.querySelectorAll('.nav-tab'));
 const appPages = {
@@ -221,6 +223,29 @@ function setText(el, value) {
   if (el) {
     el.textContent = value;
   }
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char]);
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
+function escapeJsonAttr(value) {
+  return escapeAttr(JSON.stringify(value));
+}
+
+function safeId(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? String(id) : '';
 }
 
 function getLocalIsoDay(dateLike = new Date()) {
@@ -415,7 +440,7 @@ function showEditTargetsModal() {
       ${macros.map((m) => {
         const val = Number(targets[m] || 0);
         return `<label for="target-modal-${m}">${m.charAt(0).toUpperCase() + m.slice(1)} (${macroUnit(m)})</label>
-      <input id="target-modal-${m}" type="number" step="1" min="0" value="${val > 0 ? val : ''}" placeholder="No target" />`;
+      <input id="target-modal-${m}" type="number" step="1" min="0" value="${escapeAttr(val > 0 ? val : '')}" placeholder="No target" />`;
       }).join('\n      ')}
       <div class="combine-modal-actions">
         <button type="button" class="btn-muted table-action-btn" id="target-modal-cancel-btn">Cancel</button>
@@ -492,9 +517,9 @@ function showWorkoutTargetModal() {
     <div class="combine-modal entry-modal">
       <h3>Edit Workout Targets</h3>
       <label for="wkt-modal-target">Workouts per week</label>
-      <input id="wkt-modal-target" type="number" min="0" max="14" step="1" value="${currentWorkouts}" placeholder="No target" />
+      <input id="wkt-modal-target" type="number" min="0" max="14" step="1" value="${escapeAttr(currentWorkouts)}" placeholder="No target" />
       <label for="wkt-modal-cal-target">Calories burned per week</label>
-      <input id="wkt-modal-cal-target" type="number" min="0" step="50" value="${currentCals}" placeholder="No target" />
+      <input id="wkt-modal-cal-target" type="number" min="0" step="50" value="${escapeAttr(currentCals)}" placeholder="No target" />
       <div class="combine-modal-actions">
         <button type="button" class="btn-muted table-action-btn" id="wkt-modal-cancel-btn">Cancel</button>
         <button type="button" class="btn-success table-action-btn" id="wkt-modal-save-btn">Save</button>
@@ -581,7 +606,7 @@ function showSleepTargetModal() {
     <div class="combine-modal entry-modal">
       <h3>Edit Sleep Target</h3>
       <label for="sleep-target-modal-hours">Target hours per night</label>
-      <input id="sleep-target-modal-hours" type="number" min="0.25" max="24" step="0.25" value="${fmtNumber(currentTarget)}" placeholder="8" />
+      <input id="sleep-target-modal-hours" type="number" min="0.25" max="24" step="0.25" value="${escapeAttr(fmtNumber(currentTarget))}" placeholder="8" />
       <div class="combine-modal-actions">
         <button type="button" class="btn-muted table-action-btn" id="sleep-target-modal-cancel-btn">Cancel</button>
         <button type="button" class="btn-success table-action-btn" id="sleep-target-modal-save-btn">Save</button>
@@ -938,7 +963,18 @@ function renderProfile(user) {
   profileNameEl.textContent = user.name || 'Google User';
   profileEmailEl.textContent = user.email || '';
   if (user.picture) {
-    profileAvatarEl.src = user.picture;
+    try {
+      const avatarUrl = new URL(user.picture);
+      if (avatarUrl.protocol === 'https:') {
+        profileAvatarEl.src = avatarUrl.href;
+      } else {
+        profileAvatarEl.removeAttribute('src');
+      }
+    } catch (_error) {
+      profileAvatarEl.removeAttribute('src');
+    }
+  } else {
+    profileAvatarEl.removeAttribute('src');
   }
 }
 
@@ -1037,6 +1073,14 @@ async function refreshProfile() {
   renderProfile(me.user || null);
 }
 
+async function refreshAppVersion() {
+  try {
+    state.appVersion = await api('/api/version');
+  } catch (_error) {
+    state.appVersion = null;
+  }
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -1055,9 +1099,91 @@ async function api(path, options = {}) {
 
   if (!res.ok) {
     const fallback = `Request failed (${res.status})`;
-    throw new Error(body.error || fallback);
+    const requestId = body.requestId || res.headers.get('x-request-id') || '';
+    const err = new Error((body.error || fallback) + (requestId ? ` Reference: ${requestId}` : ''));
+    err.requestId = requestId;
+    throw err;
   }
   return body;
+}
+
+async function exportAccountData() {
+  const data = await api('/api/account/export');
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'daily-macros-account-export.json';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function deleteAccount() {
+  if (!window.confirm('Delete your account and all app data? This cannot be undone.')) {
+    return;
+  }
+  await api('/api/account', { method: 'DELETE' });
+  window.location.href = '/login';
+}
+
+function showAccountPrivacyModal() {
+  let overlay = document.getElementById('entry-modal-overlay');
+  if (overlay) overlay.remove();
+
+  const version = state.appVersion || {};
+  const build = version.appBuild || 'local';
+  const packageVersion = version.packageVersion || 'unknown';
+
+  overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal entry-modal account-privacy-modal">
+      <h3>Account & Privacy</h3>
+      <div class="account-privacy-copy">
+        <p><strong>Support</strong><span>Contact the person who invited you. Include any request reference shown in an error message.</span></p>
+        <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, sexual activity entries, meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
+        <p><strong>AI processing</strong><span>Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them.</span></p>
+        <p><strong>Controls</strong><span>You can export your account data or delete your account from here.</span></p>
+      </div>
+      <div class="account-build-meta">
+        <span>Web ${escapeHtml(packageVersion)}</span>
+        <span>Build ${escapeHtml(build)}</span>
+      </div>
+      <div class="combine-modal-actions">
+        <button type="button" class="btn-info table-action-btn" id="account-export-btn">Export Data</button>
+        <button type="button" class="btn-danger table-action-btn" id="account-delete-btn">Delete Account</button>
+        <span style="flex:1"></span>
+        <button type="button" class="btn-muted table-action-btn" id="account-close-btn">Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.getElementById('account-close-btn').addEventListener('click', () => overlay.remove());
+  document.getElementById('account-export-btn').addEventListener('click', async () => {
+    try {
+      await exportAccountData();
+      setActionBanner('Account export created.', 'success');
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+  document.getElementById('account-delete-btn').addEventListener('click', async () => {
+    try {
+      await deleteAccount();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+  overlay.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') overlay.remove();
+  });
 }
 
 function formatDateTimeLabel(isoString) {
@@ -1243,8 +1369,8 @@ function renderParsedItems(parsedMeal) {
     header.className = 'parsed-meal-header parsed-item-card';
     header.innerHTML = `
       <div class="parsed-item-summary">
-        <span class="parsed-item-name">${parsedMeal.mealName || 'Meal'}</span>
-        <span class="parsed-item-macros">${fmtNumber(mealQty)} ${mealUnit} &middot; ${fmtNumber(totals.calories)} cal &middot; ${fmtNumber(totals.protein)}g protein &middot; ${fmtNumber(totals.carbs)}g carbs &middot; ${fmtNumber(totals.fat)}g fat</span>
+        <span class="parsed-item-name">${escapeHtml(parsedMeal.mealName || 'Meal')}</span>
+        <span class="parsed-item-macros">${fmtNumber(mealQty)} ${escapeHtml(mealUnit)} &middot; ${fmtNumber(totals.calories)} cal &middot; ${fmtNumber(totals.protein)}g protein &middot; ${fmtNumber(totals.carbs)}g carbs &middot; ${fmtNumber(totals.fat)}g fat</span>
       </div>
       <div class="parsed-item-right">
         <div class="parsed-item-btn-row">
@@ -1282,7 +1408,7 @@ function renderParsedItems(parsedMeal) {
     const summary = document.createElement('div');
     summary.className = 'parsed-item-summary';
     summary.innerHTML = `
-      <span class="parsed-item-name">${item.itemName}</span>
+      <span class="parsed-item-name">${escapeHtml(item.itemName)}</span>
       <span class="parsed-item-macros">${fmtNumber(item.calories)} cal &middot; ${fmtNumber(item.protein)}g protein &middot; ${fmtNumber(item.carbs)}g carbs &middot; ${fmtNumber(item.fat)}g fat</span>
     `;
 
@@ -1626,13 +1752,15 @@ function renderMacroCard(entry) {
   const checked = state.selectedEntryIds.has(entry.id) ? 'checked' : '';
   const inGroup = Boolean(entry.mealGroup);
   const timeStr = new Date(entry.consumedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const entryId = safeId(entry.id);
+  const mealGroup = escapeAttr(entry.mealGroup || '');
   return `
-    <div class="macro-card" data-entry-id="${entry.id}">
-      <div class="macro-card-check"><input type="checkbox" class="entry-checkbox" data-entry-id="${entry.id}" ${inGroup ? `data-in-group="1" data-meal-group="${entry.mealGroup}"` : ''} ${checked} /></div>
-      <div class="macro-card-body" data-edit-entry-id="${entry.id}">
-        <div class="macro-card-title">${entry.itemName}</div>
+    <div class="macro-card" data-entry-id="${entryId}">
+      <div class="macro-card-check"><input type="checkbox" class="entry-checkbox" data-entry-id="${entryId}" ${inGroup ? `data-in-group="1" data-meal-group="${mealGroup}"` : ''} ${checked} /></div>
+      <div class="macro-card-body" data-edit-entry-id="${entryId}">
+        <div class="macro-card-title">${escapeHtml(entry.itemName)}</div>
         <div class="entry-card-chips">
-          <span class="entry-card-chip">${fmtNumber(entry.quantity)} ${entry.unit || ''}</span>
+          <span class="entry-card-chip">${fmtNumber(entry.quantity)} ${escapeHtml(entry.unit || '')}</span>
           <span class="entry-card-chip entry-card-chip--accent">${fmtNumber(entry.calories)} cal</span>
           <span class="entry-card-chip">${fmtNumber(entry.protein)}g protein</span>
           <span class="entry-card-chip">${fmtNumber(entry.carbs)}g carbs</span>
@@ -1646,25 +1774,26 @@ function renderMacroCard(entry) {
 
 function renderEditRowMobile(entry) {
   const consumedAtValue = isoToLocalInputValue(entry.consumedAt);
+  const entryId = safeId(entry.id);
   return `
     <td data-label="Edit" colspan="8">
       <table class="edit-vertical-table">
         <tbody>
-          <tr><th>Item</th><td><input data-field="itemName" value="${entry.itemName}" /></td></tr>
-          <tr><th>Quantity</th><td><input type="number" step="0.1" data-field="quantity" value="${entry.quantity}" data-base-quantity="${entry.quantity}" data-base-calories="${entry.calories}" data-base-protein="${entry.protein}" data-base-carbs="${entry.carbs}" data-base-fat="${entry.fat}" /></td></tr>
-          <tr><th>Unit</th><td><input data-field="unit" value="${entry.unit || ''}" /></td></tr>
-          <tr><th>Calories</th><td><input type="number" step="0.1" data-field="calories" value="${entry.calories}" /></td></tr>
-          <tr><th>Protein</th><td><input type="number" step="0.1" data-field="protein" value="${entry.protein}" /></td></tr>
-          <tr><th>Carbs</th><td><input type="number" step="0.1" data-field="carbs" value="${entry.carbs}" /></td></tr>
-          <tr><th>Fat</th><td><input type="number" step="0.1" data-field="fat" value="${entry.fat}" /></td></tr>
-          <tr><th>Time</th><td><input type="datetime-local" data-field="consumedAt" value="${consumedAtValue}" /></td></tr>
+          <tr><th>Item</th><td><input data-field="itemName" value="${escapeAttr(entry.itemName)}" /></td></tr>
+          <tr><th>Quantity</th><td><input type="number" step="0.1" data-field="quantity" value="${escapeAttr(entry.quantity)}" data-base-quantity="${escapeAttr(entry.quantity)}" data-base-calories="${escapeAttr(entry.calories)}" data-base-protein="${escapeAttr(entry.protein)}" data-base-carbs="${escapeAttr(entry.carbs)}" data-base-fat="${escapeAttr(entry.fat)}" /></td></tr>
+          <tr><th>Unit</th><td><input data-field="unit" value="${escapeAttr(entry.unit || '')}" /></td></tr>
+          <tr><th>Calories</th><td><input type="number" step="0.1" data-field="calories" value="${escapeAttr(entry.calories)}" /></td></tr>
+          <tr><th>Protein</th><td><input type="number" step="0.1" data-field="protein" value="${escapeAttr(entry.protein)}" /></td></tr>
+          <tr><th>Carbs</th><td><input type="number" step="0.1" data-field="carbs" value="${escapeAttr(entry.carbs)}" /></td></tr>
+          <tr><th>Fat</th><td><input type="number" step="0.1" data-field="fat" value="${escapeAttr(entry.fat)}" /></td></tr>
+          <tr><th>Time</th><td><input type="datetime-local" data-field="consumedAt" value="${escapeAttr(consumedAtValue)}" /></td></tr>
           <tr>
             <th>Actions</th>
             <td>
               <div class="edit-vertical-actions">
-                <button type="button" class="btn-success table-action-btn" data-action="save" data-id="${entry.id}">Save</button>
-                <button type="button" class="btn-warning table-action-btn" data-action="cancel" data-id="${entry.id}">Cancel</button>
-                <button type="button" class="btn-danger table-action-btn" data-action="delete" data-id="${entry.id}">Delete</button>
+                <button type="button" class="btn-success table-action-btn" data-action="save" data-id="${entryId}">Save</button>
+                <button type="button" class="btn-warning table-action-btn" data-action="cancel" data-id="${entryId}">Cancel</button>
+                <button type="button" class="btn-danger table-action-btn" data-action="delete" data-id="${entryId}">Delete</button>
               </div>
             </td>
           </tr>
@@ -2206,12 +2335,15 @@ function renderDashboard(data) {
       for (const child of groupItems) {
         rendered.add(child.id);
         const childChecked = state.selectedEntryIds.has(child.id) ? 'checked' : '';
+        const childId = safeId(child.id);
+        const groupId = escapeAttr(item.mealGroup);
+        const childGroupId = escapeAttr(child.mealGroup);
         childrenHtml += `
-          <div class="macro-card-child" data-entry-id="${child.id}" data-meal-group="${item.mealGroup}">
-            <div class="macro-card-check"><input type="checkbox" class="entry-checkbox" data-entry-id="${child.id}" data-in-group="1" data-meal-group="${child.mealGroup}" ${childChecked} /></div>
-            <div class="macro-card-child-body" data-edit-entry-id="${child.id}">
-              <span class="macro-card-child-name">${child.itemName}</span>
-              <span class="macro-card-child-detail">${fmtNumber(child.quantity)} ${child.unit || ''} · ${fmtNumber(child.calories)} cal · ${fmtNumber(child.protein)}g protein · ${fmtNumber(child.carbs)}g carbs · ${fmtNumber(child.fat)}g fat</span>
+          <div class="macro-card-child" data-entry-id="${childId}" data-meal-group="${groupId}">
+            <div class="macro-card-check"><input type="checkbox" class="entry-checkbox" data-entry-id="${childId}" data-in-group="1" data-meal-group="${childGroupId}" ${childChecked} /></div>
+            <div class="macro-card-child-body" data-edit-entry-id="${childId}">
+              <span class="macro-card-child-name">${escapeHtml(child.itemName)}</span>
+              <span class="macro-card-child-detail">${fmtNumber(child.quantity)} ${escapeHtml(child.unit || '')} · ${fmtNumber(child.calories)} cal · ${fmtNumber(child.protein)}g protein · ${fmtNumber(child.carbs)}g carbs · ${fmtNumber(child.fat)}g fat</span>
             </div>
           </div>
         `;
@@ -2220,14 +2352,15 @@ function renderDashboard(data) {
       const mealCard = document.createElement('div');
       mealCard.className = 'macro-card macro-card--meal' + (isExpanded ? ' expanded' : '');
       mealCard.dataset.mealGroup = item.mealGroup;
+      const mealGroupAttr = escapeAttr(item.mealGroup);
       mealCard.innerHTML = `
-        <div class="meal-group-header" data-meal-group="${item.mealGroup}">
-          <div class="macro-card-check"><input type="checkbox" class="meal-group-checkbox" data-meal-group="${item.mealGroup}" ${mealGroupChecked} /></div>
+        <div class="meal-group-header" data-meal-group="${mealGroupAttr}">
+          <div class="macro-card-check"><input type="checkbox" class="meal-group-checkbox" data-meal-group="${mealGroupAttr}" ${mealGroupChecked} /></div>
           <div class="macro-card-toggle">${isExpanded ? '\u25BC' : '\u25B6'}</div>
-          <div class="macro-card-body" data-edit-meal-group="${item.mealGroup}">
-            <div class="macro-card-title"><strong>${item.mealName || 'Meal'}</strong></div>
+          <div class="macro-card-body" data-edit-meal-group="${mealGroupAttr}">
+            <div class="macro-card-title"><strong>${escapeHtml(item.mealName || 'Meal')}</strong></div>
             <div class="entry-card-chips">
-              <span class="entry-card-chip">${fmtNumber(mealQty)} ${mealUnit}</span>
+              <span class="entry-card-chip">${fmtNumber(mealQty)} ${escapeHtml(mealUnit)}</span>
               <span class="entry-card-chip entry-card-chip--accent">${fmtNumber(totals.calories)} cal</span>
               <span class="entry-card-chip">${fmtNumber(totals.protein)}g protein</span>
               <span class="entry-card-chip">${fmtNumber(totals.carbs)}g carbs</span>
@@ -2646,13 +2779,13 @@ function showCombineModal(entryIds, options) {
   overlay.className = 'combine-modal-overlay';
   overlay.innerHTML = `
     <div class="combine-modal">
-      <h3>${title}</h3>
+      <h3>${escapeHtml(title)}</h3>
       <label for="combine-name">Meal Name</label>
-      <input id="combine-name" type="text" value="${String(defaultName).replace(/"/g, '&quot;')}" />
+      <input id="combine-name" type="text" value="${escapeAttr(defaultName)}" />
       <label for="combine-qty">Quantity</label>
-      <input id="combine-qty" type="number" step="0.1" min="0.1" value="${defaultQty}" />
+      <input id="combine-qty" type="number" step="0.1" min="0.1" value="${escapeAttr(defaultQty)}" />
       <label for="combine-unit">Unit</label>
-      <input id="combine-unit" type="text" value="${String(defaultUnit).replace(/"/g, '&quot;')}" />
+      <input id="combine-unit" type="text" value="${escapeAttr(defaultUnit)}" />
       ${isEdit ? '<label class="inline-check entry-modal-quickadd"><input type="checkbox" id="combine-save-quickadd" /><span>Save as quick add</span></label>' : ''}
       <div class="combine-modal-actions">
         <button type="button" class="btn-muted table-action-btn" id="combine-cancel-btn">Cancel</button>
@@ -2748,40 +2881,40 @@ function showEntryModal(entry, { onSave, onDelete, title } = {}) {
   overlay.className = 'combine-modal-overlay';
   overlay.innerHTML = `
     <div class="combine-modal entry-modal">
-      <h3>${title || 'Edit Item'}</h3>
+      <h3>${escapeHtml(title || 'Edit Item')}</h3>
       <label for="entry-modal-name">Item</label>
-      <input id="entry-modal-name" type="text" value="${(entry.itemName || '').replace(/"/g, '&quot;')}" />
+      <input id="entry-modal-name" type="text" value="${escapeAttr(entry.itemName || '')}" />
       <div class="entry-modal-row">
         <div class="entry-modal-field">
           <label for="entry-modal-qty">Quantity</label>
-          <input id="entry-modal-qty" type="number" step="0.1" min="0" value="${entry.quantity || 1}" />
+          <input id="entry-modal-qty" type="number" step="0.1" min="0" value="${escapeAttr(entry.quantity || 1)}" />
         </div>
         <div class="entry-modal-field">
           <label for="entry-modal-unit">Unit</label>
-          <input id="entry-modal-unit" type="text" value="${(entry.unit || 'serving').replace(/"/g, '&quot;')}" />
+          <input id="entry-modal-unit" type="text" value="${escapeAttr(entry.unit || 'serving')}" />
         </div>
       </div>
       <div class="entry-modal-row">
         <div class="entry-modal-field">
           <label for="entry-modal-cal">Calories</label>
-          <input id="entry-modal-cal" type="number" step="0.1" min="0" value="${entry.calories || 0}" />
+          <input id="entry-modal-cal" type="number" step="0.1" min="0" value="${escapeAttr(entry.calories || 0)}" />
         </div>
         <div class="entry-modal-field">
           <label for="entry-modal-protein">Protein</label>
-          <input id="entry-modal-protein" type="number" step="0.1" min="0" value="${entry.protein || 0}" />
+          <input id="entry-modal-protein" type="number" step="0.1" min="0" value="${escapeAttr(entry.protein || 0)}" />
         </div>
       </div>
       <div class="entry-modal-row">
         <div class="entry-modal-field">
           <label for="entry-modal-carbs">Carbs</label>
-          <input id="entry-modal-carbs" type="number" step="0.1" min="0" value="${entry.carbs || 0}" />
+          <input id="entry-modal-carbs" type="number" step="0.1" min="0" value="${escapeAttr(entry.carbs || 0)}" />
         </div>
         <div class="entry-modal-field">
           <label for="entry-modal-fat">Fat</label>
-          <input id="entry-modal-fat" type="number" step="0.1" min="0" value="${entry.fat || 0}" />
+          <input id="entry-modal-fat" type="number" step="0.1" min="0" value="${escapeAttr(entry.fat || 0)}" />
         </div>
       </div>
-      ${consumedAtValue ? `<label for="entry-modal-time">Time</label><input id="entry-modal-time" type="datetime-local" value="${consumedAtValue}" />` : ''}
+      ${consumedAtValue ? `<label for="entry-modal-time">Time</label><input id="entry-modal-time" type="datetime-local" value="${escapeAttr(consumedAtValue)}" />` : ''}
       <label class="inline-check entry-modal-quickadd"><input type="checkbox" id="entry-modal-save-quickadd" /><span>Save as quick add</span></label>
       <div class="combine-modal-actions">
         ${onDelete ? '<button type="button" class="btn-danger table-action-btn" id="entry-modal-delete-btn">Delete</button>' : ''}
@@ -2887,9 +3020,9 @@ function showWeightEditModal(entry) {
     <div class="combine-modal entry-modal">
       <h3>Edit Weight</h3>
       <label for="weight-modal-weight">Weight</label>
-      <input id="weight-modal-weight" type="number" step="0.1" min="0" value="${entry.weight}" />
+      <input id="weight-modal-weight" type="number" step="0.1" min="0" value="${escapeAttr(entry.weight)}" />
       <label for="weight-modal-time">Logged At</label>
-      <input id="weight-modal-time" type="datetime-local" value="${loggedAtValue}" />
+      <input id="weight-modal-time" type="datetime-local" value="${escapeAttr(loggedAtValue)}" />
       <div class="combine-modal-actions">
         <button type="button" class="btn-danger table-action-btn" id="weight-modal-delete-btn">Delete</button>
         <span style="flex:1"></span>
@@ -2950,11 +3083,11 @@ function showWorkoutEditModal(entry) {
     <div class="combine-modal entry-modal">
       <h3>Edit Workout</h3>
       <label for="workout-modal-desc">Description</label>
-      <input id="workout-modal-desc" type="text" value="${(entry.description || '').replace(/"/g, '&quot;')}" />
+      <input id="workout-modal-desc" type="text" value="${escapeAttr(entry.description || '')}" />
       <div class="entry-modal-row">
         <div class="entry-modal-field">
           <label for="workout-modal-date">Date</label>
-          <input id="workout-modal-date" type="date" value="${loggedAtDate}" />
+          <input id="workout-modal-date" type="date" value="${escapeAttr(loggedAtDate)}" />
         </div>
         <div class="entry-modal-field">
           <label for="workout-modal-intensity">Intensity</label>
@@ -2968,11 +3101,11 @@ function showWorkoutEditModal(entry) {
       <div class="entry-modal-row">
         <div class="entry-modal-field">
           <label for="workout-modal-duration">Hours</label>
-          <input id="workout-modal-duration" type="number" step="0.25" min="0" value="${entry.durationHours}" />
+          <input id="workout-modal-duration" type="number" step="0.25" min="0" value="${escapeAttr(entry.durationHours)}" />
         </div>
         <div class="entry-modal-field">
           <label for="workout-modal-calories">Calories</label>
-          <input id="workout-modal-calories" type="number" step="1" min="0" value="${entry.caloriesBurned}" />
+          <input id="workout-modal-calories" type="number" step="1" min="0" value="${escapeAttr(entry.caloriesBurned)}" />
         </div>
       </div>
       <div class="combine-modal-actions">
@@ -3933,12 +4066,13 @@ function renderWeightCard(entry) {
   const loggedAt = new Date(entry.loggedAt);
   const dateText = loggedAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const timeText = loggedAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const entryId = safeId(entry.id);
   return `
-    <div class="entry-card" data-weight-action="edit" data-weight-id="${entry.id}">
+    <div class="entry-card" data-weight-action="edit" data-weight-id="${entryId}">
       <div class="entry-card-icon entry-card-icon--weight">⚖</div>
       <div class="entry-card-body">
-        <div class="entry-card-title">${dateText}</div>
-        <div class="entry-card-sub">${timeText}</div>
+        <div class="entry-card-title">${escapeHtml(dateText)}</div>
+        <div class="entry-card-sub">${escapeHtml(timeText)}</div>
       </div>
       <div class="entry-card-value">${fmtNumber(entry.weight)}<small>lbs</small></div>
     </div>
@@ -3951,13 +4085,14 @@ function renderWorkoutCard(entry) {
   const dateText = loggedAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const intensity = normalizeWorkoutIntensity(entry.intensity);
   const intensityIcon = intensity === 'high' ? '🔥' : intensity === 'medium' ? '⚡' : '🌿';
+  const entryId = safeId(entry.id);
   return `
-    <div class="entry-card" data-workout-action="edit" data-workout-id="${entry.id}">
-      <div class="entry-card-icon entry-card-icon--${intensity}">${intensityIcon}</div>
+    <div class="entry-card" data-workout-action="edit" data-workout-id="${entryId}">
+      <div class="entry-card-icon entry-card-icon--${escapeAttr(intensity)}">${intensityIcon}</div>
       <div class="entry-card-body">
-        <div class="entry-card-title">${entry.description || 'Workout'}</div>
+        <div class="entry-card-title">${escapeHtml(entry.description || 'Workout')}</div>
         <div class="entry-card-chips">
-          <span class="entry-card-chip">${dateText}</span>
+          <span class="entry-card-chip">${escapeHtml(dateText)}</span>
           <span class="entry-card-chip">${fmtNumber(entry.durationHours)} hr</span>
           <span class="entry-card-chip entry-card-chip--accent">${fmtNumber(entry.caloriesBurned)} cal</span>
         </div>
@@ -4026,9 +4161,9 @@ function showWeightTargetModal() {
     <div class="combine-modal entry-modal">
       <h3>Edit Weight Target</h3>
       <label for="wt-modal-weight">Target Weight</label>
-      <input id="wt-modal-weight" type="number" step="0.1" min="0" value="${currentWeight}" placeholder="Target" />
+      <input id="wt-modal-weight" type="number" step="0.1" min="0" value="${escapeAttr(currentWeight)}" placeholder="Target" />
       <label for="wt-modal-date">Target Date</label>
-      <input id="wt-modal-date" type="date" value="${currentDate}" />
+      <input id="wt-modal-date" type="date" value="${escapeAttr(currentDate)}" />
       <div class="combine-modal-actions">
         <button type="button" class="btn-muted table-action-btn" id="wt-modal-cancel-btn">Cancel</button>
         <button type="button" class="btn-success table-action-btn" id="wt-modal-save-btn">Save</button>
@@ -4238,12 +4373,13 @@ function renderSleepCard(entry) {
   const wakeUps = Number(entry.wakeUps || 0);
   const hoursLabel = hours === 1 ? '1 hour' : `${fmtNumber(hours)} hours`;
   const wakeUpsLabel = wakeUps > 0 ? ` · ${wakeUps} wake-up${wakeUps === 1 ? '' : 's'}` : '';
+  const entryId = safeId(entry.id);
   return `
-    <div class="entry-card" data-sleep-action="edit" data-sleep-id="${entry.id}">
+    <div class="entry-card" data-sleep-action="edit" data-sleep-id="${entryId}">
       <div class="entry-card-icon entry-card-icon--health" style="background:#7c4dff22;color:#7c4dff">●</div>
       <div class="entry-card-body">
-        <div class="entry-card-title">${hoursLabel}${wakeUpsLabel}</div>
-        <div class="entry-card-sub">${dateText}</div>
+        <div class="entry-card-title">${escapeHtml(hoursLabel + wakeUpsLabel)}</div>
+        <div class="entry-card-sub">${escapeHtml(dateText)}</div>
       </div>
     </div>
   `;
@@ -4263,17 +4399,17 @@ function showSleepEditModal(entry) {
       <div class="entry-modal-row">
         <div class="entry-modal-field">
           <label for="sleep-modal-date">Date/Time</label>
-          <input id="sleep-modal-date" type="datetime-local" value="${loggedAtValue}" />
+          <input id="sleep-modal-date" type="datetime-local" value="${escapeAttr(loggedAtValue)}" />
         </div>
       </div>
       <div class="entry-modal-row">
         <div class="entry-modal-field">
           <label for="sleep-modal-hours">Hours</label>
-          <input id="sleep-modal-hours" type="number" step="0.25" min="0" max="24" value="${entry.durationHours}" />
+          <input id="sleep-modal-hours" type="number" step="0.25" min="0" max="24" value="${escapeAttr(entry.durationHours)}" />
         </div>
         <div class="entry-modal-field">
           <label for="sleep-modal-wake-ups">Wake-ups</label>
-          <input id="sleep-modal-wake-ups" type="number" step="1" min="0" max="99" value="${entry.wakeUps || 0}" />
+          <input id="sleep-modal-wake-ups" type="number" step="1" min="0" max="99" value="${escapeAttr(entry.wakeUps || 0)}" />
         </div>
       </div>
       <div class="combine-modal-actions">
@@ -4391,14 +4527,16 @@ const EJACULATION_TYPE_COLORS = {
 function renderHealthCard(entry) {
   const loggedAt = new Date(entry.loggedAt);
   const dateText = loggedAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-  const typeLabel = entry.type.charAt(0).toUpperCase() + entry.type.slice(1);
-  const color = EJACULATION_TYPE_COLORS[entry.type] || '#c48aff';
+  const type = EJACULATION_TYPE_COLORS[entry.type] ? entry.type : 'other';
+  const typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
+  const color = EJACULATION_TYPE_COLORS[type] || '#c48aff';
+  const entryId = safeId(entry.id);
   return `
-    <div class="entry-card" data-health-action="edit" data-health-id="${entry.id}">
+    <div class="entry-card" data-health-action="edit" data-health-id="${entryId}">
       <div class="entry-card-icon entry-card-icon--health" style="background:${color}22;color:${color}">●</div>
       <div class="entry-card-body">
-        <div class="entry-card-title">${typeLabel}</div>
-        <div class="entry-card-sub">${dateText}</div>
+        <div class="entry-card-title">${escapeHtml(typeLabel)}</div>
+        <div class="entry-card-sub">${escapeHtml(dateText)}</div>
       </div>
     </div>
   `;
@@ -4418,7 +4556,7 @@ function showHealthEditModal(entry) {
       <div class="entry-modal-row">
         <div class="entry-modal-field">
           <label for="health-modal-date">Date/Time</label>
-          <input id="health-modal-date" type="datetime-local" value="${loggedAtValue}" />
+          <input id="health-modal-date" type="datetime-local" value="${escapeAttr(loggedAtValue)}" />
         </div>
         <div class="entry-modal-field">
           <label for="health-modal-type">Type</label>
@@ -4649,7 +4787,15 @@ function renderWorkoutQuickAdds(entries) {
     if (map.size >= 6) break;
   }
   const quickItems = Array.from(map.values());
-  workoutQuickListEl.innerHTML = quickItems.map((item) => `<button type="button" class="chip-action" data-workout-quick='${JSON.stringify({description:item.description,intensity:normalizeWorkoutIntensity(item.intensity),durationHours:item.durationHours,caloriesBurned:item.caloriesBurned}).replace(/'/g, '&apos;')}' >${item.description}</button>`).join('') || '<p class="empty-note">No quick workouts yet.</p>';
+  workoutQuickListEl.innerHTML = quickItems.map((item) => {
+    const payload = {
+      description: item.description,
+      intensity: normalizeWorkoutIntensity(item.intensity),
+      durationHours: item.durationHours,
+      caloriesBurned: item.caloriesBurned
+    };
+    return `<button type="button" class="chip-action" data-workout-quick="${escapeJsonAttr(payload)}">${escapeHtml(item.description)}</button>`;
+  }).join('') || '<p class="empty-note">No quick workouts yet.</p>';
 }
 
 async function refreshWorkoutData() {
@@ -5062,6 +5208,8 @@ refreshProfile().catch((error) => {
   console.error('Failed to refresh profile:', error);
 });
 
+refreshAppVersion();
+
 refreshDashboard().catch((error) => {
   setActionBanner(error.message, 'error');
 });
@@ -5094,5 +5242,13 @@ if (logoutBtnEl) {
     } catch (error) {
       setActionBanner(error.message, 'error');
     }
+  });
+}
+
+if (accountInfoBtnEl) {
+  accountInfoBtnEl.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setProfileMenuOpen(false);
+    showAccountPrivacyModal();
   });
 }

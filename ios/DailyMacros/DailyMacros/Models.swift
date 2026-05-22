@@ -159,12 +159,22 @@ struct SubscriptionInfo: Codable {
 
 struct PlanLimits: Codable {
     let dailyParses: Int
+    let mealParsesPerDay: Int?
+    let workoutParsesPerDay: Int?
+    let photoParsesPerDay: Int?
     let analysisPerDay: Int
 }
 
 struct SubscriptionResponse: Codable {
     let subscription: SubscriptionInfo
     let limits: PlanLimits
+}
+
+struct VersionResponse: Codable {
+    let appBuild: String
+    let packageVersion: String?
+    let nodeVersion: String?
+    let startedAt: String?
 }
 
 struct ApiToken: Codable, Identifiable {
@@ -200,6 +210,7 @@ struct SyncWorkoutsResponse: Codable {
 
 struct ErrorResponse: Codable {
     let error: String
+    let requestId: String?
 }
 
 struct CheckoutResponse: Codable {

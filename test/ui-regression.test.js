@@ -137,6 +137,33 @@ test('workout target input lives on workout page and not analysis form', () => {
   assert.equal(script.includes('plannedWorkoutsPerWeek: Number(analysisPlannedWorkoutsEl?.value || 5)'), false);
 });
 
+test('web UI escapes API-rendered text before assigning template HTML', () => {
+  const script = read('public/script.js');
+
+  assert.equal(script.includes('function escapeHtml'), true);
+  assert.equal(script.includes('function escapeAttr'), true);
+  assert.equal(script.includes('function escapeJsonAttr'), true);
+  assert.equal(script.includes('${escapeHtml(entry.itemName)}'), true);
+  assert.equal(script.includes("${escapeHtml(entry.description || 'Workout')}"), true);
+  assert.equal(script.includes('${escapeHtml(child.itemName)}'), true);
+  assert.equal(script.includes('data-workout-quick="${escapeJsonAttr(payload)}"'), true);
+  assert.equal(script.includes('profileAvatarEl.src = avatarUrl.href'), true);
+});
+
+test('web account menu surfaces privacy support export delete and build info', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+  const styles = read('public/styles.css');
+
+  assert.equal(html.includes('id="account-info-btn"'), true);
+  assert.equal(script.includes('showAccountPrivacyModal'), true);
+  assert.equal(script.includes('/api/account/export'), true);
+  assert.equal(script.includes("/api/account', { method: 'DELETE' }"), true);
+  assert.equal(script.includes('/api/version'), true);
+  assert.equal(script.includes('meal photos may be sent to OpenAI'), true);
+  assert.equal(styles.includes('.account-privacy-modal'), true);
+});
+
 test('mobile sleep target is editable and drives sleep chart', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');

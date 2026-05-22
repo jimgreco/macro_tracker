@@ -67,15 +67,17 @@ const {
   getSubscription,
   upsertSubscription,
   getSubscriptionByStripeCustomerId,
-  saveBillingEvent
+  saveBillingEvent,
+  consumeDailyUsage
 } = require('./db');
 const { parseMealText, parseWorkoutText } = require('./parser');
 const packageJson = require('../package.json');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
-app.set('trust proxy', 1);
-const appBuild = process.env.APP_BUILD || 'c24d664';
+app.disable('x-powered-by');
+app.set('trust proxy', parsePositiveIntegerEnv('TRUST_PROXY_HOPS', 1));
+const appBuild = process.env.APP_BUILD || process.env.GITHUB_SHA || 'local';
 const startedAtIso = new Date().toISOString();
 
 const scriptPath = path.join(process.cwd(), 'public', 'script.js');
@@ -164,6 +166,84 @@ function getAllowedOrigins() {
 
 const allowedOrigins = getAllowedOrigins();
 
+function createRequestId() {
+  return crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
+}
+
+function logJson(level, event, fields = {}) {
+  const payload = {
+    level,
+    event,
+    ...fields
+  };
+  const line = JSON.stringify(payload);
+  if (level === 'error') {
+    console.error(line);
+  } else if (level === 'warn') {
+    console.warn(line);
+  } else {
+    console.log(line);
+  }
+}
+
+function safeErrorMessage(error) {
+  return String(error?.message || error || 'Unknown error').slice(0, 500);
+}
+
+function logServerError(req, error, context = {}) {
+  logJson('error', 'server_error', {
+    requestId: req?.requestId,
+    method: req?.method,
+    path: req?.originalUrl || req?.url,
+    message: safeErrorMessage(error),
+    ...context
+  });
+}
+
+function sendError(req, res, status, message, error) {
+  if (status >= 500 && error) {
+    logServerError(req, error, { status });
+  }
+  const body = { error: message };
+  if (req?.requestId) {
+    body.requestId = req.requestId;
+  }
+  return res.status(status).json(body);
+}
+
+app.use((req, res, next) => {
+  const incoming = String(req.get('x-request-id') || '').trim();
+  req.requestId = /^[a-zA-Z0-9._:-]{8,128}$/.test(incoming) ? incoming : createRequestId();
+  res.setHeader('X-Request-Id', req.requestId);
+  next();
+});
+
+app.use((req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = (body) => {
+    if (body && typeof body === 'object' && !Array.isArray(body) && body.error && !body.requestId) {
+      body.requestId = req.requestId;
+    }
+    return json(body);
+  };
+  next();
+});
+
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    logJson(res.statusCode >= 500 ? 'error' : 'info', 'http_request', {
+      requestId: req.requestId,
+      method: req.method,
+      path: req.originalUrl || req.url,
+      status: res.statusCode,
+      durationMs: Date.now() - startedAt,
+      userId: req.user?.id || null
+    });
+  });
+  next();
+});
+
 function securityHeaders(req, res, next) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -171,7 +251,7 @@ function securityHeaders(req, res, next) {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
   if (isProduction) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
@@ -195,20 +275,26 @@ function isAllowedSource(rawSource, req) {
   }
 }
 
-function enforceApiSource(req, res, next) {
+function enforceStateChangingSource(req, res, next) {
   const method = String(req.method || '').toUpperCase();
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    return next();
+  }
+
+  if (req.authMode === 'bearer') {
     return next();
   }
 
   const origin = req.get('origin');
   const referer = req.get('referer');
   const source = origin || referer || '';
-  if (!isAllowedSource(source, req)) {
-    return res.status(403).json({ error: 'Forbidden request origin.' });
+  if (!source || !isAllowedSource(source, req)) {
+    return sendError(req, res, 403, 'Forbidden request origin.');
   }
   return next();
 }
+
+const enforceApiSource = enforceStateChangingSource;
 
 // ── Per-user rate limiting (falls back to IP for unauthenticated requests) ──
 
@@ -230,7 +316,7 @@ function createRateLimiter({ windowMs, maxRequests }) {
     if (current.count > maxRequests) {
       const retryAfterSeconds = Math.ceil((current.expiresAt - now) / 1000);
       res.setHeader('Retry-After', String(Math.max(retryAfterSeconds, 1)));
-      return res.status(429).json({ error: 'Too many requests. Please retry shortly.' });
+      return sendError(req, res, 429, 'Too many requests. Please retry shortly.');
     }
 
     return next();
@@ -491,6 +577,7 @@ async function bearerTokenAuth(req, res, next) {
     const user = await validateApiToken(token);
     if (user) {
       req.user = user;
+      req.authMode = 'bearer';
     }
   } catch (_error) {
     // Token validation failed; fall through to session auth
@@ -505,7 +592,7 @@ function requireAuth(req, res, next) {
   }
 
   if (req.originalUrl && req.originalUrl.startsWith('/api/')) {
-    return res.status(401).json({ error: 'Unauthorized. Please sign in first.' });
+    return sendError(req, res, 401, 'Unauthorized. Please sign in first.');
   }
 
   return res.redirect('/login');
@@ -526,6 +613,93 @@ function hasOpenAiApiKey() {
 function toFinite(value, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
+}
+
+function requirePlainObject(value, fieldName = 'body') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an object.`);
+  }
+  return value;
+}
+
+function normalizeString(value, fieldName, { maxLength = 255, fallback = '', required = false } = {}) {
+  if (value == null || value === '') {
+    if (required) {
+      throw new Error(`${fieldName} is required.`);
+    }
+    return fallback;
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${fieldName} must be a string.`);
+  }
+  const normalized = value.trim();
+  if (required && !normalized) {
+    throw new Error(`${fieldName} is required.`);
+  }
+  if (normalized.length > maxLength) {
+    throw new Error(`${fieldName} must be ${maxLength} characters or less.`);
+  }
+  return normalized || fallback;
+}
+
+function normalizeNumber(value, fieldName, { min = 0, max = Number.MAX_SAFE_INTEGER, fallback = 0, required = false } = {}) {
+  if (value == null || value === '') {
+    if (required) {
+      throw new Error(`${fieldName} is required.`);
+    }
+    return fallback;
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    throw new Error(`${fieldName} must be a number.`);
+  }
+  if (number < min || number > max) {
+    throw new Error(`${fieldName} must be between ${min} and ${max}.`);
+  }
+  return number;
+}
+
+function normalizeIsoDateTime(value, fieldName, fallback = todayIsoString()) {
+  const raw = value || fallback;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`${fieldName} must be a valid date/time.`);
+  }
+  return date.toISOString();
+}
+
+function normalizeIdParam(value, fieldName = 'id') {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error(`Invalid ${fieldName}.`);
+  }
+  return id;
+}
+
+function normalizeScope(scopeInput) {
+  const scope = String(scopeInput || 'week').toLowerCase();
+  return ['week', 'month', 'year'].includes(scope) ? scope : 'week';
+}
+
+function normalizeTimezone(tzInput) {
+  return normalizeString(tzInput || 'America/New_York', 'tz', {
+    maxLength: 64,
+    fallback: 'America/New_York'
+  });
+}
+
+function normalizeLimit(value, fallback = undefined) {
+  if (value == null || value === '') {
+    return fallback;
+  }
+  return Math.min(Math.max(1, Math.floor(normalizeNumber(value, 'limit', { min: 1, max: 500 }))), 500);
+}
+
+function normalizeOffset(value) {
+  if (value == null || value === '') {
+    return undefined;
+  }
+  return Math.max(0, Math.floor(normalizeNumber(value, 'offset', { min: 0, max: 100000 })));
 }
 
 function avg(values) {
@@ -933,52 +1107,53 @@ function validateItems(items, consumedAt) {
     return [];
   }
 
-  return items.map((item) => ({
-    itemName: String(item.itemName || '').trim(),
-    quantity: Number(item.quantity || 0),
-    unit: item.unit || 'serving',
-    calories: Number(item.calories || 0),
-    protein: Number(item.protein || 0),
-    carbs: Number(item.carbs || 0),
-    fat: Number(item.fat || 0),
-    consumedAt: item.consumedAt || consumedAt || todayIsoString()
-  }));
+  if (items.length > 50) {
+    throw new Error('A meal can include at most 50 items.');
+  }
+
+  return items.map((rawItem, index) => {
+    const item = requirePlainObject(rawItem, `items[${index}]`);
+    return {
+      itemName: normalizeString(item.itemName, `items[${index}].itemName`, { maxLength: 160, required: true }),
+      quantity: normalizeNumber(item.quantity, `items[${index}].quantity`, { min: 0.001, max: 10000, required: true }),
+      unit: normalizeString(item.unit, `items[${index}].unit`, { maxLength: 32, fallback: 'serving' }),
+      calories: normalizeNumber(item.calories, `items[${index}].calories`, { min: 0, max: 20000, required: true }),
+      protein: normalizeNumber(item.protein, `items[${index}].protein`, { min: 0, max: 5000, required: true }),
+      carbs: normalizeNumber(item.carbs, `items[${index}].carbs`, { min: 0, max: 5000, required: true }),
+      fat: normalizeNumber(item.fat, `items[${index}].fat`, { min: 0, max: 5000, required: true }),
+      consumedAt: normalizeIsoDateTime(item.consumedAt || consumedAt, `items[${index}].consumedAt`)
+    };
+  });
 }
 
 function validateEntryBody(body) {
-  const consumedAt = body.consumedAt || todayIsoString();
-  const itemName = String(body.itemName || '').trim();
-
-  if (!itemName) {
-    throw new Error('itemName is required.');
-  }
+  const payload = requirePlainObject(body || {}, 'entry');
+  const itemName = normalizeString(payload.itemName, 'itemName', { maxLength: 160, required: true });
 
   return {
     itemName,
-    quantity: Number(body.quantity || 0),
-    unit: String(body.unit || 'serving').trim(),
-    calories: Number(body.calories || 0),
-    protein: Number(body.protein || 0),
-    carbs: Number(body.carbs || 0),
-    fat: Number(body.fat || 0),
-    consumedAt: new Date(consumedAt).toISOString()
+    quantity: normalizeNumber(payload.quantity, 'quantity', { min: 0.001, max: 10000, required: true }),
+    unit: normalizeString(payload.unit, 'unit', { maxLength: 32, fallback: 'serving' }),
+    calories: normalizeNumber(payload.calories, 'calories', { min: 0, max: 20000, required: true }),
+    protein: normalizeNumber(payload.protein, 'protein', { min: 0, max: 5000, required: true }),
+    carbs: normalizeNumber(payload.carbs, 'carbs', { min: 0, max: 5000, required: true }),
+    fat: normalizeNumber(payload.fat, 'fat', { min: 0, max: 5000, required: true }),
+    consumedAt: normalizeIsoDateTime(payload.consumedAt, 'consumedAt')
   };
 }
 
 function validateSavedItemBody(body) {
-  const name = String(body.name || '').trim();
-  if (!name) {
-    throw new Error('name is required.');
-  }
+  const payload = requirePlainObject(body || {}, 'saved item');
+  const name = normalizeString(payload.name, 'name', { maxLength: 160, required: true });
 
   return {
     name,
-    quantity: Number(body.quantity || 1),
-    unit: String(body.unit || 'serving').trim(),
-    calories: Number(body.calories || 0),
-    protein: Number(body.protein || 0),
-    carbs: Number(body.carbs || 0),
-    fat: Number(body.fat || 0)
+    quantity: normalizeNumber(payload.quantity, 'quantity', { min: 0.001, max: 10000, fallback: 1 }),
+    unit: normalizeString(payload.unit, 'unit', { maxLength: 32, fallback: 'serving' }),
+    calories: normalizeNumber(payload.calories, 'calories', { min: 0, max: 20000 }),
+    protein: normalizeNumber(payload.protein, 'protein', { min: 0, max: 5000 }),
+    carbs: normalizeNumber(payload.carbs, 'carbs', { min: 0, max: 5000 }),
+    fat: normalizeNumber(payload.fat, 'fat', { min: 0, max: 5000 })
   };
 }
 
@@ -1040,7 +1215,7 @@ app.get('/auth/google', async (req, res, next) => {
     return res.redirect('/');
   }
 
-  if (!isAuthConfigured()) {
+  if (!googleClientId || !googleClientSecret) {
     return res.status(500).send('Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.');
   }
 
@@ -1049,7 +1224,7 @@ app.get('/auth/google', async (req, res, next) => {
     req.session.mobileAuth = true;
   }
 
-  return passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+  return passport.authenticate('google', { scope: ['profile', 'email'], state: true })(req, res, next);
 });
 
 app.get(
@@ -1059,7 +1234,7 @@ app.get(
       return res.redirect('/');
     }
 
-    if (!isAuthConfigured()) {
+    if (!googleClientId || !googleClientSecret) {
       return res.status(500).send('Google OAuth is not configured.');
     }
     return next();
@@ -1180,12 +1355,15 @@ app.get('/auth/apple', (req, res) => {
     return res.redirect('/login?error=apple_not_configured');
   }
 
+  const state = crypto.randomBytes(16).toString('hex');
+  req.session.appleAuthState = state;
+
   const authUrl = appleSignin.getAuthorizationUrl({
     clientID: appleClientId,
     redirectUri: appleRedirectUri,
     scope: 'name email',
     responseMode: 'form_post',
-    state: crypto.randomBytes(16).toString('hex')
+    state
   });
 
   return res.redirect(authUrl);
@@ -1201,8 +1379,20 @@ app.post('/auth/apple/callback', express.urlencoded({ extended: false }), async 
     return res.redirect('/login?error=apple_auth_failed');
   }
 
+  const expectedState = req.session?.appleAuthState;
+  if (req.session) {
+    delete req.session.appleAuthState;
+  }
+  if (!expectedState || String(req.body?.state || '') !== String(expectedState)) {
+    return res.redirect('/login?error=apple_auth_failed');
+  }
+
   try {
     const { id_token: idToken, user: userJson } = req.body;
+
+    if (!req.body.code) {
+      return res.redirect('/login?error=apple_auth_failed');
+    }
 
     const clientSecret = getAppleClientSecret();
     const tokenResponse = await appleSignin.getAuthorizationToken(req.body.code, {
@@ -1329,7 +1519,7 @@ app.post('/auth/dev/mobile', async (req, res) => {
   }
 });
 
-app.post('/auth/logout', (req, res) => {
+app.post('/auth/logout', enforceStateChangingSource, (req, res) => {
   req.logout(() => {
     req.session.destroy(() => {
       res.json({ ok: true });
@@ -1361,13 +1551,15 @@ app.get('/healthz', async (req, res) => {
       startedAt: startedAtIso
     });
   } catch (error) {
+    logServerError(req, error, { status: 503, path: '/healthz' });
     return res.status(503).json({
       ok: false,
       app: 'degraded',
       database: {
         ok: false,
-        error: error.message
+        error: 'Database health check failed.'
       },
+      requestId: req.requestId,
       startedAt: startedAtIso
     });
   }
@@ -1377,45 +1569,41 @@ app.get('/healthz', async (req, res) => {
 
 const apiRouter = express.Router();
 
-// ── Plan-based feature gating for AI endpoints ──
-function createPlanGate(limitKey) {
-  const dailyUsage = new Map();
+// ── Durable plan-based feature gating for AI endpoints ──
+function limitFromEnv(name, fallbackValue) {
+  const parsed = Number(process.env[name]);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallbackValue;
+  }
+  return Math.floor(parsed);
+}
 
-  return async (req, res, next) => {
-    const userId = userIdFromReq(req);
-    if (!userId) return next();
+function featureLabel(feature) {
+  return String(feature || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
-    try {
-      const sub = await getSubscription(userId);
-      const limits = getPlanLimits(sub.plan);
-      const maxDaily = limits[limitKey] || 5;
+async function enforceDailyUsage(req, res, feature, limitKey, envName) {
+  const userId = userIdFromReq(req);
+  if (!userId) {
+    return null;
+  }
 
-      const today = new Date().toISOString().slice(0, 10);
-      const key = `${userId}:${today}`;
-      const current = dailyUsage.get(key) || 0;
+  const sub = await getSubscription(userId);
+  const limits = getPlanLimits(sub.plan);
+  const maxDaily = limitFromEnv(envName, limits[limitKey] || limits.dailyParses || 5);
+  const usage = await consumeDailyUsage(userId, feature, maxDaily);
+  if (usage.allowed) {
+    return null;
+  }
 
-      if (current >= maxDaily) {
-        return res.status(429).json({
-          error: `Daily limit reached (${maxDaily}/${limitKey}). Upgrade to Pro for higher limits.`,
-          plan: sub.plan,
-          limit: maxDaily,
-          upgrade: sub.plan === 'free'
-        });
-      }
-
-      dailyUsage.set(key, current + 1);
-
-      // Clean old keys periodically
-      if (dailyUsage.size > 10000) {
-        for (const [k] of dailyUsage) {
-          if (!k.endsWith(today)) dailyUsage.delete(k);
-        }
-      }
-    } catch (_error) {
-      // Don't block on plan check failure
-    }
-    return next();
-  };
+  return sendError(
+    req,
+    res,
+    429,
+    `Daily ${featureLabel(feature).toLowerCase()} limit reached (${usage.count}/${usage.limit}).`
+  );
 }
 
 // Rate limiters on specific paths
@@ -1435,20 +1623,21 @@ apiRouter.get('/version', (req, res) => {
 apiRouter.post('/parse-meal', async (req, res) => {
   let hasImage = false;
   try {
-    const consumedAt = req.body.consumedAt || todayIsoString();
-    const text = typeof req.body.text === 'string' ? req.body.text : '';
-    const rawImageDataUrl = typeof req.body.imageDataUrl === 'string' ? req.body.imageDataUrl : '';
+    const body = requirePlainObject(req.body || {}, 'parse meal request');
+    const consumedAt = normalizeIsoDateTime(body.consumedAt, 'consumedAt');
+    const text = normalizeString(body.text, 'text', { maxLength: 4000, fallback: '' });
+    const rawImageDataUrl = typeof body.imageDataUrl === 'string' ? body.imageDataUrl : '';
     hasImage = Boolean(rawImageDataUrl);
     let imageDataUrl = rawImageDataUrl;
 
     if (!text.trim() && !rawImageDataUrl) {
-      return res.status(400).json({ error: 'Add a description, a photo, or both.' });
+      return sendError(req, res, 400, 'Add a description, a photo, or both.');
     }
 
     if (rawImageDataUrl) {
       const parsedImage = parseImageDataUrl(rawImageDataUrl);
       if (!parsedImage) {
-        return res.status(400).json({ error: 'Invalid image format. Use an image file.' });
+        return sendError(req, res, 400, 'Invalid image format. Use an image file.');
       }
       const mimeType = normalizeOpenAiImageMimeType(parsedImage.mimeType);
       const allowedMimeTypes = new Set([
@@ -1462,15 +1651,13 @@ apiRouter.post('/parse-meal', async (req, res) => {
         'image/heif-sequence'
       ]);
       if (!allowedMimeTypes.has(mimeType)) {
-        return res.status(400).json({
-          error: 'Unsupported image type. Use JPEG, PNG, WEBP, GIF, or HEIC.'
-        });
+        return sendError(req, res, 400, 'Unsupported image type. Use JPEG, PNG, WEBP, GIF, or HEIC.');
       }
 
       const maxImageBytes = 6 * 1024 * 1024;
       const estimatedBytes = Math.floor((parsedImage.base64Payload.length * 3) / 4);
       if (estimatedBytes > maxImageBytes) {
-        return res.status(400).json({ error: 'Image is too large. Please use an image under 6MB.' });
+        return sendError(req, res, 400, 'Image is too large. Please use an image under 6MB.');
       }
 
       if (isHeicMimeType(mimeType)) {
@@ -1482,8 +1669,28 @@ apiRouter.post('/parse-meal', async (req, res) => {
       const normalizedImage = parseImageDataUrl(imageDataUrl);
       const normalizedEstimatedBytes = Math.floor((String(normalizedImage?.base64Payload || '').length * 3) / 4);
       if (normalizedEstimatedBytes > maxImageBytes) {
-        return res.status(400).json({ error: 'Image is too large after processing. Please use a smaller photo.' });
+        return sendError(req, res, 400, 'Image is too large after processing. Please use a smaller photo.');
       }
+    }
+
+    const mealLimitResponse = await enforceDailyUsage(
+      req,
+      res,
+      'meal_parse',
+      'mealParsesPerDay',
+      'AI_DAILY_MEAL_PARSE_LIMIT'
+    );
+    if (mealLimitResponse) return mealLimitResponse;
+
+    if (hasImage) {
+      const photoLimitResponse = await enforceDailyUsage(
+        req,
+        res,
+        'photo_parse',
+        'photoParsesPerDay',
+        'AI_DAILY_PHOTO_PARSE_LIMIT'
+      );
+      if (photoLimitResponse) return photoLimitResponse;
     }
 
     const parsed = await parseMealText({
@@ -1496,26 +1703,34 @@ apiRouter.post('/parse-meal', async (req, res) => {
   } catch (error) {
     const message = String(error?.message || 'Request failed');
     if (hasImage && message.includes('did not match the expected pattern')) {
-      return res.status(400).json({
-        error: 'Photo format was not accepted. Please retry with a JPEG/PNG image or add a short description.'
-      });
+      return sendError(req, res, 400, 'Photo format was not accepted. Please retry with a JPEG/PNG image or add a short description.');
     }
-    res.status(400).json({ error: error.message });
+    return sendError(req, res, 400, error.message || 'Unable to parse meal.');
   }
 });
 
 
 apiRouter.post('/parse-workout', async (req, res) => {
   try {
-    const text = typeof req.body?.text === 'string' ? req.body.text : '';
+    const body = requirePlainObject(req.body || {}, 'parse workout request');
+    const text = normalizeString(body.text, 'text', { maxLength: 4000, fallback: '' });
     if (!text.trim()) {
-      return res.status(400).json({ error: 'Add a workout description first.' });
+      return sendError(req, res, 400, 'Add a workout description first.');
     }
+
+    const limitResponse = await enforceDailyUsage(
+      req,
+      res,
+      'workout_parse',
+      'workoutParsesPerDay',
+      'AI_DAILY_WORKOUT_PARSE_LIMIT'
+    );
+    if (limitResponse) return limitResponse;
 
     const parsed = await parseWorkoutText({ text });
     return res.json(parsed);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return sendError(req, res, 400, error.message || 'Unable to parse workout.');
   }
 });
 
@@ -1533,8 +1748,8 @@ apiRouter.post('/sync-workouts', async (req, res) => {
     const workoutApiUrl = process.env.WORKOUT_API_URL || 'http://workout_api:3001';
 
     if (!internalSecret) {
-      console.warn('INTERNAL_SYNC_SECRET not configured.');
-      return res.status(500).json({ error: 'Internal sync is not configured on the server.' });
+      logJson('warn', 'internal_sync_not_configured', { requestId: req.requestId });
+      return sendError(req, res, 500, 'Internal sync is not configured on the server.');
     }
 
     // Fetch logs from Workout Planner API
@@ -1548,8 +1763,12 @@ apiRouter.post('/sync-workouts', async (req, res) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`Workout API error: ${response.status} ${errorText}`);
-      return res.status(500).json({ error: 'Failed to fetch workouts from Workout Planner service.' });
+      logJson('error', 'workout_api_error', {
+        requestId: req.requestId,
+        status: response.status,
+        message: errorText.slice(0, 500)
+      });
+      return sendError(req, res, 500, 'Failed to fetch workouts from Workout Planner service.');
     }
 
     const logs = await response.json();
@@ -1622,8 +1841,7 @@ apiRouter.post('/sync-workouts', async (req, res) => {
       syncedCount
     });
   } catch (error) {
-    console.error('Sync failed:', error);
-    return res.status(500).json({ error: 'Failed to sync workouts from Workout Planner.' });
+    return sendError(req, res, 500, 'Failed to sync workouts from Workout Planner.', error);
   }
 });
 
@@ -1640,17 +1858,22 @@ function estimateWorkoutCalories(text, hours) {
 
 apiRouter.post('/entries/bulk', async (req, res) => {
   try {
-    const consumedAt = req.body.consumedAt || todayIsoString();
-    const rows = validateItems(req.body.items, consumedAt);
+    const body = requirePlainObject(req.body || {}, 'bulk entries request');
+    const consumedAt = normalizeIsoDateTime(body.consumedAt, 'consumedAt');
+    const rows = validateItems(body.items, consumedAt);
 
     if (!rows.length) {
-      return res.status(400).json({ error: 'At least one item is required.' });
+      return sendError(req, res, 400, 'At least one item is required.');
     }
 
-    const mealName = String(req.body.mealName || '').trim() || null;
+    const mealName = normalizeString(body.mealName, 'mealName', { maxLength: 160, fallback: '' }) || null;
     const mealGroup = rows.length > 1 && mealName ? crypto.randomUUID() : null;
-    const mealQuantity = Number(req.body.mealQuantity) > 0 ? Number(req.body.mealQuantity) : 1;
-    const mealUnit = String(req.body.mealUnit || 'serving').trim();
+    const mealQuantity = normalizeNumber(body.mealQuantity, 'mealQuantity', {
+      min: 0.001,
+      max: 10000,
+      fallback: 1
+    });
+    const mealUnit = normalizeString(body.mealUnit, 'mealUnit', { maxLength: 32, fallback: 'serving' });
     for (const row of rows) {
       row.mealGroup = mealGroup;
       row.mealName = mealName;
@@ -1661,7 +1884,7 @@ apiRouter.post('/entries/bulk', async (req, res) => {
     const userId = userIdFromReq(req);
     await addEntries(userId, rows);
 
-    const saveItems = Array.isArray(req.body.saveItems) ? req.body.saveItems : [];
+    const saveItems = Array.isArray(body.saveItems) ? body.saveItems.slice(0, 50) : [];
     const savedIds = [];
     for (const saveItem of saveItems) {
       const id = await addSavedItem(userId, validateSavedItemBody(saveItem));
@@ -1671,7 +1894,7 @@ apiRouter.post('/entries/bulk', async (req, res) => {
     logAudit(userId, 'create', 'entries', null, { count: rows.length });
     return res.json({ ok: true, savedIds });
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return sendError(req, res, 400, error.message);
   }
 });
 
@@ -1897,8 +2120,8 @@ apiRouter.put('/macro-targets/:macro', async (req, res) => {
 
 apiRouter.get('/weights', async (req, res) => {
   try {
-    const scope = String(req.query.scope || 'week').toLowerCase();
-    const tz = String(req.query.tz || 'America/New_York');
+    const scope = normalizeScope(req.query.scope);
+    const tz = normalizeTimezone(req.query.tz);
     const entries = await listWeightEntries(userIdFromReq(req), scope, tz);
     res.json({ entries });
   } catch (error) {
@@ -2018,10 +2241,10 @@ apiRouter.post('/weights/delete', async (req, res) => {
 
 apiRouter.get('/workouts', async (req, res) => {
   try {
-    const limit = Number(req.query.limit) || undefined;
-    const offset = Number(req.query.offset) || undefined;
-    const scope = String(req.query.scope || 'week').toLowerCase();
-    const tz = String(req.query.tz || 'America/New_York');
+    const limit = normalizeLimit(req.query.limit);
+    const offset = normalizeOffset(req.query.offset);
+    const scope = normalizeScope(req.query.scope);
+    const tz = normalizeTimezone(req.query.tz);
     const data = await listWorkoutEntries(userIdFromReq(req), { limit, offset, scope, timezone: tz });
     res.json(data);
   } catch (error) {
@@ -2105,10 +2328,10 @@ apiRouter.post('/workouts/:id', async (req, res) => {
 
 apiRouter.get('/sexual-activity', async (req, res) => {
   try {
-    const limit = Number(req.query.limit) || undefined;
-    const offset = Number(req.query.offset) || undefined;
-    const scope = String(req.query.scope || 'week').toLowerCase();
-    const tz = String(req.query.tz || 'America/New_York');
+    const limit = normalizeLimit(req.query.limit);
+    const offset = normalizeOffset(req.query.offset);
+    const scope = normalizeScope(req.query.scope);
+    const tz = normalizeTimezone(req.query.tz);
     const data = await listSexualActivityEntries(userIdFromReq(req), { limit, offset, scope, timezone: tz });
     res.json(data);
   } catch (error) {
@@ -2167,10 +2390,10 @@ apiRouter.delete('/sexual-activity/:id', async (req, res) => {
 
 apiRouter.get('/sleep', async (req, res) => {
   try {
-    const limit = Number(req.query.limit) || undefined;
-    const offset = Number(req.query.offset) || undefined;
-    const scope = String(req.query.scope || 'week').toLowerCase();
-    const tz = String(req.query.tz || 'America/New_York');
+    const limit = normalizeLimit(req.query.limit);
+    const offset = normalizeOffset(req.query.offset);
+    const scope = normalizeScope(req.query.scope);
+    const tz = normalizeTimezone(req.query.tz);
     const data = await listSleepEntries(userIdFromReq(req), { limit, offset, scope, timezone: tz });
     res.json(data);
   } catch (error) {
@@ -2237,8 +2460,18 @@ apiRouter.get('/analysis/latest', async (req, res) => {
 apiRouter.post('/analysis', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
-    const days = normalizeAnalysisDays(req.body?.days);
-    const tz = String(req.body?.tz || 'America/New_York');
+    const body = requirePlainObject(req.body || {}, 'analysis request');
+    const days = normalizeAnalysisDays(body.days);
+    const tz = normalizeTimezone(body.tz);
+    const limitResponse = await enforceDailyUsage(
+      req,
+      res,
+      'analysis',
+      'analysisPerDay',
+      'AI_DAILY_ANALYSIS_LIMIT'
+    );
+    if (limitResponse) return limitResponse;
+
     const snapshot = await getAnalysisSnapshot(userId, days, tz);
     const context = normalizeAnalysisContext(snapshot);
     const analysis = await generateAiAnalysis(snapshot, context);
@@ -2255,10 +2488,11 @@ apiRouter.post('/analysis', async (req, res) => {
 
 apiRouter.get('/dashboard', async (req, res) => {
   try {
-    const limit = Number(req.query.limit) || undefined;
-    const offset = Number(req.query.offset) || undefined;
-    const tz = String(req.query.tz || 'America/New_York');
-    const data = await getDashboard(userIdFromReq(req), req.query.date, { limit, offset, timezone: tz });
+    const limit = normalizeLimit(req.query.limit);
+    const offset = normalizeOffset(req.query.offset);
+    const tz = normalizeTimezone(req.query.tz);
+    const date = req.query.date ? normalizeString(req.query.date, 'date', { maxLength: 20 }) : undefined;
+    const data = await getDashboard(userIdFromReq(req), date, { limit, offset, timezone: tz });
     res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -2267,8 +2501,8 @@ apiRouter.get('/dashboard', async (req, res) => {
 
 apiRouter.get('/daily-totals', async (req, res) => {
   try {
-    const scope = String(req.query.scope || 'week').toLowerCase();
-    const tz = String(req.query.tz || 'America/New_York');
+    const scope = normalizeScope(req.query.scope);
+    const tz = normalizeTimezone(req.query.tz);
     const totals = await getDailyTotals(userIdFromReq(req), scope, tz);
     const targets = await getMacroTargets(userIdFromReq(req));
     res.json({ dailyTotals: totals, targets });
@@ -2422,6 +2656,9 @@ apiRouter.post('/subscription/portal', async (req, res) => {
 // Bearer token auth runs before requireAuth so tokens are checked first
 app.use('/api/v1', bearerTokenAuth, requireAuth, enforceApiSource, apiRouter);
 app.use('/api', bearerTokenAuth, requireAuth, enforceApiSource, apiRouter);
+app.use(['/api/v1', '/api'], (req, res) => {
+  return sendError(req, res, 404, 'API route not found.');
+});
 
 // ── Authenticated frontend routes ──
 
@@ -2431,6 +2668,20 @@ app.get('/', (req, res) => {
   res.type('html').send(indexHtml);
 });
 app.use(express.static(path.join(process.cwd(), 'public')));
+app.use((req, res) => {
+  res.status(404).type('text').send('Not found.');
+});
+
+app.use((error, req, res, next) => {
+  if (res.headersSent) {
+    return next(error);
+  }
+  logServerError(req, error, { status: 500 });
+  if (req.originalUrl && req.originalUrl.startsWith('/api/')) {
+    return sendError(req, res, 500, 'Request failed.');
+  }
+  return res.status(500).type('text').send(`Request failed. Reference: ${req.requestId || 'unknown'}`);
+});
 
 async function startServer() {
   try {

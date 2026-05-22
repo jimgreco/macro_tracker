@@ -49,7 +49,10 @@ test('db.js exports all required functions', () => {
     'listApiTokens',
     'deleteApiToken',
     'exportUserData',
-    'deleteUserAccount'
+    'deleteUserAccount',
+    'getPlanLimits',
+    'getSubscription',
+    'consumeDailyUsage'
   ];
 
   for (const name of requiredExports) {
@@ -101,7 +104,15 @@ test('db.js creates audit_log table', () => {
 
 test('all data tables have deleted_at column', () => {
   const db = read('src/db.js');
-  const tablesWithSoftDelete = ['entries', 'saved_items', 'weight_entries', 'workout_entries', 'analysis_reports'];
+  const tablesWithSoftDelete = [
+    'entries',
+    'saved_items',
+    'weight_entries',
+    'workout_entries',
+    'analysis_reports',
+    'sexual_activity_entries',
+    'sleep_entries'
+  ];
 
   for (const table of tablesWithSoftDelete) {
     assert.ok(
@@ -137,7 +148,22 @@ test('SELECT queries filter out soft-deleted rows', () => {
 
 test('GDPR deleteUserAccount performs hard delete across all tables', () => {
   const db = read('src/db.js');
-  const tables = ['user_identities', 'entries', 'saved_items', 'macro_targets', 'weight_entries', 'workout_entries', 'weight_targets', 'analysis_reports', 'api_tokens', 'audit_log', 'users'];
+  const tables = [
+    'user_identities',
+    'entries',
+    'saved_items',
+    'macro_targets',
+    'weight_entries',
+    'workout_entries',
+    'sexual_activity_entries',
+    'sleep_entries',
+    'weight_targets',
+    'analysis_reports',
+    'api_tokens',
+    'daily_usage_counts',
+    'audit_log',
+    'users'
+  ];
   for (const table of tables) {
     const pattern = `DELETE FROM ${table} WHERE`;
     assert.ok(db.includes(pattern), `deleteUserAccount must hard-delete from ${table}`);
@@ -152,7 +178,19 @@ test('GDPR exportUserData queries all data tables', () => {
   assert.ok(db.includes("FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL"));
   assert.ok(db.includes("FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL"));
   assert.ok(db.includes("FROM workout_entries WHERE user_id = $1 AND deleted_at IS NULL"));
+  assert.ok(db.includes("FROM sexual_activity_entries WHERE user_id = $1 AND deleted_at IS NULL"));
+  assert.ok(db.includes("FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL"));
   assert.ok(db.includes("FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL"));
+  assert.ok(db.includes('FROM daily_usage_counts WHERE user_id = $1'));
+});
+
+test('daily AI usage counters are durable and keyed by user feature and date', () => {
+  const db = read('src/db.js');
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS daily_usage_counts'));
+  assert.ok(db.includes('PRIMARY KEY (user_id, feature, usage_date)'));
+  assert.ok(db.includes('async function consumeDailyUsage'));
+  assert.ok(db.includes('ON CONFLICT (user_id, feature, usage_date)'));
+  assert.ok(db.includes('daily_usage_counts.count < $4'));
 });
 
 test('getDashboard supports pagination via limit/offset', () => {
@@ -181,7 +219,8 @@ test('server.js imports all new db functions', () => {
     'listApiTokens',
     'deleteApiToken',
     'exportUserData',
-    'deleteUserAccount'
+    'deleteUserAccount',
+    'consumeDailyUsage'
   ];
   for (const name of requiredImports) {
     assert.ok(server.includes(name), `server.js must import ${name}`);
@@ -206,6 +245,48 @@ test('server.js has per-user rate limiting', () => {
   const server = read('src/server.js');
   // Rate limiter should use user id when available
   assert.ok(server.includes('req.user && req.user.id ? req.user.id : req.ip'));
+});
+
+test('server.js emits request IDs and includes them on API errors', () => {
+  const server = read('src/server.js');
+  assert.ok(server.includes('X-Request-Id'));
+  assert.ok(server.includes('req.requestId'));
+  assert.ok(server.includes('body.requestId = req.requestId'));
+  assert.ok(server.includes("event: 'http_request'") || server.includes("'http_request'"));
+});
+
+test('server.js disables Express fingerprinting and hardens state-changing origins', () => {
+  const server = read('src/server.js');
+  assert.ok(server.includes("app.disable('x-powered-by')"));
+  assert.ok(server.includes('function enforceStateChangingSource'));
+  assert.ok(server.includes("['POST', 'PUT', 'PATCH', 'DELETE']"));
+  assert.ok(server.includes("req.authMode === 'bearer'"));
+  assert.ok(server.includes("'Forbidden request origin.'"));
+});
+
+test('server.js validates OAuth state for web auth flows', () => {
+  const server = read('src/server.js');
+  assert.ok(server.includes("passport.authenticate('google', { scope: ['profile', 'email'], state: true })"));
+  assert.ok(server.includes('req.session.appleAuthState = state'));
+  assert.ok(server.includes("req.body?.state"));
+  assert.ok(server.includes('delete req.session.appleAuthState'));
+});
+
+test('server.js enforces durable daily usage limits for AI endpoints', () => {
+  const server = read('src/server.js');
+  assert.ok(server.includes('async function enforceDailyUsage'));
+  assert.ok(server.includes('AI_DAILY_MEAL_PARSE_LIMIT'));
+  assert.ok(server.includes('AI_DAILY_WORKOUT_PARSE_LIMIT'));
+  assert.ok(server.includes('AI_DAILY_PHOTO_PARSE_LIMIT'));
+  assert.ok(server.includes('AI_DAILY_ANALYSIS_LIMIT'));
+  assert.ok(server.includes("consumeDailyUsage(userId, feature, maxDaily)"));
+});
+
+test('server.js bounds parse payloads before invoking AI parsers', () => {
+  const server = read('src/server.js');
+  assert.ok(server.includes("normalizeString(body.text, 'text', { maxLength: 4000"));
+  assert.ok(server.includes('A meal can include at most 50 items.'));
+  assert.ok(server.includes('Image is too large. Please use an image under 6MB.'));
 });
 
 test('server.js upserts user on OAuth callback', () => {
@@ -343,8 +424,12 @@ test('db.js exports subscription functions', () => {
 
 test('db.js defines plan limits for free and pro tiers', () => {
   const db = read('src/db.js');
-  assert.ok(db.includes("free: { dailyParses:"));
-  assert.ok(db.includes("pro: { dailyParses:"));
+  assert.ok(db.includes('free: {'));
+  assert.ok(db.includes('mealParsesPerDay'));
+  assert.ok(db.includes('workoutParsesPerDay'));
+  assert.ok(db.includes('photoParsesPerDay'));
+  assert.ok(db.includes('analysisPerDay'));
+  assert.ok(db.includes('pro: {'));
 });
 
 test('db.js deleteUserAccount also cleans up billing data', () => {
@@ -387,9 +472,10 @@ test('server.js has subscription, checkout, and portal endpoints', () => {
   assert.ok(server.includes("apiRouter.post('/subscription/portal'"));
 });
 
-test('server.js has plan-based feature gating infrastructure', () => {
+test('server.js has durable plan-based feature gating infrastructure', () => {
   const server = read('src/server.js');
-  assert.ok(server.includes('function createPlanGate'));
+  assert.ok(server.includes('async function enforceDailyUsage'));
+  assert.ok(server.includes('consumeDailyUsage(userId, feature, maxDaily)'));
 });
 
 test('subscription indexes exist', () => {
@@ -397,4 +483,57 @@ test('subscription indexes exist', () => {
   assert.ok(db.includes('idx_subscriptions_stripe_customer'));
   assert.ok(db.includes('idx_subscriptions_stripe_sub'));
   assert.ok(db.includes('idx_billing_events_stripe'));
+});
+
+// ── Release infrastructure ──
+
+test('deploy workflow verifies SSH host and smokes production endpoints', () => {
+  const workflow = read('.github/workflows/deploy.yml');
+  assert.ok(workflow.includes('actions/checkout@v5'));
+  assert.ok(workflow.includes('ssh-keyscan -H "$EC2_HOST"'));
+  assert.ok(workflow.includes('UserKnownHostsFile=~/.ssh/known_hosts'));
+  assert.equal(workflow.includes('StrictHostKeyChecking=no'), false);
+  assert.ok(workflow.includes('PRODUCTION_BASE_URL'));
+  assert.ok(workflow.includes('$BASE_URL/healthz'));
+  assert.ok(workflow.includes('$BASE_URL/version'));
+});
+
+test('scheduled production smoke workflow can run public and authenticated checks', () => {
+  const workflow = read('.github/workflows/production-smoke.yml');
+  const script = read('scripts/production-smoke.sh');
+
+  assert.ok(workflow.includes("cron: '17 * * * *'"));
+  assert.ok(workflow.includes('PRODUCTION_SMOKE_API_TOKEN'));
+  assert.ok(workflow.includes('scripts/production-smoke.sh'));
+  assert.ok(script.includes('$BASE_URL/healthz'));
+  assert.ok(script.includes('$BASE_URL/version'));
+  assert.ok(script.includes('$BASE_URL/api/me'));
+  assert.ok(script.includes('$BASE_URL/api/dashboard?limit=5'));
+  assert.ok(script.includes('$BASE_URL/api/account/export'));
+  assert.ok(script.includes('$BASE_URL/api/parse-workout'));
+});
+
+test('TestFlight workflow rejects placeholder API base URLs and passes build metadata', () => {
+  const workflow = read('.github/workflows/testflight.yml');
+  assert.ok(workflow.includes('IOS_API_BASE_URL must be a real HTTPS production origin'));
+  assert.ok(workflow.includes('IOS_API_BASE_URL must start with https://'));
+  assert.ok(workflow.includes('GIT_COMMIT_HASH="$(git rev-parse --short=12 HEAD)"'));
+  assert.ok(workflow.includes('APP_BUILD="$BUILD_NUMBER"'));
+  assert.ok(workflow.includes('GIT_COMMIT_HASH="$GIT_COMMIT_HASH"'));
+});
+
+test('iOS settings exposes support privacy and build metadata', () => {
+  const settings = read('ios/DailyMacros/DailyMacros/SettingsView.swift');
+  const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  const plist = read('ios/DailyMacros/DailyMacros/Info.plist');
+
+  assert.ok(settings.includes('Privacy & Support'));
+  assert.ok(settings.includes('meal photos submitted for parsing'));
+  assert.ok(settings.includes('appBuildLabel'));
+  assert.ok(settings.includes('apiBuildLabel'));
+  assert.ok(api.includes('func getVersion()'));
+  assert.ok(api.includes('token = nil'));
+  assert.ok(api.includes('kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly'));
+  assert.ok(plist.includes('<key>AppBuild</key>'));
+  assert.ok(plist.includes('<key>GitCommitHash</key>'));
 });

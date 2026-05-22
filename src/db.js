@@ -273,6 +273,18 @@ async function initDb() {
     );
   `);
 
+  // ── Durable daily usage counters for cost-sensitive AI features ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_usage_counts (
+      user_id TEXT NOT NULL,
+      feature TEXT NOT NULL,
+      usage_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      count INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, feature, usage_date)
+    );
+  `);
+
   // ── Migrations for existing databases ──
   await pool.query(`
     ALTER TABLE workout_entries
@@ -302,6 +314,8 @@ async function initDb() {
   await pool.query(`ALTER TABLE weight_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE workout_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE analysis_reports ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE sexual_activity_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
 
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_entries_user_consumed ON entries(user_id, consumed_at DESC);
@@ -319,6 +333,7 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer ON subscriptions(stripe_customer_id);
     CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id);
     CREATE INDEX IF NOT EXISTS idx_billing_events_stripe ON billing_events(stripe_event_id);
+    CREATE INDEX IF NOT EXISTS idx_daily_usage_counts_user_date ON daily_usage_counts(user_id, usage_date DESC);
   `);
 }
 
@@ -1780,7 +1795,7 @@ async function deleteApiToken(userId, tokenId) {
 // ── GDPR ──
 
 async function exportUserData(userId) {
-  const [user, identities, entries, savedItems, macroTargets, weightEntries, workoutEntries, sleepEntries, weightTarget, analysisReports] =
+  const [user, identities, entries, savedItems, macroTargets, weightEntries, workoutEntries, sexualActivityEntries, sleepEntries, weightTarget, analysisReports, usageCounts] =
     await Promise.all([
       pool.query('SELECT id, email, name, provider, created_at, updated_at FROM users WHERE id = $1', [userId]),
       pool.query('SELECT provider, provider_user_id, created_at, updated_at FROM user_identities WHERE user_id = $1 ORDER BY provider', [userId]),
@@ -1789,9 +1804,11 @@ async function exportUserData(userId) {
       pool.query('SELECT macro, target, updated_at FROM macro_targets WHERE user_id = $1', [userId]),
       pool.query('SELECT id, weight, logged_at, created_at FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       pool.query('SELECT id, description, intensity, duration_hours, calories_burned, logged_at, created_at FROM workout_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
-      pool.query('SELECT id, duration_hours, logged_at, created_at FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
+      pool.query('SELECT id, type, logged_at, created_at FROM sexual_activity_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
+      pool.query('SELECT id, duration_hours, wake_ups, logged_at, created_at FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       getWeightTarget(userId),
-      pool.query('SELECT id, period_days, report_json, created_at FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC', [userId])
+      pool.query('SELECT id, period_days, report_json, created_at FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC', [userId]),
+      pool.query('SELECT feature, usage_date, count, updated_at FROM daily_usage_counts WHERE user_id = $1 ORDER BY usage_date DESC, feature', [userId])
     ]);
 
   return {
@@ -1803,9 +1820,11 @@ async function exportUserData(userId) {
     macroTargets: macroTargets.rows,
     weightEntries: weightEntries.rows,
     workoutEntries: workoutEntries.rows,
+    sexualActivityEntries: sexualActivityEntries.rows,
     sleepEntries: sleepEntries.rows,
     weightTarget,
-    analysisReports: analysisReports.rows
+    analysisReports: analysisReports.rows,
+    usageCounts: usageCounts.rows
   };
 }
 
@@ -1819,10 +1838,12 @@ async function deleteUserAccount(userId) {
     await client.query('DELETE FROM macro_targets WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM weight_entries WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM workout_entries WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM sexual_activity_entries WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM sleep_entries WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM weight_targets WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM analysis_reports WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM api_tokens WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM daily_usage_counts WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM billing_events WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM subscriptions WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM audit_log WHERE user_id = $1', [userId]);
@@ -1839,8 +1860,20 @@ async function deleteUserAccount(userId) {
 // ── Subscriptions ──
 
 const PLAN_LIMITS = {
-  free: { dailyParses: 5, analysisPerDay: 1 },
-  pro: { dailyParses: 100, analysisPerDay: 10 }
+  free: {
+    dailyParses: 20,
+    mealParsesPerDay: 20,
+    workoutParsesPerDay: 30,
+    photoParsesPerDay: 8,
+    analysisPerDay: 2
+  },
+  pro: {
+    dailyParses: 100,
+    mealParsesPerDay: 100,
+    workoutParsesPerDay: 100,
+    photoParsesPerDay: 40,
+    analysisPerDay: 10
+  }
 };
 
 function getPlanLimits(plan) {
@@ -1919,6 +1952,49 @@ async function saveBillingEvent(userId, stripeEventId, eventType, payload) {
   );
 }
 
+async function consumeDailyUsage(userId, feature, maxDaily) {
+  const normalizedUserId = String(userId || '').trim();
+  const normalizedFeature = String(feature || '').trim();
+  const normalizedMax = Math.floor(Number(maxDaily));
+
+  if (!normalizedUserId || !normalizedFeature) {
+    throw new Error('Usage counter requires user and feature.');
+  }
+  if (!Number.isFinite(normalizedMax) || normalizedMax <= 0) {
+    return { allowed: false, count: 0, limit: 0 };
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const result = await pool.query(
+    `WITH upsert AS (
+       INSERT INTO daily_usage_counts (user_id, feature, usage_date, count, updated_at)
+       VALUES ($1, $2, $3::date, 1, NOW())
+       ON CONFLICT (user_id, feature, usage_date)
+       DO UPDATE SET count = daily_usage_counts.count + 1, updated_at = NOW()
+       WHERE daily_usage_counts.count < $4
+       RETURNING count
+     )
+     SELECT count FROM upsert`,
+    [normalizedUserId, normalizedFeature, today, normalizedMax]
+  );
+
+  if (result.rows.length) {
+    return { allowed: true, count: Number(result.rows[0].count || 0), limit: normalizedMax };
+  }
+
+  const current = await pool.query(
+    `SELECT count
+     FROM daily_usage_counts
+     WHERE user_id = $1 AND feature = $2 AND usage_date = $3::date`,
+    [normalizedUserId, normalizedFeature, today]
+  );
+  return {
+    allowed: false,
+    count: Number(current.rows[0]?.count || normalizedMax),
+    limit: normalizedMax
+  };
+}
+
 module.exports = {
   initDb,
   getPool,
@@ -1974,5 +2050,6 @@ module.exports = {
   getSubscription,
   upsertSubscription,
   getSubscriptionByStripeCustomerId,
-  saveBillingEvent
+  saveBillingEvent,
+  consumeDailyUsage
 };

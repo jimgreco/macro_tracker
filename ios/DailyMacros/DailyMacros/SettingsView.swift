@@ -4,6 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var api: APIClient
     @State private var subscription: SubscriptionResponse?
+    @State private var version: VersionResponse?
     @State private var showDeleteConfirm = false
     @State private var isExporting = false
     @State private var errorMessage: String?
@@ -12,12 +13,14 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 accountSection
+                supportPrivacySection
                 subscriptionSection
                 dataSection
+                buildInfoSection
                 dangerSection
             }
             .navigationTitle("Settings")
-            .task { await loadSubscription() }
+            .task { await loadSettings() }
             .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: {
@@ -57,6 +60,37 @@ struct SettingsView: View {
 
             Button("Sign Out", role: .destructive) {
                 auth.signOut()
+            }
+        }
+    }
+
+    private var supportPrivacySection: some View {
+        Section("Privacy & Support") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Support")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                Text("Contact the person who invited you. Include any request reference shown in an error message.")
+                    .font(.subheadline)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Data")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                Text("Daily Macros stores nutrition, weight, workouts, sleep, sexual activity entries, meal photos submitted for parsing, account details, and beta usage data.")
+                    .font(.subheadline)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("AI Processing")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                Text("Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them.")
+                    .font(.subheadline)
             }
         }
     }
@@ -124,6 +158,29 @@ struct SettingsView: View {
         }
     }
 
+    private var buildInfoSection: some View {
+        Section {
+            HStack {
+                Text("App")
+                Spacer()
+                Text(appBuildLabel)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            HStack {
+                Text("API")
+                Spacer()
+                Text(apiBuildLabel)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        } header: {
+            Text("Build")
+        } footer: {
+            Text("These details help diagnose beta issues.")
+        }
+    }
+
     // MARK: - Danger Zone
 
     private var dangerSection: some View {
@@ -140,11 +197,24 @@ struct SettingsView: View {
 
     // MARK: - Actions
 
+    private func loadSettings() async {
+        await loadSubscription()
+        await loadVersion()
+    }
+
     private func loadSubscription() async {
         do {
             subscription = try await api.getSubscription()
         } catch {
             // Non-critical, just show empty state
+        }
+    }
+
+    private func loadVersion() async {
+        do {
+            version = try await api.getVersion()
+        } catch {
+            // Non-critical troubleshooting metadata.
         }
     }
 
@@ -196,5 +266,19 @@ struct SettingsView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private var appBuildLabel: String {
+        let bundleVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let build = Bundle.main.object(forInfoDictionaryKey: "AppBuild") as? String
+        let hash = Bundle.main.object(forInfoDictionaryKey: "GitCommitHash") as? String
+        let cleanBuild = build?.contains("$(") == false ? build : nil
+        let cleanHash = hash?.isEmpty == false && hash?.contains("$(") == false ? hash : nil
+        return [bundleVersion, cleanBuild, cleanHash].compactMap { $0 }.joined(separator: " / ")
+    }
+
+    private var apiBuildLabel: String {
+        guard let version else { return "Unavailable" }
+        return [version.packageVersion, version.appBuild].compactMap { $0 }.joined(separator: " / ")
     }
 }

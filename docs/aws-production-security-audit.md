@@ -1,4 +1,6 @@
-# AWS Production Security Audit (Elastic Beanstalk + RDS)
+# AWS Production Security Audit (Legacy Elastic Beanstalk + RDS)
+
+This file is retained for the older Elastic Beanstalk path. The current production source of truth is the EC2 deploy workflow in `.github/workflows/deploy.yml` plus `docs/ec2-release-runbook.md`.
 
 This checklist is intended for `macro-tracker-prod` in `us-east-2`.
 

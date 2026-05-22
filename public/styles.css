@@ -2657,12 +2657,54 @@ button[disabled] {
   overflow-wrap: anywhere;
 }
 
+.profile-popover #account-info-btn,
 .profile-popover #logout-btn {
   margin-left: 0;
   width: 100%;
   min-height: 34px;
   padding: 0.36rem 0.55rem;
   font-size: 0.76rem;
+}
+
+.account-privacy-modal {
+  max-width: min(92vw, 520px);
+}
+
+.account-privacy-copy {
+  display: grid;
+  gap: 0.72rem;
+  margin: 0.3rem 0 0.85rem;
+}
+
+.account-privacy-copy p {
+  display: grid;
+  gap: 0.18rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.42;
+}
+
+.account-privacy-copy strong {
+  color: #dce9ff;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.account-build-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.9rem;
+}
+
+.account-build-meta span {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 0.18rem 0.48rem;
+  color: var(--muted);
+  font-size: 0.72rem;
 }
 
 @media (max-width: 760px) {

@@ -7,20 +7,69 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Validate deploy secrets
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in EC2_SSH_KEY EC2_USER EC2_HOST PRODUCTION_BASE_URL; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required secret/env: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Install SSH key and verify host
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/macros_deploy_key
+          chmod 600 ~/.ssh/macros_deploy_key
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
 
       - name: Transfer files to EC2
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
-          chmod 600 key.pem
-          rsync -avz -e "ssh -i key.pem -o StrictHostKeyChecking=no" \
+          set -euo pipefail
+          rsync -avz -e "ssh -i ~/.ssh/macros_deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts" \
             --exclude '.git' \
             --exclude 'node_modules' \
-            . ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/macros/
+            . "$EC2_USER@$EC2_HOST:~/macros/"
 
       - name: Rebuild and Restart Macros
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          ssh -i key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
-            "cd ~/deploy && docker-compose build macros && docker-compose up -d macros && docker system prune -f"
+          set -euo pipefail
+          ssh -i ~/.ssh/macros_deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts "$EC2_USER@$EC2_HOST" \
+            "cd ~/deploy && APP_BUILD=${GITHUB_SHA} docker-compose build macros && APP_BUILD=${GITHUB_SHA} docker-compose up -d macros && docker system prune -f"
+
+      - name: Post-deploy smoke checks
+        env:
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          set -euo pipefail
+          BASE_URL="${PRODUCTION_BASE_URL%/}"
+          curl --fail --show-error --silent "$BASE_URL/healthz"
+          curl --fail --show-error --silent "$BASE_URL/version"

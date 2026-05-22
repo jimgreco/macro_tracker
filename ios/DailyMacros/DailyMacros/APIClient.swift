@@ -47,7 +47,7 @@ class APIClient: ObservableObject {
         #if DEBUG
         return URL(string: "http://localhost:3000")!
         #else
-        return URL(string: "https://yourdomain.com")!
+        fatalError("APIBaseURL must be configured for release builds.")
         #endif
     }
 
@@ -87,12 +87,14 @@ class APIClient: ObservableObject {
         }
 
         if httpResponse.statusCode == 401 {
+            token = nil
             throw APIError.notAuthenticated
         }
 
         if httpResponse.statusCode >= 400 {
             if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
-                throw APIError.serverError(errorResponse.error)
+                let suffix = errorResponse.requestId.map { " Reference: \($0)" } ?? ""
+                throw APIError.serverError(errorResponse.error + suffix)
             }
             throw APIError.serverError("Request failed with status \(httpResponse.statusCode)")
         }
@@ -104,12 +106,40 @@ class APIClient: ObservableObject {
         }
     }
 
+    private func performData(_ request: URLRequest) async throws -> Data {
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.serverError("Invalid response")
+        }
+
+        if httpResponse.statusCode == 401 {
+            token = nil
+            throw APIError.notAuthenticated
+        }
+
+        if httpResponse.statusCode >= 400 {
+            if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
+                let suffix = errorResponse.requestId.map { " Reference: \($0)" } ?? ""
+                throw APIError.serverError(errorResponse.error + suffix)
+            }
+            throw APIError.serverError("Request failed with status \(httpResponse.statusCode)")
+        }
+
+        return data
+    }
+
     // MARK: - Auth
 
     func getMe() async throws -> User? {
         let request = try authorizedRequest(apiURL("/me"))
         let response: MeResponse = try await perform(request)
         return response.user
+    }
+
+    func getVersion() async throws -> VersionResponse {
+        let request = try authorizedRequest(apiURL("/version"))
+        return try await perform(request)
     }
 
     /// Exchange an Apple identity token for an API token via the backend.
@@ -530,8 +560,7 @@ class APIClient: ObservableObject {
 
     func exportData() async throws -> Data {
         let request = try authorizedRequest(apiURL("/account/export"))
-        let (data, _) = try await session.data(for: request)
-        return data
+        return try await performData(request)
     }
 
     func deleteAccount() async throws {
@@ -575,6 +604,7 @@ enum KeychainHelper {
         let attrs: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             kSecValueData as String: data
         ]
         SecItemAdd(attrs as CFDictionary, nil)

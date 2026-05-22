@@ -4,6 +4,10 @@
 <dict>
 	<key>APIBaseURL</key>
 	<string>$(API_BASE_URL)</string>
+	<key>AppBuild</key>
+	<string>$(APP_BUILD)</string>
+	<key>GitCommitHash</key>
+	<string>$(GIT_COMMIT_HASH)</string>
 	<key>GoogleIOSClientID</key>
 	<string>1018348991868-nbg9k2aht11942u6es07t564bgahd0er.apps.googleusercontent.com</string>
 	<key>ITSAppUsesNonExemptEncryption</key>

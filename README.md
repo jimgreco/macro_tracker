@@ -31,6 +31,8 @@ A web app for tracking macros with:
    - `OPENAI_API_KEY`
    - `SESSION_SECRET`
    - `APP_BASE_URL` (your canonical app URL; used for request-origin validation)
+   - `APP_BUILD` (CI sets this to the git SHA for `/version`)
+   - `AI_DAILY_MEAL_PARSE_LIMIT`, `AI_DAILY_WORKOUT_PARSE_LIMIT`, `AI_DAILY_PHOTO_PARSE_LIMIT`, `AI_DAILY_ANALYSIS_LIMIT`
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`
    - `GOOGLE_CALLBACK_URL` (default: `http://localhost:3000/auth/google/callback`)
@@ -74,22 +76,37 @@ What it runs:
 If you want a full runtime test, start Postgres first (`npm run db:up`) and then run `npm start`.
 For a preloaded local preview, run `npm run db:seed:local` after Postgres is up.
 
-## Cloud Setup Notes
+## Production Setup Notes
+
+The production path is the EC2 deploy workflow in `.github/workflows/deploy.yml`. It rsyncs this repository to `~/macros`, rebuilds the `macros` service from `~/deploy`, and then smokes `/healthz` and `/version` against `PRODUCTION_BASE_URL`.
+
+Required GitHub Actions secrets for deploy:
+- `EC2_SSH_KEY`
+- `EC2_USER`
+- `EC2_HOST`
+- `PRODUCTION_BASE_URL`
+- `PRODUCTION_SMOKE_API_TOKEN` (optional; enables authenticated scheduled smoke checks)
+
 For AWS/RDS deployments set:
 - `DATABASE_URL` to your RDS connection string
 - `PGSSL=true`
 - `PGSSL_REJECT_UNAUTHORIZED=true`
 - `APP_BASE_URL=https://your-production-domain`
 - `SESSION_SECRET` to a long random value (required in production)
+- `APP_BUILD` to the deployed git SHA
+- AI usage limit env vars to the intended beta limits
 
 Operational safeguards:
 - `GET /healthz` performs a live `SELECT 1` against PostgreSQL and returns `503` if the database is unavailable.
-- Elastic Beanstalk is configured to use `/healthz` for the default process health check.
-- Use `npm run ops:rotate-prod-db-password` to rotate the RDS password and update Elastic Beanstalk `DATABASE_URL` in one run.
+- `GET /version` exposes app version, build SHA, Node version, and start time for smoke checks and support.
+- The deploy workflow pins SSH host keys with `ssh-keyscan` and fails if post-deploy smoke checks fail.
+- `.github/workflows/production-smoke.yml` runs hourly production smoke checks using `scripts/production-smoke.sh`.
+- Elastic Beanstalk material in `docs/aws-production-security-audit.md` is legacy unless that platform is intentionally revived.
+- Use `npm run ops:rotate-prod-db-password` only if the RDS/Elastic Beanstalk path is revived and verified.
 - Do not enable RDS managed master-password rotation unless the app is changed to read the current secret from Secrets Manager at runtime.
 
-Run the infrastructure hardening checklist in:
-- `docs/aws-production-security-audit.md`
+Run the production release runbook in:
+- `docs/ec2-release-runbook.md`
 
 ## Notes
 - Login is required for all app/API usage.
