@@ -15,9 +15,8 @@ struct LoginView: View {
                 Spacer()
 
                 VStack(spacing: 8) {
-                    Image(systemName: "chart.bar.fill")
-                        .font(.system(size: 60))
-                        .foregroundStyle(.cyan)
+                    DailyMacrosLogoMark()
+                        .frame(width: 72, height: 72)
 
                     Text("DailyMacros")
                         .font(.largeTitle.bold())
@@ -204,6 +203,81 @@ struct LoginView: View {
         return Data(digest).base64URLEncodedString()
     }
 
+}
+
+private struct DailyMacrosLogoMark: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.06, green: 0.14, blue: 0.25),
+                            Color(red: 0.03, green: 0.07, blue: 0.12),
+                            Color(red: 0.07, green: 0.09, blue: 0.17)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(.white.opacity(0.08), lineWidth: 1)
+                }
+                .overlay(alignment: .topLeading) {
+                    Capsule()
+                        .fill(.white.opacity(0.12))
+                        .frame(width: 46, height: 16)
+                        .rotationEffect(.degrees(14))
+                        .offset(x: 9, y: 7)
+                }
+
+            Circle()
+                .fill(Color(red: 0.05, green: 0.09, blue: 0.16))
+                .overlay {
+                    Circle()
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(0.82),
+                                    Color(red: 0, green: 0.81, blue: 1).opacity(0.52),
+                                    Color(red: 0.02, green: 1, blue: 0.63).opacity(0.62)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 3
+                        )
+                }
+                .frame(width: 45, height: 45)
+                .offset(y: 2)
+
+            HStack(alignment: .bottom, spacing: 4) {
+                Capsule()
+                    .fill(Color(red: 0.02, green: 1, blue: 0.63))
+                    .frame(width: 8, height: 17)
+                Capsule()
+                    .fill(Color(red: 0, green: 0.81, blue: 1))
+                    .frame(width: 8, height: 25)
+                Capsule()
+                    .fill(Color(red: 1, green: 0.18, blue: 0.47))
+                    .frame(width: 8, height: 20)
+            }
+            .offset(y: 9)
+
+            Capsule()
+                .fill(.white.opacity(0.34))
+                .frame(width: 30, height: 3)
+                .offset(y: 25)
+
+            Circle()
+                .fill(Color(red: 1, green: 0.79, blue: 0.16))
+                .frame(width: 8, height: 8)
+                .offset(x: 17, y: -20)
+        }
+        .shadow(color: Color(red: 0, green: 0.81, blue: 1).opacity(0.24), radius: 18, y: 9)
+        .shadow(color: Color(red: 0.02, green: 1, blue: 0.63).opacity(0.14), radius: 10, y: 3)
+    }
 }
 
 private extension Data {

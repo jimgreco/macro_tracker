@@ -113,7 +113,7 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 - **Weight chart**: `drawSimpleLineChart` on `#weight-canvas` shows weight trend with average and target lines. Weight page has period toggles (week/month/year).
 - **Workout stats**: Workout page shows stats chips (workouts/week, cal burned/week) with target values and a data source note. Workout graphs (occurrence + calories) have been removed.
 - **Tab order**: Macros, Workouts, Weight, Health.
-- **Branding**: App name is "DailyMacros" with "DM" logo icon.
+- **Branding**: App name is "DailyMacros" with an abstract macro plate logo icon.
 - **Meal grouping**: Entries can be combined into meals via `meal_group` UUID. API endpoints: `POST /api/entries/combine`, `POST /api/meal-group/:id/split`, `POST /api/entries/:id/remove-from-group`, `PUT /api/meal-group/:id/scale`.
 - **Health tab**: Contains two sub-sections separated by `health-section-divider` headings: "Sexual Activity" (log activity type, logged entries, weekly snapshot graph) and "Sleep" (log hours + wake-ups, sleep log, weekly snapshot graph with average line). Sleep entries store `duration_hours` (decimal) and `wake_ups` (integer). Both sections have week/month/year period toggles. Sleep data is included in the Analysis section. Edit modals: `showHealthEditModal` (sexual activity), `showSleepEditModal` (sleep — date/time on row 1, hours + wake-ups on row 2).
 - **Macro display format**: Logged entries show explicit labels: `28g protein · 12g carbs · 6g fat`. Calories shown as `220 cal`. Quick Add dropdown uses abbreviated format: `260cal/24P/12C/6F` (compact for space).
