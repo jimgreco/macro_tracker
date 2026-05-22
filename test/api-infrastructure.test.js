@@ -490,6 +490,11 @@ test('subscription indexes exist', () => {
 test('deploy workflow verifies SSH host and smokes production endpoints', () => {
   const workflow = read('.github/workflows/deploy.yml');
   assert.ok(workflow.includes('actions/checkout@v5'));
+  assert.ok(workflow.includes('workflow_dispatch:'));
+  assert.ok(workflow.includes('paths:'));
+  assert.ok(workflow.includes("'src/**'"));
+  assert.ok(workflow.includes("'public/**'"));
+  assert.equal(workflow.includes("'ios/**'"), false);
   assert.ok(workflow.includes('ssh-keyscan -H "$EC2_HOST"'));
   assert.ok(workflow.includes('UserKnownHostsFile=~/.ssh/known_hosts'));
   assert.equal(workflow.includes('StrictHostKeyChecking=no'), false);
