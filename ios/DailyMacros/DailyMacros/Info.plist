@@ -6,6 +6,8 @@
 	<string>$(API_BASE_URL)</string>
 	<key>AppBuild</key>
 	<string>$(APP_BUILD)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Daily Macros</string>
 	<key>GitCommitHash</key>
 	<string>$(GIT_COMMIT_HASH)</string>
 	<key>GoogleIOSClientID</key>

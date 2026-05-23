@@ -78,9 +78,19 @@ const packageJson = require('../package.json');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
+const BUILD_HASH_DIGITS = 7;
+
+function formatBuildIdentifier(build) {
+  const value = String(build || '').trim();
+  if (/^[0-9a-f]{8,40}$/i.test(value)) {
+    return value.slice(0, BUILD_HASH_DIGITS);
+  }
+  return value;
+}
+
 app.disable('x-powered-by');
 app.set('trust proxy', parsePositiveIntegerEnv('TRUST_PROXY_HOPS', 1));
-const appBuild = process.env.APP_BUILD || process.env.GITHUB_SHA || 'local';
+const appBuild = formatBuildIdentifier(process.env.APP_BUILD || process.env.GITHUB_SHA || 'local');
 const startedAtIso = new Date().toISOString();
 
 const scriptPath = path.join(process.cwd(), 'public', 'script.js');

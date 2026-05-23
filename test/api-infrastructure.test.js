@@ -248,6 +248,10 @@ test('server.js uses API router pattern for versioning', () => {
   assert.ok(server.includes("const apiRouter = express.Router()"));
   assert.ok(server.includes("app.use('/api/v1'"), 'Must mount apiRouter at /api/v1');
   assert.ok(server.includes("app.use('/api'"), 'Must mount apiRouter at /api for backward compat');
+  assert.ok(server.includes('const BUILD_HASH_DIGITS = 7'));
+  assert.ok(server.includes('function formatBuildIdentifier(build)'));
+  assert.ok(server.includes('value.slice(0, BUILD_HASH_DIGITS)'));
+  assert.ok(server.includes('const appBuild = formatBuildIdentifier('));
 });
 
 test('server.js includes Bearer token auth middleware', () => {
@@ -575,6 +579,8 @@ test('deploy workflow verifies SSH host and smokes production endpoints', () => 
   assert.equal(workflow.includes('StrictHostKeyChecking=no'), false);
   assert.ok(workflow.includes('docker-compose.macros-build.yml'));
   assert.ok(workflow.includes('APP_BUILD: \\${APP_BUILD}'));
+  assert.ok(workflow.includes('SHORT_GITHUB_SHA="${GITHUB_SHA::7}"'));
+  assert.ok(workflow.includes('APP_BUILD=$SHORT_GITHUB_SHA docker-compose'));
   assert.ok(workflow.includes('docker-compose -f docker-compose.yml -f docker-compose.macros-build.yml up -d macros'));
   assert.ok(workflow.includes('PRODUCTION_BASE_URL'));
   assert.ok(workflow.includes('Skip post-deploy smoke when production URL is not configured'));
@@ -607,7 +613,7 @@ test('TestFlight workflow rejects placeholder API base URLs and passes build met
   const workflow = read('.github/workflows/testflight.yml');
   assert.ok(workflow.includes('IOS_API_BASE_URL must be a real HTTPS production origin'));
   assert.ok(workflow.includes('IOS_API_BASE_URL must start with https://'));
-  assert.ok(workflow.includes('GIT_COMMIT_HASH="$(git rev-parse --short=12 HEAD)"'));
+  assert.ok(workflow.includes('GIT_COMMIT_HASH="$(git rev-parse --short=7 HEAD)"'));
   assert.ok(workflow.includes('APP_BUILD="$BUILD_NUMBER"'));
   assert.ok(workflow.includes('GIT_COMMIT_HASH="$GIT_COMMIT_HASH"'));
 });
@@ -621,9 +627,14 @@ test('iOS settings exposes support privacy and build metadata', () => {
   assert.ok(settings.includes('meal photos submitted for parsing'));
   assert.ok(settings.includes('appBuildLabel'));
   assert.ok(settings.includes('apiBuildLabel'));
+  assert.ok(settings.includes('private let buildHashDigits = 7'));
+  assert.ok(settings.includes('shortBuildIdentifier(version.appBuild)'));
+  assert.ok(settings.includes('String(raw.prefix(buildHashDigits))'));
   assert.ok(api.includes('func getVersion()'));
   assert.ok(api.includes('token = nil'));
   assert.ok(api.includes('kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly'));
+  assert.ok(plist.includes('<key>CFBundleDisplayName</key>'));
+  assert.ok(plist.includes('<string>Daily Macros</string>'));
   assert.ok(plist.includes('<key>AppBuild</key>'));
   assert.ok(plist.includes('<key>GitCommitHash</key>'));
 });

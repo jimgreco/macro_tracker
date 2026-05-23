@@ -74,8 +74,9 @@ jobs:
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
           set -euo pipefail
+          SHORT_GITHUB_SHA="${GITHUB_SHA::7}"
           ssh -i ~/.ssh/macros_deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts "$EC2_USER@$EC2_HOST" \
-            "cd ~/deploy && printf '%s\n' 'services:' '  macros:' '    environment:' '      APP_BUILD: \${APP_BUILD}' > docker-compose.macros-build.yml && APP_BUILD=${GITHUB_SHA} docker-compose -f docker-compose.yml -f docker-compose.macros-build.yml build macros && APP_BUILD=${GITHUB_SHA} docker-compose -f docker-compose.yml -f docker-compose.macros-build.yml up -d macros && docker system prune -f"
+            "cd ~/deploy && printf '%s\n' 'services:' '  macros:' '    environment:' '      APP_BUILD: \${APP_BUILD}' > docker-compose.macros-build.yml && APP_BUILD=$SHORT_GITHUB_SHA docker-compose -f docker-compose.yml -f docker-compose.macros-build.yml build macros && APP_BUILD=$SHORT_GITHUB_SHA docker-compose -f docker-compose.yml -f docker-compose.macros-build.yml up -d macros && docker system prune -f"
 
       - name: Skip post-deploy smoke when production URL is not configured
         if: env.PRODUCTION_BASE_URL == ''

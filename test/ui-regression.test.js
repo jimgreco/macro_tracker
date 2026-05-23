@@ -172,14 +172,14 @@ test('web account menu surfaces privacy support export delete and build info', (
   assert.equal(styles.includes('.account-privacy-modal'), true);
 });
 
-test('web build labels use trailing git hash digits', () => {
+test('web build labels use short git hashes', () => {
   const loginScript = read('public/login.js');
   const appScript = read('public/script.js');
 
   for (const script of [loginScript, appScript]) {
     assert.equal(script.includes('const BUILD_HASH_DIGITS = 7'), true);
     assert.equal(script.includes('function formatBuildLabel(build)'), true);
-    assert.equal(script.includes('value.slice(-BUILD_HASH_DIGITS)'), true);
+    assert.equal(script.includes('value.slice(0, BUILD_HASH_DIGITS)'), true);
   }
 
   assert.equal(loginScript.includes('const build = formatBuildLabel(data.appBuild)'), true);

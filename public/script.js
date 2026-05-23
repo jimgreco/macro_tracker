@@ -49,7 +49,7 @@ const BUILD_HASH_DIGITS = 7;
 function formatBuildLabel(build) {
   const value = String(build || '').trim();
   if (/^[0-9a-f]{8,40}$/i.test(value)) {
-    return value.slice(-BUILD_HASH_DIGITS);
+    return value.slice(0, BUILD_HASH_DIGITS);
   }
   return value;
 }

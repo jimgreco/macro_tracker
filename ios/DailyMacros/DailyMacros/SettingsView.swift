@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var showDeleteConfirm = false
     @State private var isExporting = false
     @State private var errorMessage: String?
+    private let buildHashDigits = 7
 
     var body: some View {
         NavigationStack {
@@ -272,13 +273,28 @@ struct SettingsView: View {
         let bundleVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         let build = Bundle.main.object(forInfoDictionaryKey: "AppBuild") as? String
         let hash = Bundle.main.object(forInfoDictionaryKey: "GitCommitHash") as? String
-        let cleanBuild = build?.contains("$(") == false ? build : nil
-        let cleanHash = hash?.isEmpty == false && hash?.contains("$(") == false ? hash : nil
+        let cleanBuild = shortBuildIdentifier(build)
+        let cleanHash = shortBuildIdentifier(hash)
         return [bundleVersion, cleanBuild, cleanHash].compactMap { $0 }.joined(separator: " / ")
     }
 
     private var apiBuildLabel: String {
         guard let version else { return "Unavailable" }
-        return [version.packageVersion, version.appBuild].compactMap { $0 }.joined(separator: " / ")
+        return [version.packageVersion, shortBuildIdentifier(version.appBuild)].compactMap { $0 }.joined(separator: " / ")
+    }
+
+    private func shortBuildIdentifier(_ value: String?) -> String? {
+        guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              raw.isEmpty == false,
+              raw.contains("$(") == false
+        else {
+            return nil
+        }
+
+        if raw.range(of: "^[0-9a-fA-F]{8,40}$", options: .regularExpression) != nil {
+            return String(raw.prefix(buildHashDigits))
+        }
+
+        return raw
     }
 }
