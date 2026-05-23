@@ -299,6 +299,15 @@ test('server.js validates OAuth state for web auth flows', () => {
   assert.ok(server.includes('delete req.session.appleAuthState'));
 });
 
+test('production session cookie supports Apple form_post callbacks', () => {
+  const server = read('src/server.js');
+  const sessionSection = server.slice(server.indexOf('app.use(\n  session({'), server.indexOf('app.use(passport.initialize())'));
+
+  assert.ok(sessionSection.includes("sameSite: isProduction ? 'none' : 'lax'"));
+  assert.ok(sessionSection.includes('secure: isProduction'));
+  assert.ok(server.includes("responseMode: 'form_post'"));
+});
+
 test('server.js enforces durable daily usage limits for AI endpoints', () => {
   const server = read('src/server.js');
   assert.ok(server.includes('async function enforceDailyUsage'));

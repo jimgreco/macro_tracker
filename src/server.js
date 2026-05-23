@@ -480,7 +480,9 @@ app.use(
     proxy: isProduction,
     cookie: {
       httpOnly: true,
-      sameSite: 'lax',
+      // Apple Sign-In uses a cross-site form_post callback, which requires
+      // the session cookie to be sent on that POST so OAuth state can validate.
+      sameSite: isProduction ? 'none' : 'lax',
       secure: isProduction,
       maxAge: 1000 * 60 * 60 * 24 * parsePositiveIntegerEnv('SESSION_TTL_DAYS', 30)
     }
