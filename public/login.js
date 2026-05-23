@@ -3,6 +3,15 @@ const errorEl = document.getElementById('error');
 const versionEl = document.getElementById('login-version');
 const googleLoginBtnEl = document.getElementById('google-login-btn');
 const appleLoginBtnEl = document.getElementById('apple-login-btn');
+const BUILD_HASH_DIGITS = 7;
+
+function formatBuildLabel(build) {
+  const value = String(build || '').trim();
+  if (/^[0-9a-f]{8,40}$/i.test(value)) {
+    return value.slice(-BUILD_HASH_DIGITS);
+  }
+  return value;
+}
 
 if (params.get('error') && errorEl) {
   errorEl.hidden = false;
@@ -28,7 +37,7 @@ if (appleLoginBtnEl) {
     }
 
     const data = await res.json();
-    const build = String(data.appBuild || '').trim();
+    const build = formatBuildLabel(data.appBuild);
     const startedAt = String(data.startedAt || '').trim();
     if (!build && !startedAt) {
       return;

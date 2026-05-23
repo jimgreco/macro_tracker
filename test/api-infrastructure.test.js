@@ -568,10 +568,14 @@ test('deploy workflow verifies SSH host and smokes production endpoints', () => 
   assert.ok(workflow.includes('paths:'));
   assert.ok(workflow.includes("'src/**'"));
   assert.ok(workflow.includes("'public/**'"));
+  assert.ok(workflow.includes("'.github/workflows/deploy.yml'"));
   assert.equal(workflow.includes("'ios/**'"), false);
   assert.ok(workflow.includes('ssh-keyscan -H "$EC2_HOST"'));
   assert.ok(workflow.includes('UserKnownHostsFile=~/.ssh/known_hosts'));
   assert.equal(workflow.includes('StrictHostKeyChecking=no'), false);
+  assert.ok(workflow.includes('docker-compose.macros-build.yml'));
+  assert.ok(workflow.includes('APP_BUILD: \\${APP_BUILD}'));
+  assert.ok(workflow.includes('docker-compose -f docker-compose.yml -f docker-compose.macros-build.yml up -d macros'));
   assert.ok(workflow.includes('PRODUCTION_BASE_URL'));
   assert.ok(workflow.includes('Skip post-deploy smoke when production URL is not configured'));
   assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL == ''"));

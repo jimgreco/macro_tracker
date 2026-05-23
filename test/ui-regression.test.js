@@ -172,6 +172,20 @@ test('web account menu surfaces privacy support export delete and build info', (
   assert.equal(styles.includes('.account-privacy-modal'), true);
 });
 
+test('web build labels use trailing git hash digits', () => {
+  const loginScript = read('public/login.js');
+  const appScript = read('public/script.js');
+
+  for (const script of [loginScript, appScript]) {
+    assert.equal(script.includes('const BUILD_HASH_DIGITS = 7'), true);
+    assert.equal(script.includes('function formatBuildLabel(build)'), true);
+    assert.equal(script.includes('value.slice(-BUILD_HASH_DIGITS)'), true);
+  }
+
+  assert.equal(loginScript.includes('const build = formatBuildLabel(data.appBuild)'), true);
+  assert.equal(appScript.includes("const build = formatBuildLabel(version.appBuild || 'local')"), true);
+});
+
 test('web UI reflects admin-controlled sexual activity feature flag', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');

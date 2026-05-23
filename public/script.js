@@ -44,6 +44,16 @@ const state = {
   }
 };
 
+const BUILD_HASH_DIGITS = 7;
+
+function formatBuildLabel(build) {
+  const value = String(build || '').trim();
+  if (/^[0-9a-f]{8,40}$/i.test(value)) {
+    return value.slice(-BUILD_HASH_DIGITS);
+  }
+  return value;
+}
+
 const mealTextEl = document.getElementById('meal-text');
 const consumedAtEl = document.getElementById('consumed-at');
 const parseBtnEl = document.getElementById('parse-btn');
@@ -1168,7 +1178,7 @@ function showAccountPrivacyModal() {
   if (overlay) overlay.remove();
 
   const version = state.appVersion || {};
-  const build = version.appBuild || 'local';
+  const build = formatBuildLabel(version.appBuild || 'local');
   const packageVersion = version.packageVersion || 'unknown';
   const sexualActivityCopy = state.features?.sexualActivity
     ? 'sexual activity entries, '
