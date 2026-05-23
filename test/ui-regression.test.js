@@ -123,6 +123,21 @@ test('iOS macro entry rows do not show drag handle icons', () => {
   assert.equal(swift.includes('Drag to combine meal items'), false);
 });
 
+test('iOS login matches website sign-in layout', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/LoginView.swift');
+
+  assert.ok(swift.includes('LoginBackground'));
+  assert.ok(swift.includes('loginCard'));
+  assert.ok(swift.includes('DailyMacrosLogoMark()'));
+  assert.ok(swift.includes('Text("DailyMacros")'));
+  assert.ok(swift.includes('Sign in to continue to the app.'));
+  assert.ok(swift.includes('Text("Continue with Google")'));
+  assert.ok(swift.includes('GoogleLogoMark()'));
+  assert.ok(swift.includes('SignInWithAppleButton(.continue)'));
+  assert.ok(swift.includes('LoginDivider()'));
+  assert.ok(swift.includes('Build \\(value)'));
+  assert.ok(swift.indexOf('googleButton') < swift.indexOf('appleButton'));
+});
 
 test('workout parser uses server endpoint with local fallback', () => {
   const script = read('public/script.js');

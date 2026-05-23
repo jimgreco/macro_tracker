@@ -5,69 +5,159 @@ import CryptoKit
 struct LoginView: View {
     @EnvironmentObject var auth: AuthManager
     private let api = APIClient.shared
+    private let buildHashDigits = 7
     @State private var errorMessage: String?
     @State private var isSigningIn = false
     @State private var webAuthSession: ASWebAuthenticationSession?
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 32) {
-                Spacer()
+            GeometryReader { proxy in
+                ZStack {
+                    LoginBackground()
+                        .ignoresSafeArea()
 
-                VStack(spacing: 8) {
-                    DailyMacrosLogoMark()
-                        .frame(width: 72, height: 72)
-
-                    Text("DailyMacros")
-                        .font(.largeTitle.bold())
-
-                    Text("Track your nutrition, weight, and workouts")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(spacing: 12) {
-                    // Sign in with Apple button
-                    SignInWithAppleButton(.signIn) { request in
-                        request.requestedScopes = [.fullName, .email]
-                    } onCompletion: { result in
-                        Task { await handleAppleSignIn(result) }
-                    }
-                    .signInWithAppleButtonStyle(.white)
-                    .frame(height: 50)
-                    .cornerRadius(12)
-
-                    // Sign in with Google button
-                    Button {
-                        Task { await signInWithGoogle() }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "g.circle.fill")
-                                .font(.title2)
-                            Text("Sign in with Google")
-                                .font(.body.weight(.medium))
+                    ScrollView {
+                        VStack {
+                            loginCard
                         }
                         .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(.white)
-                        .foregroundStyle(.black.opacity(0.85))
-                        .cornerRadius(12)
+                        .frame(minHeight: proxy.size.height)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 32)
                     }
                 }
-                .padding(.horizontal)
+            }
+            .toolbar(.hidden, for: .navigationBar)
+        }
+    }
 
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
+    private var loginCard: some View {
+        VStack(spacing: 22) {
+            loginBrand
 
-                Spacer()
-                Spacer()
+            Text("Sign in to continue to the app.")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(LoginPalette.muted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: 14) {
+                googleButton
+                LoginDivider()
+                appleButton
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(LoginPalette.error)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+            }
+
+            if let loginBuildLabel {
+                Text(loginBuildLabel)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(LoginPalette.muted)
+                    .frame(maxWidth: .infinity)
+                    .textSelection(.enabled)
             }
         }
+        .padding(20)
+        .frame(maxWidth: 420)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(LoginPalette.card)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(LoginPalette.line, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.55), radius: 32, y: 20)
+        .shadow(color: LoginPalette.cyan.opacity(0.08), radius: 26)
+    }
+
+    private var loginBrand: some View {
+        HStack(spacing: 10) {
+            DailyMacrosLogoMark()
+                .frame(width: 42, height: 42)
+
+            Text("DailyMacros")
+                .font(.system(size: 34, weight: .heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.92, green: 0.96, blue: 1),
+                            LoginPalette.cyan,
+                            LoginPalette.green
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("DailyMacros")
+    }
+
+    private var googleButton: some View {
+        Button {
+            Task { await signInWithGoogle() }
+        } label: {
+            HStack(spacing: 14) {
+                GoogleLogoMark()
+                    .frame(width: 28, height: 28)
+
+                Text("Continue with Google")
+                    .font(.system(size: 19, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 58)
+            .foregroundStyle(LoginPalette.cyan)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(LoginPalette.googleButton)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(LoginPalette.googleBorder, lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isSigningIn)
+        .opacity(isSigningIn ? 0.72 : 1)
+    }
+
+    private var appleButton: some View {
+        SignInWithAppleButton(.continue) { request in
+            request.requestedScopes = [.fullName, .email]
+        } onCompletion: { result in
+            Task { await handleAppleSignIn(result) }
+        }
+        .signInWithAppleButtonStyle(.black)
+        .frame(height: 58)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(.white.opacity(0.12), lineWidth: 1)
+        }
+        .disabled(isSigningIn)
+        .opacity(isSigningIn ? 0.72 : 1)
+    }
+
+    private var loginBuildLabel: String? {
+        let build = Bundle.main.object(forInfoDictionaryKey: "AppBuild") as? String
+        let hash = Bundle.main.object(forInfoDictionaryKey: "GitCommitHash") as? String
+        guard let value = shortBuildIdentifier(hash) ?? shortBuildIdentifier(build) else {
+            return nil
+        }
+        return "Build \(value)"
     }
 
     // MARK: - Actions
@@ -203,6 +293,127 @@ struct LoginView: View {
         return Data(digest).base64URLEncodedString()
     }
 
+    private func shortBuildIdentifier(_ value: String?) -> String? {
+        guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              raw.isEmpty == false,
+              raw.contains("$(") == false
+        else {
+            return nil
+        }
+
+        if raw.range(of: "^[0-9a-fA-F]{8,40}$", options: .regularExpression) != nil {
+            return String(raw.prefix(buildHashDigits))
+        }
+
+        return raw
+    }
+
+}
+
+private enum LoginPalette {
+    static let background = Color(red: 0.027, green: 0.035, blue: 0.059)
+    static let card = Color(red: 0.051, green: 0.067, blue: 0.118).opacity(0.95)
+    static let line = Color(red: 0, green: 0.81, blue: 1).opacity(0.18)
+    static let text = Color(red: 0.86, green: 0.91, blue: 1)
+    static let muted = Color(red: 0.35, green: 0.43, blue: 0.54)
+    static let cyan = Color(red: 0, green: 0.81, blue: 1)
+    static let green = Color(red: 0.02, green: 1, blue: 0.63)
+    static let googleButton = Color(red: 0.055, green: 0.16, blue: 0.22).opacity(0.9)
+    static let googleBorder = Color(red: 0.56, green: 0.82, blue: 1).opacity(0.2)
+    static let error = Color(red: 1, green: 0.18, blue: 0.47)
+}
+
+private struct LoginBackground: View {
+    var body: some View {
+        ZStack {
+            LoginPalette.background
+
+            LinearGradient(
+                colors: [
+                    Color(red: 0.02, green: 0.11, blue: 0.18).opacity(0.7),
+                    .clear,
+                    Color(red: 0, green: 0.16, blue: 0.1).opacity(0.5)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            RadialGradient(
+                colors: [
+                    Color(red: 0, green: 0.24, blue: 0.39).opacity(0.45),
+                    .clear
+                ],
+                center: UnitPoint(x: 0.18, y: 0.08),
+                startRadius: 8,
+                endRadius: 360
+            )
+
+            RadialGradient(
+                colors: [
+                    Color(red: 0, green: 0.31, blue: 0.2).opacity(0.3),
+                    .clear
+                ],
+                center: UnitPoint(x: 0.82, y: 0.92),
+                startRadius: 8,
+                endRadius: 320
+            )
+        }
+    }
+}
+
+private struct LoginDivider: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Rectangle()
+                .fill(LoginPalette.line)
+                .frame(height: 1)
+
+            Text("or")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(LoginPalette.muted)
+
+            Rectangle()
+                .fill(LoginPalette.line)
+                .frame(height: 1)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct GoogleLogoMark: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .trim(from: 0.02, to: 0.25)
+                .stroke(Color(red: 0.26, green: 0.52, blue: 0.96), style: StrokeStyle(lineWidth: 5, lineCap: .butt))
+                .rotationEffect(.degrees(-8))
+
+            Circle()
+                .trim(from: 0.25, to: 0.42)
+                .stroke(Color(red: 0.2, green: 0.66, blue: 0.33), style: StrokeStyle(lineWidth: 5, lineCap: .butt))
+                .rotationEffect(.degrees(-8))
+
+            Circle()
+                .trim(from: 0.42, to: 0.62)
+                .stroke(Color(red: 0.98, green: 0.74, blue: 0.02), style: StrokeStyle(lineWidth: 5, lineCap: .butt))
+                .rotationEffect(.degrees(-8))
+
+            Circle()
+                .trim(from: 0.62, to: 0.88)
+                .stroke(Color(red: 0.92, green: 0.26, blue: 0.21), style: StrokeStyle(lineWidth: 5, lineCap: .butt))
+                .rotationEffect(.degrees(-8))
+
+            Path { path in
+                path.move(to: CGPoint(x: 14, y: 14))
+                path.addLine(to: CGPoint(x: 25, y: 14))
+                path.addLine(to: CGPoint(x: 25, y: 11))
+                path.addLine(to: CGPoint(x: 14, y: 11))
+            }
+            .stroke(Color(red: 0.26, green: 0.52, blue: 0.96), style: StrokeStyle(lineWidth: 5, lineCap: .butt, lineJoin: .round))
+        }
+        .frame(width: 28, height: 28)
+        .accessibilityHidden(true)
+    }
 }
 
 private struct DailyMacrosLogoMark: View {
