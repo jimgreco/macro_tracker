@@ -115,6 +115,14 @@ test('iOS quick items are searchable and preload saved items in the background',
   assert.equal(swift.includes('if !hasLoadedSavedItems'), true);
 });
 
+test('iOS macro entry rows do not show drag handle icons', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+
+  assert.equal(swift.includes('Image(systemName: "line.3.horizontal")'), false);
+  assert.equal(swift.includes('entryDragHandle'), false);
+  assert.equal(swift.includes('Drag to combine meal items'), false);
+});
+
 
 test('workout parser uses server endpoint with local fallback', () => {
   const script = read('public/script.js');
