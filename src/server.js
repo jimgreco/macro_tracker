@@ -559,10 +559,6 @@ function getAppleClientSecret() {
 // Checks Authorization header for Bearer tokens before falling back to session auth.
 
 async function bearerTokenAuth(req, res, next) {
-  if (hasAuthenticatedUser(req)) {
-    return next();
-  }
-
   const authHeader = req.get('authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return next();

@@ -70,7 +70,7 @@ npm run test:check
 ```
 
 What it runs:
-- JS syntax checks for `public/script.js` and `src/server.js`
+- JS syntax checks for `public/login.js`, `public/script.js`, and `src/server.js`
 - Regression tests that verify the removed mobile bottom nav does not reappear in markup, styles, or script wiring
 
 If you want a full runtime test, start Postgres first (`npm run db:up`) and then run `npm start`.
@@ -101,6 +101,7 @@ Operational safeguards:
 - `GET /version` exposes app version, build SHA, Node version, and start time for smoke checks and support.
 - The deploy workflow pins SSH host keys with `ssh-keyscan` and fails if post-deploy smoke checks fail.
 - `.github/workflows/production-smoke.yml` runs hourly production smoke checks using `scripts/production-smoke.sh`.
+- Before wider beta pushes, confirm the latest database backup exists, restore has been tested recently, and the smoke token still reaches the intended production account.
 - Elastic Beanstalk material in `docs/aws-production-security-audit.md` is legacy unless that platform is intentionally revived.
 - Use `npm run ops:rotate-prod-db-password` only if the RDS/Elastic Beanstalk path is revived and verified.
 - Do not enable RDS managed master-password rotation unless the app is changed to read the current secret from Secrets Manager at runtime.

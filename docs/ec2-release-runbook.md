@@ -57,6 +57,11 @@ npm run test:check
 npm audit --omit=dev
 ```
 
+Confirm the app has a recent restorable database backup:
+- Identify the latest automated RDS snapshot or manual backup for the production database.
+- Confirm a restore drill has succeeded recently enough to trust the runbook.
+- If the release includes schema changes, take a fresh manual snapshot before deploy.
+
 Confirm the workflow secrets are present:
 ```bash
 gh secret list
@@ -89,6 +94,16 @@ Then verify:
 - Dashboard loads.
 - One meal or workout parse succeeds.
 - iOS TestFlight token auth reaches the same backend.
+- Settings shows matching app/API build metadata.
+- Account export returns a JSON file for the smoke account.
+- Account deletion is tested only with a disposable beta account.
+
+## TestFlight Verification
+For beta-facing iOS releases, verify on a real device after the TestFlight build processes:
+- Google and Apple sign-in both reach the production backend.
+- Macro logging, workout logging/sync, Health sleep logging, Settings export, and build metadata load.
+- Previously fixed scrolling paths remain usable in meal, workout, weight, and health lists.
+- Any API error shown to a tester includes a request reference that appears in server logs.
 
 ## Rollback
 From the EC2 host:

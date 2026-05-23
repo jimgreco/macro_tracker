@@ -71,7 +71,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
-                Text("Contact the person who invited you. Include any request reference shown in an error message.")
+                Text("Contact the person who invited you. Include any request reference shown in an error message and the build details below.")
                     .font(.subheadline)
             }
 
@@ -80,7 +80,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
-                Text("Daily Macros stores nutrition, weight, workouts, sleep, sexual activity entries, meal photos submitted for parsing, account details, and beta usage data.")
+                Text("Daily Macros stores nutrition, weight, workouts, sleep, sexual activity entries, meal photos submitted for parsing, account details, and beta usage data. You can export a JSON copy of your data or permanently delete your account from this screen.")
                     .font(.subheadline)
             }
 

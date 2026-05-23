@@ -14,12 +14,12 @@
     "db:logs": "docker compose logs -f db",
     "db:seed:local": "node scripts/load-local-test-data.js",
     "test": "node --test test/*.test.js",
-    "test:check": "node --check public/script.js && node --check src/server.js && npm test"
+    "test:check": "node --check public/login.js && node --check public/script.js && node --check src/server.js && npm test"
   },
   "dependencies": {
     "apple-signin-auth": "^2.0.0",
     "dotenv": "^16.4.5",
-    "express": "^4.21.2",
+    "express": "^4.22.2",
     "express-session": "^1.18.1",
     "heic-convert": "^2.1.0",
     "openai": "^4.86.1",

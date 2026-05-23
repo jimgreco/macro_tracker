@@ -241,6 +241,17 @@ test('server.js includes Bearer token auth middleware', () => {
   assert.ok(server.includes('validateApiToken'));
 });
 
+test('server.js checks bearer tokens even when a local dev user is preloaded', () => {
+  const server = read('src/server.js');
+  const start = server.indexOf('async function bearerTokenAuth');
+  const end = server.indexOf('function requireAuth', start);
+  assert.ok(start > -1 && end > start);
+  const middleware = server.slice(start, end);
+  assert.equal(middleware.includes('if (hasAuthenticatedUser(req))'), false);
+  assert.ok(middleware.indexOf("req.get('authorization')") < middleware.indexOf('validateApiToken(token)'));
+  assert.ok(middleware.includes("req.authMode = 'bearer'"));
+});
+
 test('server.js has per-user rate limiting', () => {
   const server = read('src/server.js');
   // Rate limiter should use user id when available

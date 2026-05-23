@@ -1143,10 +1143,10 @@ function showAccountPrivacyModal() {
     <div class="combine-modal entry-modal account-privacy-modal">
       <h3>Account & Privacy</h3>
       <div class="account-privacy-copy">
-        <p><strong>Support</strong><span>Contact the person who invited you. Include any request reference shown in an error message.</span></p>
+        <p><strong>Support</strong><span>Contact the person who invited you. Include any request reference shown in an error message and the build details below.</span></p>
         <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, sexual activity entries, meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
         <p><strong>AI processing</strong><span>Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them.</span></p>
-        <p><strong>Controls</strong><span>You can export your account data or delete your account from here.</span></p>
+        <p><strong>Controls</strong><span>You can export a JSON copy of your account data or permanently delete your account from here.</span></p>
       </div>
       <div class="account-build-meta">
         <span>Web ${escapeHtml(packageVersion)}</span>
