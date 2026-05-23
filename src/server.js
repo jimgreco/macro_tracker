@@ -1280,6 +1280,10 @@ function validateSavedItemBody(body) {
 // ── Non-API routes (login, auth, health) ──
 
 const loginHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'login.html'), 'utf8');
+const publicBrandAssetPaths = new Map([
+  ['/favicon.svg', path.join(process.cwd(), 'public', 'favicon.svg')],
+  ['/logo-mark.svg', path.join(process.cwd(), 'public', 'logo-mark.svg')]
+]);
 
 app.get('/login', (req, res) => {
   if (hasAuthenticatedUser(req)) {
@@ -1310,6 +1314,16 @@ app.get('/login', (req, res) => {
 
 app.get('/login.js', (req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'login.js'));
+});
+
+app.get(['/favicon.svg', '/logo-mark.svg'], (req, res) => {
+  const assetPath = publicBrandAssetPaths.get(req.path);
+  if (!assetPath) {
+    return res.status(404).type('text').send('Not found.');
+  }
+
+  res.set('Cache-Control', isProduction ? 'public, max-age=3600' : 'no-cache');
+  return res.sendFile(assetPath);
 });
 
 app.use('/auth', createRateLimiter({ windowMs: 15 * 60 * 1000, maxRequests: 30 }));

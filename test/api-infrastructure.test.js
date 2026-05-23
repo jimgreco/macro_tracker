@@ -402,6 +402,20 @@ test('server.js applies bearerTokenAuth before requireAuth on API routes', () =>
   assert.ok(mountLine.indexOf('bearerTokenAuth') < mountLine.indexOf('requireAuth'));
 });
 
+test('server.js serves login brand assets before the frontend auth guard', () => {
+  const server = read('src/server.js');
+  const brandAssetRoute = server.indexOf("app.get(['/favicon.svg', '/logo-mark.svg']");
+  const authGuard = server.indexOf('app.use(requireAuth, enforceActiveAccount)');
+  const protectedStaticMount = server.indexOf("app.use(express.static(path.join(process.cwd(), 'public'))");
+
+  assert.ok(brandAssetRoute > -1, 'Brand asset route must exist');
+  assert.ok(authGuard > -1, 'Frontend auth guard must exist');
+  assert.ok(protectedStaticMount > -1, 'Protected static mount must exist');
+  assert.ok(brandAssetRoute < authGuard, 'Login brand assets must be public');
+  assert.ok(authGuard < protectedStaticMount, 'General static files should stay behind auth');
+  assert.ok(server.includes('publicBrandAssetPaths.get(req.path)'));
+});
+
 test('server.js audit logs on mutating operations', () => {
   const server = read('src/server.js');
   // Check that key mutating endpoints call logAudit
