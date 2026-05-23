@@ -16,6 +16,9 @@ test('db.js exports all required functions', () => {
     'getPool',
     'checkDatabaseHealth',
     'upsertUser',
+    'getUserAccountControls',
+    'listAdminAccounts',
+    'updateAdminAccountControls',
     'getProviderUserId',
     'logAudit',
     'addEntries',
@@ -64,6 +67,16 @@ test('db.js creates users table', () => {
   const db = read('src/db.js');
   assert.ok(db.includes('CREATE TABLE IF NOT EXISTS users'));
   assert.ok(db.includes("provider TEXT NOT NULL DEFAULT 'google'"));
+});
+
+test('db.js tracks admin-controlled account flags and login stats', () => {
+  const db = read('src/db.js');
+  assert.ok(db.includes('is_disabled BOOLEAN NOT NULL DEFAULT FALSE'));
+  assert.ok(db.includes('sexual_activity_enabled BOOLEAN NOT NULL DEFAULT FALSE'));
+  assert.ok(db.includes('last_login_at TIMESTAMPTZ'));
+  assert.ok(db.includes('login_count INTEGER NOT NULL DEFAULT 0'));
+  assert.ok(db.includes('idx_users_last_login'));
+  assert.ok(db.includes('login_count = COALESCE(users.login_count, 0) + 1'));
 });
 
 test('db.js tracks auth provider identities for account linking', () => {
@@ -213,6 +226,9 @@ test('server.js imports all new db functions', () => {
   const server = read('src/server.js');
   const requiredImports = [
     'upsertUser',
+    'getUserAccountControls',
+    'listAdminAccounts',
+    'updateAdminAccountControls',
     'logAudit',
     'createApiToken',
     'validateApiToken',
@@ -343,6 +359,30 @@ test('server.js has GDPR endpoints', () => {
   assert.ok(server.includes("apiRouter.delete('/account'"));
   assert.ok(server.includes('exportUserData'));
   assert.ok(server.includes('deleteUserAccount'));
+});
+
+test('server.js exposes protected admin account controls', () => {
+  const server = read('src/server.js');
+  assert.ok(server.includes('ADMIN_EMAILS'));
+  assert.ok(server.includes('ADMIN_USER_IDS'));
+  assert.ok(server.includes('function requireAdmin'));
+  assert.ok(server.includes("apiRouter.get('/admin/accounts'"));
+  assert.ok(server.includes("apiRouter.patch('/admin/accounts/:userId'"));
+  assert.ok(server.includes("res.set('Cache-Control', 'no-store, no-cache"));
+  assert.ok(server.includes("delete req.headers['if-none-match']"));
+  assert.ok(server.includes('listAdminAccounts({ search, limit, offset })'));
+  assert.ok(server.includes('updateAdminAccountControls(targetUserId, controls)'));
+  assert.ok(server.includes("app.get(['/admin', '/admin.html'], requireAdmin"));
+});
+
+test('server.js blocks disabled accounts and gates sexual activity endpoints', () => {
+  const server = read('src/server.js');
+  assert.ok(server.includes('function enforceActiveAccount'));
+  assert.ok(server.includes('This account has been disabled.'));
+  assert.ok(server.includes('function requireSexualActivityAccess'));
+  assert.ok(server.includes("apiRouter.use('/sexual-activity', requireSexualActivityAccess)"));
+  assert.ok(server.includes('features: {\n      sexualActivity: Boolean(user.sexualActivityEnabled)'));
+  assert.ok(server.includes("app.use('/api/v1', bearerTokenAuth, requireAuth, enforceActiveAccount"));
 });
 
 test('server.js has API token endpoints', () => {

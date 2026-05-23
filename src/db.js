@@ -73,6 +73,10 @@ async function initDb() {
       name TEXT,
       picture TEXT,
       provider TEXT NOT NULL DEFAULT 'google',
+      is_disabled BOOLEAN NOT NULL DEFAULT FALSE,
+      sexual_activity_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      last_login_at TIMESTAMPTZ,
+      login_count INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -286,6 +290,11 @@ async function initDb() {
   `);
 
   // ── Migrations for existing databases ──
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN NOT NULL DEFAULT FALSE;`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sexual_activity_enabled BOOLEAN NOT NULL DEFAULT FALSE;`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS login_count INTEGER NOT NULL DEFAULT 0;`);
+
   await pool.query(`
     ALTER TABLE workout_entries
       ADD COLUMN IF NOT EXISTS intensity TEXT NOT NULL DEFAULT 'medium';
@@ -326,6 +335,7 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_sleep_entries_user_logged ON sleep_entries(user_id, logged_at DESC);
     CREATE INDEX IF NOT EXISTS idx_analysis_reports_user_created ON analysis_reports(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_users_normalized_email ON users(lower(email));
+    CREATE INDEX IF NOT EXISTS idx_users_last_login ON users(last_login_at DESC NULLS LAST);
     CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities(user_id);
     CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
     CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
@@ -347,6 +357,33 @@ function normalizeUserEmail(email) {
 function normalizeAuthProvider(provider) {
   const normalized = String(provider || 'google').trim().toLowerCase();
   return normalized || 'google';
+}
+
+function dateToIso(value) {
+  if (!value) {
+    return null;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function rowToPublicUser(row) {
+  if (!row) {
+    return null;
+  }
+  return {
+    id: row.id,
+    email: row.email || null,
+    name: row.name || null,
+    picture: row.picture || null,
+    provider: row.provider || 'google',
+    isDisabled: Boolean(row.isDisabled ?? row.is_disabled),
+    sexualActivityEnabled: Boolean(row.sexualActivityEnabled ?? row.sexual_activity_enabled),
+    lastLoginAt: dateToIso(row.lastLoginAt ?? row.last_login_at),
+    loginCount: Number(row.loginCount ?? row.login_count ?? 0),
+    createdAt: dateToIso(row.createdAt ?? row.created_at),
+    updatedAt: dateToIso(row.updatedAt ?? row.updated_at)
+  };
 }
 
 async function upsertUser(user) {
@@ -393,8 +430,8 @@ async function upsertUser(user) {
     }
 
     const userResult = await client.query(
-      `INSERT INTO users (id, email, name, picture, provider, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
+      `INSERT INTO users (id, email, name, picture, provider, last_login_at, login_count, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), 1, NOW())
        ON CONFLICT (id) DO UPDATE
          SET email = COALESCE(EXCLUDED.email, users.email),
              name = COALESCE(EXCLUDED.name, users.name),
@@ -403,8 +440,16 @@ async function upsertUser(user) {
                WHEN EXCLUDED.provider = ANY(string_to_array(users.provider, ',')) THEN users.provider
                ELSE users.provider || ',' || EXCLUDED.provider
              END,
+             last_login_at = NOW(),
+             login_count = COALESCE(users.login_count, 0) + 1,
              updated_at = NOW()
-       RETURNING id, email, name, picture, provider`,
+       RETURNING id, email, name, picture, provider,
+                 is_disabled AS "isDisabled",
+                 sexual_activity_enabled AS "sexualActivityEnabled",
+                 last_login_at AS "lastLoginAt",
+                 login_count AS "loginCount",
+                 created_at AS "createdAt",
+                 updated_at AS "updatedAt"`,
       [canonicalUserId, email, name, picture, provider]
     );
 
@@ -421,19 +466,229 @@ async function upsertUser(user) {
 
     await client.query('COMMIT');
 
-    return {
-      id: userResult.rows[0].id,
-      email: userResult.rows[0].email,
-      name: userResult.rows[0].name,
-      picture: userResult.rows[0].picture,
-      provider: userResult.rows[0].provider
-    };
+    return rowToPublicUser(userResult.rows[0]);
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
   } finally {
     client.release();
   }
+}
+
+async function getUserAccountControls(userId) {
+  const result = await pool.query(
+    `SELECT id, email, name, picture, provider,
+            is_disabled AS "isDisabled",
+            sexual_activity_enabled AS "sexualActivityEnabled",
+            last_login_at AS "lastLoginAt",
+            login_count AS "loginCount",
+            created_at AS "createdAt",
+            updated_at AS "updatedAt"
+     FROM users
+     WHERE id = $1`,
+    [userId]
+  );
+  return rowToPublicUser(result.rows[0]);
+}
+
+function rowToAdminAccount(row) {
+  const user = rowToPublicUser(row);
+  if (!user) {
+    return null;
+  }
+  return {
+    ...user,
+    plan: row.plan || 'free',
+    subscriptionStatus: row.subscriptionStatus || row.subscription_status || 'active',
+    itemCount: Number(row.itemCount ?? row.item_count ?? 0),
+    savedItemCount: Number(row.savedItemCount ?? row.saved_item_count ?? 0),
+    weightEntryCount: Number(row.weightEntryCount ?? row.weight_entry_count ?? 0),
+    workoutEntryCount: Number(row.workoutEntryCount ?? row.workout_entry_count ?? 0),
+    sleepEntryCount: Number(row.sleepEntryCount ?? row.sleep_entry_count ?? 0),
+    sexualActivityEntryCount: Number(row.sexualActivityEntryCount ?? row.sexual_activity_entry_count ?? 0),
+    analysisReportCount: Number(row.analysisReportCount ?? row.analysis_report_count ?? 0),
+    apiTokenCount: Number(row.apiTokenCount ?? row.api_token_count ?? 0),
+    dailyUsageCount7d: Number(row.dailyUsageCount7d ?? row.daily_usage_count_7d ?? 0),
+    lastItemAt: dateToIso(row.lastItemAt ?? row.last_item_at),
+    lastWorkoutAt: dateToIso(row.lastWorkoutAt ?? row.last_workout_at),
+    lastWeightAt: dateToIso(row.lastWeightAt ?? row.last_weight_at),
+    lastSleepAt: dateToIso(row.lastSleepAt ?? row.last_sleep_at),
+    lastSexualActivityAt: dateToIso(row.lastSexualActivityAt ?? row.last_sexual_activity_at),
+    lastApiTokenUsedAt: dateToIso(row.lastApiTokenUsedAt ?? row.last_api_token_used_at),
+    lastAuditAt: dateToIso(row.lastAuditAt ?? row.last_audit_at)
+  };
+}
+
+async function listAdminAccounts({ search = '', limit = 25, offset = 0 } = {}) {
+  const normalizedSearch = String(search || '').trim().toLowerCase();
+  const normalizedLimit = Math.max(1, Math.min(100, Math.floor(Number(limit) || 25)));
+  const normalizedOffset = Math.max(0, Math.floor(Number(offset) || 0));
+
+  const result = await pool.query(
+    `WITH filtered AS (
+       SELECT u.id, u.email, u.name, u.picture, u.provider,
+              u.is_disabled AS "isDisabled",
+              u.sexual_activity_enabled AS "sexualActivityEnabled",
+              u.last_login_at AS "lastLoginAt",
+              u.login_count AS "loginCount",
+              u.created_at AS "createdAt",
+              u.updated_at AS "updatedAt",
+              COALESCE(s.plan, 'free') AS plan,
+              COALESCE(s.status, 'active') AS "subscriptionStatus"
+       FROM users u
+       LEFT JOIN subscriptions s ON s.user_id = u.id
+       WHERE $1 = ''
+          OR lower(COALESCE(u.email, '')) LIKE '%' || $1 || '%'
+          OR lower(COALESCE(u.name, '')) LIKE '%' || $1 || '%'
+          OR lower(u.id) LIKE '%' || $1 || '%'
+     ),
+     paged AS (
+       SELECT *, COUNT(*) OVER() AS "totalCount"
+       FROM filtered
+       ORDER BY "lastLoginAt" DESC NULLS LAST, "createdAt" DESC, id ASC
+       LIMIT $2 OFFSET $3
+     ),
+     entry_stats AS (
+       SELECT user_id, COUNT(*)::int AS "itemCount", MAX(consumed_at) AS "lastItemAt"
+       FROM entries
+       WHERE deleted_at IS NULL AND user_id IN (SELECT id FROM paged)
+       GROUP BY user_id
+     ),
+     saved_item_stats AS (
+       SELECT user_id, COUNT(*)::int AS "savedItemCount"
+       FROM saved_items
+       WHERE deleted_at IS NULL AND user_id IN (SELECT id FROM paged)
+       GROUP BY user_id
+     ),
+     weight_stats AS (
+       SELECT user_id, COUNT(*)::int AS "weightEntryCount", MAX(logged_at) AS "lastWeightAt"
+       FROM weight_entries
+       WHERE deleted_at IS NULL AND user_id IN (SELECT id FROM paged)
+       GROUP BY user_id
+     ),
+     workout_stats AS (
+       SELECT user_id, COUNT(*)::int AS "workoutEntryCount", MAX(logged_at) AS "lastWorkoutAt"
+       FROM workout_entries
+       WHERE deleted_at IS NULL AND user_id IN (SELECT id FROM paged)
+       GROUP BY user_id
+     ),
+     sleep_stats AS (
+       SELECT user_id, COUNT(*)::int AS "sleepEntryCount", MAX(logged_at) AS "lastSleepAt"
+       FROM sleep_entries
+       WHERE deleted_at IS NULL AND user_id IN (SELECT id FROM paged)
+       GROUP BY user_id
+     ),
+     sexual_activity_stats AS (
+       SELECT user_id, COUNT(*)::int AS "sexualActivityEntryCount", MAX(logged_at) AS "lastSexualActivityAt"
+       FROM sexual_activity_entries
+       WHERE deleted_at IS NULL AND user_id IN (SELECT id FROM paged)
+       GROUP BY user_id
+     ),
+     analysis_stats AS (
+       SELECT user_id, COUNT(*)::int AS "analysisReportCount"
+       FROM analysis_reports
+       WHERE deleted_at IS NULL AND user_id IN (SELECT id FROM paged)
+       GROUP BY user_id
+     ),
+     token_stats AS (
+       SELECT user_id, COUNT(*)::int AS "apiTokenCount", MAX(last_used_at) AS "lastApiTokenUsedAt"
+       FROM api_tokens
+       WHERE user_id IN (SELECT id FROM paged)
+       GROUP BY user_id
+     ),
+     usage_stats AS (
+       SELECT user_id, COALESCE(SUM(count), 0)::int AS "dailyUsageCount7d"
+       FROM daily_usage_counts
+       WHERE usage_date >= CURRENT_DATE - INTERVAL '7 days'
+         AND user_id IN (SELECT id FROM paged)
+       GROUP BY user_id
+     ),
+     audit_stats AS (
+       SELECT user_id, MAX(created_at) AS "lastAuditAt"
+       FROM audit_log
+       WHERE user_id IN (SELECT id FROM paged)
+       GROUP BY user_id
+     )
+     SELECT p.*,
+            COALESCE(es."itemCount", 0) AS "itemCount",
+            es."lastItemAt",
+            COALESCE(sis."savedItemCount", 0) AS "savedItemCount",
+            COALESCE(ws."weightEntryCount", 0) AS "weightEntryCount",
+            ws."lastWeightAt",
+            COALESCE(wos."workoutEntryCount", 0) AS "workoutEntryCount",
+            wos."lastWorkoutAt",
+            COALESCE(ss."sleepEntryCount", 0) AS "sleepEntryCount",
+            ss."lastSleepAt",
+            COALESCE(sas."sexualActivityEntryCount", 0) AS "sexualActivityEntryCount",
+            sas."lastSexualActivityAt",
+            COALESCE(ars."analysisReportCount", 0) AS "analysisReportCount",
+            COALESCE(ts."apiTokenCount", 0) AS "apiTokenCount",
+            ts."lastApiTokenUsedAt",
+            COALESCE(us."dailyUsageCount7d", 0) AS "dailyUsageCount7d",
+            aus."lastAuditAt"
+     FROM paged p
+     LEFT JOIN entry_stats es ON es.user_id = p.id
+     LEFT JOIN saved_item_stats sis ON sis.user_id = p.id
+     LEFT JOIN weight_stats ws ON ws.user_id = p.id
+     LEFT JOIN workout_stats wos ON wos.user_id = p.id
+     LEFT JOIN sleep_stats ss ON ss.user_id = p.id
+     LEFT JOIN sexual_activity_stats sas ON sas.user_id = p.id
+     LEFT JOIN analysis_stats ars ON ars.user_id = p.id
+     LEFT JOIN token_stats ts ON ts.user_id = p.id
+     LEFT JOIN usage_stats us ON us.user_id = p.id
+     LEFT JOIN audit_stats aus ON aus.user_id = p.id
+     ORDER BY p."lastLoginAt" DESC NULLS LAST, p."createdAt" DESC, p.id ASC`,
+    [normalizedSearch, normalizedLimit, normalizedOffset]
+  );
+
+  const accounts = result.rows.map(rowToAdminAccount).filter(Boolean);
+  const total = Number(result.rows[0]?.totalCount || 0);
+  return {
+    accounts,
+    pagination: {
+      limit: normalizedLimit,
+      offset: normalizedOffset,
+      returned: accounts.length,
+      total,
+      hasMore: normalizedOffset + accounts.length < total
+    }
+  };
+}
+
+async function updateAdminAccountControls(userId, controls = {}) {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) {
+    throw new Error('User id is required.');
+  }
+
+  const updates = [];
+  const values = [];
+  if (Object.prototype.hasOwnProperty.call(controls, 'isDisabled')) {
+    values.push(Boolean(controls.isDisabled));
+    updates.push(`is_disabled = $${values.length}`);
+  }
+  if (Object.prototype.hasOwnProperty.call(controls, 'sexualActivityEnabled')) {
+    values.push(Boolean(controls.sexualActivityEnabled));
+    updates.push(`sexual_activity_enabled = $${values.length}`);
+  }
+
+  if (!updates.length) {
+    return getUserAccountControls(normalizedUserId);
+  }
+
+  values.push(normalizedUserId);
+  const result = await pool.query(
+    `UPDATE users
+     SET ${updates.join(', ')}, updated_at = NOW()
+     WHERE id = $${values.length}
+     RETURNING id`,
+    values
+  );
+  if (!result.rowCount) {
+    throw new Error('Account not found.');
+  }
+
+  return getUserAccountControls(normalizedUserId);
 }
 
 async function getProviderUserId(userId, provider) {
@@ -1745,10 +2000,17 @@ async function createApiToken(userId, name) {
 async function validateApiToken(token) {
   const hash = crypto.createHash('sha256').update(token).digest('hex');
   const result = await pool.query(
-    `SELECT t.id, t.user_id, u.email, u.name, u.picture, u.provider
+    `SELECT t.id, t.user_id, u.email, u.name, u.picture, u.provider,
+            u.is_disabled AS "isDisabled",
+            u.sexual_activity_enabled AS "sexualActivityEnabled",
+            u.last_login_at AS "lastLoginAt",
+            u.login_count AS "loginCount",
+            u.created_at AS "createdAt",
+            u.updated_at AS "updatedAt"
      FROM api_tokens t
      JOIN users u ON u.id = t.user_id
      WHERE t.token_hash = $1
+       AND u.is_disabled IS NOT TRUE
        AND (t.expires_at IS NULL OR t.expires_at > NOW())`,
     [hash]
   );
@@ -1763,7 +2025,13 @@ async function validateApiToken(token) {
     email: row.email,
     name: row.name,
     picture: row.picture,
-    provider: row.provider
+    provider: row.provider,
+    isDisabled: Boolean(row.isDisabled),
+    sexualActivityEnabled: Boolean(row.sexualActivityEnabled),
+    lastLoginAt: dateToIso(row.lastLoginAt),
+    loginCount: Number(row.loginCount || 0),
+    createdAt: dateToIso(row.createdAt),
+    updatedAt: dateToIso(row.updatedAt)
   };
 }
 
@@ -2000,6 +2268,9 @@ module.exports = {
   getPool,
   checkDatabaseHealth,
   upsertUser,
+  getUserAccountControls,
+  listAdminAccounts,
+  updateAdminAccountControls,
   getProviderUserId,
   logAudit,
   addEntries,

@@ -127,6 +127,7 @@ async function seed() {
   const pool = getPool();
   const userId = String(process.env.LOCAL_DEV_USER_ID || 'local-dev-user');
   const userName = String(process.env.LOCAL_DEV_USER_NAME || 'Local Preview User');
+  const userEmail = String(process.env.LOCAL_DEV_USER_EMAIL || 'local-preview@example.com');
   const mealRows = buildMealRows(userId);
   const weightRows = buildWeightRows(userId);
   const workoutRows = buildWorkoutRows(userId);
@@ -138,10 +139,31 @@ async function seed() {
     await pool.query('DELETE FROM analysis_reports WHERE user_id = $1', [userId]);
     await pool.query('DELETE FROM workout_entries WHERE user_id = $1', [userId]);
     await pool.query('DELETE FROM weight_entries WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM sexual_activity_entries WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM sleep_entries WHERE user_id = $1', [userId]);
     await pool.query('DELETE FROM entries WHERE user_id = $1', [userId]);
     await pool.query('DELETE FROM saved_items WHERE user_id = $1', [userId]);
     await pool.query('DELETE FROM macro_targets WHERE user_id = $1', [userId]);
     await pool.query('DELETE FROM weight_targets WHERE user_id = $1', [userId]);
+
+    await pool.query(
+      `INSERT INTO users (
+        id, email, name, provider, is_disabled, sexual_activity_enabled, last_login_at, login_count, updated_at
+      ) VALUES ($1, $2, $3, 'local-dev', FALSE, TRUE, NOW(), 1, NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        email = EXCLUDED.email,
+        name = EXCLUDED.name,
+        provider = CASE
+          WHEN EXCLUDED.provider = ANY(string_to_array(users.provider, ',')) THEN users.provider
+          ELSE users.provider || ',' || EXCLUDED.provider
+        END,
+        is_disabled = FALSE,
+        sexual_activity_enabled = TRUE,
+        last_login_at = COALESCE(users.last_login_at, NOW()),
+        login_count = GREATEST(COALESCE(users.login_count, 0), 1),
+        updated_at = NOW()`,
+      [userId, userEmail, userName]
+    );
 
     for (const row of mealRows) {
       await pool.query(

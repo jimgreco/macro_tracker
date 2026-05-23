@@ -61,7 +61,7 @@ class AuthManager: ObservableObject {
         )
 
         api.token = result.token
-        user = User(
+        user = (try? await api.getMe()) ?? User(
             id: result.user.id,
             name: result.user.name,
             email: result.user.email,
@@ -74,7 +74,7 @@ class AuthManager: ObservableObject {
     func signInWithDevBypass() async throws {
         let result = try await api.signInWithDevBypass()
         api.token = result.token
-        user = User(
+        user = (try? await api.getMe()) ?? User(
             id: result.user.id,
             name: result.user.name,
             email: result.user.email,
@@ -87,7 +87,7 @@ class AuthManager: ObservableObject {
     func signInWithGoogle(code: String, redirectURI: String, codeVerifier: String) async throws {
         let result = try await api.signInWithGoogle(code: code, redirectURI: redirectURI, codeVerifier: codeVerifier)
         api.token = result.token
-        user = User(
+        user = (try? await api.getMe()) ?? User(
             id: result.user.id,
             name: result.user.name,
             email: result.user.email,
@@ -116,6 +116,11 @@ class AuthManager: ObservableObject {
                 provider: "google"
             )
             isAuthenticated = true
+            Task {
+                if let refreshed = try? await api.getMe() {
+                    user = refreshed
+                }
+            }
         }
     }
 

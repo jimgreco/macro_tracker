@@ -17,6 +17,9 @@ const {
   initDb,
   checkDatabaseHealth,
   upsertUser,
+  getUserAccountControls,
+  listAdminAccounts,
+  updateAdminAccountControls,
   getProviderUserId,
   logAudit,
   addEntries,
@@ -88,6 +91,14 @@ const scriptHash = crypto
   .slice(0, 8);
 const indexHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'index.html'), 'utf8');
 const indexHtml = indexHtmlRaw.replace('src="/script.js"', `src="/script.js?v=${scriptHash}"`);
+const adminScriptPath = path.join(process.cwd(), 'public', 'admin.js');
+const adminScriptHash = crypto
+  .createHash('md5')
+  .update(fs.readFileSync(adminScriptPath))
+  .digest('hex')
+  .slice(0, 8);
+const adminHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'admin.html'), 'utf8');
+const adminHtml = adminHtmlRaw.replace('src="/admin.js"', `src="/admin.js?v=${adminScriptHash}"`);
 const isProduction = process.env.NODE_ENV === 'production';
 
 const sessionSecret = process.env.SESSION_SECRET || 'dev-session-secret-change-me';
@@ -113,6 +124,15 @@ function parseBooleanEnv(name, fallbackValue = false) {
   return fallbackValue;
 }
 
+function parseCsvSet(value) {
+  return new Set(
+    String(value || '')
+      .split(',')
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
 const localAuthBypassEnabled = !isProduction && parseBooleanEnv('LOCAL_AUTH_BYPASS', false);
 const localDevUser = localAuthBypassEnabled
   ? {
@@ -123,6 +143,8 @@ const localDevUser = localAuthBypassEnabled
       provider: 'local-dev'
     }
   : null;
+const adminEmails = parseCsvSet(process.env.ADMIN_EMAILS);
+const adminUserIds = parseCsvSet(process.env.ADMIN_USER_IDS);
 
 if (isProduction && sessionSecret === 'dev-session-secret-change-me') {
   throw new Error('SESSION_SECRET must be set to a strong value in production.');
@@ -475,6 +497,76 @@ app.use((req, res, next) => {
   return next();
 });
 
+async function hydrateAuthenticatedUser(req, res, next) {
+  if (!hasAuthenticatedUser(req)) {
+    return next();
+  }
+
+  try {
+    const controls = await getUserAccountControls(userIdFromReq(req));
+    if (controls) {
+      req.user = {
+        ...req.user,
+        ...controls
+      };
+    } else {
+      req.user = {
+        ...req.user,
+        isDisabled: false,
+        sexualActivityEnabled: Boolean(req.user.sexualActivityEnabled)
+      };
+    }
+    req.user.isAdmin = isAdminUser(req.user);
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+}
+
+function enforceActiveAccount(req, res, next) {
+  if (!hasAuthenticatedUser(req) || !req.user?.isDisabled) {
+    return next();
+  }
+
+  if (req.originalUrl && req.originalUrl.startsWith('/api/')) {
+    return sendError(req, res, 403, 'This account has been disabled.');
+  }
+
+  return req.logout(() => {
+    req.session.destroy(() => {
+      res.redirect('/login?error=account_disabled');
+    });
+  });
+}
+
+function requireAdmin(req, res, next) {
+  if (hasAuthenticatedUser(req) && isAdminUser(req.user)) {
+    return next();
+  }
+
+  if (req.originalUrl && req.originalUrl.startsWith('/api/')) {
+    return sendError(req, res, 403, 'Admin access is required.');
+  }
+  return res.status(403).type('text').send('Admin access is required.');
+}
+
+function requireSexualActivityAccess(req, res, next) {
+  if (req.user?.sexualActivityEnabled) {
+    return next();
+  }
+  return sendError(req, res, 403, 'Sexual activity tracking is not enabled for this account.');
+}
+
+function disableConditionalCaching(req, res) {
+  delete req.headers['if-none-match'];
+  delete req.headers['if-modified-since'];
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+}
+
+app.use(hydrateAuthenticatedUser);
+
 function todayIsoString() {
   return new Date().toISOString();
 }
@@ -538,6 +630,35 @@ function userHasProvider(user, provider) {
     .includes(provider);
 }
 
+function isAdminUser(user) {
+  if (!user || !user.id) {
+    return false;
+  }
+  const userId = String(user.id || '').trim().toLowerCase();
+  const email = String(user.email || '').trim().toLowerCase();
+  if (!isProduction && localDevUser && userId === String(localDevUser.id).toLowerCase()) {
+    return true;
+  }
+  return (email && adminEmails.has(email)) || (userId && adminUserIds.has(userId));
+}
+
+function clientUserPayload(user) {
+  if (!user) {
+    return null;
+  }
+  return {
+    id: user.id,
+    email: user.email || null,
+    name: user.name || null,
+    picture: user.picture || null,
+    provider: user.provider || 'google',
+    isAdmin: isAdminUser(user),
+    features: {
+      sexualActivity: Boolean(user.sexualActivityEnabled)
+    }
+  };
+}
+
 function isAuthConfigured() {
   return Boolean(googleClientId && googleClientSecret) || isAppleAuthConfigured();
 }
@@ -572,7 +693,10 @@ async function bearerTokenAuth(req, res, next) {
   try {
     const user = await validateApiToken(token);
     if (user) {
-      req.user = user;
+      req.user = {
+        ...user,
+        isAdmin: isAdminUser(user)
+      };
       req.authMode = 'bearer';
     }
   } catch (_error) {
@@ -1196,6 +1320,9 @@ app.get('/auth/google', async (req, res, next) => {
     if (req.query.mobile === '1') {
       try {
         const persistedUser = await upsertUser(localDevUser);
+        if (persistedUser.isDisabled) {
+          return res.redirect('dailymacros://auth/callback?error=account_disabled');
+        }
         const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS', null);
         const params = new URLSearchParams({
           token: tokenResult.token,
@@ -1242,6 +1369,13 @@ app.get(
     if (req.user && req.user.id) {
       try {
         signedInUser = await upsertUser(req.user);
+        if (signedInUser.isDisabled) {
+          return req.logout(() => {
+            req.session.destroy(() => {
+              res.redirect('/login?error=account_disabled');
+            });
+          });
+        }
         await new Promise((resolve, reject) => {
           req.login(signedInUser, (loginErr) => (loginErr ? reject(loginErr) : resolve()));
         });
@@ -1328,6 +1462,9 @@ app.post('/auth/google/mobile', express.json(), async (req, res) => {
     };
 
     const persistedUser = await upsertUser(user);
+    if (persistedUser.isDisabled) {
+      return res.status(403).json({ error: 'This account has been disabled.' });
+    }
     const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS', null);
 
     return res.json({
@@ -1427,6 +1564,9 @@ app.post('/auth/apple/callback', express.urlencoded({ extended: false }), async 
 
     try {
       const persistedUser = await upsertUser(user);
+      if (persistedUser.isDisabled) {
+        return res.redirect('/login?error=account_disabled');
+      }
       return req.login(persistedUser, (loginErr) => {
         if (loginErr) {
           return res.redirect('/login?error=apple_auth_failed');
@@ -1479,6 +1619,9 @@ app.post('/auth/apple/mobile', express.json(), async (req, res) => {
     };
 
     const persistedUser = await upsertUser(user);
+    if (persistedUser.isDisabled) {
+      return res.status(403).json({ error: 'This account has been disabled.' });
+    }
 
     // Create a long-lived API token for the mobile app
     const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS', null);
@@ -1500,6 +1643,9 @@ app.post('/auth/dev/mobile', async (req, res) => {
 
   try {
     const persistedUser = await upsertUser(localDevUser);
+    if (persistedUser.isDisabled) {
+      return res.status(403).json({ error: 'This account has been disabled.' });
+    }
     const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS Dev', null);
     return res.json({
       ok: true,
@@ -1609,11 +1755,59 @@ apiRouter.use('/analysis', createRateLimiter({ windowMs: 10 * 60 * 1000, maxRequ
 
 
 apiRouter.get('/me', (req, res) => {
-  res.json({ user: req.user || null });
+  disableConditionalCaching(req, res);
+  res.json({ user: clientUserPayload(req.user) });
 });
 
 apiRouter.get('/version', (req, res) => {
   res.json(getVersionPayload());
+});
+
+apiRouter.get('/admin/accounts', requireAdmin, async (req, res) => {
+  try {
+    disableConditionalCaching(req, res);
+    const limit = Math.min(normalizeLimit(req.query.limit, 25), 100);
+    const offset = req.query.offset != null
+      ? normalizeOffset(req.query.offset) || 0
+      : (Math.max(1, Math.floor(normalizeNumber(req.query.page, 'page', { min: 1, max: 100000, fallback: 1 }))) - 1) * limit;
+    const search = normalizeString(req.query.search || '', 'search', { maxLength: 320, fallback: '' });
+    const result = await listAdminAccounts({ search, limit, offset });
+    return res.json(result);
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to load accounts.');
+  }
+});
+
+apiRouter.patch('/admin/accounts/:userId', requireAdmin, async (req, res) => {
+  try {
+    const targetUserId = normalizeString(req.params.userId, 'userId', { maxLength: 255, required: true });
+    const body = requirePlainObject(req.body || {}, 'admin account update');
+    const controls = {};
+
+    if (Object.prototype.hasOwnProperty.call(body, 'isDisabled')) {
+      if (typeof body.isDisabled !== 'boolean') {
+        return sendError(req, res, 400, 'isDisabled must be a boolean.');
+      }
+      if (body.isDisabled && targetUserId === userIdFromReq(req)) {
+        return sendError(req, res, 400, 'You cannot disable your own admin account.');
+      }
+      controls.isDisabled = body.isDisabled;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'sexualActivityEnabled')) {
+      if (typeof body.sexualActivityEnabled !== 'boolean') {
+        return sendError(req, res, 400, 'sexualActivityEnabled must be a boolean.');
+      }
+      controls.sexualActivityEnabled = body.sexualActivityEnabled;
+    }
+
+    const account = await updateAdminAccountControls(targetUserId, controls);
+    logAudit(userIdFromReq(req), 'admin_update', 'user', targetUserId, controls);
+    return res.json({ ok: true, account });
+  } catch (error) {
+    const message = error.message === 'Account not found.' ? error.message : (error.message || 'Unable to update account.');
+    return sendError(req, res, error.message === 'Account not found.' ? 404 : 400, message);
+  }
 });
 
 apiRouter.post('/parse-meal', async (req, res) => {
@@ -2322,6 +2516,8 @@ apiRouter.post('/workouts/:id', async (req, res) => {
 
 // ── Sexual Activity (Health) endpoints ──
 
+apiRouter.use('/sexual-activity', requireSexualActivityAccess);
+
 apiRouter.get('/sexual-activity', async (req, res) => {
   try {
     const limit = normalizeLimit(req.query.limit);
@@ -2650,15 +2846,19 @@ apiRouter.post('/subscription/portal', async (req, res) => {
 
 // ── Mount API router ──
 // Bearer token auth runs before requireAuth so tokens are checked first
-app.use('/api/v1', bearerTokenAuth, requireAuth, enforceApiSource, apiRouter);
-app.use('/api', bearerTokenAuth, requireAuth, enforceApiSource, apiRouter);
+app.use('/api/v1', bearerTokenAuth, requireAuth, enforceActiveAccount, enforceApiSource, apiRouter);
+app.use('/api', bearerTokenAuth, requireAuth, enforceActiveAccount, enforceApiSource, apiRouter);
 app.use(['/api/v1', '/api'], (req, res) => {
   return sendError(req, res, 404, 'API route not found.');
 });
 
 // ── Authenticated frontend routes ──
 
-app.use(requireAuth);
+app.use(requireAuth, enforceActiveAccount);
+app.get(['/admin', '/admin.html'], requireAdmin, (req, res) => {
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.type('html').send(adminHtml);
+});
 app.get('/', (req, res) => {
   res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.type('html').send(indexHtml);

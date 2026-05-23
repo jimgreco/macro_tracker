@@ -22,6 +22,7 @@ Set these on the remote compose environment for the `macros` service:
 - `PORT`
 - `APP_BASE_URL`
 - `APP_BUILD` or `GITHUB_SHA`
+- `ADMIN_EMAILS` or `ADMIN_USER_IDS`
 - `SESSION_SECRET`
 - `SESSION_TTL_DAYS`
 - `DATABASE_URL`

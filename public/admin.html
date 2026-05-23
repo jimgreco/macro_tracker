@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DailyMacros Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell admin-shell">
+      <div id="admin-banner" class="action-banner" role="status" aria-live="polite" hidden></div>
+      <header class="topbar admin-topbar">
+        <a class="brand-lockup admin-brand-link" href="/">
+          <img class="brand-logo" src="/logo-mark.svg" alt="" aria-hidden="true" />
+          <span class="brand-wordmark">DailyMacros</span>
+        </a>
+        <div class="admin-topbar-actions">
+          <span id="admin-user-chip" class="admin-user-chip"></span>
+          <a class="btn-secondary admin-home-link" href="/">App</a>
+        </div>
+      </header>
+
+      <section class="panel glass admin-control-panel" aria-labelledby="admin-accounts-heading">
+        <div class="admin-heading-row">
+          <div>
+            <h1 id="admin-accounts-heading">Accounts</h1>
+            <p id="admin-result-summary" class="admin-muted">Loading accounts...</p>
+          </div>
+          <form id="admin-search-form" class="admin-search-form">
+            <label for="admin-account-search" class="sr-only">Search accounts by email</label>
+            <input
+              id="admin-account-search"
+              type="search"
+              autocomplete="off"
+              placeholder="Search email"
+            />
+            <button type="submit" class="btn-secondary">Search</button>
+          </form>
+        </div>
+
+        <div id="admin-account-list" class="admin-account-list" aria-live="polite"></div>
+
+        <div class="admin-pagination" aria-label="Account pagination">
+          <button id="admin-prev-page" type="button" class="btn-secondary">Previous</button>
+          <span id="admin-page-label" class="admin-muted">Page 1</span>
+          <button id="admin-next-page" type="button" class="btn-secondary">Next</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="/admin.js"></script>
+  </body>
+</html>

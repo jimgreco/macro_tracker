@@ -8,6 +8,34 @@ struct User: Codable {
     let email: String?
     let picture: String?
     let provider: String?
+    let isAdmin: Bool?
+    let features: UserFeatures?
+
+    init(
+        id: String,
+        name: String?,
+        email: String?,
+        picture: String?,
+        provider: String?,
+        isAdmin: Bool? = nil,
+        features: UserFeatures? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.email = email
+        self.picture = picture
+        self.provider = provider
+        self.isAdmin = isAdmin
+        self.features = features
+    }
+
+    var sexualActivityEnabled: Bool {
+        features?.sexualActivity == true
+    }
+}
+
+struct UserFeatures: Codable {
+    let sexualActivity: Bool?
 }
 
 struct MeResponse: Codable {

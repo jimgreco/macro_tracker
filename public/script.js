@@ -37,7 +37,11 @@ const state = {
   selectedEntryIds: new Set(),
   selectedMealGroups: new Set(),
   editingEntries: false,
-  appVersion: null
+  appVersion: null,
+  currentUser: null,
+  features: {
+    sexualActivity: false
+  }
 };
 
 const mealTextEl = document.getElementById('meal-text');
@@ -114,8 +118,10 @@ const profileAvatarEl = document.getElementById('profile-avatar');
 const profileNameEl = document.getElementById('profile-name');
 const profileEmailEl = document.getElementById('profile-email');
 const accountInfoBtnEl = document.getElementById('account-info-btn');
+const adminPageBtnEl = document.getElementById('admin-page-btn');
 const logoutBtnEl = document.getElementById('logout-btn');
 const pageMenuItems = Array.from(document.querySelectorAll('.nav-tab'));
+const sexualActivityFeatureEls = Array.from(document.querySelectorAll('.sexual-activity-feature'));
 const appPages = {
   macros: document.getElementById('macros-page'),
   weight: document.getElementById('weight-page'),
@@ -956,12 +962,16 @@ function renderProfile(user) {
     profileNameEl.textContent = 'Signed in';
     profileEmailEl.textContent = '';
     profileAvatarEl.removeAttribute('src');
+    if (adminPageBtnEl) adminPageBtnEl.hidden = true;
     setProfileMenuOpen(false);
     return;
   }
 
   profileNameEl.textContent = user.name || 'Google User';
   profileEmailEl.textContent = user.email || '';
+  if (adminPageBtnEl) {
+    adminPageBtnEl.hidden = !user.isAdmin;
+  }
   if (user.picture) {
     try {
       const avatarUrl = new URL(user.picture);
@@ -975,6 +985,26 @@ function renderProfile(user) {
     }
   } else {
     profileAvatarEl.removeAttribute('src');
+  }
+}
+
+function syncFeatureVisibility() {
+  const sexualActivityEnabled = Boolean(state.features?.sexualActivity);
+  for (const el of sexualActivityFeatureEls) {
+    el.hidden = !sexualActivityEnabled;
+  }
+  if (!sexualActivityEnabled) {
+    state.healthEntries = [];
+    if (healthLogListEl) {
+      healthLogListEl.innerHTML = '';
+    }
+    if (healthOccurrenceStatEl) {
+      healthOccurrenceStatEl.textContent = '—';
+    }
+    const ctx = healthCanvasEl?.getContext('2d');
+    if (ctx && healthCanvasEl) {
+      ctx.clearRect(0, 0, healthCanvasEl.width, healthCanvasEl.height);
+    }
   }
 }
 
@@ -1070,7 +1100,12 @@ async function loadQuickEntries({ force = false } = {}) {
 
 async function refreshProfile() {
   const me = await api('/api/me');
-  renderProfile(me.user || null);
+  state.currentUser = me.user || null;
+  state.features = {
+    sexualActivity: Boolean(me.user?.features?.sexualActivity)
+  };
+  syncFeatureVisibility();
+  renderProfile(state.currentUser);
 }
 
 async function refreshAppVersion() {
@@ -1135,6 +1170,9 @@ function showAccountPrivacyModal() {
   const version = state.appVersion || {};
   const build = version.appBuild || 'local';
   const packageVersion = version.packageVersion || 'unknown';
+  const sexualActivityCopy = state.features?.sexualActivity
+    ? 'sexual activity entries, '
+    : 'sexual activity entries only if an admin enables that view, ';
 
   overlay = document.createElement('div');
   overlay.id = 'entry-modal-overlay';
@@ -1144,7 +1182,7 @@ function showAccountPrivacyModal() {
       <h3>Account & Privacy</h3>
       <div class="account-privacy-copy">
         <p><strong>Support</strong><span>Contact the person who invited you. Include any request reference shown in an error message and the build details below.</span></p>
-        <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, sexual activity entries, meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
+        <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
         <p><strong>AI processing</strong><span>Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them.</span></p>
         <p><strong>Controls</strong><span>You can export a JSON copy of your account data or permanently delete your account from here.</span></p>
       </div>
@@ -4751,6 +4789,10 @@ function drawHealthOccurrenceChart(entries, period) {
 
 async function refreshHealthData() {
   if (!healthLogListEl) return;
+  if (!state.features?.sexualActivity) {
+    syncFeatureVisibility();
+    return;
+  }
   try {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const scope = periodToScope[state.healthSnapshotPeriod] || 'week';
@@ -4991,6 +5033,10 @@ if (saveHealthBtnEl) {
     healthLoggedAtEl.value = toDateTimeLocalValue();
   }
   saveHealthBtnEl.addEventListener('click', async () => {
+    if (!state.features?.sexualActivity) {
+      setActionBanner('Sexual activity tracking is not enabled for this account.', 'error');
+      return;
+    }
     try {
       await api('/api/sexual-activity', {
         method: 'POST',
@@ -5017,6 +5063,10 @@ if (healthPeriodToggleEl) {
       syncPeriodToggle(healthPeriodToggleEl, period);
       if (healthSnapshotHeadingEl) {
         healthSnapshotHeadingEl.textContent = PERIOD_HEADING[period] || 'Snapshot';
+      }
+      if (!state.features?.sexualActivity) {
+        syncFeatureVisibility();
+        return;
       }
       await refreshHealthData();
     });
@@ -5250,5 +5300,12 @@ if (accountInfoBtnEl) {
     event.stopPropagation();
     setProfileMenuOpen(false);
     showAccountPrivacyModal();
+  });
+}
+
+if (adminPageBtnEl) {
+  adminPageBtnEl.addEventListener('click', (event) => {
+    event.stopPropagation();
+    window.location.href = '/admin';
   });
 }

@@ -32,6 +32,7 @@ A web app for tracking macros with:
    - `SESSION_SECRET`
    - `APP_BASE_URL` (your canonical app URL; used for request-origin validation)
    - `APP_BUILD` (CI sets this to the git SHA for `/version`)
+   - `ADMIN_EMAILS` or `ADMIN_USER_IDS` (comma-separated accounts allowed to open `/admin`)
    - `AI_DAILY_MEAL_PARSE_LIMIT`, `AI_DAILY_WORKOUT_PARSE_LIMIT`, `AI_DAILY_PHOTO_PARSE_LIMIT`, `AI_DAILY_ANALYSIS_LIMIT`
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`
@@ -94,6 +95,7 @@ For AWS/RDS deployments set:
 - `APP_BASE_URL=https://your-production-domain`
 - `SESSION_SECRET` to a long random value (required in production)
 - `APP_BUILD` to the deployed git SHA
+- `ADMIN_EMAILS` or `ADMIN_USER_IDS` to the production admin allowlist
 - AI usage limit env vars to the intended beta limits
 
 Operational safeguards:
@@ -111,6 +113,7 @@ Run the production release runbook in:
 
 ## Notes
 - Login is required for all app/API usage.
+- `/admin` is restricted to the `ADMIN_EMAILS`/`ADMIN_USER_IDS` allowlist; local auth bypass users are admins only outside production.
 - When `LOCAL_AUTH_BYPASS=true` in a non-production environment, the app injects a local default user and skips the Google sign-in flow.
 - If Google OAuth env vars are missing, login will show an auth configuration error.
 - If `OPENAI_API_KEY` is missing, parsing works in fallback mode with placeholder macros.

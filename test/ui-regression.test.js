@@ -172,6 +172,47 @@ test('web account menu surfaces privacy support export delete and build info', (
   assert.equal(styles.includes('.account-privacy-modal'), true);
 });
 
+test('web UI reflects admin-controlled sexual activity feature flag', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+
+  assert.equal(html.includes('class="health-section-divider sexual-activity-feature" hidden'), true);
+  assert.equal(html.includes('id="admin-page-btn"'), true);
+  assert.equal(script.includes('features: {\n    sexualActivity: false'), true);
+  assert.equal(script.includes('const sexualActivityFeatureEls'), true);
+  assert.equal(script.includes('function syncFeatureVisibility'), true);
+  assert.equal(script.includes('Boolean(me.user?.features?.sexualActivity)'), true);
+  assert.equal(script.includes("window.location.href = '/admin'"), true);
+});
+
+test('admin page supports searchable paginated account controls', () => {
+  const html = read('public/admin.html');
+  const script = read('public/admin.js');
+  const styles = read('public/styles.css');
+
+  assert.equal(html.includes('id="admin-account-search"'), true);
+  assert.equal(html.includes('id="admin-prev-page"'), true);
+  assert.equal(html.includes('id="admin-next-page"'), true);
+  assert.equal(script.includes('/api/admin/accounts?'), true);
+  assert.equal(script.includes("data-admin-control=\"isDisabled\""), true);
+  assert.equal(script.includes("data-admin-control=\"sexualActivityEnabled\""), true);
+  assert.equal(script.includes('accountStats(account)'), true);
+  assert.equal(styles.includes('.admin-account-row'), true);
+});
+
+test('iOS health view hides sexual activity unless the account feature is enabled', () => {
+  const models = read('ios/DailyMacros/DailyMacros/Models.swift');
+  const auth = read('ios/DailyMacros/DailyMacros/AuthManager.swift');
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+
+  assert.equal(models.includes('struct UserFeatures'), true);
+  assert.equal(models.includes('var sexualActivityEnabled: Bool'), true);
+  assert.equal(auth.includes('(try? await api.getMe()) ?? User'), true);
+  assert.equal(health.includes('@EnvironmentObject var auth: AuthManager'), true);
+  assert.equal(health.includes('if sexualActivityEnabled {\n                        sexualActivitySection'), true);
+  assert.equal(health.includes('guard sexualActivityEnabled else'), true);
+});
+
 test('mobile sleep target is editable and drives sleep chart', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');

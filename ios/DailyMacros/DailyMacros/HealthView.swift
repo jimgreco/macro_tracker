@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HealthView: View {
     @EnvironmentObject var api: APIClient
+    @EnvironmentObject var auth: AuthManager
 
     // Sexual activity state
     @State private var healthEntries: [HealthEntry] = []
@@ -47,12 +48,18 @@ struct HealthView: View {
     private let scopes = ["week", "month", "year"]
     private let logPageSize = 30
 
+    private var sexualActivityEnabled: Bool {
+        auth.user?.sexualActivityEnabled == true
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 24) {
                     sleepSection
-                    sexualActivitySection
+                    if sexualActivityEnabled {
+                        sexualActivitySection
+                    }
                 }
                 .padding()
             }
@@ -63,11 +70,17 @@ struct HealthView: View {
             .sheet(item: $editingHealth) { entry in editHealthSheet(entry) }
             .sheet(item: $editingSleep) { entry in editSleepSheet(entry) }
             .task {
-                await loadHealth(reset: true)
+                await refreshAccountFeatures()
+                if sexualActivityEnabled {
+                    await loadHealth(reset: true)
+                }
                 await loadSleep(reset: true)
             }
             .refreshable {
-                await loadHealth(reset: true)
+                await refreshAccountFeatures()
+                if sexualActivityEnabled {
+                    await loadHealth(reset: true)
+                }
                 await loadSleep(reset: true)
             }
             .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -898,7 +911,24 @@ struct HealthView: View {
 
     // MARK: - Actions
 
+    private func refreshAccountFeatures() async {
+        do {
+            if let user = try await api.getMe() {
+                auth.user = user
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func loadHealth(reset: Bool = true) async {
+        guard sexualActivityEnabled else {
+            healthEntries = []
+            dailyTypes = []
+            healthOffset = 0
+            hasMoreHealthEntries = false
+            return
+        }
         guard !isLoadingHealthPage else { return }
         isLoadingHealthPage = true
         defer { isLoadingHealthPage = false }
@@ -955,7 +985,7 @@ struct HealthView: View {
     }
 
     private func loadMoreHealthIfNeeded(current entry: HealthEntry) {
-        guard hasMoreHealthEntries, entry.id == healthEntries.last?.id else { return }
+        guard sexualActivityEnabled, hasMoreHealthEntries, entry.id == healthEntries.last?.id else { return }
         Task { await loadHealth(reset: false) }
     }
 
@@ -974,6 +1004,10 @@ struct HealthView: View {
     }
 
     private func saveHealthEntry() async {
+        guard sexualActivityEnabled else {
+            errorMessage = "Sexual activity tracking is not enabled for this account."
+            return
+        }
         isSavingHealth = true
         defer { isSavingHealth = false }
         do {
@@ -1027,6 +1061,10 @@ struct HealthView: View {
     }
 
     private func updateHealth(_ entry: HealthEntry) async {
+        guard sexualActivityEnabled else {
+            errorMessage = "Sexual activity tracking is not enabled for this account."
+            return
+        }
         do {
             let f = ISO8601DateFormatter()
             f.timeZone = TimeZone(identifier: "America/New_York")
@@ -1039,6 +1077,10 @@ struct HealthView: View {
     }
 
     private func deleteHealth(_ entry: HealthEntry) async {
+        guard sexualActivityEnabled else {
+            errorMessage = "Sexual activity tracking is not enabled for this account."
+            return
+        }
         do {
             try await api.deleteHealthEntry(id: entry.id)
             editingHealth = nil

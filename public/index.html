@@ -47,6 +47,7 @@
               <strong id="profile-name">Signed in</strong>
               <small id="profile-email"></small>
               <button id="account-info-btn" type="button" class="btn-secondary">Account & Privacy</button>
+              <button id="admin-page-btn" type="button" class="btn-secondary" hidden>Admin</button>
               <button id="logout-btn" type="button" class="btn-secondary">Log out</button>
             </div>
           </div>
@@ -413,8 +414,8 @@
           </div>
         </section>
 
-        <h3 class="health-section-divider">Sexual Activity</h3>
-        <section class="panel glass panel-compact">
+        <h3 class="health-section-divider sexual-activity-feature" hidden>Sexual Activity</h3>
+        <section class="panel glass panel-compact sexual-activity-feature" hidden>
           <div class="section-head-row">
             <h2>Log Activity</h2>
             <div class="consumed-inline">
@@ -433,12 +434,12 @@
           <p id="health-note" role="status" aria-live="polite"></p>
         </section>
 
-        <section class="panel glass">
+        <section class="panel glass sexual-activity-feature" hidden>
           <h2>Logged Entries</h2>
           <div id="health-log-list" class="simple-log-list"></div>
         </section>
 
-        <section id="health-snapshot-section" class="panel glass">
+        <section id="health-snapshot-section" class="panel glass sexual-activity-feature" hidden>
           <div class="snapshot-header">
             <h2 id="health-snapshot-heading">Weekly Snapshot</h2>
             <div class="period-toggle" id="health-period-toggle" role="group" aria-label="Snapshot time period">
