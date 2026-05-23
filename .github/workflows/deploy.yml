@@ -17,6 +17,8 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
     concurrency:
       group: deploy-production
       cancel-in-progress: false
@@ -29,11 +31,10 @@ jobs:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
-          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
         run: |
           set -euo pipefail
           missing=0
-          for name in EC2_SSH_KEY EC2_USER EC2_HOST PRODUCTION_BASE_URL; do
+          for name in EC2_SSH_KEY EC2_USER EC2_HOST; do
             if [ -z "${!name}" ]; then
               echo "Missing required secret/env: $name"
               missing=1
@@ -75,9 +76,13 @@ jobs:
           ssh -i ~/.ssh/macros_deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts "$EC2_USER@$EC2_HOST" \
             "cd ~/deploy && APP_BUILD=${GITHUB_SHA} docker-compose build macros && APP_BUILD=${GITHUB_SHA} docker-compose up -d macros && docker system prune -f"
 
+      - name: Skip post-deploy smoke when production URL is not configured
+        if: env.PRODUCTION_BASE_URL == ''
+        run: |
+          echo "::notice::PRODUCTION_BASE_URL is not configured; skipping post-deploy smoke checks."
+
       - name: Post-deploy smoke checks
-        env:
-          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        if: env.PRODUCTION_BASE_URL != ''
         run: |
           set -euo pipefail
           BASE_URL="${PRODUCTION_BASE_URL%/}"

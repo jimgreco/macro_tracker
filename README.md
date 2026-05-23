@@ -79,13 +79,13 @@ For a preloaded local preview, run `npm run db:seed:local` after Postgres is up.
 
 ## Production Setup Notes
 
-The production path is the EC2 deploy workflow in `.github/workflows/deploy.yml`. It runs automatically for backend/web deploy inputs on `main`, can be started manually from GitHub Actions, rsyncs this repository to `~/macros`, rebuilds the `macros` service from `~/deploy`, and then smokes `/healthz` and `/version` against `PRODUCTION_BASE_URL`.
+The production path is the EC2 deploy workflow in `.github/workflows/deploy.yml`. It runs automatically for backend/web deploy inputs on `main`, can be started manually from GitHub Actions, rsyncs this repository to `~/macros`, rebuilds the `macros` service from `~/deploy`, and then smokes `/healthz` and `/version` when `PRODUCTION_BASE_URL` is configured.
 
 Required GitHub Actions secrets for deploy:
 - `EC2_SSH_KEY`
 - `EC2_USER`
 - `EC2_HOST`
-- `PRODUCTION_BASE_URL`
+- `PRODUCTION_BASE_URL` (optional for deploy; enables post-deploy smoke checks)
 - `PRODUCTION_SMOKE_API_TOKEN` (optional; enables authenticated scheduled smoke checks)
 
 For AWS/RDS deployments set:
@@ -101,7 +101,7 @@ For AWS/RDS deployments set:
 Operational safeguards:
 - `GET /healthz` performs a live `SELECT 1` against PostgreSQL and returns `503` if the database is unavailable.
 - `GET /version` exposes app version, build SHA, Node version, and start time for smoke checks and support.
-- The deploy workflow pins SSH host keys with `ssh-keyscan` and fails if post-deploy smoke checks fail.
+- The deploy workflow pins SSH host keys with `ssh-keyscan` and fails if configured post-deploy smoke checks fail.
 - `.github/workflows/production-smoke.yml` runs hourly production smoke checks using `scripts/production-smoke.sh`.
 - Before wider beta pushes, confirm the latest database backup exists, restore has been tested recently, and the smoke token still reaches the intended production account.
 - Elastic Beanstalk material in `docs/aws-production-security-audit.md` is legacy unless that platform is intentionally revived.

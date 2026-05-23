@@ -550,6 +550,10 @@ test('deploy workflow verifies SSH host and smokes production endpoints', () => 
   assert.ok(workflow.includes('UserKnownHostsFile=~/.ssh/known_hosts'));
   assert.equal(workflow.includes('StrictHostKeyChecking=no'), false);
   assert.ok(workflow.includes('PRODUCTION_BASE_URL'));
+  assert.ok(workflow.includes('Skip post-deploy smoke when production URL is not configured'));
+  assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL == ''"));
+  assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL != ''"));
+  assert.equal(workflow.includes('for name in EC2_SSH_KEY EC2_USER EC2_HOST PRODUCTION_BASE_URL; do'), false);
   assert.ok(workflow.includes('$BASE_URL/healthz'));
   assert.ok(workflow.includes('$BASE_URL/version'));
 });

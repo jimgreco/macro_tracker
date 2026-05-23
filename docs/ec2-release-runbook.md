@@ -13,7 +13,7 @@ This is the production release path for the friends and family beta.
 - `EC2_SSH_KEY`: private key for the deploy user.
 - `EC2_USER`: deploy user on the EC2 host.
 - `EC2_HOST`: EC2 hostname or IP.
-- `PRODUCTION_BASE_URL`: canonical HTTPS origin, without a trailing slash.
+- `PRODUCTION_BASE_URL`: optional canonical HTTPS origin, without a trailing slash; enables post-deploy smoke checks.
 - `PRODUCTION_SMOKE_API_TOKEN`: optional API token for authenticated scheduled smoke checks.
 
 ## Production Env Inventory
