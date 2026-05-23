@@ -55,6 +55,7 @@ struct MacrosView: View {
     @State private var mealPreviewImage: UIImage?
     @State private var isLoadingImage = false
     @State private var showCamera = false
+    @FocusState private var isMealDescriptionFocused: Bool
     @State private var parsedItems: [ParsedMealItem] = []
     @State private var parsedMealName: String?
     @State private var parsedMealQuantity = "1"
@@ -145,6 +146,14 @@ struct MacrosView: View {
     private let trendPeriods = ["week", "month", "year"]
     private let macroOptions = ["calories", "protein", "carbs", "fat"]
     private let addSheetTopAnchor = "add-sheet-top"
+
+    private var hasMealImage: Bool {
+        !mealImageDataUrl.isEmpty
+    }
+
+    private var mealDescriptionPlaceholder: String {
+        hasMealImage ? "Optional: add a description, or parse from photo only." : "Describe your meal..."
+    }
 
     private var quickTemplates: [QuickAddTemplate] {
         var templates = savedItems.map { item in
@@ -314,6 +323,11 @@ struct MacrosView: View {
             }
             .onChange(of: selectedPhotoItem) { _, newItem in
                 Task { await loadSelectedPhoto(newItem) }
+            }
+            .onChange(of: mealImageDataUrl) { oldValue, newValue in
+                if oldValue.isEmpty && !newValue.isEmpty {
+                    focusMealDescriptionIfEmpty()
+                }
             }
             .task {
                 Task { await loadSavedItems(showErrors: false) }
@@ -1286,9 +1300,9 @@ struct MacrosView: View {
                     .datePickerStyle(.compact)
                     .foregroundStyle(.white)
 
-                TextField("Describe your meal...", text: $mealText, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(3...6)
+                if !hasMealImage {
+                    mealDescriptionField
+                }
 
                 HStack(spacing: 10) {
                     PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
@@ -1333,6 +1347,10 @@ struct MacrosView: View {
                     }
                 }
 
+                if hasMealImage {
+                    mealDescriptionField
+                }
+
                 Button {
                     Task { await parseMeal() }
                 } label: {
@@ -1352,6 +1370,13 @@ struct MacrosView: View {
                 quickItemsSection
             }
         }
+    }
+
+    private var mealDescriptionField: some View {
+        TextField(mealDescriptionPlaceholder, text: $mealText, axis: .vertical)
+            .textFieldStyle(.roundedBorder)
+            .lineLimit(3...6)
+            .focused($isMealDescriptionFocused)
     }
 
     @ViewBuilder
@@ -2154,6 +2179,13 @@ struct MacrosView: View {
         selectedPhotoItem = nil
         mealImageDataUrl = ""
         mealPreviewImage = nil
+    }
+
+    private func focusMealDescriptionIfEmpty() {
+        guard mealText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            isMealDescriptionFocused = true
+        }
     }
 
     private func inferredImageMimeType(from data: Data) -> String {
