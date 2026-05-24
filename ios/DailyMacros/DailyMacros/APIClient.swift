@@ -425,17 +425,28 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
-    func addWorkout(description: String, intensity: String, durationHours: Double, caloriesBurned: Double, loggedAt: String) async throws {
-        let payload: [String: Any] = [
+    @discardableResult
+    func addWorkout(
+        description: String,
+        intensity: String,
+        durationHours: Double,
+        caloriesBurned: Double,
+        loggedAt: String,
+        source: String? = nil,
+        externalId: String? = nil
+    ) async throws -> WorkoutMutationResponse {
+        var payload: [String: Any] = [
             "description": description,
             "intensity": intensity,
             "durationHours": durationHours,
             "caloriesBurned": caloriesBurned,
             "loggedAt": loggedAt
         ]
+        if let source { payload["source"] = source }
+        if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/workouts"), method: "POST", body: body)
-        let _: OkResponse = try await perform(request)
+        return try await perform(request)
     }
 
     func updateWorkout(id: Int, description: String, intensity: String, durationHours: Double, caloriesBurned: Double, loggedAt: String) async throws {

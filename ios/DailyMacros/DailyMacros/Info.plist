@@ -16,6 +16,10 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>DailyMacros uses the camera to parse meal photos.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>DailyMacros reads recent workouts from Apple Health so your workout stats stay in sync.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>DailyMacros writes workouts you log to Apple Health when you sync from the Workouts page.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

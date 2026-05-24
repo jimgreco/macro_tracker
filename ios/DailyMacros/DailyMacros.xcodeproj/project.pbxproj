@@ -21,6 +21,7 @@
 		A1000012 /* AnalysisView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000012; };
 		A1000013 /* HealthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013; };
 		A1000014 /* SwipeToDeleteRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015; };
+		A1000015 /* HealthKitWorkoutSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +40,7 @@
 		A2000013 /* HealthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthView.swift; sourceTree = "<group>"; };
 		A2000014 /* DailyMacros.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DailyMacros.entitlements; sourceTree = "<group>"; };
 		A2000015 /* SwipeToDeleteRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeToDeleteRow.swift; sourceTree = "<group>"; };
+		A2000016 /* HealthKitWorkoutSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitWorkoutSync.swift; sourceTree = "<group>"; };
 		A3000001 /* DailyMacros.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DailyMacros.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -67,6 +69,7 @@
 				A2000012 /* AnalysisView.swift */,
 				A2000013 /* HealthView.swift */,
 				A2000015 /* SwipeToDeleteRow.swift */,
+				A2000016 /* HealthKitWorkoutSync.swift */,
 				A2000014 /* DailyMacros.entitlements */,
 				A2000010 /* Assets.xcassets */,
 			);
@@ -109,6 +112,18 @@
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1540;
 				LastUpgradeCheck = 1540;
+				TargetAttributes = {
+					A5000001 = {
+						SystemCapabilities = {
+							com.apple.HealthKit = {
+								enabled = 1;
+							};
+							com.apple.SignInWithApple = {
+								enabled = 1;
+							};
+						};
+					};
+				};
 			};
 			buildConfigurationList = A6000001;
 			compatibilityVersion = "Xcode 14.0";
@@ -157,6 +172,7 @@
 				A1000012 /* AnalysisView.swift in Sources */,
 				A1000013 /* HealthView.swift in Sources */,
 				A1000014 /* SwipeToDeleteRow.swift in Sources */,
+				A1000015 /* HealthKitWorkoutSync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -156,7 +156,18 @@ test('SELECT queries filter out soft-deleted rows', () => {
   // listWeightEntries
   assert.ok(db.includes('WHERE user_id = $1 AND deleted_at IS NULL\n       AND logged_at >='));
   // listWorkoutEntries
-  assert.ok(db.includes("WHERE user_id = $1 AND deleted_at IS NULL\n     ORDER BY logged_at DESC, id DESC\n     LIMIT $2 OFFSET $3"));
+  const workoutSection = db.slice(db.indexOf('async function listWorkoutEntries'));
+  assert.ok(workoutSection.includes('WHERE user_id = $1 AND deleted_at IS NULL'));
+  assert.ok(workoutSection.includes('ORDER BY logged_at DESC, id DESC'));
+});
+
+test('workout entries track external sync source ids', () => {
+  const db = read('src/db.js');
+  assert.ok(db.includes("source TEXT NOT NULL DEFAULT 'manual'"));
+  assert.ok(db.includes('external_id TEXT'));
+  assert.ok(db.includes('idx_workout_entries_user_source_external'));
+  assert.ok(db.includes('normalizeWorkoutSource'));
+  assert.ok(db.includes('external_id AS "externalId"'));
 });
 
 test('GDPR deleteUserAccount performs hard delete across all tables', () => {

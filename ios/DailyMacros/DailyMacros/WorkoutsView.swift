@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WorkoutsView: View {
     @EnvironmentObject var api: APIClient
+    @StateObject private var healthKitSync = HealthKitWorkoutSync()
     @State private var workouts: [WorkoutEntry] = []
     @State private var dailyCalories: [WorkoutDailyCalories] = []
     @State private var workoutText = ""
@@ -87,7 +88,7 @@ struct WorkoutsView: View {
             }
             .task { await loadWorkouts(reset: true) }
             .refreshable { await loadWorkouts(reset: true) }
-            .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            .alert("Workouts", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: {
                 Text(errorMessage ?? "")
@@ -867,15 +868,49 @@ struct WorkoutsView: View {
     private func syncWorkouts() async {
         isSyncing = true
         defer { isSyncing = false }
+
+        var syncMessages: [String] = []
+        var workoutPlannerMessage: String?
+        var workoutPlannerError: String?
+
         do {
             let response = try await api.syncWorkouts()
-            if let message = response.message, response.syncedCount == 0 {
-                errorMessage = message
+            if response.syncedCount > 0 {
+                syncMessages.append("Workout Planner: synced \(response.syncedCount) workout(s).")
+            } else if let message = response.message {
+                workoutPlannerMessage = "Workout Planner: \(message)"
             }
-            await loadWorkouts(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            workoutPlannerError = "Workout Planner: \(error.localizedDescription)"
         }
+
+        do {
+            let healthResult = try await healthKitSync.syncRecentWorkouts(api: api)
+            if healthResult.importedCount > 0 || healthResult.exportedCount > 0 {
+                syncMessages.append("Apple Health: imported \(healthResult.importedCount), wrote \(healthResult.exportedCount).")
+            } else {
+                syncMessages.append("Apple Health: no new workouts from the last 30 days.")
+            }
+        } catch {
+            syncMessages.append("Apple Health: \(error.localizedDescription)")
+        }
+
+        if syncMessages.count == 1,
+           syncMessages.first == "Apple Health: no new workouts from the last 30 days.",
+           let workoutPlannerMessage {
+            syncMessages.insert(workoutPlannerMessage, at: 0)
+        }
+
+        if let workoutPlannerError,
+           !workoutPlannerError.contains("Syncing requires a Google account") {
+            syncMessages.append(workoutPlannerError)
+        }
+
+        if !syncMessages.isEmpty {
+            errorMessage = syncMessages.joined(separator: "\n")
+        }
+
+        await loadWorkouts(reset: true)
     }
 
     private func resetWorkoutSheet() {

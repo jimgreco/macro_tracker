@@ -129,6 +129,8 @@ struct WorkoutEntry: Codable, Identifiable {
     let durationHours: Double
     let caloriesBurned: Double
     let loggedAt: String
+    let source: String?
+    let externalId: String?
 }
 
 struct WorkoutDailyCalories: Codable {
@@ -221,6 +223,12 @@ struct ApiTokenListResponse: Codable {
 
 struct OkResponse: Codable {
     let ok: Bool
+}
+
+struct WorkoutMutationResponse: Codable {
+    let ok: Bool
+    let id: Int?
+    let created: Bool?
 }
 
 struct CreatedIdResponse: Codable {

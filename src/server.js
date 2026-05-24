@@ -1952,7 +1952,7 @@ apiRouter.post('/parse-workout', async (req, res) => {
 
 apiRouter.post('/sync-workouts', async (req, res) => {
   if (!req.user || (!userHasProvider(req.user, 'google') && !userHasProvider(req.user, 'local-dev'))) {
-    return res.status(401).json({ error: 'Syncing requires a Google account.' });
+    return sendError(req, res, 403, 'Syncing requires a Google account.');
   }
 
   try {
@@ -2046,7 +2046,9 @@ apiRouter.post('/sync-workouts', async (req, res) => {
         intensity: parsed.intensity,
         durationHours: durationHours,
         caloriesBurned: parsed.caloriesBurned,
-        loggedAt: log.startTime || (log.date ? `${log.date}T09:00:00` : new Date().toISOString())
+        loggedAt: log.startTime || (log.date ? `${log.date}T09:00:00` : new Date().toISOString()),
+        source: 'workout_planner',
+        externalId: log.id || log._id || log.uuid || null
       });
       
       syncedCount++;
@@ -2473,9 +2475,11 @@ apiRouter.get('/workouts', async (req, res) => {
 apiRouter.post('/workouts', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
-    await addWorkoutEntry(userId, req.body || {});
-    logAudit(userId, 'create', 'workout_entry');
-    res.json({ ok: true });
+    const result = await addWorkoutEntry(userId, req.body || {});
+    if (result.created !== false) {
+      logAudit(userId, 'create', 'workout_entry', result.id ? String(result.id) : undefined);
+    }
+    res.json({ ok: true, ...result });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
