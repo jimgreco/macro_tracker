@@ -296,7 +296,7 @@ struct MacrosView: View {
                     Button {
                         showParsed = false
                         mealText = ""
-                        consumedAt = selectedDate
+                        consumedAt = Date()
                         quickSearchText = ""
                         clearMealImage()
                         if !hasLoadedSavedItems {
@@ -428,7 +428,9 @@ struct MacrosView: View {
     }
 
     private func macroRow(_ label: String, value: Double, target: Double, unit: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let progress = target > 0 ? value / target : 0
+
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(label)
                     .font(.subheadline.bold())
@@ -437,14 +439,50 @@ struct MacrosView: View {
                     .font(.subheadline)
                     .foregroundStyle(Color.mutedText)
             }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.08)).frame(height: 8)
-                    Capsule().fill(color).frame(width: min(geo.size.width * (target > 0 ? value / target : 0), geo.size.width), height: 8)
-                }
-            }
-            .frame(height: 8)
+            macroProgressBar(progress: progress, color: color)
         }
+    }
+
+    private func macroProgressBar(progress: Double, color: Color) -> some View {
+        GeometryReader { geo in
+            let clippedProgress = CGFloat(min(max(progress, 0), 1))
+            let trackWidth = geo.size.width
+            let fillWidth = clippedProgress == 0 ? 0 : min(trackWidth, max(10, trackWidth * clippedProgress))
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.white.opacity(0.10))
+                    .overlay {
+                        Capsule()
+                            .stroke(Color.white.opacity(0.07), lineWidth: 1)
+                    }
+                    .shadow(color: .black.opacity(0.22), radius: 4, x: 0, y: 2)
+
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                color.opacity(0.72),
+                                color,
+                                color.opacity(0.92)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: fillWidth)
+                    .shadow(color: color.opacity(0.45), radius: 7, x: 0, y: 0)
+                    .overlay(alignment: .top) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.28))
+                            .frame(height: 3)
+                            .padding(.horizontal, 4)
+                            .padding(.top, 1)
+                    }
+            }
+        }
+        .frame(height: 10)
+        .animation(.easeOut(duration: 0.25), value: progress)
     }
 
     // MARK: - Entries List

@@ -52,7 +52,10 @@ struct WeightView: View {
                     }
                     .disabled(isSyncing)
 
-                    Button { showAddSheet = true } label: {
+                    Button {
+                        newWeightDate = Date()
+                        showAddSheet = true
+                    } label: {
                         Image(systemName: "plus")
                     }
                 }
@@ -341,20 +344,13 @@ struct WeightView: View {
                 SwipeToDeleteRow {
                     Task { await deleteWeight(entry.id) }
                 } content: {
-                    HStack {
-                        Text(formatDate(entry.loggedAt))
-                            .font(.subheadline)
-                        Spacer()
-                        Text(String(format: "%.1f lbs", entry.weight))
-                            .font(.subheadline.bold())
-                    }
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        editWeightValue = String(format: "%.1f", entry.weight)
-                        editWeightDate = parseISO(entry.loggedAt)
-                        editingEntry = entry
-                    }
+                    weightEntryCard(entry)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            editWeightValue = String(format: "%.1f", entry.weight)
+                            editWeightDate = parseISO(entry.loggedAt)
+                            editingEntry = entry
+                        }
                 }
                 .onAppear {
                     loadMoreWeightsIfNeeded(current: entry)
@@ -380,18 +376,49 @@ struct WeightView: View {
         }
     }
 
+    private func weightEntryCard(_ entry: WeightEntry) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "scalemass.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.cyan)
+                .frame(width: 36, height: 36)
+                .background(.cyan.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(formatDate(entry.loggedAt))
+                    .font(.subheadline.bold())
+                Text(formatTime(entry.loggedAt))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text(String(format: "%.1f lbs", entry.weight))
+                .font(.subheadline.bold())
+                .monospacedDigit()
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(.cyan.opacity(0.18), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
     // MARK: - Add Weight Sheet
 
     private var addWeightSheet: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    DatePicker("Logged At", selection: $newWeightDate)
+                        .datePickerStyle(.compact)
+
                     TextField("Weight (lbs)", text: $newWeight)
                         .textFieldStyle(.roundedBorder)
                         .keyboardType(.decimalPad)
-
-                    DatePicker("Logged At", selection: $newWeightDate)
-                        .datePickerStyle(.compact)
 
                     Button {
                         Task { await addWeight() }
@@ -426,12 +453,20 @@ struct WeightView: View {
     // MARK: - Edit Weight Sheet
 
     private func editWeightSheet(_ entry: WeightEntry) -> some View {
-        NavigationStack {
+        let canSave = canSaveWeightEdit(entry)
+
+        return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    TextField("Weight (lbs)", text: $editWeightValue)
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.decimalPad)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Weight")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("Weight (lbs)", text: $editWeightValue)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.decimalPad)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     DatePicker("Logged At", selection: $editWeightDate)
                         .datePickerStyle(.compact)
@@ -446,8 +481,8 @@ struct WeightView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.cyan)
-                    .disabled(editWeightValue.isEmpty || isLoading)
+                    .tint(canSave ? .cyan : .gray)
+                    .disabled(!canSave)
 
                     Button(role: .destructive) {
                         Task {
@@ -455,11 +490,10 @@ struct WeightView: View {
                             editingEntry = nil
                         }
                     } label: {
-                        Text("Delete Entry").frame(maxWidth: .infinity)
+                        Text("Delete Entry").font(.headline).frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
-
-                    Spacer(minLength: 0)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
                 }
                 .padding()
             }
@@ -474,6 +508,18 @@ struct WeightView: View {
         }
         .presentationDetents([.medium])
         .presentationContentInteraction(.scrolls)
+    }
+
+    private func canSaveWeightEdit(_ entry: WeightEntry) -> Bool {
+        guard !isLoading else { return false }
+        guard let weight = Double(editWeightValue.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return false
+        }
+
+        let weightChanged = abs(weight - entry.weight) > 0.001
+        let loggedAtChanged = !isSameDisplayedMinute(editWeightDate, parseISO(entry.loggedAt))
+
+        return weightChanged || loggedAtChanged
     }
 
     // MARK: - Edit Target Sheet
@@ -658,6 +704,12 @@ struct WeightView: View {
         return String(iso.prefix(10))
     }
 
+    private func formatTime(_ iso: String) -> String {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        return f.string(from: parseISO(iso))
+    }
+
     private func formatShortDate(_ dateStr: String) -> String {
         guard let date = parseTargetDate(dateStr) else {
             return String(dateStr.prefix(10))
@@ -698,5 +750,9 @@ struct WeightView: View {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
         return f.date(from: iso) ?? Date()
+    }
+
+    private func isSameDisplayedMinute(_ lhs: Date, _ rhs: Date) -> Bool {
+        Calendar.current.compare(lhs, to: rhs, toGranularity: .minute) == .orderedSame
     }
 }

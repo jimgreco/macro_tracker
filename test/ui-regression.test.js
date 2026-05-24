@@ -79,6 +79,110 @@ test('iOS weight chart omits axis title labels and centers summary legend', () =
   assert.equal(chartView.includes('.frame(maxWidth: .infinity, alignment: .center)'), true);
 });
 
+test('iOS edit weight save button stays disabled until a value changes', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/WeightView.swift');
+  const editSheet = swift.slice(
+    swift.indexOf('private func editWeightSheet'),
+    swift.indexOf('// MARK: - Edit Target Sheet')
+  );
+
+  assert.equal(editSheet.includes('let canSave = canSaveWeightEdit(entry)'), true);
+  assert.equal(editSheet.includes('.tint(canSave ? .cyan : .gray)'), true);
+  assert.equal(editSheet.includes('.disabled(!canSave)'), true);
+  assert.equal(editSheet.includes('private func canSaveWeightEdit'), true);
+  assert.equal(editSheet.includes('abs(weight - entry.weight) > 0.001'), true);
+  assert.equal(editSheet.includes('!isSameDisplayedMinute(editWeightDate, parseISO(entry.loggedAt))'), true);
+});
+
+test('iOS weight history renders intentional outlined entry cards', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/WeightView.swift');
+  const entriesList = swift.slice(
+    swift.indexOf('private var entriesList'),
+    swift.indexOf('// MARK: - Add Weight Sheet')
+  );
+
+  assert.equal(entriesList.includes('weightEntryCard(entry)'), true);
+  assert.equal(entriesList.includes('private func weightEntryCard'), true);
+  assert.equal(entriesList.includes('Image(systemName: "scalemass.fill")'), true);
+  assert.equal(entriesList.includes('RoundedRectangle(cornerRadius: 12)'), true);
+  assert.equal(entriesList.includes('.stroke(.cyan.opacity(0.18), lineWidth: 1)'), true);
+  assert.equal(entriesList.includes('Text(formatTime(entry.loggedAt))'), true);
+  assert.equal(entriesList.includes('.monospacedDigit()'), true);
+});
+
+test('iOS entry edit sheets share disabled-save and red-delete treatment', () => {
+  const workouts = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
+  const weight = read('ios/DailyMacros/DailyMacros/WeightView.swift');
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+  const workoutEdit = workouts.slice(
+    workouts.indexOf('private func editWorkoutSheet'),
+    workouts.indexOf('private func detailRow')
+  );
+  const weightEdit = weight.slice(
+    weight.indexOf('private func editWeightSheet'),
+    weight.indexOf('// MARK: - Edit Target Sheet')
+  );
+  const activityEdit = health.slice(
+    health.indexOf('private func editHealthSheet'),
+    health.indexOf('// MARK: - Edit Sleep Sheet')
+  );
+  const sleepEdit = health.slice(
+    health.indexOf('private func editSleepSheet'),
+    health.indexOf('// MARK: - Actions')
+  );
+
+  for (const section of [workoutEdit, weightEdit, activityEdit, sleepEdit]) {
+    assert.equal(section.includes('.tint(canSave ? .cyan : .gray)'), true);
+    assert.equal(section.includes('.disabled(!canSave)'), true);
+    assert.equal(section.includes('.buttonStyle(.borderedProminent)'), true);
+    assert.equal(section.includes('.tint(.red)'), true);
+  }
+
+  assert.equal(workouts.includes('private func canSaveWorkoutEdit'), true);
+  assert.equal(weight.includes('private func canSaveWeightEdit'), true);
+  assert.equal(health.includes('private func canSaveHealthEdit'), true);
+  assert.equal(health.includes('private func canSaveSleepEdit'), true);
+  assert.equal(workouts.includes('Calendar.current.compare(lhs, to: rhs, toGranularity: .minute)'), true);
+  assert.equal(weight.includes('Calendar.current.compare(lhs, to: rhs, toGranularity: .minute)'), true);
+  assert.equal(health.includes('Calendar.current.compare(lhs, to: rhs, toGranularity: .minute)'), true);
+  assert.equal(weightEdit.includes('Text("Weight")'), true);
+  assert.equal(weightEdit.includes('.frame(maxWidth: .infinity, alignment: .leading)'), true);
+  assert.equal(activityEdit.includes('.navigationTitle("Edit Sexual Activity")'), true);
+  assert.equal(activityEdit.includes('DatePicker("Logged At", selection: $editHealthDate)'), true);
+  assert.equal(activityEdit.includes('.frame(maxWidth: .infinity, alignment: .leading)'), true);
+  assert.equal(sleepEdit.includes('DatePicker("Logged At", selection: $editSleepDate)'), true);
+  assert.equal(sleepEdit.includes('.frame(maxWidth: .infinity, alignment: .leading)'), true);
+});
+
+test('iOS log sheets put Logged At first and reset timestamps on open', () => {
+  const weight = read('ios/DailyMacros/DailyMacros/WeightView.swift');
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+  const addWeight = weight.slice(
+    weight.indexOf('private var addWeightSheet'),
+    weight.indexOf('// MARK: - Edit Weight Sheet')
+  );
+  const logHealth = health.slice(
+    health.indexOf('private var logHealthSheet'),
+    health.indexOf('// MARK: - Log Sleep Sheet')
+  );
+  const logSleep = health.slice(
+    health.indexOf('private var logSleepSheet'),
+    health.indexOf('// MARK: - Edit Sleep Targets Sheet')
+  );
+  const showLog = health.slice(
+    health.indexOf('private func showLogSheetForMode'),
+    health.indexOf('// MARK: - Helpers')
+  );
+
+  assert.equal(weight.includes('newWeightDate = Date()'), true);
+  assert.equal(addWeight.indexOf('DatePicker("Logged At", selection: $newWeightDate)') < addWeight.indexOf('TextField("Weight (lbs)"'), true);
+  assert.equal(logHealth.indexOf('DatePicker("Logged At", selection: $healthLogDate)') < logHealth.indexOf('Text("Activity Type")'), true);
+  assert.equal(logSleep.indexOf('DatePicker("Logged At", selection: $sleepLogDate)') < logSleep.indexOf('Text("Hours")'), true);
+  assert.equal(health.includes('Text("Date & Time")'), false);
+  assert.equal(showLog.includes('sleepLogDate = Date()'), true);
+  assert.equal(showLog.includes('healthLogDate = Date()'), true);
+});
+
 test('analysis goal selector is removed from weekly analysis form', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');
@@ -149,6 +253,22 @@ test('iOS quick items are searchable and preload saved items in the background',
   assert.equal(swift.includes('if !hasLoadedSavedItems'), true);
 });
 
+test('iOS macro add sheet defaults logged-at to the current moment', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const toolbar = swift.slice(
+    swift.indexOf('.navigationTitle("Macros")'),
+    swift.indexOf('.sheet(isPresented: $showAddSheet)')
+  );
+  const addInput = swift.slice(
+    swift.indexOf('private var addInputView'),
+    swift.indexOf('private var mealDescriptionField')
+  );
+
+  assert.equal(toolbar.includes('consumedAt = Date()'), true);
+  assert.equal(toolbar.includes('consumedAt = selectedDate'), false);
+  assert.equal(addInput.indexOf('DatePicker("Logged At", selection: $consumedAt)') < addInput.indexOf('mealDescriptionField'), true);
+});
+
 test('iOS macros add button uses a grouped toolbar without a blank placeholder', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
 
@@ -164,6 +284,19 @@ test('iOS macro entry rows do not show drag handle icons', () => {
   assert.equal(swift.includes('Image(systemName: "line.3.horizontal")'), false);
   assert.equal(swift.includes('entryDragHandle'), false);
   assert.equal(swift.includes('Drag to combine meal items'), false);
+});
+
+test('iOS daily totals bars use the richer progress treatment', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const progressStart = swift.indexOf('private func macroProgressBar');
+  const progressEnd = swift.indexOf('// MARK: - Entries List', progressStart);
+  const progressSection = swift.slice(progressStart, progressEnd);
+
+  assert.equal(swift.includes('macroProgressBar(progress: progress, color: color)'), true);
+  assert.equal(progressSection.includes('LinearGradient'), true);
+  assert.equal(progressSection.includes('color.opacity(0.45)'), true);
+  assert.equal(progressSection.includes('.frame(height: 10)'), true);
+  assert.equal(progressSection.includes('Color.white.opacity(0.28)'), true);
 });
 
 test('iOS login matches website sign-in layout', () => {

@@ -755,6 +755,9 @@ struct HealthView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    DatePicker("Logged At", selection: $healthLogDate)
+                        .datePickerStyle(.compact)
+
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Activity Type")
                             .font(.caption)
@@ -765,15 +768,6 @@ struct HealthView: View {
                             }
                         }
                         .pickerStyle(.menu)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Date & Time")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        DatePicker("", selection: $healthLogDate)
-                            .labelsHidden()
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -813,6 +807,9 @@ struct HealthView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    DatePicker("Logged At", selection: $sleepLogDate)
+                        .datePickerStyle(.compact)
+
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Hours")
@@ -835,15 +832,6 @@ struct HealthView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Date & Time")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        DatePicker("", selection: $sleepLogDate)
-                            .labelsHidden()
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -926,7 +914,9 @@ struct HealthView: View {
     // MARK: - Edit Health Sheet
 
     private func editHealthSheet(_ entry: HealthEntry) -> some View {
-        NavigationStack {
+        let canSave = canSaveHealthEdit(entry)
+
+        return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -940,35 +930,36 @@ struct HealthView: View {
                         }
                         .pickerStyle(.menu)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Date & Time")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        DatePicker("", selection: $editHealthDate)
-                            .labelsHidden()
-                    }
+                    DatePicker("Logged At", selection: $editHealthDate)
+                        .datePickerStyle(.compact)
 
                     Button {
                         Task { await updateHealth(entry) }
                     } label: {
-                        Text("Save").font(.headline).frame(maxWidth: .infinity)
+                        if isSavingHealth {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Save").font(.headline).frame(maxWidth: .infinity)
+                        }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.cyan)
+                    .tint(canSave ? .cyan : .gray)
+                    .disabled(!canSave)
 
                     Button(role: .destructive) {
                         Task { await deleteHealth(entry) }
                     } label: {
                         Text("Delete Entry").font(.headline).frame(maxWidth: .infinity)
                     }
-
-                    Spacer(minLength: 0)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
                 }
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Edit Activity")
+            .navigationTitle("Edit Sexual Activity")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -980,10 +971,21 @@ struct HealthView: View {
         .presentationContentInteraction(.scrolls)
     }
 
+    private func canSaveHealthEdit(_ entry: HealthEntry) -> Bool {
+        guard sexualActivityEnabled, !isSavingHealth else { return false }
+
+        let typeChanged = editHealthType != entry.type
+        let loggedAtChanged = !isSameDisplayedMinute(editHealthDate, parseISO(entry.loggedAt))
+
+        return typeChanged || loggedAtChanged
+    }
+
     // MARK: - Edit Sleep Sheet
 
     private func editSleepSheet(_ entry: SleepEntry) -> some View {
-        NavigationStack {
+        let canSave = canSaveSleepEdit(entry)
+
+        return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
                     HStack(spacing: 12) {
@@ -995,6 +997,7 @@ struct HealthView: View {
                                 .textFieldStyle(.roundedBorder)
                                 .keyboardType(.decimalPad)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Wake-ups")
@@ -1004,31 +1007,33 @@ struct HealthView: View {
                                 .textFieldStyle(.roundedBorder)
                                 .keyboardType(.numberPad)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Date & Time")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        DatePicker("", selection: $editSleepDate)
-                            .labelsHidden()
-                    }
+                    DatePicker("Logged At", selection: $editSleepDate)
+                        .datePickerStyle(.compact)
 
                     Button {
                         Task { await updateSleep(entry) }
                     } label: {
-                        Text("Save").font(.headline).frame(maxWidth: .infinity)
+                        if isSavingSleep {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Save").font(.headline).frame(maxWidth: .infinity)
+                        }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.cyan)
+                    .tint(canSave ? .cyan : .gray)
+                    .disabled(!canSave)
 
                     Button(role: .destructive) {
                         Task { await deleteSleep(entry) }
                     } label: {
                         Text("Delete Entry").font(.headline).frame(maxWidth: .infinity)
                     }
-
-                    Spacer(minLength: 0)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
                 }
                 .padding()
             }
@@ -1043,6 +1048,26 @@ struct HealthView: View {
         }
         .presentationDetents([.medium])
         .presentationContentInteraction(.scrolls)
+    }
+
+    private func canSaveSleepEdit(_ entry: SleepEntry) -> Bool {
+        guard !isSavingSleep else { return false }
+        guard let hours = Double(editSleepHours.trimmingCharacters(in: .whitespacesAndNewlines)), hours > 0, hours <= 24 else {
+            return false
+        }
+        guard let wakeUps = Int(editSleepWakeUps.trimmingCharacters(in: .whitespacesAndNewlines)), wakeUps >= 0 else {
+            return false
+        }
+
+        let hoursChanged = abs(hours - entry.durationHours) > 0.001
+        let wakeUpsChanged = wakeUps != entry.wakeUps
+        let loggedAtChanged = !isSameDisplayedMinute(editSleepDate, parseISO(entry.loggedAt))
+
+        return hoursChanged || wakeUpsChanged || loggedAtChanged
+    }
+
+    private func isSameDisplayedMinute(_ lhs: Date, _ rhs: Date) -> Bool {
+        Calendar.current.compare(lhs, to: rhs, toGranularity: .minute) == .orderedSame
     }
 
     // MARK: - Actions
@@ -1253,6 +1278,8 @@ struct HealthView: View {
             errorMessage = "Sexual activity tracking is not enabled for this account."
             return
         }
+        isSavingHealth = true
+        defer { isSavingHealth = false }
         do {
             let f = ISO8601DateFormatter()
             f.timeZone = TimeZone(identifier: "America/New_York")
@@ -1279,12 +1306,14 @@ struct HealthView: View {
     }
 
     private func updateSleep(_ entry: SleepEntry) async {
+        isSavingSleep = true
+        defer { isSavingSleep = false }
         do {
-            guard let hours = Double(editSleepHours), hours > 0, hours <= 24 else {
+            guard let hours = Double(editSleepHours.trimmingCharacters(in: .whitespacesAndNewlines)), hours > 0, hours <= 24 else {
                 errorMessage = "Hours must be between 0 and 24."
                 return
             }
-            let wakeUps = Int(editSleepWakeUps) ?? 0
+            let wakeUps = Int(editSleepWakeUps.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
             let f = ISO8601DateFormatter()
             f.timeZone = TimeZone(identifier: "America/New_York")
             try await api.updateSleepEntry(id: entry.id, durationHours: hours, wakeUps: wakeUps, loggedAt: f.string(from: editSleepDate))
@@ -1343,12 +1372,14 @@ struct HealthView: View {
     private func showLogSheetForMode() {
         switch mode {
         case .sleep:
+            sleepLogDate = Date()
             showLogSleep = true
         case .sexualActivity:
             guard sexualActivityEnabled else {
                 errorMessage = "Sexual activity tracking is not enabled for this account."
                 return
             }
+            healthLogDate = Date()
             showLogHealth = true
         }
     }

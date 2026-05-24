@@ -662,7 +662,9 @@ struct WorkoutsView: View {
     }
 
     private func editWorkoutSheet(_ workout: WorkoutEntry) -> some View {
-        NavigationStack {
+        let canSave = canSaveWorkoutEdit(workout)
+
+        return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
                     TextField("Description", text: $editWorkoutDescription)
@@ -680,6 +682,7 @@ struct WorkoutsView: View {
                         }
                         .pickerStyle(.segmented)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
@@ -693,6 +696,7 @@ struct WorkoutsView: View {
                                     scaleWorkoutCalories(newDuration: newValue)
                                 }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Calories")
@@ -702,7 +706,9 @@ struct WorkoutsView: View {
                                 .textFieldStyle(.roundedBorder)
                                 .keyboardType(.numberPad)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     DatePicker("Logged At", selection: $editWorkoutDate)
                         .datePickerStyle(.compact)
@@ -717,15 +723,16 @@ struct WorkoutsView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.cyan)
-                    .disabled(editWorkoutDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                    .tint(canSave ? .cyan : .gray)
+                    .disabled(!canSave)
 
                     Button(role: .destructive) {
                         Task { await deleteWorkout(workout) }
                     } label: {
                         Text("Delete Workout").frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
                 }
                 .padding()
             }
@@ -740,6 +747,23 @@ struct WorkoutsView: View {
         }
         .presentationDetents([.medium, .large])
         .presentationContentInteraction(.scrolls)
+    }
+
+    private func canSaveWorkoutEdit(_ workout: WorkoutEntry) -> Bool {
+        guard !isSaving else { return false }
+
+        let description = editWorkoutDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !description.isEmpty else { return false }
+        guard let duration = Double(editWorkoutDuration), duration > 0 else { return false }
+        guard let calories = Double(editWorkoutCalories), calories >= 0 else { return false }
+
+        let descriptionChanged = description != workout.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let intensityChanged = normalizeWorkoutIntensity(editWorkoutIntensity) != normalizeWorkoutIntensity(workout.intensity)
+        let durationChanged = abs(duration - workout.durationHours) > 0.001
+        let caloriesChanged = abs(calories - workout.caloriesBurned) > 0.5
+        let loggedAtChanged = !isSameDisplayedMinute(editWorkoutDate, parseISO(workout.loggedAt))
+
+        return descriptionChanged || intensityChanged || durationChanged || caloriesChanged || loggedAtChanged
     }
 
     private func detailRow(_ label: String, value: String) -> some View {
@@ -1044,5 +1068,9 @@ struct WorkoutsView: View {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
         return f.date(from: iso) ?? Date()
+    }
+
+    private func isSameDisplayedMinute(_ lhs: Date, _ rhs: Date) -> Bool {
+        Calendar.current.compare(lhs, to: rhs, toGranularity: .minute) == .orderedSame
     }
 }
