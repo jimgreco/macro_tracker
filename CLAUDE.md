@@ -2,17 +2,17 @@
 
 ## Project Overview
 
-Full-stack macro/nutrition tracking web app with iOS companion. Node.js + Express backend, vanilla JS frontend (SPA), PostgreSQL database, SwiftUI iOS app. Uses OpenAI for natural language meal/workout parsing. Supports Google OAuth and Apple Sign-In for authentication. Stripe for paid subscriptions.
+Full-stack macro/nutrition tracking web app with iOS companion. Node.js + Express backend, vanilla JS frontend (SPA), PostgreSQL database, SwiftUI iOS app. Uses OpenAI for natural language meal/workout parsing and Open Food Facts for barcode nutrition lookup. Supports Google OAuth and Apple Sign-In for authentication. Stripe for paid subscriptions.
 
 ## Tech Stack
 
 - **Backend**: Node.js 18+, Express.js, Passport.js (Google OAuth), Apple Sign-In (`apple-signin-auth`)
 - **Frontend**: Vanilla JS, HTML5, CSS3 (no frameworks)
-- **iOS App**: SwiftUI (iOS 17+), AuthenticationServices (Sign in with Apple), Keychain token storage
+- **iOS App**: SwiftUI (iOS 17+), AuthenticationServices (Sign in with Apple), AVFoundation barcode scanning, Keychain token storage, HealthKit sync, local reminders, pending-log retry
 - **Database**: PostgreSQL 16 (Docker locally, AWS RDS in production)
 - **AI**: OpenAI API (`gpt-4.1-mini` by default) for meal/workout parsing
 - **Billing**: Stripe (checkout sessions, customer portal, webhooks)
-- **Deployment**: AWS Elastic Beanstalk (Node.js 22, Amazon Linux 2023)
+- **Deployment**: GitHub Actions to EC2/Docker Compose, with legacy Elastic Beanstalk notes retained only for historical recovery context
 
 ## Local Development
 
@@ -41,8 +41,8 @@ Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google/Apple OAuth setup locally.
 
 | File | Purpose |
 |------|---------|
-| `src/server.js` | Express server, all routes, auth, Stripe webhooks (~2,200 lines) |
-| `src/db.js` | All PostgreSQL queries (~1,850 lines) |
+| `src/server.js` | Express server, all routes, auth, Stripe webhooks |
+| `src/db.js` | All PostgreSQL queries |
 | `src/parser.js` | OpenAI meal/workout parsing (~230 lines) |
 | `public/script.js` | Frontend SPA logic (~4,800 lines) |
 | `public/index.html` | Main app HTML |
@@ -58,6 +58,7 @@ Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google/Apple OAuth setup locally.
 SESSION_SECRET=          # Long random string (required in production)
 DATABASE_URL=            # postgres://... connection string
 OPENAI_API_KEY=          # For meal/workout parsing
+OPEN_FOOD_FACTS_USER_AGENT= # Optional custom user agent for barcode lookups
 GOOGLE_CLIENT_ID=        # Google OAuth
 GOOGLE_CLIENT_SECRET=    # Google OAuth
 APP_BASE_URL=            # Canonical URL (e.g. https://yourdomain.com)
@@ -83,7 +84,7 @@ See `.env.example` for full list.
 
 Uses Node's built-in `node:test` module.
 
-- `test/api-infrastructure.test.js` — API infra: soft deletes, pagination, auth, billing, GDPR (36 tests)
+- `test/api-infrastructure.test.js` — API infra: soft deletes, pagination, auth, billing, GDPR, release workflow smoke checks
 - `test/ios-safari-regression.test.js` — Mobile nav regression
 - `test/ui-regression.test.js` — UI component tests
 - `test/workout-parse.test.js` — Workout parsing logic
@@ -103,7 +104,7 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 - **GDPR**: `GET /api/v1/account/export` (full data dump), `DELETE /api/v1/account` (hard delete all data).
 - **Pagination**: `getDashboard()` and `listWorkoutEntries()` accept `{ limit, offset }`, responses include `pagination` object.
 - **Stripe billing**: Webhook registered BEFORE `express.json()` for raw body access. Handles `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. Plan gating infrastructure exists but is currently disabled (no upgrade restrictions).
-- **Database**: Schema auto-created on startup. Tables: `users`, `entries`, `saved_items`, `macro_targets`, `weight_entries`, `workout_entries`, `weight_targets`, `analysis_reports`, `api_tokens`, `audit_log`, `subscriptions`, `billing_events`, `health_entries`, `sleep_entries`.
+- **Database**: Schema auto-created on startup. Tables include `users`, `user_identities`, `entries`, `saved_items`, `macro_targets`, `weight_entries`, `workout_entries`, `sexual_activity_entries`, `sleep_entries`, `weight_targets`, `analysis_reports`, `api_tokens`, `audit_log`, `subscriptions`, `billing_events`, and `daily_usage_counts`.
 - **API**: REST endpoints under `/api/v1/`. Rate-limited parse endpoints (15 req/min). See `src/server.js` for full route list.
 - **Frontend**: Single HTML page (`public/index.html`) with all state in `public/script.js`.
 - **Modal-based editing**: All editing (entries, meals, quick adds, weight, workouts) uses modal popups (`showEntryModal`, `showCombineModal`, `showWeightEditModal`, `showWorkoutEditModal`). Target editing also uses modals: `showEditTargetsModal` (macro targets), `showWeightTargetModal` (weight target + date), `showWorkoutTargetModal` (workouts/week + calories/week). Each is accessed via "(edit targets)" or "(edit target)" links in the Logged Entries heading of each tab. No inline edit rows remain.
@@ -125,34 +126,37 @@ SwiftUI app targeting iOS 17+. Uses token-based auth (either via Sign in with Ap
 
 | File | Purpose |
 |------|---------|
-| `DailyMacrosApp.swift` | App entry point, auth routing, dark mode |
+| `DailyMacrosApp.swift` | App entry point, auth routing, onboarding routing, pending-log retry, dark mode |
 | `AuthManager.swift` | Auth state, Sign in with Apple, token auth |
-| `APIClient.swift` | Singleton API client, all REST endpoints, Keychain |
+| `APIClient.swift` | Singleton API client, all REST endpoints, Keychain, offline mutation queue flushing |
 | `Models.swift` | Codable response types |
 | `LoginView.swift` | Sign in with Apple + token-based login |
-| `MainTabView.swift` | 4-tab navigation (Macros, Weight, Workouts, Settings) |
-| `MacrosView.swift` | Meal logging, parsing, dashboard with macro progress bars |
+| `MainTabView.swift` | Tab navigation (Macros, Workouts, Weight, Sleep, optional Sexual Activity, Analysis, Settings) |
+| `OnboardingView.swift` | First-run target setup and reminder opt-in |
+| `MacrosView.swift` | Meal logging, parsing, barcode lookup, dashboard with macro progress bars |
+| `BarcodeScannerView.swift` | AVFoundation barcode scanner used by meal logging |
 | `WeightView.swift` | Weight logging, Canvas trend chart, history |
 | `WorkoutsView.swift` | Workout logging/parsing, intensity cards |
-| `SettingsView.swift` | Account, subscription, data export, delete account |
+| `SettingsView.swift` | Account, subscription, reminder controls, pending-log sync, data and diagnostics export, delete account |
+| `ReminderScheduler.swift` | Local daily log notification scheduling |
+| `OfflineMutationStore.swift` | UserDefaults-backed pending mutation queue |
+| `Diagnostics.swift` | Local diagnostic event log and export text |
 
 The iOS app communicates with the backend via Bearer token auth. Sign in with Apple sends the identity token to `/auth/apple/mobile` which verifies it and returns an API token stored in Keychain.
 
 ## Production (AWS)
 
-- Platform: Elastic Beanstalk (`macro-tracker-prod`, us-east-2)
-- Deploy: `eb deploy macro-tracker-prod` from project root
-- Health check: `GET /healthz` (performs live DB query)
-- Max upload: 12MB (Nginx config in `.platform/`)
-- SSL: Auto-enabled for RDS. Pin cert via `PGSSL_CA_FILE`.
-- Password rotation: `npm run ops:rotate-prod-db-password`
-- Security checklist: `docs/aws-production-security-audit.md`
-
-> **Critical deploy gotcha**: `eb deploy` packages via `git archive` and only includes **committed** files. Uncommitted changes to `public/script.js`, `src/server.js`, or any other file will be silently ignored and the old version ships. Always `git add` + `git commit` before deploying.
+- Active platform: EC2 host running Docker Compose from `~/deploy`.
+- Deploy workflow: `.github/workflows/deploy.yml`.
+- Release runbook: `docs/ec2-release-runbook.md`.
+- Health check: `GET /healthz` (performs live DB query).
+- Version check: `GET /version`.
+- Authenticated smoke script: `scripts/production-smoke.sh`, which uses a smoke API token to exercise disposable meal, quick-add, weight, sleep, and optional sexual-activity write journeys before cleanup.
+- Legacy Elastic Beanstalk material remains in `docs/aws-production-security-audit.md`; do not use it as the current deploy source of truth unless that platform is intentionally revived.
 
 ### Deployment Process
 
-Deployment is automated via GitHub Actions (`.github/workflows/deploy.yml`). Every push to `main` automatically deploys to production on AWS Elastic Beanstalk. No manual `eb deploy` step is needed.
+Deployment is automated via GitHub Actions (`.github/workflows/deploy.yml`). Every qualifying push to `main` deploys backend/web assets to the EC2/Docker Compose production service. No manual `eb deploy` step is part of the active path.
 
 When asked to deploy or "push live", always run these steps in order — no skipping:
 
@@ -160,9 +164,9 @@ When asked to deploy or "push live", always run these steps in order — no skip
 2. **`git add`** all changed files relevant to the work
 3. **Update `CLAUDE.md`** if anything was learned (new gotchas, architecture decisions, changed patterns) — then `git add CLAUDE.md`
 4. **`git commit`** with a clear message describing what changed and why
-5. **`git push origin main`** — GitHub Actions will automatically deploy to `macro-tracker-prod`
+5. **`git push origin main`** — GitHub Actions will automatically deploy when the changed paths match `.github/workflows/deploy.yml`
 
-The workflow uses `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` GitHub secrets and deploys to the `macro-tracker` EB application, `macro-tracker-prod` environment in `us-east-2`.
+The workflow uses `EC2_SSH_KEY`, `EC2_USER`, and `EC2_HOST` secrets, builds the `macros` service through the remote Compose project, and runs post-deploy `/healthz` and `/version` checks when `PRODUCTION_BASE_URL` is configured.
 
 ## Content Security Policy
 

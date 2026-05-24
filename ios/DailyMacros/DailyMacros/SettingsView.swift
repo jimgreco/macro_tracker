@@ -3,10 +3,17 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var api: APIClient
+    @AppStorage("onboarding_complete") private var onboardingComplete = true
+    @StateObject private var offlineQueue = OfflineMutationStore.shared
+    @StateObject private var diagnostics = Diagnostics.shared
     @State private var subscription: SubscriptionResponse?
     @State private var version: VersionResponse?
     @State private var showDeleteConfirm = false
     @State private var isExporting = false
+    @State private var isExportingDiagnostics = false
+    @State private var isFlushingPending = false
+    @State private var remindersEnabled = ReminderScheduler.shared.isEnabled
+    @State private var reminderDate = ReminderScheduler.shared.reminderDate
     @State private var errorMessage: String?
     private let buildHashDigits = 7
 
@@ -15,13 +22,20 @@ struct SettingsView: View {
             List {
                 accountSection
                 supportPrivacySection
+                remindersSection
                 subscriptionSection
                 dataSection
+                tutorialSection
+                pendingSyncSection
+                diagnosticsSection
                 buildInfoSection
                 dangerSection
             }
             .navigationTitle("Settings")
             .task { await loadSettings() }
+            .onChange(of: reminderDate) { _, newValue in
+                Task { await updateReminderTime(newValue) }
+            }
             .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: {
@@ -96,6 +110,20 @@ struct SettingsView: View {
         }
     }
 
+    private var remindersSection: some View {
+        Section("Daily Reminder") {
+            Toggle("Log reminder", isOn: Binding(
+                get: { remindersEnabled },
+                set: { enabled in
+                    remindersEnabled = enabled
+                    Task { await updateReminderEnabled(enabled) }
+                }
+            ))
+            DatePicker("Time", selection: $reminderDate, displayedComponents: .hourAndMinute)
+                .disabled(!remindersEnabled)
+        }
+    }
+
     // MARK: - Subscription
 
     private var subscriptionSection: some View {
@@ -155,6 +183,80 @@ struct SettingsView: View {
                         Image(systemName: "square.and.arrow.up")
                     }
                 }
+            }
+        }
+    }
+
+    private var tutorialSection: some View {
+        Section {
+            Button {
+                Diagnostics.shared.record(category: "onboarding", message: "Reset setup tutorial")
+                onboardingComplete = false
+            } label: {
+                HStack {
+                    Text("Reset Setup Tutorial")
+                    Spacer()
+                    Image(systemName: "arrow.counterclockwise")
+                }
+            }
+        } header: {
+            Text("Setup Tutorial")
+        } footer: {
+            Text("Shows the first-run setup again so you can revisit goals, reminders, and starting preferences.")
+        }
+    }
+
+    private var pendingSyncSection: some View {
+        Section("Offline Queue") {
+            HStack {
+                Text("Pending Logs")
+                Spacer()
+                Text("\(offlineQueue.pendingCount)")
+                    .foregroundStyle(.secondary)
+            }
+
+            Button {
+                Task { await flushPendingLogs() }
+            } label: {
+                HStack {
+                    Text("Sync Pending Logs")
+                    Spacer()
+                    if isFlushingPending {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                }
+            }
+            .disabled(offlineQueue.pendingCount == 0 || isFlushingPending)
+        }
+    }
+
+    private var diagnosticsSection: some View {
+        Section("Diagnostics") {
+            HStack {
+                Text("Recent Events")
+                Spacer()
+                Text("\(diagnostics.events.count)")
+                    .foregroundStyle(.secondary)
+            }
+
+            Button {
+                Task { await exportDiagnostics() }
+            } label: {
+                HStack {
+                    Text("Export Diagnostics")
+                    Spacer()
+                    if isExportingDiagnostics {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+            }
+
+            Button("Clear Diagnostics", role: .destructive) {
+                diagnostics.clear()
             }
         }
     }
@@ -241,6 +343,37 @@ struct SettingsView: View {
         }
     }
 
+    private func updateReminderEnabled(_ enabled: Bool) async {
+        do {
+            try await ReminderScheduler.shared.setEnabled(enabled, at: reminderDate)
+            remindersEnabled = ReminderScheduler.shared.isEnabled
+            Diagnostics.shared.record(category: "reminder", message: enabled ? "Enabled daily reminder" : "Disabled daily reminder")
+        } catch {
+            remindersEnabled = ReminderScheduler.shared.isEnabled
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func updateReminderTime(_ date: Date) async {
+        do {
+            try await ReminderScheduler.shared.updateTime(date)
+            Diagnostics.shared.record(category: "reminder", message: "Updated daily reminder time")
+        } catch {
+            remindersEnabled = ReminderScheduler.shared.isEnabled
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func flushPendingLogs() async {
+        isFlushingPending = true
+        defer { isFlushingPending = false }
+        do {
+            try await api.flushPendingMutations()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func exportData() async {
         isExporting = true
         defer { isExporting = false }
@@ -248,6 +381,24 @@ struct SettingsView: View {
             let data = try await api.exportData()
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("dailymacros-export.json")
             try data.write(to: tempURL)
+            await MainActor.run {
+                let controller = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
+                if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                   let root = scene.windows.first?.rootViewController {
+                    root.present(controller, animated: true)
+                }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func exportDiagnostics() async {
+        isExportingDiagnostics = true
+        defer { isExportingDiagnostics = false }
+        do {
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("dailymacros-diagnostics.txt")
+            try diagnostics.exportText().write(to: tempURL, atomically: true, encoding: .utf8)
             await MainActor.run {
                 let controller = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
                 if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,

@@ -70,6 +70,9 @@ struct WeightView: View {
                 editWeightSheet(entry)
             }
             .task { await loadData() }
+            .onAppear {
+                Task { await loadTarget(showErrors: false) }
+            }
             .refreshable { await loadData() }
             .alert("Weight", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
@@ -634,9 +637,17 @@ struct WeightView: View {
 
     private func loadData() async {
         await loadEntries(reset: true)
+        await loadTarget(showErrors: false)
+    }
+
+    private func loadTarget(showErrors: Bool = true) async {
         do {
             target = try await api.getWeightTarget()
-        } catch { /* target is optional */ }
+        } catch {
+            if showErrors {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func loadEntries(reset: Bool = true) async {

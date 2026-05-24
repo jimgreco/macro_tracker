@@ -31,6 +31,7 @@ Set these on the remote compose environment for the `macros` service:
 - `PGSSL_CA_CERT` or `PGSSL_CA_FILE`
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`
+- `OPEN_FOOD_FACTS_USER_AGENT` (optional; identifies barcode lookup traffic)
 - `AI_DAILY_MEAL_PARSE_LIMIT`
 - `AI_DAILY_WORKOUT_PARSE_LIMIT`
 - `AI_DAILY_PHOTO_PARSE_LIMIT`
@@ -90,12 +91,15 @@ PRODUCTION_BASE_URL=https://your-production-domain scripts/production-smoke.sh
 PRODUCTION_BASE_URL=https://your-production-domain API_TOKEN=<beta-test-api-token> scripts/production-smoke.sh
 ```
 
+With `API_TOKEN`, the smoke script now creates disposable meal, saved quick-add, weight, sleep, and optional sexual-activity records, updates the editable records, verifies dashboard visibility where applicable, and deletes the created records before exit. Use a dedicated smoke account so any interrupted cleanup is isolated from real beta-user data.
+
 Then verify:
 - Web login completes.
 - Dashboard loads.
 - One meal or workout parse succeeds.
+- A known packaged-food barcode lookup returns a product, or a missing barcode shows a clear not-found error.
 - iOS TestFlight token auth reaches the same backend.
-- Settings shows matching app/API build metadata.
+- iOS onboarding can be skipped or saved, daily reminders can be toggled, pending-log sync shows zero after a clean online run, and Settings shows matching app/API build metadata.
 - Account export returns a JSON file for the smoke account.
 - Account deletion is tested only with a disposable beta account.
 
@@ -103,6 +107,7 @@ Then verify:
 For beta-facing iOS releases, verify on a real device after the TestFlight build processes:
 - Google and Apple sign-in both reach the production backend.
 - Macro logging, workout logging/sync, Health sleep logging, Settings export, and build metadata load.
+- Daily log reminder scheduling, pending-log retry, first-run target setup, and diagnostics export work on device.
 - Previously fixed scrolling paths remain usable in meal, workout, weight, and health lists.
 - Any API error shown to a tester includes a request reference that appears in server logs.
 

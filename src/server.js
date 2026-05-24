@@ -665,6 +665,7 @@ function clientUserPayload(user) {
     picture: user.picture || null,
     provider: user.provider || 'google',
     isAdmin: isAdminUser(user),
+    setupTutorialResetAt: user.setupTutorialResetAt || null,
     features: {
       sexualActivity: Boolean(user.sexualActivityEnabled)
     }
@@ -1289,6 +1290,182 @@ function validateSavedItemBody(body) {
   };
 }
 
+const barcodeLookupCache = new Map();
+const BARCODE_LOOKUP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const BARCODE_LOOKUP_CACHE_MAX = 500;
+
+function normalizeBarcode(value) {
+  const barcode = String(value || '').replace(/\D/g, '');
+  if (!/^\d{6,18}$/.test(barcode)) {
+    throw new Error('Barcode must be 6 to 18 digits.');
+  }
+  return barcode;
+}
+
+function barcodeCacheGet(barcode) {
+  const cached = barcodeLookupCache.get(barcode);
+  if (!cached) return null;
+  if (Date.now() > cached.expiresAt) {
+    barcodeLookupCache.delete(barcode);
+    return null;
+  }
+  return cached.value;
+}
+
+function barcodeCacheSet(barcode, value) {
+  if (barcodeLookupCache.size >= BARCODE_LOOKUP_CACHE_MAX) {
+    const oldestKey = barcodeLookupCache.keys().next().value;
+    if (oldestKey) barcodeLookupCache.delete(oldestKey);
+  }
+  barcodeLookupCache.set(barcode, {
+    value,
+    expiresAt: Date.now() + BARCODE_LOOKUP_CACHE_TTL_MS
+  });
+}
+
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    const normalized = String(value || '').trim();
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function servingGramsFromText(value) {
+  const text = String(value || '');
+  const match = text.match(/(\d+(?:[.,]\d+)?)\s*g\b/i);
+  if (!match) return null;
+  const grams = Number(match[1].replace(',', '.'));
+  return Number.isFinite(grams) && grams > 0 ? grams : null;
+}
+
+function roundMacro(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.round(number * 10) / 10;
+}
+
+function barcodeItemFromOpenFoodFactsProduct(barcode, product) {
+  const nutriments = product?.nutriments || {};
+  const productName = firstNonEmptyString(product?.product_name_en, product?.product_name, product?.generic_name_en, product?.generic_name);
+  const brand = firstNonEmptyString(product?.brands);
+  const itemName = firstNonEmptyString(
+    brand && productName && !productName.toLowerCase().includes(brand.toLowerCase()) ? `${brand} ${productName}` : productName,
+    brand,
+    `Barcode ${barcode}`
+  ).slice(0, 160);
+  const servingSize = firstNonEmptyString(product?.serving_size);
+  const servingGrams = servingGramsFromText(servingSize);
+
+  const servingCalories = firstFiniteNumber(nutriments['energy-kcal_serving'], nutriments.energy_kcal_serving);
+  const servingProtein = firstFiniteNumber(nutriments.proteins_serving, nutriments.protein_serving);
+  const servingCarbs = firstFiniteNumber(nutriments.carbohydrates_serving, nutriments.carbs_serving);
+  const servingFat = firstFiniteNumber(nutriments.fat_serving);
+  if ([servingCalories, servingProtein, servingCarbs, servingFat].every((value) => value != null)) {
+    return {
+      itemName,
+      quantity: 1,
+      unit: 'serving',
+      calories: roundMacro(servingCalories),
+      protein: roundMacro(servingProtein),
+      carbs: roundMacro(servingCarbs),
+      fat: roundMacro(servingFat)
+    };
+  }
+
+  const calories100g = firstFiniteNumber(nutriments['energy-kcal_100g'], nutriments.energy_kcal_100g, nutriments['energy-kcal'], nutriments.energy_kcal);
+  const protein100g = firstFiniteNumber(nutriments.proteins_100g, nutriments.protein_100g, nutriments.proteins, nutriments.protein);
+  const carbs100g = firstFiniteNumber(nutriments.carbohydrates_100g, nutriments.carbs_100g, nutriments.carbohydrates, nutriments.carbs);
+  const fat100g = firstFiniteNumber(nutriments.fat_100g, nutriments.fat);
+  if ([calories100g, protein100g, carbs100g, fat100g].every((value) => value != null)) {
+    const multiplier = servingGrams ? servingGrams / 100 : 1;
+    return {
+      itemName,
+      quantity: servingGrams ? 1 : 100,
+      unit: servingGrams ? 'serving' : 'g',
+      calories: roundMacro(calories100g * multiplier),
+      protein: roundMacro(protein100g * multiplier),
+      carbs: roundMacro(carbs100g * multiplier),
+      fat: roundMacro(fat100g * multiplier)
+    };
+  }
+
+  return null;
+}
+
+async function lookupOpenFoodFactsBarcode(barcode) {
+  const cached = barcodeCacheGet(barcode);
+  if (cached) return cached;
+
+  const fields = [
+    'code',
+    'product_name',
+    'product_name_en',
+    'generic_name',
+    'generic_name_en',
+    'brands',
+    'serving_size',
+    'nutriments'
+  ].join(',');
+  const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=${fields}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7000);
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': process.env.OPEN_FOOD_FACTS_USER_AGENT || 'DailyMacros/1.0 (https://macro-tracker.jim-greco.com)'
+      },
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new Error(`Open Food Facts returned ${response.status}.`);
+    }
+
+    const payload = await response.json();
+    if (Number(payload.status) !== 1 || !payload.product) {
+      const value = {
+        barcode,
+        found: false,
+        source: 'openfoodfacts',
+        message: 'Barcode was not found in Open Food Facts.'
+      };
+      barcodeCacheSet(barcode, value);
+      return value;
+    }
+
+    const product = payload.product;
+    const productName = firstNonEmptyString(product.product_name_en, product.product_name, product.generic_name_en, product.generic_name);
+    const result = {
+      barcode,
+      found: true,
+      source: 'openfoodfacts',
+      productName: productName || null,
+      brand: firstNonEmptyString(product.brands) || null,
+      servingSize: firstNonEmptyString(product.serving_size) || null,
+      item: barcodeItemFromOpenFoodFactsProduct(barcode, product),
+      message: ''
+    };
+    if (!result.item) {
+      result.message = 'Product was found, but nutrition data was incomplete.';
+    }
+    barcodeCacheSet(barcode, result);
+    return result;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 // ── Non-API routes (login, auth, health) ──
 
 const loginHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'login.html'), 'utf8');
@@ -1778,6 +1955,7 @@ async function enforceDailyUsage(req, res, feature, limitKey, envName) {
 apiRouter.use('/parse-meal', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 15 }));
 apiRouter.use('/parse-workout', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30 }));
 apiRouter.use('/analysis', createRateLimiter({ windowMs: 10 * 60 * 1000, maxRequests: 5 }));
+apiRouter.use('/barcode', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30 }));
 
 
 apiRouter.get('/me', (req, res) => {
@@ -1825,6 +2003,13 @@ apiRouter.patch('/admin/accounts/:userId', requireAdmin, async (req, res) => {
         return sendError(req, res, 400, 'sexualActivityEnabled must be a boolean.');
       }
       controls.sexualActivityEnabled = body.sexualActivityEnabled;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'resetSetupTutorial')) {
+      if (body.resetSetupTutorial !== true) {
+        return sendError(req, res, 400, 'resetSetupTutorial must be true.');
+      }
+      controls.resetSetupTutorial = true;
     }
 
     const account = await updateAdminAccountControls(targetUserId, controls);
@@ -1925,6 +2110,23 @@ apiRouter.post('/parse-meal', async (req, res) => {
   }
 });
 
+apiRouter.get('/barcode/:barcode', async (req, res) => {
+  let barcode = '';
+  try {
+    barcode = normalizeBarcode(req.params.barcode);
+    const result = await lookupOpenFoodFactsBarcode(barcode);
+    if (!result.found) {
+      return sendError(req, res, 404, result.message || 'Barcode was not found.');
+    }
+    return res.json(result);
+  } catch (error) {
+    const message = error?.name === 'AbortError'
+      ? 'Barcode lookup timed out. Please try again.'
+      : (error.message || 'Unable to look up barcode.');
+    const status = barcode ? 502 : 400;
+    return sendError(req, res, status, message, error);
+  }
+});
 
 apiRouter.post('/parse-workout', async (req, res) => {
   try {

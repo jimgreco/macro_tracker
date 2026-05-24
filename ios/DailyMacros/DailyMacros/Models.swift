@@ -9,6 +9,7 @@ struct User: Codable {
     let picture: String?
     let provider: String?
     let isAdmin: Bool?
+    let setupTutorialResetAt: String?
     let features: UserFeatures?
 
     init(
@@ -18,6 +19,7 @@ struct User: Codable {
         picture: String?,
         provider: String?,
         isAdmin: Bool? = nil,
+        setupTutorialResetAt: String? = nil,
         features: UserFeatures? = nil
     ) {
         self.id = id
@@ -26,6 +28,7 @@ struct User: Codable {
         self.picture = picture
         self.provider = provider
         self.isAdmin = isAdmin
+        self.setupTutorialResetAt = setupTutorialResetAt
         self.features = features
     }
 
@@ -173,6 +176,17 @@ struct ParseMealResponse: Codable {
     let mealName: String?
     let mealQuantity: Double?
     let mealUnit: String?
+}
+
+struct BarcodeLookupResponse: Codable {
+    let barcode: String
+    let found: Bool?
+    let source: String?
+    let productName: String?
+    let brand: String?
+    let servingSize: String?
+    let item: ParsedMealItem?
+    let message: String?
 }
 
 struct ParseWorkoutResponse: Codable {

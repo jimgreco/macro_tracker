@@ -2943,6 +2943,13 @@ button[disabled] {
   accent-color: var(--accent);
 }
 
+.admin-reset-tutorial-btn {
+  min-height: 2rem;
+  padding: 0.44rem 0.65rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .admin-pagination {
   display: flex;
   justify-content: flex-end;

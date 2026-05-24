@@ -73,8 +73,11 @@ test('db.js tracks admin-controlled account flags and login stats', () => {
   const db = read('src/db.js');
   assert.ok(db.includes('is_disabled BOOLEAN NOT NULL DEFAULT FALSE'));
   assert.ok(db.includes('sexual_activity_enabled BOOLEAN NOT NULL DEFAULT FALSE'));
+  assert.ok(db.includes('setup_tutorial_reset_at TIMESTAMPTZ'));
+  assert.ok(db.includes('ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_tutorial_reset_at TIMESTAMPTZ'));
   assert.ok(db.includes('last_login_at TIMESTAMPTZ'));
   assert.ok(db.includes('login_count INTEGER NOT NULL DEFAULT 0'));
+  assert.ok(db.includes('setupTutorialResetAt: dateToIso'));
   assert.ok(db.includes('idx_users_last_login'));
   assert.ok(db.includes('login_count = COALESCE(users.login_count, 0) + 1'));
 });
@@ -414,6 +417,8 @@ test('server.js exposes protected admin account controls', () => {
   assert.ok(server.includes("delete req.headers['if-none-match']"));
   assert.ok(server.includes('listAdminAccounts({ search, limit, offset })'));
   assert.ok(server.includes('updateAdminAccountControls(targetUserId, controls)'));
+  assert.ok(server.includes('resetSetupTutorial must be true'));
+  assert.ok(server.includes('controls.resetSetupTutorial = true'));
   assert.ok(server.includes("app.get(['/admin', '/admin.html'], requireAdmin"));
 });
 
@@ -424,6 +429,7 @@ test('server.js blocks disabled accounts and gates sexual activity endpoints', (
   assert.ok(server.includes('function requireSexualActivityAccess'));
   assert.ok(server.includes("apiRouter.use('/sexual-activity', requireSexualActivityAccess)"));
   assert.ok(server.includes('features: {\n      sexualActivity: Boolean(user.sexualActivityEnabled)'));
+  assert.ok(server.includes('setupTutorialResetAt: user.setupTutorialResetAt || null'));
   assert.ok(server.includes("app.use('/api/v1', bearerTokenAuth, requireAuth, enforceActiveAccount"));
 });
 
@@ -643,6 +649,29 @@ test('scheduled production smoke workflow can run public and authenticated check
   assert.ok(script.includes('$BASE_URL/api/dashboard?limit=5'));
   assert.ok(script.includes('$BASE_URL/api/account/export'));
   assert.ok(script.includes('$BASE_URL/api/parse-workout'));
+  assert.ok(script.includes('Checking authenticated write journeys'));
+  assert.ok(script.includes('$BASE_URL/api/entries/bulk'));
+  assert.ok(script.includes('$BASE_URL/api/saved-items'));
+  assert.ok(script.includes('$BASE_URL/api/quick-add'));
+  assert.ok(script.includes('$BASE_URL/api/weights'));
+  assert.ok(script.includes('$BASE_URL/api/sleep'));
+  assert.ok(script.includes('$BASE_URL/api/sexual-activity'));
+  assert.ok(script.includes('trap cleanup_created_records EXIT'));
+  assert.ok(script.includes('dashboard_entry_id'));
+});
+
+test('barcode lookup uses Open Food Facts with normalized nutrition output', () => {
+  const server = read('src/server.js');
+
+  assert.ok(server.includes("apiRouter.use('/barcode'"));
+  assert.ok(server.includes("apiRouter.get('/barcode/:barcode'"));
+  assert.ok(server.includes('function normalizeBarcode'));
+  assert.ok(server.includes('lookupOpenFoodFactsBarcode'));
+  assert.ok(server.includes('https://world.openfoodfacts.org/api/v2/product/'));
+  assert.ok(server.includes('OPEN_FOOD_FACTS_USER_AGENT'));
+  assert.ok(server.includes('barcodeItemFromOpenFoodFactsProduct'));
+  assert.ok(server.includes("nutriments['energy-kcal_serving']"));
+  assert.ok(server.includes("nutriments['energy-kcal_100g']"));
 });
 
 test('TestFlight workflow rejects placeholder API base URLs and passes build metadata', () => {

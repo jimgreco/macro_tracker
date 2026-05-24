@@ -192,6 +192,8 @@ test('iOS target sheets disable unchanged saves', () => {
   assert.equal(workouts.includes('guard canSaveWorkoutTargets else { return }'), true);
   assert.equal(weight.includes('private var canSaveWeightTarget'), true);
   assert.equal(weight.includes('guard canSaveWeightTarget else { return }'), true);
+  assert.equal(weight.includes('.onAppear {\n                Task { await loadTarget(showErrors: false) }'), true);
+  assert.equal(weight.includes('private func loadTarget(showErrors: Bool = true) async'), true);
   assert.equal(health.includes('private var canSaveSleepTarget'), true);
   assert.equal(health.includes('guard canSaveSleepTarget else { return }'), true);
 });
@@ -491,8 +493,13 @@ test('admin page supports searchable paginated account controls', () => {
   assert.equal(script.includes('/api/admin/accounts?'), true);
   assert.equal(script.includes("data-admin-control=\"isDisabled\""), true);
   assert.equal(script.includes("data-admin-control=\"sexualActivityEnabled\""), true);
+  assert.equal(script.includes('data-admin-action="resetSetupTutorial"'), true);
+  assert.equal(script.includes('async function resetSetupTutorial(accountId, buttonEl)'), true);
+  assert.equal(script.includes('body: JSON.stringify({ resetSetupTutorial: true })'), true);
+  assert.equal(script.includes('account.setupTutorialResetAt'), true);
   assert.equal(script.includes('accountStats(account)'), true);
   assert.equal(styles.includes('.admin-account-row'), true);
+  assert.equal(styles.includes('.admin-reset-tutorial-btn'), true);
 });
 
 test('iOS sleep tab and sexual activity More item honor the account feature flag', () => {
@@ -635,6 +642,70 @@ test('iOS workouts annual occurrence graph renders 365 wrapped daily dots', () =
   assert.equal(workouts.includes('Text("daily")'), false);
   assert.equal(workouts.includes('Last 52 Weeks'), false);
   assert.equal(workouts.includes('(0..<52)'), false);
+});
+
+test('iOS app includes onboarding reminders offline queue and diagnostics foundations', () => {
+  const project = read('ios/DailyMacros/DailyMacros.xcodeproj/project.pbxproj');
+  const app = read('ios/DailyMacros/DailyMacros/DailyMacrosApp.swift');
+  const settings = read('ios/DailyMacros/DailyMacros/SettingsView.swift');
+  const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  const auth = read('ios/DailyMacros/DailyMacros/AuthManager.swift');
+  const models = read('ios/DailyMacros/DailyMacros/Models.swift');
+  const onboarding = read('ios/DailyMacros/DailyMacros/OnboardingView.swift');
+  const reminders = read('ios/DailyMacros/DailyMacros/ReminderScheduler.swift');
+  const offline = read('ios/DailyMacros/DailyMacros/OfflineMutationStore.swift');
+  const diagnostics = read('ios/DailyMacros/DailyMacros/Diagnostics.swift');
+
+  assert.ok(project.includes('OnboardingView.swift in Sources'));
+  assert.ok(project.includes('ReminderScheduler.swift in Sources'));
+  assert.ok(project.includes('OfflineMutationStore.swift in Sources'));
+  assert.ok(project.includes('Diagnostics.swift in Sources'));
+  assert.ok(app.includes('@AppStorage("onboarding_complete")'));
+  assert.ok(app.includes('@AppStorage("last_setup_tutorial_reset_at")'));
+  assert.ok(app.includes('OnboardingView(isComplete: $onboardingComplete)'));
+  assert.ok(app.includes('applySetupTutorialReset(auth.user?.setupTutorialResetAt)'));
+  assert.ok(app.includes('api.flushPendingMutations()'));
+  assert.ok(auth.includes('func refreshUser() async'));
+  assert.ok(models.includes('let setupTutorialResetAt: String?'));
+  assert.ok(onboarding.includes('Set Up DailyMacros'));
+  assert.ok(onboarding.includes('setMacroTarget(macro: "sleep_hours"'));
+  assert.ok(onboarding.includes('TextField("Current weight (optional)", text: $startingWeight)'));
+  assert.ok(onboarding.includes('addWeight(weight, loggedAt:'));
+  assert.ok(onboarding.includes('setWeightTarget(targetWeight: weight'));
+  assert.ok(onboarding.includes('ReminderScheduler.shared.setEnabled'));
+  assert.ok(reminders.includes('UNUserNotificationCenter'));
+  assert.ok(settings.includes('Daily Reminder'));
+  assert.ok(settings.includes('@AppStorage("onboarding_complete")'));
+  assert.ok(settings.includes('Reset Setup Tutorial'));
+  assert.ok(settings.includes('onboardingComplete = false'));
+  assert.ok(settings.includes('Offline Queue'));
+  assert.ok(settings.includes('Export Diagnostics'));
+  assert.ok(offline.includes('struct PendingMutation'));
+  assert.ok(api.includes('queueMutation(path: "/entries/bulk"'));
+  assert.ok(api.includes('func flushPendingMutations()'));
+  assert.ok(diagnostics.includes('Logger(subsystem: "com.dailymacros.app"'));
+});
+
+test('meal logging surfaces barcode lookup beside photo and camera', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+  const macros = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  const models = read('ios/DailyMacros/DailyMacros/Models.swift');
+  const project = read('ios/DailyMacros/DailyMacros.xcodeproj/project.pbxproj');
+  const scanner = read('ios/DailyMacros/DailyMacros/BarcodeScannerView.swift');
+
+  assert.equal(html.includes('id="barcode-lookup-btn"'), true);
+  assert.equal(script.includes('const barcodeLookupBtnEl'), true);
+  assert.equal(script.includes('/api/barcode/${encodeURIComponent(barcode)}'), true);
+  assert.equal(macros.includes('Label') && macros.includes('barcode.viewfinder'), true);
+  assert.equal(macros.includes('BarcodeScannerView'), true);
+  assert.equal(macros.includes('lookupBarcode(code)'), true);
+  assert.equal(api.includes('func lookupBarcode'), true);
+  assert.equal(models.includes('struct BarcodeLookupResponse'), true);
+  assert.equal(project.includes('BarcodeScannerView.swift in Sources'), true);
+  assert.equal(scanner.includes('AVCaptureMetadataOutputObjectsDelegate'), true);
+  assert.equal(scanner.includes('.ean13'), true);
 });
 
 test('mobile sleep target is editable and drives sleep chart', () => {

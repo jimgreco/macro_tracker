@@ -55,6 +55,8 @@ struct MacrosView: View {
     @State private var mealPreviewImage: UIImage?
     @State private var isLoadingImage = false
     @State private var showCamera = false
+    @State private var showBarcodeScanner = false
+    @State private var isLookingUpBarcode = false
     @FocusState private var isMealDescriptionFocused: Bool
     @State private var parsedItems: [ParsedMealItem] = []
     @State private var parsedMealName: String?
@@ -1402,6 +1404,15 @@ struct MacrosView: View {
                         errorMessage = message
                     }
                 }
+                .sheet(isPresented: $showBarcodeScanner) {
+                    BarcodeScannerView { code in
+                        Task { await lookupBarcode(code) }
+                    } onError: { message in
+                        showBarcodeScanner = false
+                        errorMessage = message
+                    }
+                    .ignoresSafeArea()
+                }
             }
         }
         .presentationDetents([.large])
@@ -1429,8 +1440,7 @@ struct MacrosView: View {
 
                 HStack(spacing: 10) {
                     PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                        Label("Photo", systemImage: "photo")
-                            .frame(maxWidth: .infinity)
+                        mediaButtonLabel("Photo", systemImage: "photo")
                     }
                     .buttonStyle(.bordered)
                     .tint(Color.neonCyan)
@@ -1438,16 +1448,24 @@ struct MacrosView: View {
                     Button {
                         showCamera = true
                     } label: {
-                        Label("Camera", systemImage: "camera")
-                            .frame(maxWidth: .infinity)
+                        mediaButtonLabel("Camera", systemImage: "camera")
                     }
                     .buttonStyle(.bordered)
                     .tint(Color.neonCyan)
                     .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+
+                    Button {
+                        showBarcodeScanner = true
+                    } label: {
+                        mediaButtonLabel("Barcode", systemImage: "barcode.viewfinder")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Color.neonGreen)
+                    .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera) || isLookingUpBarcode)
                 }
 
-                if isLoadingImage {
-                    ProgressView("Preparing photo...")
+                if isLoadingImage || isLookingUpBarcode {
+                    ProgressView(isLookingUpBarcode ? "Looking up barcode..." : "Preparing photo...")
                         .font(.caption)
                         .foregroundStyle(Color.mutedText)
                 } else if let mealPreviewImage {
@@ -1500,6 +1518,18 @@ struct MacrosView: View {
             .textFieldStyle(.roundedBorder)
             .lineLimit(3...6)
             .focused($isMealDescriptionFocused)
+    }
+
+    private func mediaButtonLabel(_ title: String, systemImage: String) -> some View {
+        Label {
+            Text(title)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        } icon: {
+            Image(systemName: systemImage)
+        }
+        .font(.subheadline)
+        .frame(maxWidth: .infinity, minHeight: 34)
     }
 
     @ViewBuilder
@@ -2010,6 +2040,30 @@ struct MacrosView: View {
             parsedMealQuantity = "\(response.mealQuantity ?? 1)"
             parsedMealUnit = response.mealUnit ?? "serving"
             saveParsedAsQuickAdd = false
+            showParsed = true
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func lookupBarcode(_ code: String) async {
+        showBarcodeScanner = false
+        isLookingUpBarcode = true
+        defer { isLookingUpBarcode = false }
+
+        do {
+            let response = try await api.lookupBarcode(code)
+            guard let item = response.item else {
+                errorMessage = response.message ?? "Product was found, but nutrition data was incomplete."
+                return
+            }
+
+            parsedItems = [item]
+            parsedMealName = response.productName ?? item.itemName
+            parsedMealQuantity = "1"
+            parsedMealUnit = "serving"
+            saveParsedAsQuickAdd = false
+            clearMealImage()
             showParsed = true
         } catch {
             errorMessage = error.localizedDescription

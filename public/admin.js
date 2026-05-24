@@ -108,6 +108,7 @@ function latestIso(values) {
 function accountStats(account) {
   return [
     ['Last login', formatDateTime(account.lastLoginAt)],
+    ['Tutorial reset', formatDateTime(account.setupTutorialResetAt)],
     ['Logins', formatCount(account.loginCount)],
     ['Items', formatCount(account.itemCount)],
     ['Saved items', formatCount(account.savedItemCount)],
@@ -187,6 +188,11 @@ function renderAccount(account) {
           />
           <span>Sexual activity view</span>
         </label>
+        <button
+          type="button"
+          class="btn-secondary admin-reset-tutorial-btn"
+          data-admin-action="resetSetupTutorial"
+        >Reset setup tutorial</button>
       </div>
     </article>
   `;
@@ -284,6 +290,21 @@ async function updateAccountControl(accountId, field, value, inputEl) {
   }
 }
 
+async function resetSetupTutorial(accountId, buttonEl) {
+  buttonEl.disabled = true;
+  try {
+    await adminApi(`/api/admin/accounts/${encodeURIComponent(accountId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ resetSetupTutorial: true })
+    });
+    setAdminBanner('Setup tutorial reset for that user.', 'success');
+    await loadAccounts();
+  } catch (error) {
+    buttonEl.disabled = false;
+    setAdminBanner(error.message, 'error');
+  }
+}
+
 if (adminSearchFormEl) {
   adminSearchFormEl.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -335,6 +356,21 @@ if (adminAccountListEl) {
       return;
     }
     await updateAccountControl(accountId, field, input.checked, input);
+  });
+
+  adminAccountListEl.addEventListener('click', async (event) => {
+    const button = event.target instanceof HTMLElement
+      ? event.target.closest('[data-admin-action="resetSetupTutorial"]')
+      : null;
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    const accountRow = button.closest('[data-account-id]');
+    const accountId = accountRow?.dataset.accountId;
+    if (!accountId) {
+      return;
+    }
+    await resetSetupTutorial(accountId, button);
   });
 }
 

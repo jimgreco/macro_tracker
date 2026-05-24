@@ -70,6 +70,7 @@ const parseBtnEl = document.getElementById('parse-btn');
 const saveParsedBtnEl = document.getElementById('save-parsed-btn');
 const addPhotoBtnEl = document.getElementById('add-photo-btn');
 const useCameraBtnEl = document.getElementById('use-camera-btn');
+const barcodeLookupBtnEl = document.getElementById('barcode-lookup-btn');
 const mealPhotoInputEl = document.getElementById('meal-photo-input');
 const mealCameraInputEl = document.getElementById('meal-camera-input');
 const mealPhotoPreviewWrapEl = document.getElementById('meal-photo-preview-wrap');
@@ -910,6 +911,35 @@ function clearMealImageSelection() {
   renderMealImagePreview();
 }
 
+async function lookupBarcode(codeInput) {
+  const barcode = String(codeInput || '').replace(/\D/g, '');
+  if (!/^\d{6,18}$/.test(barcode)) {
+    setActionBanner('Enter a 6 to 18 digit barcode.', 'error');
+    return;
+  }
+
+  setActionBanner('Looking up barcode...', 'info');
+  try {
+    const result = await api(`/api/barcode/${encodeURIComponent(barcode)}`);
+    if (!result.item) {
+      throw new Error(result.message || 'Product was found, but nutrition data was incomplete.');
+    }
+
+    const parsed = {
+      mealName: result.productName || result.item.itemName,
+      mealQuantity: 1,
+      mealUnit: 'serving',
+      notes: `Loaded ${result.productName || result.item.itemName} from barcode ${barcode}.`,
+      items: [result.item]
+    };
+    state.parsedMeal = parsed;
+    renderParsedItems(parsed);
+    setActionBanner(parsed.notes, 'success');
+  } catch (error) {
+    setActionBanner(error.message, 'error');
+  }
+}
+
 
 consumedAtEl.value = toDateTimeLocalValue();
 renderMealImagePreview();
@@ -931,6 +961,15 @@ if (useCameraBtnEl && mealCameraInputEl) {
 
   mealCameraInputEl.addEventListener('change', (event) => {
     handleMealImageSelect(event, 'Camera');
+  });
+}
+
+if (barcodeLookupBtnEl) {
+  barcodeLookupBtnEl.addEventListener('click', () => {
+    const code = window.prompt('Barcode');
+    if (code) {
+      lookupBarcode(code);
+    }
   });
 }
 

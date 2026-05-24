@@ -75,6 +75,7 @@ async function initDb() {
       provider TEXT NOT NULL DEFAULT 'google',
       is_disabled BOOLEAN NOT NULL DEFAULT FALSE,
       sexual_activity_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      setup_tutorial_reset_at TIMESTAMPTZ,
       last_login_at TIMESTAMPTZ,
       login_count INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -300,6 +301,7 @@ async function initDb() {
   // ── Migrations for existing databases ──
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN NOT NULL DEFAULT FALSE;`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sexual_activity_enabled BOOLEAN NOT NULL DEFAULT FALSE;`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_tutorial_reset_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS login_count INTEGER NOT NULL DEFAULT 0;`);
 
@@ -407,6 +409,7 @@ function rowToPublicUser(row) {
     provider: row.provider || 'google',
     isDisabled: Boolean(row.isDisabled ?? row.is_disabled),
     sexualActivityEnabled: Boolean(row.sexualActivityEnabled ?? row.sexual_activity_enabled),
+    setupTutorialResetAt: dateToIso(row.setupTutorialResetAt ?? row.setup_tutorial_reset_at),
     lastLoginAt: dateToIso(row.lastLoginAt ?? row.last_login_at),
     loginCount: Number(row.loginCount ?? row.login_count ?? 0),
     createdAt: dateToIso(row.createdAt ?? row.created_at),
@@ -474,6 +477,7 @@ async function upsertUser(user) {
        RETURNING id, email, name, picture, provider,
                  is_disabled AS "isDisabled",
                  sexual_activity_enabled AS "sexualActivityEnabled",
+                 setup_tutorial_reset_at AS "setupTutorialResetAt",
                  last_login_at AS "lastLoginAt",
                  login_count AS "loginCount",
                  created_at AS "createdAt",
@@ -508,6 +512,7 @@ async function getUserAccountControls(userId) {
     `SELECT id, email, name, picture, provider,
             is_disabled AS "isDisabled",
             sexual_activity_enabled AS "sexualActivityEnabled",
+            setup_tutorial_reset_at AS "setupTutorialResetAt",
             last_login_at AS "lastLoginAt",
             login_count AS "loginCount",
             created_at AS "createdAt",
@@ -557,6 +562,7 @@ async function listAdminAccounts({ search = '', limit = 25, offset = 0 } = {}) {
        SELECT u.id, u.email, u.name, u.picture, u.provider,
               u.is_disabled AS "isDisabled",
               u.sexual_activity_enabled AS "sexualActivityEnabled",
+              u.setup_tutorial_reset_at AS "setupTutorialResetAt",
               u.last_login_at AS "lastLoginAt",
               u.login_count AS "loginCount",
               u.created_at AS "createdAt",
@@ -698,6 +704,9 @@ async function updateAdminAccountControls(userId, controls = {}) {
   if (Object.prototype.hasOwnProperty.call(controls, 'sexualActivityEnabled')) {
     values.push(Boolean(controls.sexualActivityEnabled));
     updates.push(`sexual_activity_enabled = $${values.length}`);
+  }
+  if (controls.resetSetupTutorial === true) {
+    updates.push('setup_tutorial_reset_at = NOW()');
   }
 
   if (!updates.length) {
@@ -2194,6 +2203,7 @@ async function validateApiToken(token) {
     `SELECT t.id, t.user_id, u.email, u.name, u.picture, u.provider,
             u.is_disabled AS "isDisabled",
             u.sexual_activity_enabled AS "sexualActivityEnabled",
+            u.setup_tutorial_reset_at AS "setupTutorialResetAt",
             u.last_login_at AS "lastLoginAt",
             u.login_count AS "loginCount",
             u.created_at AS "createdAt",
@@ -2219,6 +2229,7 @@ async function validateApiToken(token) {
     provider: row.provider,
     isDisabled: Boolean(row.isDisabled),
     sexualActivityEnabled: Boolean(row.sexualActivityEnabled),
+    setupTutorialResetAt: dateToIso(row.setupTutorialResetAt),
     lastLoginAt: dateToIso(row.lastLoginAt),
     loginCount: Number(row.loginCount || 0),
     createdAt: dateToIso(row.createdAt),

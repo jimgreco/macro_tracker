@@ -80,7 +80,20 @@ class APIClient: ObservableObject {
     }
 
     private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            Diagnostics.shared.record(
+                level: "error",
+                category: "api",
+                message: "Network request failed",
+                details: ["url": request.url?.absoluteString ?? "", "error": error.localizedDescription]
+            )
+            throw APIError.networkError(error)
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.serverError("Invalid response")
@@ -94,8 +107,24 @@ class APIClient: ObservableObject {
         if httpResponse.statusCode >= 400 {
             if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
                 let suffix = errorResponse.requestId.map { " Reference: \($0)" } ?? ""
+                Diagnostics.shared.record(
+                    level: "error",
+                    category: "api",
+                    message: errorResponse.error,
+                    details: [
+                        "status": "\(httpResponse.statusCode)",
+                        "url": request.url?.absoluteString ?? "",
+                        "requestId": errorResponse.requestId ?? ""
+                    ]
+                )
                 throw APIError.serverError(errorResponse.error + suffix)
             }
+            Diagnostics.shared.record(
+                level: "error",
+                category: "api",
+                message: "Request failed",
+                details: ["status": "\(httpResponse.statusCode)", "url": request.url?.absoluteString ?? ""]
+            )
             throw APIError.serverError("Request failed with status \(httpResponse.statusCode)")
         }
 
@@ -107,7 +136,20 @@ class APIClient: ObservableObject {
     }
 
     private func performData(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            Diagnostics.shared.record(
+                level: "error",
+                category: "api",
+                message: "Network request failed",
+                details: ["url": request.url?.absoluteString ?? "", "error": error.localizedDescription]
+            )
+            throw APIError.networkError(error)
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.serverError("Invalid response")
@@ -121,12 +163,84 @@ class APIClient: ObservableObject {
         if httpResponse.statusCode >= 400 {
             if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
                 let suffix = errorResponse.requestId.map { " Reference: \($0)" } ?? ""
+                Diagnostics.shared.record(
+                    level: "error",
+                    category: "api",
+                    message: errorResponse.error,
+                    details: [
+                        "status": "\(httpResponse.statusCode)",
+                        "url": request.url?.absoluteString ?? "",
+                        "requestId": errorResponse.requestId ?? ""
+                    ]
+                )
                 throw APIError.serverError(errorResponse.error + suffix)
             }
+            Diagnostics.shared.record(
+                level: "error",
+                category: "api",
+                message: "Request failed",
+                details: ["status": "\(httpResponse.statusCode)", "url": request.url?.absoluteString ?? ""]
+            )
             throw APIError.serverError("Request failed with status \(httpResponse.statusCode)")
         }
 
         return data
+    }
+
+    private func shouldQueueMutation(after error: Error) -> Bool {
+        if case APIError.networkError = error {
+            return true
+        }
+
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && [
+            NSURLErrorNotConnectedToInternet,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorCannotFindHost,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorTimedOut,
+            NSURLErrorDNSLookupFailed
+        ].contains(nsError.code)
+    }
+
+    private func queueMutation(path: String, method: String, body: Data?, summary: String) {
+        OfflineMutationStore.shared.enqueue(method: method, path: path, body: body, summary: summary)
+        Diagnostics.shared.record(
+            level: "warning",
+            category: "offline",
+            message: "Queued mutation",
+            details: ["path": path, "summary": summary, "pending": "\(OfflineMutationStore.shared.pendingCount)"]
+        )
+    }
+
+    func flushPendingMutations() async throws {
+        let pending = OfflineMutationStore.shared.snapshot()
+        guard !pending.isEmpty else { return }
+
+        for mutation in pending {
+            let request = try authorizedRequest(
+                apiURL(mutation.path),
+                method: mutation.method,
+                body: mutation.body
+            )
+            do {
+                _ = try await performData(request)
+                OfflineMutationStore.shared.remove(id: mutation.id)
+                Diagnostics.shared.record(
+                    category: "offline",
+                    message: "Flushed pending mutation",
+                    details: ["path": mutation.path, "summary": mutation.summary]
+                )
+            } catch {
+                Diagnostics.shared.record(
+                    level: "warning",
+                    category: "offline",
+                    message: "Pending mutation flush paused",
+                    details: ["path": mutation.path, "error": error.localizedDescription]
+                )
+                throw error
+            }
+        }
     }
 
     // MARK: - Auth
@@ -212,6 +326,12 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
+    func lookupBarcode(_ barcode: String) async throws -> BarcodeLookupResponse {
+        let encoded = barcode.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? barcode
+        let request = try authorizedRequest(apiURL("/barcode/\(encoded)"))
+        return try await perform(request)
+    }
+
     func saveMealEntries(
         items: [[String: Any]],
         consumedAt: String,
@@ -227,7 +347,15 @@ class APIClient: ObservableObject {
         if !saveItems.isEmpty { payload["saveItems"] = saveItems }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/entries/bulk"), method: "POST", body: body)
-        let _: OkResponse = try await perform(request)
+        do {
+            let _: OkResponse = try await perform(request)
+        } catch {
+            if shouldQueueMutation(after: error) {
+                queueMutation(path: "/entries/bulk", method: "POST", body: body, summary: mealName ?? "Meal entry")
+                return
+            }
+            throw error
+        }
     }
 
     func updateEntry(
@@ -339,7 +467,15 @@ class APIClient: ObservableObject {
         ]
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/quick-add"), method: "POST", body: body)
-        let _: OkResponse = try await perform(request)
+        do {
+            let _: OkResponse = try await perform(request)
+        } catch {
+            if shouldQueueMutation(after: error) {
+                queueMutation(path: "/quick-add", method: "POST", body: body, summary: "Quick add item")
+                return
+            }
+            throw error
+        }
     }
 
     // MARK: - Daily Totals
@@ -379,7 +515,15 @@ class APIClient: ObservableObject {
         if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/weights"), method: "POST", body: body)
-        return try await perform(request)
+        do {
+            return try await perform(request)
+        } catch {
+            if shouldQueueMutation(after: error) {
+                queueMutation(path: "/weights", method: "POST", body: body, summary: "Weight entry")
+                return EntryMutationResponse(ok: true, id: nil, created: true)
+            }
+            throw error
+        }
     }
 
     func updateWeight(id: Int, weight: Double, loggedAt: String) async throws {
@@ -449,7 +593,15 @@ class APIClient: ObservableObject {
         if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/workouts"), method: "POST", body: body)
-        return try await perform(request)
+        do {
+            return try await perform(request)
+        } catch {
+            if shouldQueueMutation(after: error) {
+                queueMutation(path: "/workouts", method: "POST", body: body, summary: description)
+                return WorkoutMutationResponse(ok: true, id: nil, created: true)
+            }
+            throw error
+        }
     }
 
     func updateWorkout(id: Int, description: String, intensity: String, durationHours: Double, caloriesBurned: Double, loggedAt: String) async throws {
@@ -510,7 +662,15 @@ class APIClient: ObservableObject {
         if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/sexual-activity"), method: "POST", body: body)
-        return try await perform(request)
+        do {
+            return try await perform(request)
+        } catch {
+            if shouldQueueMutation(after: error) {
+                queueMutation(path: "/sexual-activity", method: "POST", body: body, summary: "Sexual activity entry")
+                return EntryMutationResponse(ok: true, id: nil, created: true)
+            }
+            throw error
+        }
     }
 
     func updateHealthEntry(id: Int, type: String, loggedAt: String) async throws {
@@ -544,7 +704,15 @@ class APIClient: ObservableObject {
         if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/sleep"), method: "POST", body: body)
-        return try await perform(request)
+        do {
+            return try await perform(request)
+        } catch {
+            if shouldQueueMutation(after: error) {
+                queueMutation(path: "/sleep", method: "POST", body: body, summary: "Sleep entry")
+                return EntryMutationResponse(ok: true, id: nil, created: true)
+            }
+            throw error
+        }
     }
 
     func updateSleepEntry(id: Int, durationHours: Double, wakeUps: Int, loggedAt: String) async throws {

@@ -12,11 +12,14 @@ The production environment has been migrated from Elastic Beanstalk to a consoli
 Pushes to the `main` branch automatically deploy to the EC2 instance via GitHub Actions.
 - **Workflow**: `.github/workflows/deploy.yml`
 - **Mechanism**: `rsync` syncs code → `docker-compose build` rebuilds the app container.
+- **Smoke**: `scripts/production-smoke.sh` checks public health/version endpoints and, with `PRODUCTION_SMOKE_API_TOKEN`, runs disposable authenticated meal, quick-add, weight, sleep, and optional sexual-activity write journeys with cleanup.
 
 ## Key Architecture Notes
 - **Workout Sync**: Integrates with the Workout Planner app via an internal API. 
   - **Logic**: Fetches logs from `WORKOUT_API_URL`, uses OpenAI to categorize them, and saves them to PostgreSQL.
   - **Authentication**: Uses a shared `INTERNAL_SYNC_SECRET` for service-to-service communication.
+- **Barcode Lookup**: `/api/barcode/:barcode` normalizes UPC/EAN codes and returns Open Food Facts nutrition as an editable parsed meal item.
+- **iOS Beta UX**: The native app includes first-run target setup, daily local log reminders, queued pending-log retry on foreground, and Settings diagnostics export for tester support.
 - **SSL Logic**: `src/db.js` has been patched to respect `PGSSL=false` for local Docker connections, even when `NODE_ENV=production`.
 - **Internal Networking**: Connects to the database via `postgresql://admin:${DB_PASSWORD}@db:5432/macro_tracker`.
 
@@ -30,6 +33,7 @@ Pushes to the `main` branch automatically deploy to the EC2 instance via GitHub 
 ## Production Secrets
 Ensure the following are set in the server's `~/deploy/.env` file:
 - `MACROS_OPENAI_API_KEY`
+- `OPEN_FOOD_FACTS_USER_AGENT` (optional)
 - `MACROS_GOOGLE_CLIENT_ID / SECRET`
 - `MACROS_SESSION_SECRET`
 - `DB_PASSWORD` (Master password for Docker DB)

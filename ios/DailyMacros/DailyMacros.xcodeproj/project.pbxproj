@@ -24,6 +24,11 @@
 		A1000015 /* HealthKitWorkoutSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016; };
 		A1000016 /* HealthKitWellnessSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017; };
 		A1000017 /* HealthKitAutoSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018; };
+		A1000018 /* Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000019; };
+		A1000019 /* OfflineMutationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000020; };
+		A1000020 /* ReminderScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000021; };
+		A1000021 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000022; };
+		A1000022 /* BarcodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000023; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -45,6 +50,11 @@
 		A2000016 /* HealthKitWorkoutSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitWorkoutSync.swift; sourceTree = "<group>"; };
 		A2000017 /* HealthKitWellnessSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitWellnessSync.swift; sourceTree = "<group>"; };
 		A2000018 /* HealthKitAutoSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitAutoSync.swift; sourceTree = "<group>"; };
+		A2000019 /* Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diagnostics.swift; sourceTree = "<group>"; };
+		A2000020 /* OfflineMutationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineMutationStore.swift; sourceTree = "<group>"; };
+		A2000021 /* ReminderScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderScheduler.swift; sourceTree = "<group>"; };
+		A2000022 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		A2000023 /* BarcodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeScannerView.swift; sourceTree = "<group>"; };
 		A3000001 /* DailyMacros.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DailyMacros.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -76,6 +86,11 @@
 				A2000016 /* HealthKitWorkoutSync.swift */,
 				A2000017 /* HealthKitWellnessSync.swift */,
 				A2000018 /* HealthKitAutoSync.swift */,
+				A2000019 /* Diagnostics.swift */,
+				A2000020 /* OfflineMutationStore.swift */,
+				A2000021 /* ReminderScheduler.swift */,
+				A2000022 /* OnboardingView.swift */,
+				A2000023 /* BarcodeScannerView.swift */,
 				A2000014 /* DailyMacros.entitlements */,
 				A2000010 /* Assets.xcassets */,
 			);
@@ -181,6 +196,11 @@
 				A1000015 /* HealthKitWorkoutSync.swift in Sources */,
 				A1000016 /* HealthKitWellnessSync.swift in Sources */,
 				A1000017 /* HealthKitAutoSync.swift in Sources */,
+				A1000018 /* Diagnostics.swift in Sources */,
+				A1000019 /* OfflineMutationStore.swift in Sources */,
+				A1000020 /* ReminderScheduler.swift in Sources */,
+				A1000021 /* OnboardingView.swift in Sources */,
+				A1000022 /* BarcodeScannerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

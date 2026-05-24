@@ -25,6 +25,7 @@ class AuthManager: ObservableObject {
                     return
                 }
             } catch {
+                Diagnostics.shared.record(level: "warning", category: "auth", message: "Stored token refresh failed", details: ["error": error.localizedDescription])
                 api.token = nil
                 isAuthenticated = false
                 user = nil
@@ -37,10 +38,21 @@ class AuthManager: ObservableObject {
         do {
             try await signInWithDevBypass()
         } catch {
+            Diagnostics.shared.record(level: "warning", category: "auth", message: "Local dev bypass failed", details: ["error": error.localizedDescription])
             isAuthenticated = false
             user = nil
         }
         #endif
+    }
+
+    func refreshUser() async {
+        guard api.token != nil else { return }
+        do {
+            user = try await api.getMe()
+            isAuthenticated = user != nil
+        } catch {
+            Diagnostics.shared.record(level: "warning", category: "auth", message: "User refresh failed", details: ["error": error.localizedDescription])
+        }
     }
 
     /// Sign in with Apple — sends the identity token to the backend for verification.
@@ -69,6 +81,7 @@ class AuthManager: ObservableObject {
             provider: "apple"
         )
         isAuthenticated = true
+        Diagnostics.shared.record(category: "auth", message: "Signed in with Apple")
     }
 
     func signInWithDevBypass() async throws {
@@ -82,6 +95,7 @@ class AuthManager: ObservableObject {
             provider: "local-dev"
         )
         isAuthenticated = true
+        Diagnostics.shared.record(category: "auth", message: "Signed in with local dev bypass")
     }
 
     func signInWithGoogle(code: String, redirectURI: String, codeVerifier: String) async throws {
@@ -95,6 +109,7 @@ class AuthManager: ObservableObject {
             provider: "google"
         )
         isAuthenticated = true
+        Diagnostics.shared.record(category: "auth", message: "Signed in with Google")
     }
 
     /// Handle callback URL from Google OAuth (via ASWebAuthenticationSession)
@@ -116,6 +131,7 @@ class AuthManager: ObservableObject {
                 provider: "google"
             )
             isAuthenticated = true
+            Diagnostics.shared.record(category: "auth", message: "Handled Google callback")
             Task {
                 if let refreshed = try? await api.getMe() {
                     user = refreshed
@@ -128,6 +144,7 @@ class AuthManager: ObservableObject {
         api.token = nil
         user = nil
         isAuthenticated = false
+        Diagnostics.shared.record(category: "auth", message: "Signed out")
     }
 
     private var shouldAttemptLocalDevBypass: Bool {

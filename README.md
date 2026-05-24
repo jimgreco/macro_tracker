@@ -3,16 +3,20 @@
 A web app for tracking macros with:
 - PostgreSQL database backend
 - ChatGPT natural-language meal parsing
+- Barcode lookup for packaged foods via Open Food Facts
 - Quick-add saved items/meals
 - Daily grouping and totals
 - Previous day totals
 - Running 7-day average based on prior week
-- Google-only login
+- Google and Apple sign-in
+- Native iOS companion with HealthKit sync, first-run target setup, local reminders, pending-log retry, and diagnostic export
 
 ## Requirements
 - Node.js 18+
 - Docker Desktop (for local PostgreSQL)
 - Google OAuth credentials (Client ID + Client Secret)
+- Apple Sign-In credentials for Apple web/native sign-in
+- Stripe credentials if paid subscriptions are enabled
 
 ## Local Setup
 1. Install dependencies:
@@ -34,6 +38,7 @@ A web app for tracking macros with:
    - `APP_BUILD` (CI sets this to the git SHA for `/version`)
    - `ADMIN_EMAILS` or `ADMIN_USER_IDS` (comma-separated accounts allowed to open `/admin`)
    - `AI_DAILY_MEAL_PARSE_LIMIT`, `AI_DAILY_WORKOUT_PARSE_LIMIT`, `AI_DAILY_PHOTO_PARSE_LIMIT`, `AI_DAILY_ANALYSIS_LIMIT`
+   - `OPEN_FOOD_FACTS_USER_AGENT` (optional custom user agent for barcode lookups)
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`
    - `GOOGLE_CALLBACK_URL` (default: `http://localhost:3000/auth/google/callback`)
@@ -72,7 +77,7 @@ npm run test:check
 
 What it runs:
 - JS syntax checks for `public/login.js`, `public/script.js`, and `src/server.js`
-- Regression tests that verify the removed mobile bottom nav does not reappear in markup, styles, or script wiring
+- Backend, web, release, and iOS source regression tests that do not require Postgres or OAuth
 
 If you want a full runtime test, start Postgres first (`npm run db:up`) and then run `npm start`.
 For a preloaded local preview, run `npm run db:seed:local` after Postgres is up.
@@ -103,6 +108,7 @@ Operational safeguards:
 - `GET /version` exposes app version, build SHA, Node version, and start time for smoke checks and support.
 - The deploy workflow pins SSH host keys with `ssh-keyscan` and fails if configured post-deploy smoke checks fail.
 - `.github/workflows/production-smoke.yml` runs hourly production smoke checks using `scripts/production-smoke.sh`.
+- Authenticated production smoke checks use the configured smoke account to exercise disposable meal, quick-add, weight, sleep, and optional sexual-activity create/update/delete journeys, then clean up created records.
 - Before wider beta pushes, confirm the latest database backup exists, restore has been tested recently, and the smoke token still reaches the intended production account.
 - Elastic Beanstalk material in `docs/aws-production-security-audit.md` is legacy unless that platform is intentionally revived.
 - Use `npm run ops:rotate-prod-db-password` only if the RDS/Elastic Beanstalk path is revived and verified.
@@ -116,15 +122,18 @@ Run the production release runbook in:
 - `/admin` is restricted to the `ADMIN_EMAILS`/`ADMIN_USER_IDS` allowlist; local auth bypass users are admins only outside production.
 - When `LOCAL_AUTH_BYPASS=true` in a non-production environment, the app injects a local default user and skips the Google sign-in flow.
 - If Google OAuth env vars are missing, login will show an auth configuration error.
-- If `OPENAI_API_KEY` is missing, parsing works in fallback mode with placeholder macros.
+- If `OPENAI_API_KEY` is missing, AI parsing and analysis are unavailable.
+- Barcode lookup uses Open Food Facts product data when a UPC/EAN is scanned or entered; nutrition coverage depends on that public database.
 - Data is stored in PostgreSQL.
+- Native iOS users can export diagnostics from Settings. Pending log writes are queued locally after connectivity failures and retried when the app becomes active or when the user taps Sync Pending Logs.
 
 ## API Endpoints
 - `GET /healthz`
 - `GET /api/me`
 - `POST /api/parse-meal`
-- **`POST /api/parse-workout`**
-- **`POST /api/sync-workouts`**
+- `GET /api/barcode/:barcode`
+- `POST /api/parse-workout`
+- `POST /api/sync-workouts`
 - `POST /api/entries/bulk`
 - `PUT /api/entries/:id`
 - `DELETE /api/entries/:id`
@@ -134,7 +143,14 @@ Run the production release runbook in:
 - `DELETE /api/saved-items/:id`
 - `POST /api/quick-add`
 - `GET /api/dashboard`
-UT /api/saved-items/:id`
-- `DELETE /api/saved-items/:id`
-- `POST /api/quick-add`
-- `GET /api/dashboard`
+- `GET /api/daily-totals`
+- `GET /api/weights`
+- `POST /api/weights`
+- `GET /api/workouts`
+- `POST /api/workouts`
+- `GET /api/sleep`
+- `POST /api/sleep`
+- `GET /api/sexual-activity`
+- `POST /api/sexual-activity`
+- `GET /api/account/export`
+- `DELETE /api/account`
