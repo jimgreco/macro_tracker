@@ -92,6 +92,22 @@ test('weight entries support edit and delete actions', () => {
   assert.equal(server.includes("apiRouter.post('/weights/delete'"), true);
 });
 
+test('web logged entry lists request paginated pages', () => {
+  const script = read('public/script.js');
+  const styles = read('public/styles.css');
+
+  assert.equal(script.includes('const LOG_PAGE_SIZE = 30'), true);
+  assert.equal(script.includes("api(buildLogPageUrl('/api/weights'"), true);
+  assert.equal(script.includes("api(buildLogPageUrl('/api/workouts'"), true);
+  assert.equal(script.includes("api(buildLogPageUrl('/api/sleep'"), true);
+  assert.equal(script.includes("api(buildLogPageUrl('/api/sexual-activity'"), true);
+  assert.equal(script.includes("refreshWeightData({ reset: false })"), true);
+  assert.equal(script.includes("refreshWorkoutData({ reset: false })"), true);
+  assert.equal(script.includes("refreshSleepData({ reset: false })"), true);
+  assert.equal(script.includes("refreshHealthData({ reset: false })"), true);
+  assert.equal(styles.includes('.entry-page-sentinel'), true);
+});
+
 test('quick entries are searchable and load outside dashboard refresh', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');
@@ -240,6 +256,15 @@ test('iOS health view hides sexual activity unless the account feature is enable
   assert.equal(health.includes('@EnvironmentObject var auth: AuthManager'), true);
   assert.equal(health.includes('if sexualActivityEnabled {\n                        sexualActivitySection'), true);
   assert.equal(health.includes('guard sexualActivityEnabled else'), true);
+});
+
+test('iOS health refresh ignores cancellation errors', () => {
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+
+  assert.equal(health.includes('showErrorUnlessCancelled'), true);
+  assert.equal(health.includes('error is CancellationError'), true);
+  assert.equal(health.includes('URLError, urlError.code == .cancelled'), true);
+  assert.equal(health.includes('NSURLErrorCancelled'), true);
 });
 
 test('mobile sleep target is editable and drives sleep chart', () => {

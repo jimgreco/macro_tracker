@@ -29,10 +29,13 @@ const state = {
   sleepSnapshotPeriod: 'weekly',
   sleepTargetHours: 8,
   healthEntries: [],
+  healthOccurrenceRows: [],
   sleepEntries: [],
   sleepChartRows: [],
   weightEntries: [],
+  weightChartEntries: [],
   workoutEntries: [],
+  workoutOccurrenceRows: [],
   expandedMealGroups: new Set(),
   selectedEntryIds: new Set(),
   selectedMealGroups: new Set(),
@@ -41,10 +44,17 @@ const state = {
   currentUser: null,
   features: {
     sexualActivity: false
+  },
+  logPaging: {
+    weight: { offset: 0, hasMore: true, loading: false },
+    workout: { offset: 0, hasMore: true, loading: false },
+    sleep: { offset: 0, hasMore: true, loading: false },
+    health: { offset: 0, hasMore: true, loading: false }
   }
 };
 
 const BUILD_HASH_DIGITS = 7;
+const LOG_PAGE_SIZE = 30;
 
 function formatBuildLabel(build) {
   const value = String(build || '').trim();
@@ -1005,6 +1015,8 @@ function syncFeatureVisibility() {
   }
   if (!sexualActivityEnabled) {
     state.healthEntries = [];
+    state.healthOccurrenceRows = [];
+    resetLogPaging('health');
     if (healthLogListEl) {
       healthLogListEl.innerHTML = '';
     }
@@ -1150,6 +1162,105 @@ async function api(path, options = {}) {
     throw err;
   }
   return body;
+}
+
+function getLogPaging(kind) {
+  state.logPaging = state.logPaging || {};
+  if (!state.logPaging[kind]) {
+    state.logPaging[kind] = { offset: 0, hasMore: true, loading: false };
+  }
+  return state.logPaging[kind];
+}
+
+function resetLogPaging(kind) {
+  state.logPaging = state.logPaging || {};
+  state.logPaging[kind] = { offset: 0, hasMore: true, loading: false };
+  return state.logPaging[kind];
+}
+
+function appendUniqueById(existingEntries, nextEntries) {
+  const existingIds = new Set((existingEntries || []).map((entry) => entry.id));
+  return [
+    ...(existingEntries || []),
+    ...(nextEntries || []).filter((entry) => !existingIds.has(entry.id))
+  ];
+}
+
+function buildLogPageUrl(path, params, paging) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value != null && value !== '') {
+      query.set(key, value);
+    }
+  }
+  query.set('limit', String(LOG_PAGE_SIZE));
+  query.set('offset', String(paging.offset || 0));
+  return `${path}?${query.toString()}`;
+}
+
+function renderPagedLogList({ kind, listEl, entries, renderCard, emptyText }) {
+  if (!listEl) {
+    return;
+  }
+
+  const paging = getLogPaging(kind);
+  const cardsHtml = entries?.length
+    ? `<div class="entry-cards">${entries.map((entry) => renderCard(entry)).join('')}</div>`
+    : paging.loading
+      ? '<p class="entry-page-status" aria-live="polite">Loading...</p>'
+      : `<p class="empty-note">${escapeHtml(emptyText)}</p>`;
+  const statusHtml = paging.loading && entries?.length
+    ? '<p class="entry-page-status" aria-live="polite">Loading...</p>'
+    : '';
+  const sentinelHtml = paging.hasMore
+    ? `<div class="entry-page-sentinel" data-log-page="${escapeAttr(kind)}" aria-hidden="true"></div>`
+    : '';
+
+  listEl.innerHTML = `${cardsHtml}${statusHtml}${sentinelHtml}`;
+  observeLogPageSentinels();
+}
+
+let logPageObserver = null;
+
+function observeLogPageSentinels() {
+  if (typeof IntersectionObserver === 'undefined') {
+    return;
+  }
+  if (!logPageObserver) {
+    logPageObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) {
+          continue;
+        }
+        const kind = entry.target?.dataset?.logPage;
+        if (kind) {
+          loadMoreLogEntries(kind);
+        }
+      }
+    }, { rootMargin: '360px 0px' });
+  }
+
+  logPageObserver.disconnect();
+  for (const sentinel of document.querySelectorAll('.entry-page-sentinel[data-log-page]')) {
+    logPageObserver.observe(sentinel);
+  }
+}
+
+function loadMoreLogEntries(kind) {
+  const paging = getLogPaging(kind);
+  if (!paging.hasMore || paging.loading) {
+    return;
+  }
+
+  if (kind === 'weight') {
+    refreshWeightData({ reset: false });
+  } else if (kind === 'workout') {
+    refreshWorkoutData({ reset: false });
+  } else if (kind === 'sleep') {
+    refreshSleepData({ reset: false });
+  } else if (kind === 'health') {
+    refreshHealthData({ reset: false });
+  }
 }
 
 async function exportAccountData() {
@@ -3908,10 +4019,13 @@ function renderWorkoutStats(entries) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 30);
   cutoff.setHours(0, 0, 0, 0);
-  const recent = (entries || []).filter((e) => new Date(e.loggedAt) >= cutoff);
+  const recent = (entries || []).filter((e) => {
+    const rawDate = e.day ? `${e.day}T00:00:00` : e.loggedAt;
+    return new Date(rawDate) >= cutoff;
+  });
   const weeks = 30 / 7;
   const avgWorkouts = recent.length / weeks;
-  const avgCal = recent.reduce((sum, e) => sum + Number(e.caloriesBurned || 0), 0) / weeks;
+  const avgCal = recent.reduce((sum, e) => sum + Number(e.caloriesBurned ?? e.calories ?? 0), 0) / weeks;
   if (avgWorkoutsPerWeekEl) {
     avgWorkoutsPerWeekEl.textContent = recent.length ? avgWorkouts.toFixed(1) : '—';
   }
@@ -3955,7 +4069,11 @@ function drawWorkoutOccurrenceChart(entries, period) {
 
   const workoutDays = new Set();
   for (const entry of entries || []) {
-    workoutDays.add(getLocalIsoDay(entry.loggedAt));
+    if (entry.day) {
+      workoutDays.add(entry.day);
+    } else {
+      workoutDays.add(getLocalIsoDay(entry.loggedAt));
+    }
   }
 
   const points = [];
@@ -4081,7 +4199,7 @@ function renderWorkoutCalChart() {
 }
 
 function renderWorkoutChart() {
-  drawWorkoutOccurrenceChart(state.workoutEntries, state.workoutSnapshotPeriod || 'weekly');
+  drawWorkoutOccurrenceChart(state.workoutOccurrenceRows || state.workoutEntries, state.workoutSnapshotPeriod || 'weekly');
   renderWorkoutCalChart();
 }
 
@@ -4102,7 +4220,7 @@ function bindPageChartsResize() {
         renderWorkoutChart();
       } else if (state.selectedPage === 'health') {
         renderSleepChart();
-        drawHealthOccurrenceChart(state.healthEntries, state.healthSnapshotPeriod || 'weekly');
+        drawHealthOccurrenceChart(state.healthOccurrenceRows || state.healthEntries, state.healthSnapshotPeriod || 'weekly');
       }
     }, 80);
   });
@@ -4150,45 +4268,66 @@ function renderWorkoutCard(entry) {
 }
 
 
-async function refreshWeightData() {
+async function refreshWeightData(options = {}) {
   if (!weightLogListEl) {
     return;
   }
+  const reset = options.reset !== false;
+  const paging = reset ? resetLogPaging('weight') : getLogPaging('weight');
+  if (paging.loading) {
+    return;
+  }
+  if (reset) {
+    state.weightEntries = [];
+  }
+  paging.loading = true;
+  renderPagedLogList({
+    kind: 'weight',
+    listEl: weightLogListEl,
+    entries: state.weightEntries,
+    renderCard: renderWeightCard,
+    emptyText: 'No weight entries.'
+  });
+
   try {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const weightScope = periodToScope[state.weightSnapshotPeriod] || 'week';
-    const tz = encodeURIComponent(getTimezone());
-    const [response, target] = await Promise.all([
-      api(`/api/weights?scope=${weightScope}&tz=${tz}`),
-      api('/api/weight-target')
+    const tz = getTimezone();
+    const [response, target, chartResponse] = await Promise.all([
+      api(buildLogPageUrl('/api/weights', { scope: weightScope, tz }, paging)),
+      reset ? api('/api/weight-target') : Promise.resolve(state.weightTargetData || {}),
+      reset ? api(`/api/weights?scope=${encodeURIComponent(weightScope)}&tz=${encodeURIComponent(tz)}`) : Promise.resolve({ entries: state.weightChartEntries || [] })
     ]);
     const entries = Array.isArray(response.entries) ? response.entries : [];
-    state.weightEntries = entries;
+    state.weightEntries = reset ? entries : appendUniqueById(state.weightEntries, entries);
+    paging.offset += entries.length;
+    paging.hasMore = entries.length === LOG_PAGE_SIZE;
 
-    state.weightTargetData = target;
-    const tw = Number(target?.targetWeight);
-    state.weightTarget = Number.isFinite(tw) && tw > 0 ? tw : null;
+    if (reset) {
+      state.weightTargetData = target;
+      const tw = Number(target?.targetWeight);
+      state.weightTarget = Number.isFinite(tw) && tw > 0 ? tw : null;
 
-    const tenDaysCutoff = new Date();
-    tenDaysCutoff.setDate(tenDaysCutoff.getDate() - 10);
-    tenDaysCutoff.setHours(0, 0, 0, 0);
-    const recentEntries = entries.filter((e) => new Date(e.loggedAt) >= tenDaysCutoff);
-
-    if (!recentEntries.length) {
-      weightLogListEl.innerHTML = '<p class="empty-note">No weight entries in the last 10 days.</p>';
-    } else {
-      weightLogListEl.innerHTML = `<div class="entry-cards">${recentEntries.map((entry) => renderWeightCard(entry)).join('')}</div>`;
+      const chartEntries = Array.isArray(chartResponse.entries) ? chartResponse.entries : [];
+      state.weightChartEntries = chartEntries;
+      state.weightChartRows = chartEntries.slice().reverse().map((entry) => ({
+        label: new Date(entry.loggedAt).toLocaleDateString(),
+        value: Number(entry.weight || 0),
+        time: new Date(entry.loggedAt).getTime()
+      }));
+      renderWeightChart();
     }
-
-    const sorted = entries.slice().reverse().map((entry) => ({
-      label: new Date(entry.loggedAt).toLocaleDateString(),
-      value: Number(entry.weight || 0),
-      time: new Date(entry.loggedAt).getTime()
-    }));
-    state.weightChartRows = sorted;
-    renderWeightChart();
   } catch (error) {
     setActionBanner(error.message, 'error');
+  } finally {
+    paging.loading = false;
+    renderPagedLogList({
+      kind: 'weight',
+      listEl: weightLogListEl,
+      entries: state.weightEntries,
+      renderCard: renderWeightCard,
+      emptyText: 'No weight entries.'
+    });
   }
 }
 
@@ -4502,17 +4641,34 @@ function showSleepEditModal(entry) {
   });
 }
 
-async function refreshSleepData() {
+async function refreshSleepData(options = {}) {
   if (!sleepLogListEl) return;
+  const reset = options.reset !== false;
+  const paging = reset ? resetLogPaging('sleep') : getLogPaging('sleep');
+  if (paging.loading) {
+    return;
+  }
+  if (reset) {
+    state.sleepEntries = [];
+  }
+  paging.loading = true;
+  renderPagedLogList({
+    kind: 'sleep',
+    listEl: sleepLogListEl,
+    entries: state.sleepEntries,
+    renderCard: renderSleepCard,
+    emptyText: 'No sleep entries.'
+  });
+
   try {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const scope = periodToScope[state.sleepSnapshotPeriod] || 'week';
-    const tz = encodeURIComponent(getTimezone());
+    const tz = getTimezone();
     const [data, targetData] = await Promise.all([
-      api(`/api/sleep?scope=${scope}&tz=${tz}`),
-      api(`/api/daily-totals?scope=week&tz=${tz}`)
+      api(buildLogPageUrl('/api/sleep', { scope, tz }, paging)),
+      reset ? api(`/api/daily-totals?scope=week&tz=${encodeURIComponent(tz)}`) : Promise.resolve(null)
     ]);
-    if (targetData?.targets) {
+    if (reset && targetData?.targets) {
       setSleepTargetFromTargets(targetData.targets);
       state.dashboardData = state.dashboardData || {};
       state.dashboardData.targets = {
@@ -4521,28 +4677,30 @@ async function refreshSleepData() {
       };
     }
     const entries = Array.isArray(data.entries) ? data.entries : [];
-    state.sleepEntries = entries;
+    state.sleepEntries = reset ? entries : appendUniqueById(state.sleepEntries, entries);
+    paging.offset += entries.length;
+    paging.hasMore = entries.length === LOG_PAGE_SIZE;
 
-    const tenDaysCutoff = new Date();
-    tenDaysCutoff.setDate(tenDaysCutoff.getDate() - 10);
-    tenDaysCutoff.setHours(0, 0, 0, 0);
-    const recentEntries = entries.filter((e) => new Date(e.loggedAt) >= tenDaysCutoff);
-
-    if (!recentEntries.length) {
-      sleepLogListEl.innerHTML = '<p class="empty-note">No sleep entries in the last 10 days.</p>';
-    } else {
-      sleepLogListEl.innerHTML = `<div class="entry-cards">${recentEntries.map((entry) => renderSleepCard(entry)).join('')}</div>`;
+    if (reset) {
+      const dailyTotals = Array.isArray(data.dailyTotals) ? data.dailyTotals : [];
+      state.sleepChartRows = dailyTotals.map((d) => ({
+        label: new Date(d.day + 'T00:00:00').toLocaleDateString(),
+        value: Number(d.totalHours || 0),
+        time: new Date(d.day + 'T00:00:00').getTime()
+      }));
+      renderSleepChart();
     }
-
-    const dailyTotals = Array.isArray(data.dailyTotals) ? data.dailyTotals : [];
-    state.sleepChartRows = dailyTotals.map((d) => ({
-      label: new Date(d.day + 'T00:00:00').toLocaleDateString(),
-      value: Number(d.totalHours || 0),
-      time: new Date(d.day + 'T00:00:00').getTime()
-    }));
-    renderSleepChart();
   } catch (error) {
     setActionBanner(error.message, 'error');
+  } finally {
+    paging.loading = false;
+    renderPagedLogList({
+      kind: 'sleep',
+      listEl: sleepLogListEl,
+      entries: state.sleepEntries,
+      renderCard: renderSleepCard,
+      emptyText: 'No sleep entries.'
+    });
   }
 }
 
@@ -4683,9 +4841,13 @@ function drawHealthOccurrenceChart(entries, period) {
   // Build a map of day -> set of types
   const dayTypesMap = new Map();
   for (const entry of entries || []) {
-    const day = getLocalIsoDay(entry.loggedAt);
-    if (!dayTypesMap.has(day)) dayTypesMap.set(day, new Set());
-    dayTypesMap.get(day).add(entry.type || 'other');
+    if (entry.day && Array.isArray(entry.types)) {
+      dayTypesMap.set(entry.day, new Set(entry.types));
+    } else {
+      const day = getLocalIsoDay(entry.loggedAt);
+      if (!dayTypesMap.has(day)) dayTypesMap.set(day, new Set());
+      dayTypesMap.get(day).add(entry.type || 'other');
+    }
   }
 
   const points = [];
@@ -4797,33 +4959,53 @@ function drawHealthOccurrenceChart(entries, period) {
   }
 }
 
-async function refreshHealthData() {
+async function refreshHealthData(options = {}) {
   if (!healthLogListEl) return;
   if (!state.features?.sexualActivity) {
     syncFeatureVisibility();
     return;
   }
+  const reset = options.reset !== false;
+  const paging = reset ? resetLogPaging('health') : getLogPaging('health');
+  if (paging.loading) {
+    return;
+  }
+  if (reset) {
+    state.healthEntries = [];
+  }
+  paging.loading = true;
+  renderPagedLogList({
+    kind: 'health',
+    listEl: healthLogListEl,
+    entries: state.healthEntries,
+    renderCard: renderHealthCard,
+    emptyText: 'No entries.'
+  });
+
   try {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const scope = periodToScope[state.healthSnapshotPeriod] || 'week';
-    const data = await api(`/api/sexual-activity?scope=${scope}&tz=${encodeURIComponent(getTimezone())}`);
+    const data = await api(buildLogPageUrl('/api/sexual-activity', { scope, tz: getTimezone() }, paging));
     const entries = Array.isArray(data.entries) ? data.entries : [];
-    state.healthEntries = entries;
+    state.healthEntries = reset ? entries : appendUniqueById(state.healthEntries, entries);
+    paging.offset += entries.length;
+    paging.hasMore = entries.length === LOG_PAGE_SIZE;
 
-    const tenDaysCutoff = new Date();
-    tenDaysCutoff.setDate(tenDaysCutoff.getDate() - 10);
-    tenDaysCutoff.setHours(0, 0, 0, 0);
-    const recentEntries = entries.filter((e) => new Date(e.loggedAt) >= tenDaysCutoff);
-
-    if (!recentEntries.length) {
-      healthLogListEl.innerHTML = '<p class="empty-note">No entries in the last 10 days.</p>';
-    } else {
-      healthLogListEl.innerHTML = `<div class="entry-cards">${recentEntries.map((entry) => renderHealthCard(entry)).join('')}</div>`;
+    if (reset) {
+      state.healthOccurrenceRows = Array.isArray(data.dailyTypes) ? data.dailyTypes : [];
+      drawHealthOccurrenceChart(state.healthOccurrenceRows, state.healthSnapshotPeriod || 'weekly');
     }
-
-    drawHealthOccurrenceChart(entries, state.healthSnapshotPeriod || 'weekly');
   } catch (error) {
     setActionBanner(error.message, 'error');
+  } finally {
+    paging.loading = false;
+    renderPagedLogList({
+      kind: 'health',
+      listEl: healthLogListEl,
+      entries: state.healthEntries,
+      renderCard: renderHealthCard,
+      emptyText: 'No entries.'
+    });
   }
 }
 
@@ -4850,36 +5032,59 @@ function renderWorkoutQuickAdds(entries) {
   }).join('') || '<p class="empty-note">No quick workouts yet.</p>';
 }
 
-async function refreshWorkoutData() {
+async function refreshWorkoutData(options = {}) {
   if (!workoutLogListEl) {
     return;
   }
+  const reset = options.reset !== false;
+  const paging = reset ? resetLogPaging('workout') : getLogPaging('workout');
+  if (paging.loading) {
+    return;
+  }
+  if (reset) {
+    state.workoutEntries = [];
+  }
+  paging.loading = true;
+  renderPagedLogList({
+    kind: 'workout',
+    listEl: workoutLogListEl,
+    entries: state.workoutEntries,
+    renderCard: renderWorkoutCard,
+    emptyText: 'No workouts logged.'
+  });
+
   try {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const workoutScope = periodToScope[state.workoutSnapshotPeriod] || 'week';
-    const data = await api(`/api/workouts?scope=${workoutScope}&tz=${encodeURIComponent(getTimezone())}`);
+    const data = await api(buildLogPageUrl('/api/workouts', { scope: workoutScope, tz: getTimezone() }, paging));
     const entries = Array.isArray(data.entries) ? data.entries : [];
     const dailyCalories = Array.isArray(data.dailyCalories) ? data.dailyCalories : [];
+    state.workoutEntries = reset ? entries : appendUniqueById(state.workoutEntries, entries);
+    paging.offset += entries.length;
+    paging.hasMore = entries.length === LOG_PAGE_SIZE;
 
-    const tenDaysCutoff = new Date();
-    tenDaysCutoff.setDate(tenDaysCutoff.getDate() - 10);
-    tenDaysCutoff.setHours(0, 0, 0, 0);
-    const recentWorkouts = entries.filter((e) => new Date(e.loggedAt) >= tenDaysCutoff);
+    renderWorkoutQuickAdds(state.workoutEntries);
 
-    workoutLogListEl.innerHTML = recentWorkouts.length
-      ? `<div class="entry-cards">${recentWorkouts.map((entry) => renderWorkoutCard(entry)).join('')}</div>`
-      : '<p class="empty-note">No workouts logged in the last 10 days.</p>';
-
-    renderWorkoutQuickAdds(entries);
-    state.workoutEntries = entries;
-    state.workoutCalChartRows = dailyCalories.map((d) => ({
-      label: new Date(d.day + 'T00:00:00').toLocaleDateString(),
-      value: Number(d.calories || 0)
-    }));
-    renderWorkoutStats(entries);
-    renderWorkoutChart();
+    if (reset) {
+      state.workoutOccurrenceRows = dailyCalories;
+      state.workoutCalChartRows = dailyCalories.map((d) => ({
+        label: new Date(d.day + 'T00:00:00').toLocaleDateString(),
+        value: Number(d.calories || 0)
+      }));
+      renderWorkoutStats(dailyCalories);
+      renderWorkoutChart();
+    }
   } catch (error) {
     setActionBanner(error.message, 'error');
+  } finally {
+    paging.loading = false;
+    renderPagedLogList({
+      kind: 'workout',
+      listEl: workoutLogListEl,
+      entries: state.workoutEntries,
+      renderCard: renderWorkoutCard,
+      emptyText: 'No workouts logged.'
+    });
   }
 }
 

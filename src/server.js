@@ -2336,10 +2336,12 @@ apiRouter.put('/macro-targets/:macro', async (req, res) => {
 
 apiRouter.get('/weights', async (req, res) => {
   try {
+    const limit = normalizeLimit(req.query.limit);
+    const offset = normalizeOffset(req.query.offset);
     const scope = normalizeScope(req.query.scope);
     const tz = normalizeTimezone(req.query.tz);
-    const entries = await listWeightEntries(userIdFromReq(req), scope, tz);
-    res.json({ entries });
+    const data = await listWeightEntries(userIdFromReq(req), { limit, offset, scope, timezone: tz });
+    res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

@@ -11,6 +11,9 @@ struct WeightView: View {
     @State private var showEditTarget = false
     @State private var editingEntry: WeightEntry?
     @State private var isLoading = false
+    @State private var weightOffset = 0
+    @State private var hasMoreWeightEntries = true
+    @State private var isLoadingWeightPage = false
     @State private var errorMessage: String?
 
     // Target editing state
@@ -20,6 +23,7 @@ struct WeightView: View {
     @State private var editWeightDate = Date()
 
     private let scopes = ["week", "month", "year"]
+    private let logPageSize = 30
 
     var body: some View {
         NavigationStack {
@@ -69,7 +73,7 @@ struct WeightView: View {
         }
         .pickerStyle(.segmented)
         .onChange(of: scope) { _, _ in
-            Task { await loadEntries() }
+            Task { await loadEntries(reset: true) }
         }
     }
 
@@ -353,13 +357,26 @@ struct WeightView: View {
                         editingEntry = entry
                     }
                 }
+                .onAppear {
+                    loadMoreWeightsIfNeeded(current: entry)
+                }
             }
 
             if entries.isEmpty {
-                Text("No weight entries")
-                    .foregroundStyle(.secondary)
+                if isLoadingWeightPage {
+                    ProgressView("Loading entries...")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                } else {
+                    Text("No weight entries")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 32)
+                }
+            } else if isLoadingWeightPage {
+                ProgressView()
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 32)
+                    .padding(.vertical, 12)
             }
         }
     }
@@ -513,18 +530,41 @@ struct WeightView: View {
     // MARK: - Actions
 
     private func loadData() async {
-        await loadEntries()
+        await loadEntries(reset: true)
         do {
             target = try await api.getWeightTarget()
         } catch { /* target is optional */ }
     }
 
-    private func loadEntries() async {
+    private func loadEntries(reset: Bool = true) async {
+        guard !isLoadingWeightPage else { return }
+        isLoadingWeightPage = true
+        defer { isLoadingWeightPage = false }
+
+        let offset = reset ? 0 : weightOffset
+
         do {
-            entries = try await api.getWeights(scope: scope)
+            let response = try await api.getWeights(scope: scope, limit: logPageSize, offset: offset)
+            if reset {
+                entries = response.entries
+            } else {
+                appendUniqueWeightEntries(response.entries)
+            }
+            weightOffset = offset + response.entries.count
+            hasMoreWeightEntries = response.entries.count == logPageSize
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func appendUniqueWeightEntries(_ newEntries: [WeightEntry]) {
+        let existingIds = Set(entries.map(\.id))
+        entries.append(contentsOf: newEntries.filter { !existingIds.contains($0.id) })
+    }
+
+    private func loadMoreWeightsIfNeeded(current entry: WeightEntry) {
+        guard hasMoreWeightEntries, entry.id == entries.last?.id else { return }
+        Task { await loadEntries(reset: false) }
     }
 
     private func addWeight() async {
@@ -538,7 +578,7 @@ struct WeightView: View {
             newWeight = ""
             newWeightDate = Date()
             showAddSheet = false
-            await loadEntries()
+            await loadEntries(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -553,7 +593,7 @@ struct WeightView: View {
             f.timeZone = TimeZone(identifier: "America/New_York")
             try await api.updateWeight(id: entry.id, weight: weight, loggedAt: f.string(from: editWeightDate))
             editingEntry = nil
-            await loadEntries()
+            await loadEntries(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -562,7 +602,7 @@ struct WeightView: View {
     private func deleteWeight(_ id: Int) async {
         do {
             try await api.deleteWeight(id: id)
-            await loadEntries()
+            await loadEntries(reset: true)
         } catch {
             errorMessage = error.localizedDescription
         }

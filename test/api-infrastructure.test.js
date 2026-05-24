@@ -220,6 +220,13 @@ test('listWorkoutEntries supports pagination via limit/offset', () => {
   assert.ok(workoutSection.includes('pagination:'));
 });
 
+test('listWeightEntries supports optional pagination via limit/offset', () => {
+  const db = read('src/db.js');
+  const weightSection = db.slice(db.indexOf('async function listWeightEntries'));
+  assert.ok(weightSection.includes('LIMIT $4 OFFSET $5'));
+  assert.ok(weightSection.includes('pagination:'));
+});
+
 // ── server.js API infrastructure ──
 
 test('server.js imports all new db functions', () => {
@@ -451,6 +458,13 @@ test('server.js passes pagination params to workouts', () => {
   const workoutsSection = server.slice(server.indexOf("apiRouter.get('/workouts'"));
   assert.ok(workoutsSection.includes('req.query.limit'));
   assert.ok(workoutsSection.includes('req.query.offset'));
+});
+
+test('server.js passes pagination params to weights', () => {
+  const server = read('src/server.js');
+  const weightsSection = server.slice(server.indexOf("apiRouter.get('/weights'"));
+  assert.ok(weightsSection.includes('req.query.limit'));
+  assert.ok(weightsSection.includes('req.query.offset'));
 });
 
 test('API token creation uses crypto.randomBytes for secure tokens', () => {

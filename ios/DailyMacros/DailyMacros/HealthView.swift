@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct HealthView: View {
@@ -1004,13 +1005,35 @@ struct HealthView: View {
 
     // MARK: - Actions
 
+    private func showErrorUnlessCancelled(_ error: Error) {
+        guard !isCancellation(error) else { return }
+        errorMessage = error.localizedDescription
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+
+        if case APIError.networkError(let underlying) = error {
+            return isCancellation(underlying)
+        }
+
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    }
+
     private func refreshAccountFeatures() async {
         do {
             if let user = try await api.getMe() {
                 auth.user = user
             }
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -1039,7 +1062,7 @@ struct HealthView: View {
             healthOffset = offset + response.entries.count
             hasMoreHealthEntries = response.entries.count == logPageSize
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -1061,7 +1084,7 @@ struct HealthView: View {
             sleepOffset = offset + response.entries.count
             hasMoreSleepEntries = response.entries.count == logPageSize
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
         guard reset else { return }
         await loadSleepTarget()
@@ -1092,7 +1115,7 @@ struct HealthView: View {
             let response = try await api.getDailyTotals(scope: "week")
             sleepTargetHours = response.targets.sleepHours ?? sleepTargetHours
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -1111,7 +1134,7 @@ struct HealthView: View {
             healthLogDate = Date()
             await loadHealth(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -1133,7 +1156,7 @@ struct HealthView: View {
             sleepLogDate = Date()
             await loadSleep(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -1149,7 +1172,7 @@ struct HealthView: View {
             sleepTargetHours = targetHours
             showEditSleepTargets = false
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -1165,7 +1188,7 @@ struct HealthView: View {
             editingHealth = nil
             await loadHealth(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -1179,7 +1202,7 @@ struct HealthView: View {
             editingHealth = nil
             await loadHealth(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -1196,7 +1219,7 @@ struct HealthView: View {
             editingSleep = nil
             await loadSleep(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -1206,7 +1229,7 @@ struct HealthView: View {
             editingSleep = nil
             await loadSleep(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 

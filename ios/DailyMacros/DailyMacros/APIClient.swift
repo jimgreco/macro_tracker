@@ -362,12 +362,14 @@ class APIClient: ObservableObject {
 
     // MARK: - Weight
 
-    func getWeights(scope: String = "month") async throws -> [WeightEntry] {
+    func getWeights(scope: String = "month", limit: Int? = nil, offset: Int = 0) async throws -> WeightEntriesResponse {
         var components = URLComponents(url: apiURL("/weights"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [.init(name: "scope", value: scope)]
+        var queryItems: [URLQueryItem] = [.init(name: "scope", value: scope)]
+        if let limit { queryItems.append(.init(name: "limit", value: "\(limit)")) }
+        if offset > 0 { queryItems.append(.init(name: "offset", value: "\(offset)")) }
+        components.queryItems = queryItems
         let request = try authorizedRequest(components.url!)
-        let response: WeightEntriesResponse = try await perform(request)
-        return response.entries
+        return try await perform(request)
     }
 
     func addWeight(_ weight: Double, loggedAt: String) async throws {

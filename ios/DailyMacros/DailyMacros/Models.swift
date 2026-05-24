@@ -114,6 +114,7 @@ struct WeightEntry: Codable, Identifiable {
 
 struct WeightEntriesResponse: Codable {
     let entries: [WeightEntry]
+    let pagination: Pagination?
 }
 
 struct WeightTarget: Codable {

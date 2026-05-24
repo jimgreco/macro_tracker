@@ -387,6 +387,18 @@ body {
   margin: 0;
 }
 
+.entry-page-status {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: 0;
+  padding: 0.6rem 0;
+  text-align: center;
+}
+
+.entry-page-sentinel {
+  min-height: 1px;
+}
+
 /* ── Entry Cards (Weight, Workout, Health) ── */
 
 .entry-cards {

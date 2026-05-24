@@ -1363,22 +1363,36 @@ async function deleteWeightEntry(userId, id) {
   return result.rowCount;
 }
 
-async function listWeightEntries(userId, scope = 'week', timezone = 'America/New_York') {
+async function listWeightEntries(userId, options = {}) {
+  const scope = options.scope || 'week';
+  const timezone = options.timezone || 'America/New_York';
+  const limit = options.limit == null ? undefined : Math.min(Math.max(1, Number(options.limit) || 100), 500);
+  const offset = Math.max(0, Number(options.offset) || 0);
   const days = parseScopeDays(scope);
-  const result = await pool.query(
-    `SELECT id, weight, logged_at AS "loggedAt"
+  const params = [userId, String(days), timezone];
+  let query = `SELECT id, weight, logged_at AS "loggedAt"
      FROM weight_entries
      WHERE user_id = $1 AND deleted_at IS NULL
        AND logged_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
-     ORDER BY logged_at DESC`,
-    [userId, String(days), timezone]
-  );
+     ORDER BY logged_at DESC, id DESC`;
 
-  return result.rows.map((row) => ({
+  if (limit != null) {
+    params.push(limit, offset);
+    query += '\n     LIMIT $4 OFFSET $5';
+  }
+
+  const result = await pool.query(query, params);
+
+  const entries = result.rows.map((row) => ({
     id: Number(row.id),
     weight: Number(row.weight || 0),
     loggedAt: new Date(row.loggedAt).toISOString()
   }));
+
+  return {
+    entries,
+    pagination: limit == null ? undefined : { limit, offset, returned: entries.length }
+  };
 }
 
 async function getWeightTarget(userId) {
