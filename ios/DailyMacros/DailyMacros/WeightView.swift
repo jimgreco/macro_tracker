@@ -340,11 +340,11 @@ struct WeightView: View {
             Text("History")
                 .font(.headline)
 
-            ForEach(entries) { entry in
+            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                 SwipeToDeleteRow {
                     Task { await deleteWeight(entry.id) }
                 } content: {
-                    weightEntryCard(entry)
+                    weightEntryCard(entry, previousEntry: previousWeightEntry(after: index))
                         .contentShape(Rectangle())
                         .onTapGesture {
                             editWeightValue = weightEditText(for: entry)
@@ -376,27 +376,30 @@ struct WeightView: View {
         }
     }
 
-    private func weightEntryCard(_ entry: WeightEntry) -> some View {
+    private func weightEntryCard(_ entry: WeightEntry, previousEntry: WeightEntry?) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "scalemass.fill")
+            Image(systemName: weightTrendIcon(for: entry, previousEntry: previousEntry))
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.cyan)
+                .foregroundStyle(weightTrendColor(for: entry, previousEntry: previousEntry))
                 .frame(width: 36, height: 36)
-                .background(.cyan.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                .background(weightTrendColor(for: entry, previousEntry: previousEntry).opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
 
             VStack(alignment: .leading, spacing: 2) {
+                Text(String(format: "%.1f lbs", entry.weight))
+                    .font(.subheadline.bold())
+                    .monospacedDigit()
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
                 Text(formatDate(entry.loggedAt))
                     .font(.subheadline.bold())
                 Text(formatTime(entry.loggedAt))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .monospacedDigit()
             }
-
-            Spacer()
-
-            Text(String(format: "%.1f lbs", entry.weight))
-                .font(.subheadline.bold())
-                .monospacedDigit()
         }
         .padding()
         .background(Color(.secondarySystemBackground))
@@ -405,6 +408,34 @@ struct WeightView: View {
                 .stroke(.cyan.opacity(0.18), lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func previousWeightEntry(after index: Int) -> WeightEntry? {
+        let previousIndex = index + 1
+        guard entries.indices.contains(previousIndex) else { return nil }
+        return entries[previousIndex]
+    }
+
+    private func weightTrendIcon(for entry: WeightEntry, previousEntry: WeightEntry?) -> String {
+        guard let previousEntry else { return "arrow.right" }
+        if entry.weight > previousEntry.weight {
+            return "arrow.up.right"
+        }
+        if entry.weight < previousEntry.weight {
+            return "arrow.down.right"
+        }
+        return "arrow.right"
+    }
+
+    private func weightTrendColor(for entry: WeightEntry, previousEntry: WeightEntry?) -> Color {
+        guard let previousEntry else { return .cyan }
+        if entry.weight > previousEntry.weight {
+            return .red
+        }
+        if entry.weight < previousEntry.weight {
+            return .green
+        }
+        return .cyan
     }
 
     // MARK: - Add Weight Sheet

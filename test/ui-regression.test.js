@@ -101,10 +101,21 @@ test('iOS weight history renders intentional outlined entry cards', () => {
     swift.indexOf('private var entriesList'),
     swift.indexOf('// MARK: - Add Weight Sheet')
   );
+  const entryCard = entriesList.slice(
+    entriesList.indexOf('private func weightEntryCard'),
+    entriesList.indexOf('private func previousWeightEntry')
+  );
 
-  assert.equal(entriesList.includes('weightEntryCard(entry)'), true);
+  assert.equal(entriesList.includes('ForEach(Array(entries.enumerated()), id: \\.element.id)'), true);
+  assert.equal(entriesList.includes('weightEntryCard(entry, previousEntry: previousWeightEntry(after: index))'), true);
   assert.equal(entriesList.includes('private func weightEntryCard'), true);
-  assert.equal(entriesList.includes('Image(systemName: "scalemass.fill")'), true);
+  assert.equal(entriesList.includes('Image(systemName: weightTrendIcon(for: entry, previousEntry: previousEntry))'), true);
+  assert.equal(entriesList.includes('Image(systemName: "scalemass.fill")'), false);
+  assert.equal(entriesList.includes('private func previousWeightEntry(after index: Int) -> WeightEntry?'), true);
+  assert.equal(entriesList.includes('return "arrow.up.right"'), true);
+  assert.equal(entriesList.includes('return "arrow.down.right"'), true);
+  assert.ok(entryCard.indexOf('Text(String(format: "%.1f lbs", entry.weight))') < entryCard.indexOf('Text(formatDate(entry.loggedAt))'));
+  assert.equal(entryCard.includes('VStack(alignment: .trailing, spacing: 2)'), true);
   assert.equal(entriesList.includes('RoundedRectangle(cornerRadius: 12)'), true);
   assert.equal(entriesList.includes('.stroke(.cyan.opacity(0.18), lineWidth: 1)'), true);
   assert.equal(entriesList.includes('Text(formatTime(entry.loggedAt))'), true);
