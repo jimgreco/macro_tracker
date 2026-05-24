@@ -1,10 +1,42 @@
 import Foundation
 import SwiftUI
 
+enum HealthViewMode: Equatable {
+    case sleep
+    case sexualActivity
+
+    var navigationTitle: String {
+        switch self {
+        case .sleep: return "Sleep"
+        case .sexualActivity: return "Sexual Activity"
+        }
+    }
+
+    var alertTitle: String { navigationTitle }
+}
+
+struct SleepView: View {
+    var body: some View {
+        HealthView(mode: .sleep)
+    }
+}
+
+struct SexualActivityView: View {
+    var body: some View {
+        HealthView(mode: .sexualActivity)
+    }
+}
+
 struct HealthView: View {
+    let mode: HealthViewMode
+
     @EnvironmentObject var api: APIClient
     @EnvironmentObject var auth: AuthManager
     @StateObject private var healthKitSync = HealthKitWellnessSync()
+
+    init(mode: HealthViewMode = .sleep) {
+        self.mode = mode
+    }
 
     // Sexual activity state
     @State private var healthEntries: [HealthEntry] = []
@@ -59,14 +91,11 @@ struct HealthView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 24) {
-                    sleepSection
-                    if sexualActivityEnabled {
-                        sexualActivitySection
-                    }
+                    modeContent
                 }
                 .padding()
             }
-            .navigationTitle("Health")
+            .navigationTitle(mode.navigationTitle)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -78,7 +107,7 @@ struct HealthView: View {
                             Image(systemName: "arrow.triangle.2.circlepath")
                         }
                     }
-                    .disabled(isSyncingHealthKit)
+                    .disabled(isSyncingHealthKit || (mode == .sexualActivity && !sexualActivityEnabled))
                 }
             }
             .sheet(isPresented: $showLogHealth) { logHealthSheet }
@@ -87,23 +116,33 @@ struct HealthView: View {
             .sheet(item: $editingHealth) { entry in editHealthSheet(entry) }
             .sheet(item: $editingSleep) { entry in editSleepSheet(entry) }
             .task {
-                await refreshAccountFeatures()
-                if sexualActivityEnabled {
-                    await loadHealth(reset: true)
-                }
-                await loadSleep(reset: true)
+                await loadVisibleData()
             }
             .refreshable {
-                await refreshAccountFeatures()
-                if sexualActivityEnabled {
-                    await loadHealth(reset: true)
-                }
-                await loadSleep(reset: true)
+                await loadVisibleData()
             }
-            .alert("Health", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            .alert(mode.alertTitle, isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: {
                 Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var modeContent: some View {
+        switch mode {
+        case .sleep:
+            sleepSection
+        case .sexualActivity:
+            if sexualActivityEnabled {
+                sexualActivitySection
+            } else {
+                ContentUnavailableView(
+                    "Sexual Activity Hidden",
+                    systemImage: "heart.slash",
+                    description: Text("An admin can enable this view for your account.")
+                )
             }
         }
     }
@@ -1053,6 +1092,22 @@ struct HealthView: View {
         }
     }
 
+    private func loadVisibleData() async {
+        await refreshAccountFeatures()
+
+        switch mode {
+        case .sleep:
+            await loadSleep(reset: true)
+        case .sexualActivity:
+            if sexualActivityEnabled {
+                await loadHealth(reset: true)
+            } else {
+                healthEntries = []
+                dailyTypes = []
+            }
+        }
+    }
+
     private func loadHealth(reset: Bool = true) async {
         guard sexualActivityEnabled else {
             healthEntries = []
@@ -1253,27 +1308,28 @@ struct HealthView: View {
         isSyncingHealthKit = true
         defer { isSyncingHealthKit = false }
 
-        var messages: [String] = []
-
-        do {
-            let sleepResult = try await healthKitSync.syncRecentSleep(api: api)
-            messages.append(syncMessage(name: "Sleep", result: sleepResult, empty: "no new sleep entries from the last 30 days."))
-            await loadSleep(reset: true)
-        } catch {
-            messages.append("Sleep: \(error.localizedDescription)")
-        }
-
-        if sexualActivityEnabled {
+        switch mode {
+        case .sleep:
+            do {
+                let sleepResult = try await healthKitSync.syncRecentSleep(api: api)
+                errorMessage = syncMessage(name: "Sleep", result: sleepResult, empty: "no new sleep entries from the last 30 days.")
+                await loadSleep(reset: true)
+            } catch {
+                errorMessage = "Sleep: \(error.localizedDescription)"
+            }
+        case .sexualActivity:
+            guard sexualActivityEnabled else {
+                errorMessage = "Sexual activity tracking is not enabled for this account."
+                return
+            }
             do {
                 let activityResult = try await healthKitSync.syncRecentSexualActivity(api: api)
-                messages.append(syncMessage(name: "Sexual Activity", result: activityResult, empty: "no new entries from the last 30 days."))
+                errorMessage = syncMessage(name: "Sexual Activity", result: activityResult, empty: "no new entries from the last 30 days.")
                 await loadHealth(reset: true)
             } catch {
-                messages.append("Sexual Activity: \(error.localizedDescription)")
+                errorMessage = "Sexual Activity: \(error.localizedDescription)"
             }
         }
-
-        errorMessage = messages.joined(separator: "\n")
     }
 
     private func syncMessage(name: String, result: HealthKitMetricSyncResult, empty: String) -> String {

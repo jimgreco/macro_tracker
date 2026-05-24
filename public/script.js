@@ -146,7 +146,8 @@ const appPages = {
   macros: document.getElementById('macros-page'),
   weight: document.getElementById('weight-page'),
   workout: document.getElementById('workout-page'),
-  health: document.getElementById('health-page'),
+  sleep: document.getElementById('sleep-page'),
+  'sexual-activity': document.getElementById('sexual-activity-page'),
   analysis: document.getElementById('analysis-page')
 };
 const weightLoggedAtEl = document.getElementById('weight-logged-at');
@@ -1012,6 +1013,9 @@ function syncFeatureVisibility() {
   const sexualActivityEnabled = Boolean(state.features?.sexualActivity);
   for (const el of sexualActivityFeatureEls) {
     el.hidden = !sexualActivityEnabled;
+  }
+  if (!sexualActivityEnabled && state.selectedPage === 'sexual-activity') {
+    renderActivePage('sleep');
   }
   if (!sexualActivityEnabled) {
     state.healthEntries = [];
@@ -4218,8 +4222,9 @@ function bindPageChartsResize() {
         renderWeightChart();
       } else if (state.selectedPage === 'workout') {
         renderWorkoutChart();
-      } else if (state.selectedPage === 'health') {
+      } else if (state.selectedPage === 'sleep') {
         renderSleepChart();
+      } else if (state.selectedPage === 'sexual-activity') {
         drawHealthOccurrenceChart(state.healthOccurrenceRows || state.healthEntries, state.healthSnapshotPeriod || 'weekly');
       }
     }, 80);
@@ -5101,9 +5106,11 @@ for (const item of pageMenuItems) {
     if (page === 'workout') {
       await refreshWorkoutData();
     }
-    if (page === 'health') {
-      await refreshHealthData();
+    if (page === 'sleep') {
       await refreshSleepData();
+    }
+    if (page === 'sexual-activity') {
+      await refreshHealthData();
     }
     if (page === 'analysis') {
       await refreshAnalysisData();

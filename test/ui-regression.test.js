@@ -31,14 +31,18 @@ test('mobile bottom navigation styles are removed', () => {
 });
 
 
-test('brand menu includes macro, weight, and workout pages', () => {
+test('brand menu includes macro, weight, workout, and sleep pages', () => {
   const html = read('public/index.html');
 
   assert.equal(html.includes('data-page="macros"'), true);
   assert.equal(html.includes('data-page="weight"'), true);
   assert.equal(html.includes('data-page="workout"'), true);
+  assert.equal(html.includes('data-page="sleep"'), true);
+  assert.equal(html.includes('data-page="health"'), false);
   assert.equal(html.includes('id="weight-page"'), true);
   assert.equal(html.includes('id="workout-page"'), true);
+  assert.equal(html.includes('id="sleep-page"'), true);
+  assert.equal(html.includes('id="health-page"'), false);
 });
 
 test('weight page has log, entries, and snapshot sections', () => {
@@ -221,11 +225,13 @@ test('web UI reflects admin-controlled sexual activity feature flag', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');
 
-  assert.equal(html.includes('class="health-section-divider sexual-activity-feature" hidden'), true);
+  assert.equal(html.includes('class="nav-tab sexual-activity-feature" data-page="sexual-activity" hidden'), true);
+  assert.equal(html.includes('id="sexual-activity-page"'), true);
   assert.equal(html.includes('id="admin-page-btn"'), true);
   assert.equal(script.includes('features: {\n    sexualActivity: false'), true);
   assert.equal(script.includes('const sexualActivityFeatureEls'), true);
   assert.equal(script.includes('function syncFeatureVisibility'), true);
+  assert.equal(script.includes("renderActivePage('sleep')"), true);
   assert.equal(script.includes('Boolean(me.user?.features?.sexualActivity)'), true);
   assert.equal(script.includes("window.location.href = '/admin'"), true);
 });
@@ -245,17 +251,25 @@ test('admin page supports searchable paginated account controls', () => {
   assert.equal(styles.includes('.admin-account-row'), true);
 });
 
-test('iOS health view hides sexual activity unless the account feature is enabled', () => {
+test('iOS sleep tab and sexual activity More item honor the account feature flag', () => {
   const models = read('ios/DailyMacros/DailyMacros/Models.swift');
   const auth = read('ios/DailyMacros/DailyMacros/AuthManager.swift');
   const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+  const tabs = read('ios/DailyMacros/DailyMacros/MainTabView.swift');
 
   assert.equal(models.includes('struct UserFeatures'), true);
   assert.equal(models.includes('var sexualActivityEnabled: Bool'), true);
   assert.equal(auth.includes('(try? await api.getMe()) ?? User'), true);
   assert.equal(health.includes('@EnvironmentObject var auth: AuthManager'), true);
-  assert.equal(health.includes('if sexualActivityEnabled {\n                        sexualActivitySection'), true);
+  assert.equal(health.includes('struct SleepView: View'), true);
+  assert.equal(health.includes('struct SexualActivityView: View'), true);
   assert.equal(health.includes('guard sexualActivityEnabled else'), true);
+  assert.equal(tabs.includes('SleepView()'), true);
+  assert.equal(tabs.includes('Label("Sleep", systemImage: "moon.zzz.fill")'), true);
+  assert.equal(tabs.includes('if auth.user?.sexualActivityEnabled == true'), true);
+  assert.equal(tabs.includes('SexualActivityView()'), true);
+  assert.equal(tabs.indexOf('SleepView()') < tabs.indexOf('AnalysisView()'), true);
+  assert.equal(tabs.indexOf('AnalysisView()') < tabs.indexOf('SexualActivityView()'), true);
 });
 
 test('iOS health refresh ignores cancellation errors', () => {

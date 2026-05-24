@@ -20,15 +20,22 @@ struct MainTabView: View {
                     Label("Weight", systemImage: "scalemass")
                 }
 
-            HealthView()
+            SleepView()
                 .tabItem {
-                    Label("Health", systemImage: "heart.fill")
+                    Label("Sleep", systemImage: "moon.zzz.fill")
                 }
 
             AnalysisView()
                 .tabItem {
                     Label("Analysis", systemImage: "chart.bar")
                 }
+
+            if auth.user?.sexualActivityEnabled == true {
+                SexualActivityView()
+                    .tabItem {
+                        Label("Sexual Activity", systemImage: "heart.fill")
+                    }
+            }
 
             SettingsView()
                 .tabItem {
