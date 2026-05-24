@@ -269,7 +269,8 @@ test('iOS sleep tab and sexual activity More item honor the account feature flag
   assert.equal(tabs.includes('if auth.user?.sexualActivityEnabled == true'), true);
   assert.equal(tabs.includes('SexualActivityView()'), true);
   assert.equal(tabs.indexOf('SleepView()') < tabs.indexOf('AnalysisView()'), true);
-  assert.equal(tabs.indexOf('AnalysisView()') < tabs.indexOf('SexualActivityView()'), true);
+  assert.equal(tabs.indexOf('SleepView()') < tabs.indexOf('SexualActivityView()'), true);
+  assert.equal(tabs.indexOf('SexualActivityView()') < tabs.indexOf('AnalysisView()'), true);
 });
 
 test('iOS health refresh ignores cancellation errors', () => {

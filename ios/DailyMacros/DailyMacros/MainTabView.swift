@@ -25,17 +25,17 @@ struct MainTabView: View {
                     Label("Sleep", systemImage: "moon.zzz.fill")
                 }
 
-            AnalysisView()
-                .tabItem {
-                    Label("Analysis", systemImage: "chart.bar")
-                }
-
             if auth.user?.sexualActivityEnabled == true {
                 SexualActivityView()
                     .tabItem {
                         Label("Sexual Activity", systemImage: "heart.fill")
                     }
             }
+
+            AnalysisView()
+                .tabItem {
+                    Label("Analysis", systemImage: "chart.bar")
+                }
 
             SettingsView()
                 .tabItem {
