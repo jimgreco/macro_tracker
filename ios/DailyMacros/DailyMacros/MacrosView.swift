@@ -293,10 +293,6 @@ struct MacrosView: View {
             .navigationTitle("Macros")
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .hidden()
-                        .accessibilityHidden(true)
-
                     Button {
                         showParsed = false
                         mealText = ""

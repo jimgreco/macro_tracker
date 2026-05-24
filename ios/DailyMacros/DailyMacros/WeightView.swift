@@ -158,27 +158,12 @@ struct WeightView: View {
                     let chartEntries = weightChartEntries
                     let scale = weightChartScale
 
-                    HStack(alignment: .center, spacing: 4) {
-                        Text("Weight (lb)")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .rotationEffect(.degrees(-90))
-                            .fixedSize()
-                            .frame(width: 18, height: 220)
-
-                        Canvas { context, size in
-                            drawWeightChart(entries: chartEntries, scale: scale, context: context, size: size)
-                        }
-                        .frame(height: 220)
+                    Canvas { context, size in
+                        drawWeightChart(entries: chartEntries, scale: scale, context: context, size: size)
                     }
+                    .frame(height: 220)
                     .accessibilityLabel("Weight chart with dates on the horizontal axis and pounds on the vertical axis")
 
-                    Text("Date")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-
-                    // Legend
                     HStack(spacing: 16) {
                         legendItem("Avg: \(String(format: "%.1f", entries.map(\.weight).reduce(0, +) / Double(entries.count)))", color: .white.opacity(0.4))
                         if let tw = target?.targetWeight {
@@ -187,6 +172,7 @@ struct WeightView: View {
                     }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .padding()
                 .background(Color(.secondarySystemBackground))

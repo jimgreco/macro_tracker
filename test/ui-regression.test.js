@@ -65,6 +65,20 @@ test('weight page includes target weight + date controls', () => {
   assert.equal(server.includes("apiRouter.put('/weight-target'"), true);
 });
 
+test('iOS weight chart omits axis title labels and centers summary legend', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/WeightView.swift');
+  const chartView = swift.slice(
+    swift.indexOf('private var chartView'),
+    swift.indexOf('private var weightChartEntries')
+  );
+
+  assert.equal(chartView.includes('Text("Weight (lb)")'), false);
+  assert.equal(chartView.includes('Text("Date")'), false);
+  assert.equal(chartView.includes('legendItem("Avg:'), true);
+  assert.equal(chartView.includes('legendItem("Target:'), true);
+  assert.equal(chartView.includes('.frame(maxWidth: .infinity, alignment: .center)'), true);
+});
+
 test('analysis goal selector is removed from weekly analysis form', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');
@@ -135,13 +149,13 @@ test('iOS quick items are searchable and preload saved items in the background',
   assert.equal(swift.includes('if !hasLoadedSavedItems'), true);
 });
 
-test('iOS macros add button uses the same toolbar group sizing as other tabs', () => {
+test('iOS macros add button uses a grouped toolbar without a blank placeholder', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
 
   assert.equal(swift.includes('ToolbarItemGroup(placement: .primaryAction)'), true);
-  assert.equal(swift.includes('Image(systemName: "arrow.triangle.2.circlepath")'), true);
-  assert.equal(swift.includes('.hidden()'), true);
   assert.equal(swift.includes('Image(systemName: "plus")'), true);
+  assert.equal(swift.includes('Image(systemName: "arrow.triangle.2.circlepath")'), false);
+  assert.equal(swift.includes('.hidden()'), false);
 });
 
 test('iOS macro entry rows do not show drag handle icons', () => {
@@ -282,6 +296,61 @@ test('iOS sleep tab and sexual activity More item honor the account feature flag
   assert.equal(tabs.indexOf('SexualActivityView()') < tabs.indexOf('AnalysisView()'), true);
 });
 
+test('iOS sleep and sexual activity use tab titles with grouped toolbar add actions', () => {
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+  const toolbarGroup = health.indexOf('ToolbarItemGroup(placement: .primaryAction)');
+  const syncAction = health.indexOf('Image(systemName: "arrow.triangle.2.circlepath")', toolbarGroup);
+  const addAction = health.indexOf('Image(systemName: "plus")', syncAction);
+  const sexualActivitySection = health.slice(
+    health.indexOf('private var sexualActivitySection'),
+    health.indexOf('private struct ActivityOccurrencePoint')
+  );
+  const sleepSection = health.slice(
+    health.indexOf('private var sleepSection'),
+    health.indexOf('private var sleepChart')
+  );
+
+  assert.equal(toolbarGroup >= 0, true);
+  assert.equal(syncAction > toolbarGroup, true);
+  assert.equal(addAction > syncAction, true);
+  assert.equal(health.includes('showLogSheetForMode()'), true);
+  assert.equal(health.includes('Image(systemName: "plus.circle.fill")'), false);
+  assert.equal(sexualActivitySection.includes('Text("Sexual Activity")'), false);
+  assert.equal(sleepSection.includes('Text("Sleep")'), false);
+  assert.equal(sleepSection.includes('showLogSleep = true'), false);
+});
+
+test('iOS sleep chart omits axis title labels and centers summary legend', () => {
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+  const sleepChart = health.slice(
+    health.indexOf('private var sleepChart'),
+    health.indexOf('private func drawSleepChart')
+  );
+
+  assert.equal(sleepChart.includes('Text("Hours")'), false);
+  assert.equal(sleepChart.includes('Text("Date")'), false);
+  assert.equal(sleepChart.includes('Text(String(format: "Avg: %.1fh", avg))'), true);
+  assert.equal(sleepChart.includes('Text("Target: \\(formatTargetHours(sleepTargetHours))h")'), true);
+  assert.equal(sleepChart.includes('.frame(maxWidth: .infinity, alignment: .center)'), true);
+});
+
+test('iOS sexual activity annual occurrence graph renders 365 wrapped daily bubbles', () => {
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+  const activityOccurrence = health.slice(
+    health.indexOf('private var activityOccurrenceSection'),
+    health.indexOf('private var activityLegend')
+  );
+
+  assert.equal(activityOccurrence.includes('case "year": return "Last 365 Days"'), true);
+  assert.equal(activityOccurrence.includes('case "year": return 365'), true);
+  assert.equal(activityOccurrence.includes('activityYearOccurrenceGrid(points)'), true);
+  assert.equal(activityOccurrence.includes('GridItem(.adaptive(minimum: 6, maximum: 6), spacing: 3)'), true);
+  assert.equal(activityOccurrence.includes('if healthScope == "week" || healthScope == "year"'), true);
+  assert.equal(activityOccurrence.includes('Last 52 Weeks'), false);
+  assert.equal(activityOccurrence.includes('(0..<52)'), false);
+  assert.equal(activityOccurrence.includes('Text("weekly")'), false);
+});
+
 test('iOS health refresh ignores cancellation errors', () => {
   const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
 
@@ -315,6 +384,19 @@ test('iOS HealthKit auto-sync registers background delivery and exports after lo
   assert.equal(weight.includes('triggerHealthKitExport()'), true);
   assert.equal(health.includes('triggerSleepHealthKitExport()'), true);
   assert.equal(health.includes('triggerSexualActivityHealthKitExport()'), true);
+});
+
+test('iOS workouts annual occurrence graph renders 365 wrapped daily dots', () => {
+  const workouts = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
+
+  assert.equal(workouts.includes('case "year": return "Last 365 Days"'), true);
+  assert.equal(workouts.includes('case "year": return 365'), true);
+  assert.equal(workouts.includes('workoutYearOccurrenceGrid(points)'), true);
+  assert.equal(workouts.includes('GridItem(.adaptive(minimum: 6, maximum: 6), spacing: 3)'), true);
+  assert.equal(workouts.includes('if scope == "week" || scope == "year"'), true);
+  assert.equal(workouts.includes('Text("daily")'), false);
+  assert.equal(workouts.includes('Last 52 Weeks'), false);
+  assert.equal(workouts.includes('(0..<52)'), false);
 });
 
 test('mobile sleep target is editable and drives sleep chart', () => {

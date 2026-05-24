@@ -189,7 +189,7 @@ struct WorkoutsView: View {
     private var workoutOccurrenceSection: some View {
         let points = workoutOccurrencePoints
         let activeCount = points.filter(\.active).count
-        let unit = scope == "year" ? "weeks active" : "days active"
+        let unit = "days active"
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -214,7 +214,7 @@ struct WorkoutsView: View {
         switch scope {
         case "week": return "Workout Days"
         case "month": return "Last 30 Days"
-        case "year": return "Last 52 Weeks"
+        case "year": return "Last 365 Days"
         default: return "Workout Days"
         }
     }
@@ -224,31 +224,7 @@ struct WorkoutsView: View {
         let today = calendar.startOfDay(for: Date())
         let workoutDays = Set(dailyCalories.map(\.day))
 
-        if scope == "year" {
-            return (0..<52).reversed().compactMap { weekOffset in
-                guard let weekEnd = calendar.date(byAdding: .day, value: -weekOffset * 7, to: today),
-                      let weekStart = calendar.date(byAdding: .day, value: -6, to: weekEnd) else {
-                    return nil
-                }
-
-                let count = (0...6).reduce(0) { total, dayOffset in
-                    guard let day = calendar.date(byAdding: .day, value: dayOffset, to: weekStart) else {
-                        return total
-                    }
-                    return total + (workoutDays.contains(isoDayString(day)) ? 1 : 0)
-                }
-
-                return WorkoutOccurrencePoint(
-                    id: isoDayString(weekStart),
-                    date: weekStart,
-                    active: count > 0,
-                    count: count,
-                    isToday: false
-                )
-            }
-        }
-
-        let days = scope == "month" ? 30 : 7
+        let days = occurrenceDayCount
         return (0..<days).reversed().compactMap { dayOffset in
             guard let day = calendar.date(byAdding: .day, value: -dayOffset, to: today) else {
                 return nil
@@ -269,6 +245,8 @@ struct WorkoutsView: View {
         Group {
             if scope == "week" {
                 workoutWeekOccurrenceRow(points)
+            } else if scope == "year" {
+                workoutYearOccurrenceGrid(points)
             } else {
                 Canvas { context, size in
                     guard !points.isEmpty else { return }
@@ -296,8 +274,8 @@ struct WorkoutsView: View {
                 }
             }
         }
-        .frame(height: scope == "week" ? 58 : 42)
-        .accessibilityLabel("\(occurrenceTitle): \(points.filter(\.active).count) active \(scope == "year" ? "weeks" : "days")")
+        .frame(height: scope == "year" ? nil : occurrenceDotPlotHeight)
+        .accessibilityLabel("\(occurrenceTitle): \(points.filter(\.active).count) active days")
     }
 
     private func workoutWeekOccurrenceRow(_ points: [WorkoutOccurrencePoint]) -> some View {
@@ -337,9 +315,32 @@ struct WorkoutsView: View {
         .frame(height: 30)
     }
 
+    private func workoutYearOccurrenceGrid(_ points: [WorkoutOccurrencePoint]) -> some View {
+        let columns = [
+            GridItem(.adaptive(minimum: 6, maximum: 6), spacing: 3)
+        ]
+
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 3) {
+            ForEach(points) { point in
+                Circle()
+                    .fill(point.active ? Color.green.opacity(0.95) : Color.clear)
+                    .overlay {
+                        if !point.active {
+                            Circle()
+                                .stroke(point.isToday ? .cyan.opacity(0.55) : .white.opacity(0.15), lineWidth: point.isToday ? 1.2 : 1)
+                        }
+                    }
+                    .shadow(color: point.active ? .green.opacity(0.35) : .clear, radius: 3)
+                    .frame(width: 5, height: 5)
+                    .frame(width: 6, height: 6)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     @ViewBuilder
     private func occurrenceLabels(_ points: [WorkoutOccurrencePoint]) -> some View {
-        if scope == "week" {
+        if scope == "week" || scope == "year" {
             EmptyView()
         } else {
             HStack {
@@ -347,9 +348,6 @@ struct WorkoutsView: View {
                     Text(shortDateLabel(for: first.date))
                 }
                 Spacer()
-                if scope == "year" {
-                    Text("weekly")
-                }
                 Spacer()
                 if let last = points.last {
                     Text(shortDateLabel(for: last.date))
@@ -379,6 +377,22 @@ struct WorkoutsView: View {
         case "month": return 4
         case "year": return 52
         default: return 1
+        }
+    }
+
+    private var occurrenceDayCount: Int {
+        switch scope {
+        case "year": return 365
+        case "month": return 30
+        default: return 7
+        }
+    }
+
+    private var occurrenceDotPlotHeight: CGFloat {
+        switch scope {
+        case "week": return 58
+        case "year": return 98
+        default: return 42
         }
     }
 

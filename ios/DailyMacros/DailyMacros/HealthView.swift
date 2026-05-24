@@ -97,7 +97,7 @@ struct HealthView: View {
             }
             .navigationTitle(mode.navigationTitle)
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
                     Button {
                         Task { await syncHealthKit() }
                     } label: {
@@ -108,6 +108,13 @@ struct HealthView: View {
                         }
                     }
                     .disabled(isSyncingHealthKit || (mode == .sexualActivity && !sexualActivityEnabled))
+
+                    Button {
+                        showLogSheetForMode()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .disabled(mode == .sexualActivity && !sexualActivityEnabled)
                 }
             }
             .sheet(isPresented: $showLogHealth) { logHealthSheet }
@@ -151,16 +158,6 @@ struct HealthView: View {
 
     private var sexualActivitySection: some View {
         VStack(spacing: 12) {
-            HStack {
-                Text("Sexual Activity")
-                    .font(.title3.bold())
-                Spacer()
-                Button { showLogHealth = true } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
-                }
-            }
-
             Picker("Scope", selection: $healthScope) {
                 ForEach(scopes, id: \.self) { s in
                     Text(s.capitalized).tag(s)
@@ -190,7 +187,7 @@ struct HealthView: View {
     private var activityOccurrenceSection: some View {
         let points = activityOccurrencePoints
         let activeCount = points.filter(\.active).count
-        let unit = healthScope == "year" ? "weeks active" : "days active"
+        let unit = "days active"
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -217,7 +214,7 @@ struct HealthView: View {
         switch healthScope {
         case "week": return "Activity Days"
         case "month": return "Last 30 Days"
-        case "year": return "Last 52 Weeks"
+        case "year": return "Last 365 Days"
         default: return "Activity Days"
         }
     }
@@ -227,37 +224,7 @@ struct HealthView: View {
         let today = calendar.startOfDay(for: Date())
         let typesByDay = Dictionary(uniqueKeysWithValues: dailyTypes.map { ($0.day, orderedActivityTypes($0.types)) })
 
-        if healthScope == "year" {
-            return (0..<52).reversed().compactMap { weekOffset in
-                guard let weekEnd = calendar.date(byAdding: .day, value: -weekOffset * 7, to: today),
-                      let weekStart = calendar.date(byAdding: .day, value: -6, to: weekEnd) else {
-                    return nil
-                }
-
-                var weekTypes: [String] = []
-                var activeDays = 0
-                for dayOffset in 0...6 {
-                    guard let day = calendar.date(byAdding: .day, value: dayOffset, to: weekStart) else {
-                        continue
-                    }
-                    let isoDay = isoDayString(day)
-                    if let types = typesByDay[isoDay], !types.isEmpty {
-                        activeDays += 1
-                        weekTypes.append(contentsOf: types)
-                    }
-                }
-
-                return ActivityOccurrencePoint(
-                    id: isoDayString(weekStart),
-                    date: weekStart,
-                    types: orderedActivityTypes(weekTypes),
-                    activeDayCount: activeDays,
-                    isToday: false
-                )
-            }
-        }
-
-        let days = healthScope == "month" ? 30 : 7
+        let days = activityOccurrenceDayCount
         return (0..<days).reversed().compactMap { dayOffset in
             guard let day = calendar.date(byAdding: .day, value: -dayOffset, to: today) else {
                 return nil
@@ -279,14 +246,16 @@ struct HealthView: View {
         Group {
             if healthScope == "week" {
                 activityWeekOccurrenceRow(points)
+            } else if healthScope == "year" {
+                activityYearOccurrenceGrid(points)
             } else {
                 Canvas { context, size in
                     drawActivityOccurrenceCanvas(points, context: context, size: size)
                 }
             }
         }
-        .frame(height: healthScope == "week" ? 58 : 42)
-        .accessibilityLabel("\(activityOccurrenceTitle): \(points.filter(\.active).count) active \(healthScope == "year" ? "weeks" : "days")")
+        .frame(height: healthScope == "year" ? nil : activityOccurrenceDotPlotHeight)
+        .accessibilityLabel("\(activityOccurrenceTitle): \(points.filter(\.active).count) active days")
     }
 
     private func activityWeekOccurrenceRow(_ points: [ActivityOccurrencePoint]) -> some View {
@@ -339,6 +308,34 @@ struct HealthView: View {
         .frame(height: 30)
     }
 
+    private func activityYearOccurrenceGrid(_ points: [ActivityOccurrencePoint]) -> some View {
+        let columns = [
+            GridItem(.adaptive(minimum: 6, maximum: 6), spacing: 3)
+        ]
+
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 3) {
+            ForEach(points) { point in
+                Circle()
+                    .fill(point.active ? activityOccurrenceColor(point) : Color.clear)
+                    .overlay {
+                        if !point.active {
+                            Circle()
+                                .stroke(point.isToday ? .cyan.opacity(0.55) : .white.opacity(0.15), lineWidth: point.isToday ? 1.2 : 1)
+                        }
+                    }
+                    .shadow(color: point.active ? activityOccurrenceColor(point).opacity(0.35) : .clear, radius: 3)
+                    .frame(width: 5, height: 5)
+                    .frame(width: 6, height: 6)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func activityOccurrenceColor(_ point: ActivityOccurrencePoint) -> Color {
+        let types = orderedActivityTypes(point.types)
+        return activityColor(types.first ?? "other")
+    }
+
     private func drawActivityOccurrenceCanvas(_ points: [ActivityOccurrencePoint], context: GraphicsContext, size: CGSize) {
         guard !points.isEmpty else { return }
 
@@ -368,7 +365,7 @@ struct HealthView: View {
 
     @ViewBuilder
     private func activityOccurrenceLabels(_ points: [ActivityOccurrencePoint]) -> some View {
-        if healthScope == "week" {
+        if healthScope == "week" || healthScope == "year" {
             EmptyView()
         } else {
             HStack {
@@ -376,9 +373,6 @@ struct HealthView: View {
                     Text(shortDateLabel(for: first.date))
                 }
                 Spacer()
-                if healthScope == "year" {
-                    Text("weekly")
-                }
                 Spacer()
                 if let last = points.last {
                     Text(shortDateLabel(for: last.date))
@@ -387,6 +381,18 @@ struct HealthView: View {
             .font(.caption2)
             .foregroundStyle(.secondary)
         }
+    }
+
+    private var activityOccurrenceDayCount: Int {
+        switch healthScope {
+        case "year": return 365
+        case "month": return 30
+        default: return 7
+        }
+    }
+
+    private var activityOccurrenceDotPlotHeight: CGFloat {
+        healthScope == "week" ? 58 : 42
     }
 
     private var activityLegend: some View {
@@ -469,22 +475,6 @@ struct HealthView: View {
 
     private var sleepSection: some View {
         VStack(spacing: 12) {
-            HStack {
-                Text("Sleep")
-                    .font(.title3.bold())
-                Spacer()
-                Button("edit targets") {
-                    editSleepTargetHours = formatTargetHours(sleepTargetHours)
-                    showEditSleepTargets = true
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.cyan)
-                Button { showLogSleep = true } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
-                }
-            }
-
             Picker("Scope", selection: $sleepScope) {
                 ForEach(scopes, id: \.self) { s in
                     Text(s.capitalized).tag(s)
@@ -503,31 +493,27 @@ struct HealthView: View {
 
     private var sleepChart: some View {
         VStack(spacing: 4) {
+            HStack {
+                Spacer()
+                Button("edit targets") {
+                    editSleepTargetHours = formatTargetHours(sleepTargetHours)
+                    showEditSleepTargets = true
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.cyan)
+            }
+
             if sleepDailyTotals.isEmpty {
                 Text("No data for this period")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(height: 120)
             } else {
-                HStack(alignment: .center, spacing: 4) {
-                    Text("Hours")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(-90))
-                        .fixedSize()
-                        .frame(width: 18, height: 150)
-
-                    Canvas { context, size in
-                        drawSleepChart(context: context, size: size)
-                    }
-                    .frame(height: 150)
+                Canvas { context, size in
+                    drawSleepChart(context: context, size: size)
                 }
+                .frame(height: 150)
                 .accessibilityLabel("Sleep chart with dates on the horizontal axis and hours on the vertical axis")
-
-                Text("Date")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
             }
 
             if !sleepDailyTotals.isEmpty {
@@ -546,6 +532,7 @@ struct HealthView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .padding()
@@ -1351,6 +1338,19 @@ struct HealthView: View {
             return "\(name): imported \(result.importedCount), wrote \(result.exportedCount)."
         }
         return "\(name): \(empty)"
+    }
+
+    private func showLogSheetForMode() {
+        switch mode {
+        case .sleep:
+            showLogSleep = true
+        case .sexualActivity:
+            guard sexualActivityEnabled else {
+                errorMessage = "Sexual activity tracking is not enabled for this account."
+                return
+            }
+            showLogHealth = true
+        }
     }
 
     // MARK: - Helpers
