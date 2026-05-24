@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WeightView: View {
     @EnvironmentObject var api: APIClient
+    @StateObject private var healthKitSync = HealthKitWellnessSync()
     @State private var entries: [WeightEntry] = []
     @State private var target: WeightTarget?
     @State private var scope = "month"
@@ -11,6 +12,7 @@ struct WeightView: View {
     @State private var showEditTarget = false
     @State private var editingEntry: WeightEntry?
     @State private var isLoading = false
+    @State private var isSyncing = false
     @State private var weightOffset = 0
     @State private var hasMoreWeightEntries = true
     @State private var isLoadingWeightPage = false
@@ -38,7 +40,18 @@ struct WeightView: View {
             }
             .navigationTitle("Weight")
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        Task { await syncWeight() }
+                    } label: {
+                        if isSyncing {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .disabled(isSyncing)
+
                     Button { showAddSheet = true } label: {
                         Image(systemName: "plus")
                     }
@@ -55,7 +68,7 @@ struct WeightView: View {
             }
             .task { await loadData() }
             .refreshable { await loadData() }
-            .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            .alert("Weight", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: {
                 Text(errorMessage ?? "")
@@ -605,6 +618,23 @@ struct WeightView: View {
             await loadEntries(reset: true)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func syncWeight() async {
+        isSyncing = true
+        defer { isSyncing = false }
+
+        do {
+            let result = try await healthKitSync.syncRecentWeight(api: api)
+            if result.importedCount > 0 || result.exportedCount > 0 {
+                errorMessage = "Apple Health: imported \(result.importedCount), wrote \(result.exportedCount)."
+            } else {
+                errorMessage = "Apple Health: no new weight entries from the last 30 days."
+            }
+            await loadEntries(reset: true)
+        } catch {
+            errorMessage = "Apple Health: \(error.localizedDescription)"
         }
     }
 

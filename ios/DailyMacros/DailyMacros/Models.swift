@@ -110,6 +110,8 @@ struct WeightEntry: Codable, Identifiable {
     let id: Int
     let weight: Double
     let loggedAt: String
+    let source: String?
+    let externalId: String?
 }
 
 struct WeightEntriesResponse: Codable {
@@ -231,6 +233,12 @@ struct WorkoutMutationResponse: Codable {
     let created: Bool?
 }
 
+struct EntryMutationResponse: Codable {
+    let ok: Bool
+    let id: Int?
+    let created: Bool?
+}
+
 struct CreatedIdResponse: Codable {
     let id: Int
 }
@@ -329,6 +337,8 @@ struct HealthEntry: Codable, Identifiable {
     let id: Int
     let type: String
     let loggedAt: String
+    let source: String?
+    let externalId: String?
 }
 
 struct HealthDailyTypes: Codable {
@@ -349,6 +359,8 @@ struct SleepEntry: Codable, Identifiable {
     let durationHours: Double
     let wakeUps: Int
     let loggedAt: String
+    let source: String?
+    let externalId: String?
 }
 
 struct SleepDailyTotals: Codable {

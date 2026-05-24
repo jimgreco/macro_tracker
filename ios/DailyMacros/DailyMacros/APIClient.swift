@@ -372,11 +372,14 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
-    func addWeight(_ weight: Double, loggedAt: String) async throws {
-        let payload: [String: Any] = ["weight": weight, "loggedAt": loggedAt]
+    @discardableResult
+    func addWeight(_ weight: Double, loggedAt: String, source: String? = nil, externalId: String? = nil) async throws -> EntryMutationResponse {
+        var payload: [String: Any] = ["weight": weight, "loggedAt": loggedAt]
+        if let source { payload["source"] = source }
+        if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/weights"), method: "POST", body: body)
-        let _: OkResponse = try await perform(request)
+        return try await perform(request)
     }
 
     func updateWeight(id: Int, weight: Double, loggedAt: String) async throws {
@@ -500,11 +503,14 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
-    func addHealthEntry(type: String, loggedAt: String) async throws {
-        let payload: [String: Any] = ["type": type, "loggedAt": loggedAt]
+    @discardableResult
+    func addHealthEntry(type: String, loggedAt: String, source: String? = nil, externalId: String? = nil) async throws -> EntryMutationResponse {
+        var payload: [String: Any] = ["type": type, "loggedAt": loggedAt]
+        if let source { payload["source"] = source }
+        if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/sexual-activity"), method: "POST", body: body)
-        let _: OkResponse = try await perform(request)
+        return try await perform(request)
     }
 
     func updateHealthEntry(id: Int, type: String, loggedAt: String) async throws {
@@ -531,11 +537,14 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
-    func addSleepEntry(durationHours: Double, wakeUps: Int, loggedAt: String) async throws {
-        let payload: [String: Any] = ["durationHours": durationHours, "wakeUps": wakeUps, "loggedAt": loggedAt]
+    @discardableResult
+    func addSleepEntry(durationHours: Double, wakeUps: Int, loggedAt: String, source: String? = nil, externalId: String? = nil) async throws -> EntryMutationResponse {
+        var payload: [String: Any] = ["durationHours": durationHours, "wakeUps": wakeUps, "loggedAt": loggedAt]
+        if let source { payload["source"] = source }
+        if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/sleep"), method: "POST", body: body)
-        let _: OkResponse = try await perform(request)
+        return try await perform(request)
     }
 
     func updateSleepEntry(id: Int, durationHours: Double, wakeUps: Int, loggedAt: String) async throws {

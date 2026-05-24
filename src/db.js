@@ -147,6 +147,8 @@ async function initDb() {
       user_id TEXT NOT NULL,
       weight DOUBLE PRECISION NOT NULL,
       logged_at TIMESTAMPTZ NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      external_id TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       deleted_at TIMESTAMPTZ
     );
@@ -187,6 +189,8 @@ async function initDb() {
       user_id TEXT NOT NULL,
       type TEXT NOT NULL DEFAULT 'masturbation',
       logged_at TIMESTAMPTZ NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      external_id TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       deleted_at TIMESTAMPTZ
     );
@@ -199,6 +203,8 @@ async function initDb() {
       duration_hours DOUBLE PRECISION NOT NULL,
       wake_ups INTEGER NOT NULL DEFAULT 0,
       logged_at TIMESTAMPTZ NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      external_id TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       deleted_at TIMESTAMPTZ
     );
@@ -303,6 +309,12 @@ async function initDb() {
   `);
   await pool.query(`ALTER TABLE workout_entries ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';`);
   await pool.query(`ALTER TABLE workout_entries ADD COLUMN IF NOT EXISTS external_id TEXT;`);
+  await pool.query(`ALTER TABLE weight_entries ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';`);
+  await pool.query(`ALTER TABLE weight_entries ADD COLUMN IF NOT EXISTS external_id TEXT;`);
+  await pool.query(`ALTER TABLE sexual_activity_entries ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';`);
+  await pool.query(`ALTER TABLE sexual_activity_entries ADD COLUMN IF NOT EXISTS external_id TEXT;`);
+  await pool.query(`ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';`);
+  await pool.query(`ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS external_id TEXT;`);
 
   await pool.query(`
     ALTER TABLE entries
@@ -335,11 +347,20 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_saved_items_user_name ON saved_items(user_id, lower(name));
     CREATE INDEX IF NOT EXISTS idx_macro_targets_user ON macro_targets(user_id);
     CREATE INDEX IF NOT EXISTS idx_weight_entries_user_logged ON weight_entries(user_id, logged_at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_weight_entries_user_source_external
+      ON weight_entries(user_id, source, external_id)
+      WHERE external_id IS NOT NULL AND deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_workout_entries_user_logged ON workout_entries(user_id, logged_at DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_entries_user_source_external
       ON workout_entries(user_id, source, external_id)
       WHERE external_id IS NOT NULL AND deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_sleep_entries_user_logged ON sleep_entries(user_id, logged_at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sleep_entries_user_source_external
+      ON sleep_entries(user_id, source, external_id)
+      WHERE external_id IS NOT NULL AND deleted_at IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sexual_activity_entries_user_source_external
+      ON sexual_activity_entries(user_id, source, external_id)
+      WHERE external_id IS NOT NULL AND deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_analysis_reports_user_created ON analysis_reports(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_users_normalized_email ON users(lower(email));
     CREATE INDEX IF NOT EXISTS idx_users_last_login ON users(last_login_at DESC NULLS LAST);
@@ -1332,13 +1353,24 @@ function normalizeWorkoutSource(source) {
   return normalized;
 }
 
-function normalizeExternalId(externalId) {
+function normalizeHealthEntrySource(source, label) {
+  const normalized = String(source || '').trim().toLowerCase();
+  if (!normalized) {
+    return 'manual';
+  }
+  if (!['manual', 'healthkit'].includes(normalized)) {
+    throw new Error(`${label} source must be manual or healthkit.`);
+  }
+  return normalized;
+}
+
+function normalizeExternalId(externalId, label = 'Workout') {
   const normalized = String(externalId || '').trim();
   if (!normalized) {
     return null;
   }
   if (normalized.length > 255) {
-    throw new Error('Workout externalId must be 255 characters or less.');
+    throw new Error(`${label} externalId must be 255 characters or less.`);
   }
   return normalized;
 }
@@ -1353,12 +1385,29 @@ async function addWeightEntry(userId, payload) {
   if (Number.isNaN(loggedAt.getTime())) {
     throw new Error('Invalid loggedAt value.');
   }
+  const source = normalizeHealthEntrySource(payload.source, 'Weight');
+  const externalId = normalizeExternalId(payload.externalId ?? payload.external_id, 'Weight');
 
-  await pool.query(
-    `INSERT INTO weight_entries (user_id, weight, logged_at)
-     VALUES ($1, $2, $3)`,
-    [userId, weight, loggedAt]
+  if (externalId) {
+    const existing = await pool.query(
+      `SELECT id
+       FROM weight_entries
+       WHERE user_id = $1 AND source = $2 AND external_id = $3 AND deleted_at IS NULL
+       LIMIT 1`,
+      [userId, source, externalId]
+    );
+    if (existing.rows.length) {
+      return { id: Number(existing.rows[0].id), created: false };
+    }
+  }
+
+  const result = await pool.query(
+    `INSERT INTO weight_entries (user_id, weight, logged_at, source, external_id)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id`,
+    [userId, weight, loggedAt, source, externalId]
   );
+  return { id: Number(result.rows[0].id), created: true };
 }
 
 async function updateWeightEntry(userId, id, payload) {
@@ -1371,12 +1420,17 @@ async function updateWeightEntry(userId, id, payload) {
   if (Number.isNaN(loggedAt.getTime())) {
     throw new Error('Invalid loggedAt value.');
   }
+  const source = payload.source == null ? null : normalizeHealthEntrySource(payload.source, 'Weight');
+  const externalId = payload.externalId == null && payload.external_id == null ? null : normalizeExternalId(payload.externalId ?? payload.external_id, 'Weight');
 
   const result = await pool.query(
     `UPDATE weight_entries
-     SET weight = $3, logged_at = $4
+     SET weight = $3,
+         logged_at = $4,
+         source = COALESCE($5, source),
+         external_id = COALESCE($6, external_id)
      WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
-    [userId, id, weight, loggedAt]
+    [userId, id, weight, loggedAt, source, externalId]
   );
 
   return result.rowCount;
@@ -1399,7 +1453,11 @@ async function listWeightEntries(userId, options = {}) {
   const offset = Math.max(0, Number(options.offset) || 0);
   const days = parseScopeDays(scope);
   const params = [userId, String(days), timezone];
-  let query = `SELECT id, weight, logged_at AS "loggedAt"
+  let query = `SELECT id,
+            weight,
+            logged_at AS "loggedAt",
+            source,
+            external_id AS "externalId"
      FROM weight_entries
      WHERE user_id = $1 AND deleted_at IS NULL
        AND logged_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
@@ -1415,7 +1473,9 @@ async function listWeightEntries(userId, options = {}) {
   const entries = result.rows.map((row) => ({
     id: Number(row.id),
     weight: Number(row.weight || 0),
-    loggedAt: new Date(row.loggedAt).toISOString()
+    loggedAt: new Date(row.loggedAt).toISOString(),
+    source: row.source || 'manual',
+    externalId: row.externalId || null
   }));
 
   return {
@@ -1636,12 +1696,29 @@ async function addSexualActivityEntry(userId, payload) {
   if (Number.isNaN(loggedAt.getTime())) {
     throw new Error('Invalid loggedAt value.');
   }
+  const source = normalizeHealthEntrySource(payload.source, 'Sexual activity');
+  const externalId = normalizeExternalId(payload.externalId ?? payload.external_id, 'Sexual activity');
 
-  await pool.query(
-    `INSERT INTO sexual_activity_entries (user_id, type, logged_at)
-     VALUES ($1, $2, $3)`,
-    [userId, type, loggedAt]
+  if (externalId) {
+    const existing = await pool.query(
+      `SELECT id
+       FROM sexual_activity_entries
+       WHERE user_id = $1 AND source = $2 AND external_id = $3 AND deleted_at IS NULL
+       LIMIT 1`,
+      [userId, source, externalId]
+    );
+    if (existing.rows.length) {
+      return { id: Number(existing.rows[0].id), created: false };
+    }
+  }
+
+  const result = await pool.query(
+    `INSERT INTO sexual_activity_entries (user_id, type, logged_at, source, external_id)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id`,
+    [userId, type, loggedAt, source, externalId]
   );
+  return { id: Number(result.rows[0].id), created: true };
 }
 
 async function updateSexualActivityEntry(userId, id, payload) {
@@ -1650,12 +1727,17 @@ async function updateSexualActivityEntry(userId, id, payload) {
   if (Number.isNaN(loggedAt.getTime())) {
     throw new Error('Invalid loggedAt value.');
   }
+  const source = payload.source == null ? null : normalizeHealthEntrySource(payload.source, 'Sexual activity');
+  const externalId = payload.externalId == null && payload.external_id == null ? null : normalizeExternalId(payload.externalId ?? payload.external_id, 'Sexual activity');
 
   const result = await pool.query(
     `UPDATE sexual_activity_entries
-     SET type = $3, logged_at = $4
+     SET type = $3,
+         logged_at = $4,
+         source = COALESCE($5, source),
+         external_id = COALESCE($6, external_id)
      WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
-    [userId, id, type, loggedAt]
+    [userId, id, type, loggedAt, source, externalId]
   );
 
   return result.rowCount;
@@ -1676,7 +1758,11 @@ async function listSexualActivityEntries(userId, options = {}) {
   const timezone = options.timezone || 'America/New_York';
 
   const rowsResult = await pool.query(
-    `SELECT id, type, logged_at AS "loggedAt"
+    `SELECT id,
+            type,
+            logged_at AS "loggedAt",
+            source,
+            external_id AS "externalId"
      FROM sexual_activity_entries
      WHERE user_id = $1 AND deleted_at IS NULL
      ORDER BY logged_at DESC, id DESC
@@ -1700,7 +1786,9 @@ async function listSexualActivityEntries(userId, options = {}) {
     entries: rowsResult.rows.map((row) => ({
       id: Number(row.id),
       type: row.type,
-      loggedAt: new Date(row.loggedAt).toISOString()
+      loggedAt: new Date(row.loggedAt).toISOString(),
+      source: row.source || 'manual',
+      externalId: row.externalId || null
     })),
     dailyTypes: dailyResult.rows.map((row) => ({
       day: row.day,
@@ -1723,12 +1811,29 @@ async function addSleepEntry(userId, payload) {
   }
 
   const wakeUps = Math.max(0, Math.min(99, Math.round(Number(payload.wakeUps) || 0)));
+  const source = normalizeHealthEntrySource(payload.source, 'Sleep');
+  const externalId = normalizeExternalId(payload.externalId ?? payload.external_id, 'Sleep');
 
-  await pool.query(
-    `INSERT INTO sleep_entries (user_id, duration_hours, wake_ups, logged_at)
-     VALUES ($1, $2, $3, $4)`,
-    [userId, Number(durationHours.toFixed(2)), wakeUps, loggedAt]
+  if (externalId) {
+    const existing = await pool.query(
+      `SELECT id
+       FROM sleep_entries
+       WHERE user_id = $1 AND source = $2 AND external_id = $3 AND deleted_at IS NULL
+       LIMIT 1`,
+      [userId, source, externalId]
+    );
+    if (existing.rows.length) {
+      return { id: Number(existing.rows[0].id), created: false };
+    }
+  }
+
+  const result = await pool.query(
+    `INSERT INTO sleep_entries (user_id, duration_hours, wake_ups, logged_at, source, external_id)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id`,
+    [userId, Number(durationHours.toFixed(2)), wakeUps, loggedAt, source, externalId]
   );
+  return { id: Number(result.rows[0].id), created: true };
 }
 
 async function updateSleepEntry(userId, id, payload) {
@@ -1742,12 +1847,18 @@ async function updateSleepEntry(userId, id, payload) {
   }
 
   const wakeUps = Math.max(0, Math.min(99, Math.round(Number(payload.wakeUps) || 0)));
+  const source = payload.source == null ? null : normalizeHealthEntrySource(payload.source, 'Sleep');
+  const externalId = payload.externalId == null && payload.external_id == null ? null : normalizeExternalId(payload.externalId ?? payload.external_id, 'Sleep');
 
   const result = await pool.query(
     `UPDATE sleep_entries
-     SET duration_hours = $3, wake_ups = $4, logged_at = $5
+     SET duration_hours = $3,
+         wake_ups = $4,
+         logged_at = $5,
+         source = COALESCE($6, source),
+         external_id = COALESCE($7, external_id)
      WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
-    [userId, id, Number(durationHours.toFixed(2)), wakeUps, loggedAt]
+    [userId, id, Number(durationHours.toFixed(2)), wakeUps, loggedAt, source, externalId]
   );
 
   return result.rowCount;
@@ -1768,7 +1879,12 @@ async function listSleepEntries(userId, options = {}) {
   const timezone = options.timezone || 'America/New_York';
 
   const rowsResult = await pool.query(
-    `SELECT id, duration_hours AS "durationHours", wake_ups AS "wakeUps", logged_at AS "loggedAt"
+    `SELECT id,
+            duration_hours AS "durationHours",
+            wake_ups AS "wakeUps",
+            logged_at AS "loggedAt",
+            source,
+            external_id AS "externalId"
      FROM sleep_entries
      WHERE user_id = $1 AND deleted_at IS NULL
      ORDER BY logged_at DESC, id DESC
@@ -1793,7 +1909,9 @@ async function listSleepEntries(userId, options = {}) {
       id: Number(row.id),
       durationHours: Number(row.durationHours),
       wakeUps: Number(row.wakeUps || 0),
-      loggedAt: new Date(row.loggedAt).toISOString()
+      loggedAt: new Date(row.loggedAt).toISOString(),
+      source: row.source || 'manual',
+      externalId: row.externalId || null
     })),
     dailyTotals: dailyResult.rows.map((row) => ({
       day: row.day,
@@ -2143,10 +2261,10 @@ async function exportUserData(userId) {
       pool.query('SELECT id, item_name, quantity, unit, calories, protein, carbs, fat, consumed_at, meal_group, meal_name, meal_quantity, meal_unit, created_at FROM entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY consumed_at DESC', [userId]),
       pool.query('SELECT id, name, quantity, unit, calories, protein, carbs, fat, usage_count, created_at FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL ORDER BY name', [userId]),
       pool.query('SELECT macro, target, updated_at FROM macro_targets WHERE user_id = $1', [userId]),
-      pool.query('SELECT id, weight, logged_at, created_at FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
+      pool.query('SELECT id, weight, logged_at, source, external_id, created_at FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       pool.query('SELECT id, description, intensity, duration_hours, calories_burned, logged_at, source, external_id, created_at FROM workout_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
-      pool.query('SELECT id, type, logged_at, created_at FROM sexual_activity_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
-      pool.query('SELECT id, duration_hours, wake_ups, logged_at, created_at FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
+      pool.query('SELECT id, type, logged_at, source, external_id, created_at FROM sexual_activity_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
+      pool.query('SELECT id, duration_hours, wake_ups, logged_at, source, external_id, created_at FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       getWeightTarget(userId),
       pool.query('SELECT id, period_days, report_json, created_at FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC', [userId]),
       pool.query('SELECT feature, usage_date, count, updated_at FROM daily_usage_counts WHERE user_id = $1 ORDER BY usage_date DESC, feature', [userId])

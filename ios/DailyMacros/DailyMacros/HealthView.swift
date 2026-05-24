@@ -4,6 +4,7 @@ import SwiftUI
 struct HealthView: View {
     @EnvironmentObject var api: APIClient
     @EnvironmentObject var auth: AuthManager
+    @StateObject private var healthKitSync = HealthKitWellnessSync()
 
     // Sexual activity state
     @State private var healthEntries: [HealthEntry] = []
@@ -44,6 +45,7 @@ struct HealthView: View {
     @State private var editSleepDate = Date()
 
     @State private var errorMessage: String?
+    @State private var isSyncingHealthKit = false
 
     private let activityTypes = ["masturbation", "oral sex", "vaginal sex", "other"]
     private let scopes = ["week", "month", "year"]
@@ -65,6 +67,20 @@ struct HealthView: View {
                 .padding()
             }
             .navigationTitle("Health")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await syncHealthKit() }
+                    } label: {
+                        if isSyncingHealthKit {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .disabled(isSyncingHealthKit)
+                }
+            }
             .sheet(isPresented: $showLogHealth) { logHealthSheet }
             .sheet(isPresented: $showLogSleep) { logSleepSheet }
             .sheet(isPresented: $showEditSleepTargets) { editSleepTargetsSheet }
@@ -84,7 +100,7 @@ struct HealthView: View {
                 }
                 await loadSleep(reset: true)
             }
-            .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            .alert("Health", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: {
                 Text(errorMessage ?? "")
@@ -1231,6 +1247,40 @@ struct HealthView: View {
         } catch {
             showErrorUnlessCancelled(error)
         }
+    }
+
+    private func syncHealthKit() async {
+        isSyncingHealthKit = true
+        defer { isSyncingHealthKit = false }
+
+        var messages: [String] = []
+
+        do {
+            let sleepResult = try await healthKitSync.syncRecentSleep(api: api)
+            messages.append(syncMessage(name: "Sleep", result: sleepResult, empty: "no new sleep entries from the last 30 days."))
+            await loadSleep(reset: true)
+        } catch {
+            messages.append("Sleep: \(error.localizedDescription)")
+        }
+
+        if sexualActivityEnabled {
+            do {
+                let activityResult = try await healthKitSync.syncRecentSexualActivity(api: api)
+                messages.append(syncMessage(name: "Sexual Activity", result: activityResult, empty: "no new entries from the last 30 days."))
+                await loadHealth(reset: true)
+            } catch {
+                messages.append("Sexual Activity: \(error.localizedDescription)")
+            }
+        }
+
+        errorMessage = messages.joined(separator: "\n")
+    }
+
+    private func syncMessage(name: String, result: HealthKitMetricSyncResult, empty: String) -> String {
+        if result.importedCount > 0 || result.exportedCount > 0 {
+            return "\(name): imported \(result.importedCount), wrote \(result.exportedCount)."
+        }
+        return "\(name): \(empty)"
     }
 
     // MARK: - Helpers

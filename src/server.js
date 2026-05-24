@@ -2370,9 +2370,11 @@ apiRouter.put('/weight-target', async (req, res) => {
 apiRouter.post('/weights', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
-    await addWeightEntry(userId, req.body || {});
-    logAudit(userId, 'create', 'weight_entry');
-    res.json({ ok: true });
+    const result = await addWeightEntry(userId, req.body || {});
+    if (result.created !== false) {
+      logAudit(userId, 'create', 'weight_entry', result.id ? String(result.id) : undefined);
+    }
+    res.json({ ok: true, ...result });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -2566,9 +2568,11 @@ apiRouter.get('/sexual-activity', async (req, res) => {
 apiRouter.post('/sexual-activity', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
-    await addSexualActivityEntry(userId, req.body || {});
-    logAudit(userId, 'create', 'sexual_activity_entry');
-    res.json({ ok: true });
+    const result = await addSexualActivityEntry(userId, req.body || {});
+    if (result.created !== false) {
+      logAudit(userId, 'create', 'sexual_activity_entry', result.id ? String(result.id) : undefined);
+    }
+    res.json({ ok: true, ...result });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -2628,9 +2632,11 @@ apiRouter.get('/sleep', async (req, res) => {
 apiRouter.post('/sleep', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
-    await addSleepEntry(userId, req.body || {});
-    logAudit(userId, 'create', 'sleep_entry');
-    res.json({ ok: true });
+    const result = await addSleepEntry(userId, req.body || {});
+    if (result.created !== false) {
+      logAudit(userId, 'create', 'sleep_entry', result.id ? String(result.id) : undefined);
+    }
+    res.json({ ok: true, ...result });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

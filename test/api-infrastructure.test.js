@@ -170,6 +170,17 @@ test('workout entries track external sync source ids', () => {
   assert.ok(db.includes('external_id AS "externalId"'));
 });
 
+test('health metric entries track external sync source ids', () => {
+  const db = read('src/db.js');
+  assert.ok(db.includes('idx_weight_entries_user_source_external'));
+  assert.ok(db.includes('idx_sleep_entries_user_source_external'));
+  assert.ok(db.includes('idx_sexual_activity_entries_user_source_external'));
+  assert.ok(db.includes('normalizeHealthEntrySource'));
+  assert.ok(db.includes("source = normalizeHealthEntrySource(payload.source, 'Weight')"));
+  assert.ok(db.includes("source = normalizeHealthEntrySource(payload.source, 'Sleep')"));
+  assert.ok(db.includes("source = normalizeHealthEntrySource(payload.source, 'Sexual activity')"));
+});
+
 test('GDPR deleteUserAccount performs hard delete across all tables', () => {
   const db = read('src/db.js');
   const tables = [
