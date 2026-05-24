@@ -727,9 +727,9 @@ struct HealthView: View {
     }
 
     private func sleepEntryCard(_ entry: SleepEntry) -> some View {
-        HStack {
-            Image(systemName: "moon.zzz.fill")
-                .foregroundStyle(.indigo)
+        HStack(spacing: 12) {
+            sleepEntryIcon(entry)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(format: "%.1f hours", entry.durationHours))
                     .font(.subheadline.bold())
@@ -747,6 +747,34 @@ struct HealthView: View {
         .padding()
         .background(Color(.secondarySystemBackground))
         .cornerRadius(10)
+    }
+
+    private func sleepEntryIcon(_ entry: SleepEntry) -> some View {
+        let isBadNight = isBadSleepNight(entry)
+        let color: Color = isBadNight ? .orange : .indigo
+
+        return ZStack(alignment: .topTrailing) {
+            Image(systemName: "moon.zzz.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 36, height: 36)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+
+            if isBadNight {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.orange)
+                    .background(Circle().fill(Color(.secondarySystemBackground)))
+                    .offset(x: 4, y: -4)
+            }
+        }
+        .frame(width: 40, height: 40)
+        .accessibilityLabel(isBadNight ? "Bad night sleep" : "Sleep")
+    }
+
+    private func isBadSleepNight(_ entry: SleepEntry) -> Bool {
+        guard sleepTargetHours > 0 else { return false }
+        return abs(entry.durationHours - sleepTargetHours) >= 1
     }
 
     // MARK: - Log Health Sheet

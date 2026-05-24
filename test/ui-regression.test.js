@@ -555,6 +555,23 @@ test('iOS sleep chart omits axis title labels and centers summary legend', () =>
   assert.equal(sleepChart.includes('.frame(maxWidth: .infinity, alignment: .center)'), true);
 });
 
+test('iOS sleep log badges nights that miss target by at least an hour', () => {
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+  const sleepEntries = health.slice(
+    health.indexOf('private var sleepEntriesList'),
+    health.indexOf('// MARK: - Log Health Sheet')
+  );
+
+  assert.equal(sleepEntries.includes('sleepEntryIcon(entry)'), true);
+  assert.equal(sleepEntries.includes('private func sleepEntryIcon(_ entry: SleepEntry) -> some View'), true);
+  assert.equal(sleepEntries.includes('let isBadNight = isBadSleepNight(entry)'), true);
+  assert.equal(sleepEntries.includes('Image(systemName: "moon.zzz.fill")'), true);
+  assert.equal(sleepEntries.includes('Image(systemName: "exclamationmark.circle.fill")'), true);
+  assert.equal(sleepEntries.includes('private func isBadSleepNight(_ entry: SleepEntry) -> Bool'), true);
+  assert.equal(sleepEntries.includes('return abs(entry.durationHours - sleepTargetHours) >= 1'), true);
+  assert.equal(sleepEntries.includes('.accessibilityLabel(isBadNight ? "Bad night sleep" : "Sleep")'), true);
+});
+
 test('iOS sexual activity annual occurrence graph renders 365 wrapped daily bubbles', () => {
   const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
   const activityOccurrence = health.slice(
