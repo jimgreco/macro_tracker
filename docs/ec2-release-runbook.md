@@ -75,7 +75,7 @@ Push or merge to `main`. The workflow will:
 2. Install the SSH key and add the EC2 host key to `known_hosts`.
 3. Rsync the repository to `~/macros`.
 4. Rebuild and restart the `macros` service from `~/deploy`.
-5. Smoke `PRODUCTION_BASE_URL/healthz` and `PRODUCTION_BASE_URL/version`.
+5. Run `scripts/production-smoke.sh` against `PRODUCTION_BASE_URL`.
 
 ## Manual Smoke
 After deploy, run:
@@ -129,5 +129,5 @@ If the database migration is the suspected cause, stop and restore from the late
 ## Incident Notes
 - Every API error response includes a `requestId`; ask beta users for that reference.
 - Server logs are JSON lines with `requestId`, method, path, status, duration, and user id when available.
-- `.github/workflows/production-smoke.yml` runs hourly and can include authenticated checks when `PRODUCTION_SMOKE_API_TOKEN` is set.
+- Deploy and `.github/workflows/production-smoke.yml` run `scripts/production-smoke.sh`; both include authenticated checks when `PRODUCTION_SMOKE_API_TOKEN` is set.
 - Treat `/healthz` failures and sustained 5xx spikes as beta-stopping incidents.

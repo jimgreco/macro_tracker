@@ -84,14 +84,14 @@ For a preloaded local preview, run `npm run db:seed:local` after Postgres is up.
 
 ## Production Setup Notes
 
-The production path is the EC2 deploy workflow in `.github/workflows/deploy.yml`. It runs automatically for backend/web deploy inputs on `main`, can be started manually from GitHub Actions, rsyncs this repository to `~/macros`, rebuilds the `macros` service from `~/deploy`, and then smokes `/healthz` and `/version` when `PRODUCTION_BASE_URL` is configured.
+The production path is the EC2 deploy workflow in `.github/workflows/deploy.yml`. It runs automatically for backend/web deploy inputs on `main`, can be started manually from GitHub Actions, rsyncs this repository to `~/macros`, rebuilds the `macros` service from `~/deploy`, and then runs `scripts/production-smoke.sh` when `PRODUCTION_BASE_URL` is configured.
 
 Required GitHub Actions secrets for deploy:
 - `EC2_SSH_KEY`
 - `EC2_USER`
 - `EC2_HOST`
 - `PRODUCTION_BASE_URL` (optional for deploy; enables post-deploy smoke checks)
-- `PRODUCTION_SMOKE_API_TOKEN` (optional; enables authenticated scheduled smoke checks)
+- `PRODUCTION_SMOKE_API_TOKEN` (optional; enables authenticated deploy and scheduled smoke checks)
 
 For AWS/RDS deployments set:
 - `DATABASE_URL` to your RDS connection string
