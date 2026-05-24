@@ -250,8 +250,13 @@ test('iOS log sheets put Logged At first and reset timestamps on open', () => {
   assert.equal(addWeight.indexOf('DatePicker("Logged At", selection: $newWeightDate)') < addWeight.indexOf('TextField("Weight (lbs)"'), true);
   assert.equal(logHealth.indexOf('DatePicker("Logged At", selection: $healthLogDate)') < logHealth.indexOf('Text("Activity Type")'), true);
   assert.equal(logSleep.indexOf('DatePicker("Logged At", selection: $sleepLogDate)') < logSleep.indexOf('Text("Hours")'), true);
+  assert.equal(health.includes('@State private var sleepHours = ""'), true);
+  assert.equal(logSleep.includes('.tint(canLogSleepEntry ? .cyan : .gray)'), true);
+  assert.equal(logSleep.includes('.disabled(!canLogSleepEntry)'), true);
+  assert.equal(health.includes('private var canLogSleepEntry'), true);
   assert.equal(health.includes('Text("Date & Time")'), false);
   assert.equal(showLog.includes('sleepLogDate = Date()'), true);
+  assert.equal(showLog.includes('sleepHours = ""'), true);
   assert.equal(showLog.includes('healthLogDate = Date()'), true);
 });
 

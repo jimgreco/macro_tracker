@@ -55,7 +55,7 @@ struct HealthView: View {
     @State private var sleepDailyTotals: [SleepDailyTotals] = []
     @State private var sleepScope = "week"
     @State private var showLogSleep = false
-    @State private var sleepHours = "7.5"
+    @State private var sleepHours = ""
     @State private var sleepWakeUps = "0"
     @State private var sleepLogDate = Date()
     @State private var isSavingSleep = false
@@ -845,8 +845,8 @@ struct HealthView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.cyan)
-                    .disabled(isSavingSleep)
+                    .tint(canLogSleepEntry ? .cyan : .gray)
+                    .disabled(!canLogSleepEntry)
 
                     Spacer(minLength: 0)
                 }
@@ -863,6 +863,17 @@ struct HealthView: View {
         }
         .presentationDetents([.medium])
         .presentationContentInteraction(.scrolls)
+    }
+
+    private var canLogSleepEntry: Bool {
+        guard !isSavingSleep else { return false }
+        guard let hours = Double(sleepHours.trimmingCharacters(in: .whitespacesAndNewlines)), hours > 0, hours <= 24 else {
+            return false
+        }
+        guard let wakeUps = Int(sleepWakeUps.trimmingCharacters(in: .whitespacesAndNewlines)), wakeUps >= 0 else {
+            return false
+        }
+        return true
     }
 
     // MARK: - Edit Sleep Targets Sheet
@@ -1242,19 +1253,20 @@ struct HealthView: View {
     }
 
     private func saveSleepEntry() async {
+        guard canLogSleepEntry else { return }
         isSavingSleep = true
         defer { isSavingSleep = false }
         do {
-            guard let hours = Double(sleepHours), hours > 0, hours <= 24 else {
+            guard let hours = Double(sleepHours.trimmingCharacters(in: .whitespacesAndNewlines)), hours > 0, hours <= 24 else {
                 errorMessage = "Hours must be between 0 and 24."
                 return
             }
-            let wakeUps = Int(sleepWakeUps) ?? 0
+            let wakeUps = Int(sleepWakeUps.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
             let f = ISO8601DateFormatter()
             f.timeZone = TimeZone(identifier: "America/New_York")
             try await api.addSleepEntry(durationHours: hours, wakeUps: wakeUps, loggedAt: f.string(from: sleepLogDate))
             showLogSleep = false
-            sleepHours = "7.5"
+            sleepHours = ""
             sleepWakeUps = "0"
             sleepLogDate = Date()
             triggerSleepHealthKitExport()
@@ -1393,6 +1405,8 @@ struct HealthView: View {
         switch mode {
         case .sleep:
             sleepLogDate = Date()
+            sleepHours = ""
+            sleepWakeUps = "0"
             showLogSleep = true
         case .sexualActivity:
             guard sexualActivityEnabled else {
