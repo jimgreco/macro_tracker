@@ -301,6 +301,9 @@ test('iOS HealthKit auto-sync registers background delivery and exports after lo
 
   assert.equal(app.includes('@StateObject private var healthKitAutoSync = HealthKitAutoSync()'), true);
   assert.equal(app.includes('await healthKitAutoSync.start('), true);
+  assert.equal(app.includes('@Environment(\\.scenePhase) private var scenePhase'), true);
+  assert.equal(app.includes('.onChange(of: scenePhase)'), true);
+  assert.equal(app.includes('guard phase == .active, auth.isAuthenticated else { return }'), true);
   assert.equal(autoSync.includes('HKObserverQuery'), true);
   assert.equal(autoSync.includes('enableBackgroundDelivery(for: sampleType, frequency: .hourly)'), true);
   assert.equal(autoSync.includes('syncRecentWorkouts(api: api)'), true);
