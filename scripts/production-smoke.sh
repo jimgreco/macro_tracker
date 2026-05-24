@@ -73,19 +73,19 @@ created_saved_item_ids=()
 
 cleanup_created_records() {
   for id in "${created_entry_ids[@]}"; do
-    auth_curl -X DELETE "$BASE_URL/api/entries/$id" >/dev/null || true
+    auth_curl -X DELETE "$BASE_URL/api/entries/$id" >/dev/null 2>&1 || true
   done
   for id in "${created_weight_ids[@]}"; do
-    auth_curl -X DELETE "$BASE_URL/api/weights/$id" >/dev/null || true
+    auth_curl -X DELETE "$BASE_URL/api/weights/$id" >/dev/null 2>&1 || true
   done
   for id in "${created_sleep_ids[@]}"; do
-    auth_curl -X DELETE "$BASE_URL/api/sleep/$id" >/dev/null || true
+    auth_curl -X DELETE "$BASE_URL/api/sleep/$id" >/dev/null 2>&1 || true
   done
   for id in "${created_health_ids[@]}"; do
-    auth_curl -X DELETE "$BASE_URL/api/sexual-activity/$id" >/dev/null || true
+    auth_curl -X DELETE "$BASE_URL/api/sexual-activity/$id" >/dev/null 2>&1 || true
   done
   for id in "${created_saved_item_ids[@]}"; do
-    auth_curl -X DELETE "$BASE_URL/api/saved-items/$id" >/dev/null || true
+    auth_curl -X DELETE "$BASE_URL/api/saved-items/$id" >/dev/null 2>&1 || true
   done
 }
 
