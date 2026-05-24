@@ -453,10 +453,25 @@ struct HealthView: View {
                     .foregroundStyle(.secondary)
                     .frame(height: 120)
             } else {
-                Canvas { context, size in
-                    drawSleepChart(context: context, size: size)
+                HStack(alignment: .center, spacing: 4) {
+                    Text("Hours")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(-90))
+                        .fixedSize()
+                        .frame(width: 18, height: 150)
+
+                    Canvas { context, size in
+                        drawSleepChart(context: context, size: size)
+                    }
+                    .frame(height: 150)
                 }
-                .frame(height: 120)
+                .accessibilityLabel("Sleep chart with dates on the horizontal axis and hours on the vertical axis")
+
+                Text("Date")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
             }
 
             if !sleepDailyTotals.isEmpty {
@@ -483,51 +498,74 @@ struct HealthView: View {
     }
 
     private func drawSleepChart(context: GraphicsContext, size: CGSize) {
-        let data = sleepDailyTotals
-        guard data.count >= 2 else {
-            if let single = data.first {
-                let x = size.width / 2
-                let y = size.height / 2
-                let rect = CGRect(x: x - 4, y: y - 4, width: 8, height: 8)
-                context.fill(Path(ellipseIn: rect), with: .color(.cyan))
-                let text = Text(String(format: "%.1fh", single.totalHours)).font(.caption)
-                context.draw(text, at: CGPoint(x: x, y: y - 14))
-            }
-            return
-        }
+        let data = sleepDailyTotals.sorted { $0.day < $1.day }
+        guard !data.isEmpty else { return }
 
         let maxHours = max(data.map(\.totalHours).max() ?? 10, sleepTargetHours, 10)
         let minHours: Double = 0
-        let padding: CGFloat = 8
+        let span = max(maxHours - minHours, 1)
+        let topPadding: CGFloat = 10
+        let rightPadding: CGFloat = 8
+        let bottomPadding: CGFloat = 30
+        let leftPadding: CGFloat = 42
+        let chartW = max(size.width - leftPadding - rightPadding, 1)
+        let chartH = max(size.height - topPadding - bottomPadding, 1)
+        let tickCount = 4
 
-        let chartW = size.width - padding * 2
-        let chartH = size.height - padding * 2
-        let stepX = chartW / CGFloat(data.count - 1)
+        func xPos(_ index: Int) -> CGFloat {
+            guard data.count > 1 else {
+                return leftPadding + chartW / 2
+            }
+            return leftPadding + CGFloat(index) / CGFloat(data.count - 1) * chartW
+        }
 
         func yPos(_ hours: Double) -> CGFloat {
-            let ratio = (hours - minHours) / (maxHours - minHours)
-            return padding + chartH * (1 - CGFloat(ratio))
+            let ratio = (hours - minHours) / span
+            return topPadding + chartH * (1 - CGFloat(ratio))
         }
+
+        for tickIndex in 0...tickCount {
+            let ratio = CGFloat(tickIndex) / CGFloat(tickCount)
+            let y = topPadding + ratio * chartH
+            let tickValue = maxHours - Double(tickIndex) * span / Double(tickCount)
+
+            var gridPath = Path()
+            gridPath.move(to: CGPoint(x: leftPadding, y: y))
+            gridPath.addLine(to: CGPoint(x: leftPadding + chartW, y: y))
+            context.stroke(gridPath, with: .color(.white.opacity(0.07)), lineWidth: 1)
+
+            context.draw(
+                Text(formatSleepAxisValue(tickValue)).font(.caption2).foregroundColor(.secondary),
+                at: CGPoint(x: leftPadding - 6, y: y),
+                anchor: .trailing
+            )
+        }
+
+        var axisPath = Path()
+        axisPath.move(to: CGPoint(x: leftPadding, y: topPadding))
+        axisPath.addLine(to: CGPoint(x: leftPadding, y: topPadding + chartH))
+        axisPath.addLine(to: CGPoint(x: leftPadding + chartW, y: topPadding + chartH))
+        context.stroke(axisPath, with: .color(.white.opacity(0.15)), lineWidth: 1)
 
         // Target line
         let targetY = yPos(sleepTargetHours)
         var targetPath = Path()
-        targetPath.move(to: CGPoint(x: padding, y: targetY))
-        targetPath.addLine(to: CGPoint(x: size.width - padding, y: targetY))
+        targetPath.move(to: CGPoint(x: leftPadding, y: targetY))
+        targetPath.addLine(to: CGPoint(x: leftPadding + chartW, y: targetY))
         context.stroke(targetPath, with: .color(.green.opacity(0.4)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
 
         // Average line
         let avg = data.reduce(0.0) { $0 + $1.totalHours } / Double(data.count)
         let avgY = yPos(avg)
         var avgPath = Path()
-        avgPath.move(to: CGPoint(x: padding, y: avgY))
-        avgPath.addLine(to: CGPoint(x: size.width - padding, y: avgY))
+        avgPath.move(to: CGPoint(x: leftPadding, y: avgY))
+        avgPath.addLine(to: CGPoint(x: leftPadding + chartW, y: avgY))
         context.stroke(avgPath, with: .color(.white.opacity(0.3)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
 
         // Data line
         var linePath = Path()
         for (i, d) in data.enumerated() {
-            let x = padding + CGFloat(i) * stepX
+            let x = xPos(i)
             let y = yPos(d.totalHours)
             if i == 0 {
                 linePath.move(to: CGPoint(x: x, y: y))
@@ -539,11 +577,66 @@ struct HealthView: View {
 
         // Dots
         for (i, d) in data.enumerated() {
-            let x = padding + CGFloat(i) * stepX
+            let x = xPos(i)
             let y = yPos(d.totalHours)
             let rect = CGRect(x: x - 3, y: y - 3, width: 6, height: 6)
             context.fill(Path(ellipseIn: rect), with: .color(.cyan))
         }
+
+        let labelIndices = chartAxisLabelIndices(count: data.count, desired: 4)
+        for (position, index) in labelIndices.enumerated() {
+            let anchor: UnitPoint
+            if position == 0 {
+                anchor = .topLeading
+            } else if position == labelIndices.count - 1 {
+                anchor = .topTrailing
+            } else {
+                anchor = .top
+            }
+
+            context.draw(
+                Text(sleepChartDateLabel(data[index].day)).font(.caption2).foregroundColor(.secondary),
+                at: CGPoint(x: xPos(index), y: topPadding + chartH + 8),
+                anchor: anchor
+            )
+        }
+    }
+
+    private func chartAxisLabelIndices(count: Int, desired: Int) -> [Int] {
+        guard count > 0 else { return [] }
+        guard count > desired else { return Array(0..<count) }
+
+        return (0..<desired).reduce(into: [Int]()) { indices, labelIndex in
+            let index = Int((Double(labelIndex) * Double(count - 1) / Double(desired - 1)).rounded())
+            if indices.last != index {
+                indices.append(index)
+            }
+        }
+    }
+
+    private func formatSleepAxisValue(_ value: Double) -> String {
+        let rounded = value.rounded()
+        if abs(value - rounded) < 0.05 {
+            return "\(Int(rounded))h"
+        }
+        return String(format: "%.1fh", value)
+    }
+
+    private func sleepChartDateLabel(_ day: String) -> String {
+        let inputFormatter = DateFormatter()
+        inputFormatter.calendar = healthCalendar
+        inputFormatter.timeZone = healthCalendar.timeZone
+        inputFormatter.dateFormat = "yyyy-MM-dd"
+
+        guard let date = inputFormatter.date(from: day) else {
+            return String(day.prefix(5))
+        }
+
+        let outputFormatter = DateFormatter()
+        outputFormatter.calendar = healthCalendar
+        outputFormatter.timeZone = healthCalendar.timeZone
+        outputFormatter.setLocalizedDateFormatFromTemplate("M/d")
+        return outputFormatter.string(from: date)
     }
 
     private var sleepEntriesList: some View {

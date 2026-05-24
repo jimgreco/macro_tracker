@@ -138,52 +138,28 @@ struct WeightView: View {
         Group {
             if entries.count >= 2 {
                 VStack(alignment: .leading, spacing: 8) {
-                    Canvas { context, size in
-                        let weights = entries.map(\.weight)
-                        let targetW = target?.targetWeight
-                        var allValues = weights
-                        if let tw = targetW { allValues.append(tw) }
-                        let minW = (allValues.min() ?? 0) - 2
-                        let maxW = (allValues.max() ?? 0) + 2
-                        let range = max(maxW - minW, 1)
+                    let chartEntries = weightChartEntries
+                    let scale = weightChartScale
 
-                        let stepX = size.width / CGFloat(max(entries.count - 1, 1))
+                    HStack(alignment: .center, spacing: 4) {
+                        Text("Weight (lb)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(-90))
+                            .fixedSize()
+                            .frame(width: 18, height: 220)
 
-                        // Target line
-                        if let tw = targetW {
-                            let y = size.height - ((CGFloat(tw) - CGFloat(minW)) / CGFloat(range)) * size.height
-                            var targetPath = Path()
-                            targetPath.move(to: CGPoint(x: 0, y: y))
-                            targetPath.addLine(to: CGPoint(x: size.width, y: y))
-                            context.stroke(targetPath, with: .color(.green.opacity(0.5)), style: StrokeStyle(lineWidth: 1, dash: [5, 5]))
+                        Canvas { context, size in
+                            drawWeightChart(entries: chartEntries, scale: scale, context: context, size: size)
                         }
-
-                        // Average line
-                        let avg = weights.reduce(0, +) / Double(weights.count)
-                        let avgY = size.height - ((CGFloat(avg) - CGFloat(minW)) / CGFloat(range)) * size.height
-                        var avgPath = Path()
-                        avgPath.move(to: CGPoint(x: 0, y: avgY))
-                        avgPath.addLine(to: CGPoint(x: size.width, y: avgY))
-                        context.stroke(avgPath, with: .color(.white.opacity(0.2)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-
-                        // Data line
-                        var path = Path()
-                        for (i, entry) in entries.enumerated() {
-                            let x = CGFloat(i) * stepX
-                            let y = size.height - ((CGFloat(entry.weight) - CGFloat(minW)) / CGFloat(range)) * size.height
-                            if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
-                            else { path.addLine(to: CGPoint(x: x, y: y)) }
-                        }
-                        context.stroke(path, with: .color(.cyan), lineWidth: 2)
-
-                        // Dots
-                        for (i, entry) in entries.enumerated() {
-                            let x = CGFloat(i) * stepX
-                            let y = size.height - ((CGFloat(entry.weight) - CGFloat(minW)) / CGFloat(range)) * size.height
-                            context.fill(Circle().path(in: CGRect(x: x - 3, y: y - 3, width: 6, height: 6)), with: .color(.cyan))
-                        }
+                        .frame(height: 220)
                     }
-                    .frame(height: 200)
+                    .accessibilityLabel("Weight chart with dates on the horizontal axis and pounds on the vertical axis")
+
+                    Text("Date")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
 
                     // Legend
                     HStack(spacing: 16) {
@@ -200,6 +176,146 @@ struct WeightView: View {
                 .cornerRadius(12)
             }
         }
+    }
+
+    private var weightChartEntries: [WeightEntry] {
+        entries.sorted { parseISO($0.loggedAt) < parseISO($1.loggedAt) }
+    }
+
+    private var weightChartScale: (min: Double, max: Double, span: Double) {
+        var values = entries.map(\.weight)
+        if let targetWeight = target?.targetWeight {
+            values.append(targetWeight)
+        }
+
+        let minValue = (values.min() ?? 0) - 2
+        let rawMaxValue = (values.max() ?? 0) + 2
+        let span = max(rawMaxValue - minValue, 1)
+        return (minValue, minValue + span, span)
+    }
+
+    private func drawWeightChart(entries chartEntries: [WeightEntry], scale: (min: Double, max: Double, span: Double), context: GraphicsContext, size: CGSize) {
+        guard !chartEntries.isEmpty else { return }
+
+        let topPadding: CGFloat = 10
+        let rightPadding: CGFloat = 8
+        let bottomPadding: CGFloat = 30
+        let leftPadding: CGFloat = 46
+        let plotWidth = max(size.width - leftPadding - rightPadding, 1)
+        let plotHeight = max(size.height - topPadding - bottomPadding, 1)
+        let tickCount = 4
+
+        func xPosition(_ index: Int) -> CGFloat {
+            guard chartEntries.count > 1 else {
+                return leftPadding + plotWidth / 2
+            }
+            return leftPadding + (CGFloat(index) / CGFloat(chartEntries.count - 1)) * plotWidth
+        }
+
+        func yPosition(_ value: Double) -> CGFloat {
+            topPadding + plotHeight - CGFloat((value - scale.min) / scale.span) * plotHeight
+        }
+
+        for tickIndex in 0...tickCount {
+            let ratio = CGFloat(tickIndex) / CGFloat(tickCount)
+            let y = topPadding + ratio * plotHeight
+            let tickValue = scale.max - Double(tickIndex) * scale.span / Double(tickCount)
+
+            var gridPath = Path()
+            gridPath.move(to: CGPoint(x: leftPadding, y: y))
+            gridPath.addLine(to: CGPoint(x: leftPadding + plotWidth, y: y))
+            context.stroke(gridPath, with: .color(.white.opacity(0.07)), lineWidth: 1)
+
+            context.draw(
+                Text(formatWeightAxisValue(tickValue)).font(.caption2).foregroundColor(.secondary),
+                at: CGPoint(x: leftPadding - 6, y: y),
+                anchor: .trailing
+            )
+        }
+
+        var axisPath = Path()
+        axisPath.move(to: CGPoint(x: leftPadding, y: topPadding))
+        axisPath.addLine(to: CGPoint(x: leftPadding, y: topPadding + plotHeight))
+        axisPath.addLine(to: CGPoint(x: leftPadding + plotWidth, y: topPadding + plotHeight))
+        context.stroke(axisPath, with: .color(.white.opacity(0.15)), lineWidth: 1)
+
+        if let targetWeight = target?.targetWeight {
+            let y = yPosition(targetWeight)
+            var targetPath = Path()
+            targetPath.move(to: CGPoint(x: leftPadding, y: y))
+            targetPath.addLine(to: CGPoint(x: leftPadding + plotWidth, y: y))
+            context.stroke(targetPath, with: .color(.green.opacity(0.5)), style: StrokeStyle(lineWidth: 1, dash: [5, 5]))
+        }
+
+        let weights = chartEntries.map(\.weight)
+        let average = weights.reduce(0, +) / Double(weights.count)
+        let averageY = yPosition(average)
+        var averagePath = Path()
+        averagePath.move(to: CGPoint(x: leftPadding, y: averageY))
+        averagePath.addLine(to: CGPoint(x: leftPadding + plotWidth, y: averageY))
+        context.stroke(averagePath, with: .color(.white.opacity(0.2)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+
+        var linePath = Path()
+        for (index, entry) in chartEntries.enumerated() {
+            let x = xPosition(index)
+            let y = yPosition(entry.weight)
+            if index == 0 {
+                linePath.move(to: CGPoint(x: x, y: y))
+            } else {
+                linePath.addLine(to: CGPoint(x: x, y: y))
+            }
+        }
+        context.stroke(linePath, with: .color(.cyan), lineWidth: 2)
+
+        for (index, entry) in chartEntries.enumerated() {
+            let x = xPosition(index)
+            let y = yPosition(entry.weight)
+            context.fill(Circle().path(in: CGRect(x: x - 3, y: y - 3, width: 6, height: 6)), with: .color(.cyan))
+        }
+
+        let labelIndices = chartAxisLabelIndices(count: chartEntries.count, desired: 4)
+        for (position, index) in labelIndices.enumerated() {
+            let anchor: UnitPoint
+            if position == 0 {
+                anchor = .topLeading
+            } else if position == labelIndices.count - 1 {
+                anchor = .topTrailing
+            } else {
+                anchor = .top
+            }
+
+            context.draw(
+                Text(formatChartDate(chartEntries[index].loggedAt)).font(.caption2).foregroundColor(.secondary),
+                at: CGPoint(x: xPosition(index), y: topPadding + plotHeight + 8),
+                anchor: anchor
+            )
+        }
+    }
+
+    private func chartAxisLabelIndices(count: Int, desired: Int) -> [Int] {
+        guard count > 0 else { return [] }
+        guard count > desired else { return Array(0..<count) }
+
+        return (0..<desired).reduce(into: [Int]()) { indices, labelIndex in
+            let index = Int((Double(labelIndex) * Double(count - 1) / Double(desired - 1)).rounded())
+            if indices.last != index {
+                indices.append(index)
+            }
+        }
+    }
+
+    private func formatWeightAxisValue(_ value: Double) -> String {
+        let rounded = value.rounded()
+        if abs(value - rounded) < 0.05 {
+            return "\(Int(rounded))"
+        }
+        return String(format: "%.1f", value)
+    }
+
+    private func formatChartDate(_ iso: String) -> String {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("M/d")
+        return formatter.string(from: parseISO(iso))
     }
 
     private func legendItem(_ text: String, color: Color) -> some View {
