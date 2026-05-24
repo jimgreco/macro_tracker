@@ -469,7 +469,9 @@ struct WorkoutsView: View {
     // MARK: - Edit Targets Sheet
 
     private var editTargetsSheet: some View {
-        NavigationStack {
+        let canSave = canSaveWorkoutTargets
+
+        return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -480,6 +482,7 @@ struct WorkoutsView: View {
                             .textFieldStyle(.roundedBorder)
                             .keyboardType(.numberPad)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Calories Burned per Week")
@@ -489,6 +492,7 @@ struct WorkoutsView: View {
                             .textFieldStyle(.roundedBorder)
                             .keyboardType(.numberPad)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
                         Task { await saveWorkoutTargets() }
@@ -496,7 +500,8 @@ struct WorkoutsView: View {
                         Text("Save Targets").font(.headline).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.cyan)
+                    .tint(canSave ? .cyan : .gray)
+                    .disabled(!canSave)
 
                     Spacer(minLength: 0)
                 }
@@ -513,6 +518,17 @@ struct WorkoutsView: View {
         }
         .presentationDetents([.medium])
         .presentationContentInteraction(.scrolls)
+    }
+
+    private var canSaveWorkoutTargets: Bool {
+        guard let workouts = Double(editWorkoutsPerWeek.trimmingCharacters(in: .whitespacesAndNewlines)), workouts > 0 else {
+            return false
+        }
+        guard let calories = Double(editCaloriesPerWeek.trimmingCharacters(in: .whitespacesAndNewlines)), calories >= 0 else {
+            return false
+        }
+
+        return abs(workouts - workoutsTarget) > 0.001 || abs(calories - caloriesTarget) > 0.001
     }
 
     // MARK: - Log Workout Sheet
@@ -653,8 +669,8 @@ struct WorkoutsView: View {
     private func beginEditWorkout(_ workout: WorkoutEntry) {
         editWorkoutDescription = workout.description
         editWorkoutIntensity = normalizeWorkoutIntensity(workout.intensity)
-        editWorkoutDuration = String(format: "%.2g", workout.durationHours)
-        editWorkoutCalories = "\(Int(workout.caloriesBurned))"
+        editWorkoutDuration = workoutDurationEditText(for: workout)
+        editWorkoutCalories = workoutCaloriesEditText(for: workout)
         editWorkoutDate = parseISO(workout.loggedAt)
         editWorkoutBaseDuration = workout.durationHours
         editWorkoutBaseCalories = workout.caloriesBurned
@@ -667,8 +683,17 @@ struct WorkoutsView: View {
         return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    TextField("Description", text: $editWorkoutDescription)
-                        .textFieldStyle(.roundedBorder)
+                    DatePicker("Logged At", selection: $editWorkoutDate)
+                        .datePickerStyle(.compact)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Workout Name")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("Workout Name", text: $editWorkoutDescription)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Intensity")
@@ -710,29 +735,28 @@ struct WorkoutsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    DatePicker("Logged At", selection: $editWorkoutDate)
-                        .datePickerStyle(.compact)
-
-                    Button {
-                        Task { await updateWorkout(workout) }
-                    } label: {
-                        if isSaving {
-                            ProgressView().frame(maxWidth: .infinity)
-                        } else {
-                            Text("Save").font(.headline).frame(maxWidth: .infinity)
+                    HStack(spacing: 12) {
+                        Button(role: .destructive) {
+                            Task { await deleteWorkout(workout) }
+                        } label: {
+                            Text("Delete").font(.headline).frame(maxWidth: .infinity)
                         }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(canSave ? .cyan : .gray)
-                    .disabled(!canSave)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
 
-                    Button(role: .destructive) {
-                        Task { await deleteWorkout(workout) }
-                    } label: {
-                        Text("Delete Workout").frame(maxWidth: .infinity)
+                        Button {
+                            Task { await updateWorkout(workout) }
+                        } label: {
+                            if isSaving {
+                                ProgressView().frame(maxWidth: .infinity)
+                            } else {
+                                Text("Save").font(.headline).frame(maxWidth: .infinity)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(canSave ? .cyan : .gray)
+                        .disabled(!canSave)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
                 }
                 .padding()
             }
@@ -756,14 +780,24 @@ struct WorkoutsView: View {
         guard !description.isEmpty else { return false }
         guard let duration = Double(editWorkoutDuration), duration > 0 else { return false }
         guard let calories = Double(editWorkoutCalories), calories >= 0 else { return false }
+        let baselineDuration = Double(workoutDurationEditText(for: workout)) ?? workout.durationHours
+        let baselineCalories = Double(workoutCaloriesEditText(for: workout)) ?? workout.caloriesBurned
 
         let descriptionChanged = description != workout.description.trimmingCharacters(in: .whitespacesAndNewlines)
         let intensityChanged = normalizeWorkoutIntensity(editWorkoutIntensity) != normalizeWorkoutIntensity(workout.intensity)
-        let durationChanged = abs(duration - workout.durationHours) > 0.001
-        let caloriesChanged = abs(calories - workout.caloriesBurned) > 0.5
+        let durationChanged = abs(duration - baselineDuration) > 0.001
+        let caloriesChanged = abs(calories - baselineCalories) > 0.5
         let loggedAtChanged = !isSameDisplayedMinute(editWorkoutDate, parseISO(workout.loggedAt))
 
         return descriptionChanged || intensityChanged || durationChanged || caloriesChanged || loggedAtChanged
+    }
+
+    private func workoutDurationEditText(for workout: WorkoutEntry) -> String {
+        String(format: "%.2g", workout.durationHours)
+    }
+
+    private func workoutCaloriesEditText(for workout: WorkoutEntry) -> String {
+        "\(Int(workout.caloriesBurned))"
     }
 
     private func detailRow(_ label: String, value: String) -> some View {
@@ -865,6 +899,7 @@ struct WorkoutsView: View {
     }
 
     private func saveWorkoutTargets() async {
+        guard canSaveWorkoutTargets else { return }
         do {
             if let w = Double(editWorkoutsPerWeek) {
                 try await api.setMacroTarget(macro: "workouts", target: w)

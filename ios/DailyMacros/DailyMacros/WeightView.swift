@@ -347,7 +347,7 @@ struct WeightView: View {
                     weightEntryCard(entry)
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            editWeightValue = String(format: "%.1f", entry.weight)
+                            editWeightValue = weightEditText(for: entry)
                             editWeightDate = parseISO(entry.loggedAt)
                             editingEntry = entry
                         }
@@ -458,6 +458,9 @@ struct WeightView: View {
         return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    DatePicker("Logged At", selection: $editWeightDate)
+                        .datePickerStyle(.compact)
+
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Weight")
                             .font(.caption)
@@ -468,32 +471,31 @@ struct WeightView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    DatePicker("Logged At", selection: $editWeightDate)
-                        .datePickerStyle(.compact)
-
-                    Button {
-                        Task { await updateWeight(entry) }
-                    } label: {
-                        if isLoading {
-                            ProgressView().frame(maxWidth: .infinity)
-                        } else {
-                            Text("Save").font(.headline).frame(maxWidth: .infinity)
+                    HStack(spacing: 12) {
+                        Button(role: .destructive) {
+                            Task {
+                                await deleteWeight(entry.id)
+                                editingEntry = nil
+                            }
+                        } label: {
+                            Text("Delete").font(.headline).frame(maxWidth: .infinity)
                         }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(canSave ? .cyan : .gray)
-                    .disabled(!canSave)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
 
-                    Button(role: .destructive) {
-                        Task {
-                            await deleteWeight(entry.id)
-                            editingEntry = nil
+                        Button {
+                            Task { await updateWeight(entry) }
+                        } label: {
+                            if isLoading {
+                                ProgressView().frame(maxWidth: .infinity)
+                            } else {
+                                Text("Save").font(.headline).frame(maxWidth: .infinity)
+                            }
                         }
-                    } label: {
-                        Text("Delete Entry").font(.headline).frame(maxWidth: .infinity)
+                        .buttonStyle(.borderedProminent)
+                        .tint(canSave ? .cyan : .gray)
+                        .disabled(!canSave)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
                 }
                 .padding()
             }
@@ -516,16 +518,23 @@ struct WeightView: View {
             return false
         }
 
-        let weightChanged = abs(weight - entry.weight) > 0.001
+        let baselineWeight = Double(weightEditText(for: entry)) ?? entry.weight
+        let weightChanged = abs(weight - baselineWeight) > 0.001
         let loggedAtChanged = !isSameDisplayedMinute(editWeightDate, parseISO(entry.loggedAt))
 
         return weightChanged || loggedAtChanged
     }
 
+    private func weightEditText(for entry: WeightEntry) -> String {
+        String(format: "%.1f", entry.weight)
+    }
+
     // MARK: - Edit Target Sheet
 
     private var editTargetSheet: some View {
-        NavigationStack {
+        let canSave = canSaveWeightTarget
+
+        return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -536,6 +545,7 @@ struct WeightView: View {
                             .textFieldStyle(.roundedBorder)
                             .keyboardType(.decimalPad)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Target Date")
@@ -545,6 +555,7 @@ struct WeightView: View {
                             .datePickerStyle(.compact)
                             .labelsHidden()
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
                         Task { await saveTarget() }
@@ -552,8 +563,8 @@ struct WeightView: View {
                         Text("Save Target").font(.headline).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.cyan)
-                    .disabled(editTargetWeight.isEmpty)
+                    .tint(canSave ? .cyan : .gray)
+                    .disabled(!canSave)
 
                     Spacer(minLength: 0)
                 }
@@ -570,6 +581,22 @@ struct WeightView: View {
         }
         .presentationDetents([.medium])
         .presentationContentInteraction(.scrolls)
+    }
+
+    private var canSaveWeightTarget: Bool {
+        guard let weight = Double(editTargetWeight.trimmingCharacters(in: .whitespacesAndNewlines)), weight > 0 else {
+            return false
+        }
+
+        guard let targetWeight = target?.targetWeight else {
+            return true
+        }
+
+        let weightChanged = abs(weight - targetWeight) > 0.001
+        let currentDate = target?.targetDate.flatMap(parseTargetDate)
+        let dateChanged = currentDate.map { !Calendar.current.isDate(editTargetDate, inSameDayAs: $0) } ?? true
+
+        return weightChanged || dateChanged
     }
 
     // MARK: - Actions
@@ -678,6 +705,7 @@ struct WeightView: View {
     }
 
     private func saveTarget() async {
+        guard canSaveWeightTarget else { return }
         guard let weight = Double(editTargetWeight) else { return }
         do {
             let f = DateFormatter()

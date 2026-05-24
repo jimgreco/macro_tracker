@@ -706,7 +706,7 @@ struct HealthView: View {
                         sleepEntryCard(entry)
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                editSleepHours = String(format: "%.2g", entry.durationHours)
+                                editSleepHours = sleepHoursEditText(for: entry)
                                 editSleepWakeUps = "\(entry.wakeUps)"
                                 editSleepDate = parseISO(entry.loggedAt)
                                 editingSleep = entry
@@ -868,7 +868,9 @@ struct HealthView: View {
     // MARK: - Edit Sleep Targets Sheet
 
     private var editSleepTargetsSheet: some View {
-        NavigationStack {
+        let canSave = canSaveSleepTarget
+
+        return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -891,8 +893,8 @@ struct HealthView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.cyan)
-                    .disabled(isSavingSleepTarget)
+                    .tint(canSave ? .cyan : .gray)
+                    .disabled(!canSave)
 
                     Spacer(minLength: 0)
                 }
@@ -911,6 +913,14 @@ struct HealthView: View {
         .presentationContentInteraction(.scrolls)
     }
 
+    private var canSaveSleepTarget: Bool {
+        guard !isSavingSleepTarget else { return false }
+        guard let targetHours = Double(editSleepTargetHours.trimmingCharacters(in: .whitespacesAndNewlines)), targetHours > 0, targetHours <= 24 else {
+            return false
+        }
+        return abs(targetHours - sleepTargetHours) > 0.001
+    }
+
     // MARK: - Edit Health Sheet
 
     private func editHealthSheet(_ entry: HealthEntry) -> some View {
@@ -919,6 +929,9 @@ struct HealthView: View {
         return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    DatePicker("Logged At", selection: $editHealthDate)
+                        .datePickerStyle(.compact)
+
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Activity Type")
                             .font(.caption)
@@ -932,29 +945,28 @@ struct HealthView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    DatePicker("Logged At", selection: $editHealthDate)
-                        .datePickerStyle(.compact)
-
-                    Button {
-                        Task { await updateHealth(entry) }
-                    } label: {
-                        if isSavingHealth {
-                            ProgressView().frame(maxWidth: .infinity)
-                        } else {
-                            Text("Save").font(.headline).frame(maxWidth: .infinity)
+                    HStack(spacing: 12) {
+                        Button(role: .destructive) {
+                            Task { await deleteHealth(entry) }
+                        } label: {
+                            Text("Delete").font(.headline).frame(maxWidth: .infinity)
                         }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(canSave ? .cyan : .gray)
-                    .disabled(!canSave)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
 
-                    Button(role: .destructive) {
-                        Task { await deleteHealth(entry) }
-                    } label: {
-                        Text("Delete Entry").font(.headline).frame(maxWidth: .infinity)
+                        Button {
+                            Task { await updateHealth(entry) }
+                        } label: {
+                            if isSavingHealth {
+                                ProgressView().frame(maxWidth: .infinity)
+                            } else {
+                                Text("Save").font(.headline).frame(maxWidth: .infinity)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(canSave ? .cyan : .gray)
+                        .disabled(!canSave)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
                 }
                 .padding()
             }
@@ -988,6 +1000,9 @@ struct HealthView: View {
         return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    DatePicker("Logged At", selection: $editSleepDate)
+                        .datePickerStyle(.compact)
+
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Hours")
@@ -1011,29 +1026,28 @@ struct HealthView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    DatePicker("Logged At", selection: $editSleepDate)
-                        .datePickerStyle(.compact)
-
-                    Button {
-                        Task { await updateSleep(entry) }
-                    } label: {
-                        if isSavingSleep {
-                            ProgressView().frame(maxWidth: .infinity)
-                        } else {
-                            Text("Save").font(.headline).frame(maxWidth: .infinity)
+                    HStack(spacing: 12) {
+                        Button(role: .destructive) {
+                            Task { await deleteSleep(entry) }
+                        } label: {
+                            Text("Delete").font(.headline).frame(maxWidth: .infinity)
                         }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(canSave ? .cyan : .gray)
-                    .disabled(!canSave)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
 
-                    Button(role: .destructive) {
-                        Task { await deleteSleep(entry) }
-                    } label: {
-                        Text("Delete Entry").font(.headline).frame(maxWidth: .infinity)
+                        Button {
+                            Task { await updateSleep(entry) }
+                        } label: {
+                            if isSavingSleep {
+                                ProgressView().frame(maxWidth: .infinity)
+                            } else {
+                                Text("Save").font(.headline).frame(maxWidth: .infinity)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(canSave ? .cyan : .gray)
+                        .disabled(!canSave)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
                 }
                 .padding()
             }
@@ -1059,11 +1073,16 @@ struct HealthView: View {
             return false
         }
 
-        let hoursChanged = abs(hours - entry.durationHours) > 0.001
+        let baselineHours = Double(sleepHoursEditText(for: entry)) ?? entry.durationHours
+        let hoursChanged = abs(hours - baselineHours) > 0.001
         let wakeUpsChanged = wakeUps != entry.wakeUps
         let loggedAtChanged = !isSameDisplayedMinute(editSleepDate, parseISO(entry.loggedAt))
 
         return hoursChanged || wakeUpsChanged || loggedAtChanged
+    }
+
+    private func sleepHoursEditText(for entry: SleepEntry) -> String {
+        String(format: "%.2g", entry.durationHours)
     }
 
     private func isSameDisplayedMinute(_ lhs: Date, _ rhs: Date) -> Bool {
@@ -1258,6 +1277,7 @@ struct HealthView: View {
     }
 
     private func saveSleepTargets() async {
+        guard canSaveSleepTarget else { return }
         isSavingSleepTarget = true
         defer { isSavingSleepTarget = false }
         do {

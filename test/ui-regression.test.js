@@ -90,7 +90,8 @@ test('iOS edit weight save button stays disabled until a value changes', () => {
   assert.equal(editSheet.includes('.tint(canSave ? .cyan : .gray)'), true);
   assert.equal(editSheet.includes('.disabled(!canSave)'), true);
   assert.equal(editSheet.includes('private func canSaveWeightEdit'), true);
-  assert.equal(editSheet.includes('abs(weight - entry.weight) > 0.001'), true);
+  assert.equal(editSheet.includes('let baselineWeight = Double(weightEditText(for: entry)) ?? entry.weight'), true);
+  assert.equal(editSheet.includes('abs(weight - baselineWeight) > 0.001'), true);
   assert.equal(editSheet.includes('!isSameDisplayedMinute(editWeightDate, parseISO(entry.loggedAt))'), true);
 });
 
@@ -136,9 +137,22 @@ test('iOS entry edit sheets share disabled-save and red-delete treatment', () =>
     assert.equal(section.includes('.disabled(!canSave)'), true);
     assert.equal(section.includes('.buttonStyle(.borderedProminent)'), true);
     assert.equal(section.includes('.tint(.red)'), true);
+    assert.equal(
+      section.indexOf('Text("Delete").font(.headline).frame(maxWidth: .infinity)') <
+        section.indexOf('Text("Save").font(.headline).frame(maxWidth: .infinity)'),
+      true
+    );
   }
 
   assert.equal(workouts.includes('private func canSaveWorkoutEdit'), true);
+  assert.equal(workoutEdit.includes('Text("Workout Name")'), true);
+  assert.equal(workoutEdit.includes('TextField("Workout Name", text: $editWorkoutDescription)'), true);
+  assert.equal(workouts.includes('let baselineDuration = Double(workoutDurationEditText(for: workout)) ?? workout.durationHours'), true);
+  assert.equal(workouts.includes('let baselineCalories = Double(workoutCaloriesEditText(for: workout)) ?? workout.caloriesBurned'), true);
+  assert.equal(workouts.includes('let durationChanged = abs(duration - baselineDuration) > 0.001'), true);
+  assert.equal(workouts.includes('let caloriesChanged = abs(calories - baselineCalories) > 0.5'), true);
+  assert.equal(weight.includes('let baselineWeight = Double(weightEditText(for: entry)) ?? entry.weight'), true);
+  assert.equal(health.includes('let baselineHours = Double(sleepHoursEditText(for: entry)) ?? entry.durationHours'), true);
   assert.equal(weight.includes('private func canSaveWeightEdit'), true);
   assert.equal(health.includes('private func canSaveHealthEdit'), true);
   assert.equal(health.includes('private func canSaveSleepEdit'), true);
@@ -152,6 +166,64 @@ test('iOS entry edit sheets share disabled-save and red-delete treatment', () =>
   assert.equal(activityEdit.includes('.frame(maxWidth: .infinity, alignment: .leading)'), true);
   assert.equal(sleepEdit.includes('DatePicker("Logged At", selection: $editSleepDate)'), true);
   assert.equal(sleepEdit.includes('.frame(maxWidth: .infinity, alignment: .leading)'), true);
+});
+
+test('iOS target sheets disable unchanged saves', () => {
+  const macros = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const workouts = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
+  const weight = read('ios/DailyMacros/DailyMacros/WeightView.swift');
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+
+  assert.equal(macros.includes('private var canSaveMacroTargets'), true);
+  assert.equal(macros.includes('.tint(canSave ? Color.neonCyan : .gray)'), true);
+  assert.equal(macros.includes('guard canSaveMacroTargets else { return }'), true);
+  assert.equal(workouts.includes('private var canSaveWorkoutTargets'), true);
+  assert.equal(workouts.includes('guard canSaveWorkoutTargets else { return }'), true);
+  assert.equal(weight.includes('private var canSaveWeightTarget'), true);
+  assert.equal(weight.includes('guard canSaveWeightTarget else { return }'), true);
+  assert.equal(health.includes('private var canSaveSleepTarget'), true);
+  assert.equal(health.includes('guard canSaveSleepTarget else { return }'), true);
+});
+
+test('iOS macro edit sheets use disabled saves and left-side destructive actions', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const entryEdit = swift.slice(
+    swift.indexOf('private var editEntrySheet'),
+    swift.indexOf('/// When quantity changes')
+  );
+  const mealEdit = swift.slice(
+    swift.indexOf('private var editMealSheet'),
+    swift.indexOf('private var mealScaleFactor')
+  );
+  const parsedEdit = swift.slice(
+    swift.indexOf('private var editParsedItemSheet'),
+    swift.indexOf('private func scaleParsedMacros')
+  );
+  const quickEdit = swift.slice(
+    swift.indexOf('private func editQuickAddSheet'),
+    swift.indexOf('// MARK: - Actions')
+  );
+
+  assert.equal(entryEdit.includes('let canSave = canSaveEditedEntry'), true);
+  assert.equal(entryEdit.includes('.tint(canSave ? Color.neonCyan : .gray)'), true);
+  assert.equal(entryEdit.includes('.disabled(!canSave)'), true);
+  assert.equal(entryEdit.indexOf('Text("Delete")') < entryEdit.indexOf('Text("Save")'), true);
+  assert.equal(entryEdit.includes('DatePicker("Logged At", selection: $editEntryDate)'), true);
+  assert.equal(swift.includes('let loggedAtChanged = !isSameDisplayedMinute(editEntryDate, parseISO(entry.consumedAt))'), true);
+  assert.equal(swift.includes('editableWholeNumberBaseline(for: entry.calories)'), true);
+
+  assert.equal(mealEdit.includes('let canSave = canSaveEditedMeal'), true);
+  assert.equal(mealEdit.includes('.tint(canSave ? Color.neonGreen : .gray)'), true);
+  assert.equal(mealEdit.includes('.disabled(!canSave)'), true);
+
+  assert.equal(parsedEdit.includes('let canSave = canSaveParsedItem'), true);
+  assert.equal(parsedEdit.includes('.tint(canSave ? Color.neonCyan : .gray)'), true);
+  assert.equal(parsedEdit.includes('.disabled(!canSave)'), true);
+
+  assert.equal(quickEdit.includes('let canSave = canSaveQuickAdd(template)'), true);
+  assert.equal(quickEdit.includes('.tint(.red)'), true);
+  assert.equal(quickEdit.indexOf('Text("Delete")') < quickEdit.indexOf('Text("Save")'), true);
+  assert.equal(quickEdit.includes('.disabled(!canSave)'), true);
 });
 
 test('iOS log sheets put Logged At first and reset timestamps on open', () => {

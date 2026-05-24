@@ -685,15 +685,20 @@ struct MacrosView: View {
     }
 
     private var editEntrySheet: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 10) {
-                    compactEditEntryField("Item Name", text: $editItemName, keyboard: .default)
+        let canSave = canSaveEditedEntry
 
-                    HStack(spacing: 10) {
+        return NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    DatePicker("Logged At", selection: $editEntryDate)
+                        .datePickerStyle(.compact)
+
+                    editEntryField("Item Name", text: $editItemName, keyboard: .default)
+
+                    HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Quantity")
-                                .font(.caption2)
+                                .font(.caption)
                                 .foregroundStyle(Color.mutedText)
                             TextField("Quantity", text: $editQuantity)
                                 .textFieldStyle(.roundedBorder)
@@ -702,10 +707,13 @@ struct MacrosView: View {
                                     scaleEntryMacros(newQuantityStr: newValue)
                                 }
                         }
-                        compactEditEntryField("Unit", text: $editUnit, keyboard: .default)
-                    }
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                    compactMacroFieldGrid(
+                        editEntryField("Unit", text: $editUnit, keyboard: .default)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    macroFieldGrid(
                         calories: $editEntryCal,
                         protein: $editEntryProtein,
                         carbs: $editEntryCarbs,
@@ -713,15 +721,10 @@ struct MacrosView: View {
                         keyboard: .numberPad
                     )
 
-                    DatePicker("Logged At", selection: $editEntryDate)
-                        .datePickerStyle(.compact)
-                        .font(.subheadline)
-
                     Toggle("Save as Quick Add", isOn: $saveEditedEntryAsQuickAdd)
                         .font(.subheadline)
                         .tint(Color.neonGreen)
 
-                    // Remove from meal button (if in a meal group)
                     if editingEntry?.mealGroup != nil {
                         Button {
                             if let entry = editingEntry {
@@ -740,7 +743,7 @@ struct MacrosView: View {
                         .tint(Color.neonYellow)
                     }
 
-                    HStack(spacing: 10) {
+                    HStack(spacing: 12) {
                         Button(role: .destructive) {
                             if let entry = editingEntry {
                                 Task {
@@ -751,11 +754,11 @@ struct MacrosView: View {
                             }
                         } label: {
                             Text("Delete")
-                                .font(.subheadline.weight(.semibold))
+                                .font(.headline)
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.bordered)
-                        .tint(Color.neonPink)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
 
                         Button {
                             Task { await saveEditedEntry() }
@@ -767,12 +770,11 @@ struct MacrosView: View {
                             }
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(Color.neonCyan)
-                        .disabled(editItemName.isEmpty || isSaving)
+                        .tint(canSave ? Color.neonCyan : .gray)
+                        .disabled(!canSave)
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding()
             }
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
@@ -787,6 +789,32 @@ struct MacrosView: View {
         }
         .presentationDetents([.medium, .large])
         .presentationContentInteraction(.scrolls)
+    }
+
+    private var canSaveEditedEntry: Bool {
+        guard let entry = editingEntry, !isSaving else { return false }
+        let name = editItemName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unit = normalizedUnit(editUnit)
+
+        guard !name.isEmpty,
+              let quantity = Double(editQuantity.trimmingCharacters(in: .whitespacesAndNewlines)), quantity > 0,
+              let calories = Double(editEntryCal.trimmingCharacters(in: .whitespacesAndNewlines)), calories >= 0,
+              let protein = Double(editEntryProtein.trimmingCharacters(in: .whitespacesAndNewlines)), protein >= 0,
+              let carbs = Double(editEntryCarbs.trimmingCharacters(in: .whitespacesAndNewlines)), carbs >= 0,
+              let fat = Double(editEntryFat.trimmingCharacters(in: .whitespacesAndNewlines)), fat >= 0 else {
+            return false
+        }
+
+        let nameChanged = name != entry.itemName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let quantityChanged = abs(quantity - entry.quantity) > 0.001
+        let unitChanged = unit != normalizedUnit(entry.unit ?? "serving")
+        let caloriesChanged = abs(calories - editableWholeNumberBaseline(for: entry.calories)) > 0.001
+        let proteinChanged = abs(protein - editableWholeNumberBaseline(for: entry.protein)) > 0.001
+        let carbsChanged = abs(carbs - editableWholeNumberBaseline(for: entry.carbs)) > 0.001
+        let fatChanged = abs(fat - editableWholeNumberBaseline(for: entry.fat)) > 0.001
+        let loggedAtChanged = !isSameDisplayedMinute(editEntryDate, parseISO(entry.consumedAt))
+
+        return nameChanged || quantityChanged || unitChanged || caloriesChanged || proteinChanged || carbsChanged || fatChanged || loggedAtChanged || saveEditedEntryAsQuickAdd
     }
 
     /// When quantity changes, auto-scale macros proportionally
@@ -808,6 +836,7 @@ struct MacrosView: View {
                 .textFieldStyle(.roundedBorder)
                 .keyboardType(keyboard)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func compactEditEntryField(_ label: String, text: Binding<String>, keyboard: UIKeyboardType) -> some View {
@@ -819,6 +848,7 @@ struct MacrosView: View {
                 .textFieldStyle(.roundedBorder)
                 .keyboardType(keyboard)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func compactMacroFieldGrid(
@@ -876,7 +906,9 @@ struct MacrosView: View {
     }
 
     private var editMealSheet: some View {
-        NavigationStack {
+        let canSave = canSaveEditedMeal
+
+        return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
                     editEntryField("Meal Name", text: $editMealName, keyboard: .default)
@@ -890,8 +922,11 @@ struct MacrosView: View {
                                 .textFieldStyle(.roundedBorder)
                                 .keyboardType(.decimalPad)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
                         editEntryField("Unit", text: $editMealUnit, keyboard: .default)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     // Preview scaled totals
                     if let scale = mealScaleFactor {
@@ -952,33 +987,35 @@ struct MacrosView: View {
                         .font(.subheadline)
                         .tint(Color.neonGreen)
 
-                    Button {
-                        Task { await saveEditedMeal() }
-                    } label: {
-                        if isSaving {
-                            ProgressView().frame(maxWidth: .infinity)
-                        } else {
-                            Text("Save Meal").font(.headline).frame(maxWidth: .infinity)
+                    HStack(spacing: 12) {
+                        Button {
+                            if let mg = editingMealGroup {
+                                Task {
+                                    await splitMeal(mealGroup: mg)
+                                    showEditMeal = false
+                                }
+                            }
+                        } label: {
+                            Label("Split", systemImage: "rectangle.split.3x1")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
                         }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.neonGreen)
-                    .disabled(editMealName.isEmpty || isSaving)
+                        .buttonStyle(.bordered)
+                        .tint(Color.neonYellow)
 
-                    Button {
-                        if let mg = editingMealGroup {
-                            Task {
-                                await splitMeal(mealGroup: mg)
-                                showEditMeal = false
+                        Button {
+                            Task { await saveEditedMeal() }
+                        } label: {
+                            if isSaving {
+                                ProgressView().frame(maxWidth: .infinity)
+                            } else {
+                                Text("Save").font(.headline).frame(maxWidth: .infinity)
                             }
                         }
-                    } label: {
-                        Label("Split into Individual Items", systemImage: "rectangle.split.3x1")
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity)
+                        .buttonStyle(.borderedProminent)
+                        .tint(canSave ? Color.neonGreen : .gray)
+                        .disabled(!canSave)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(Color.neonYellow)
                 }
                 .padding()
             }
@@ -996,6 +1033,23 @@ struct MacrosView: View {
         .presentationContentInteraction(.scrolls)
     }
 
+    private var canSaveEditedMeal: Bool {
+        guard let first = editingMealItems.first, !isSaving else { return false }
+        let name = editMealName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unit = normalizedUnit(editMealUnit)
+
+        guard !name.isEmpty,
+              let quantity = Double(editMealQuantity.trimmingCharacters(in: .whitespacesAndNewlines)), quantity > 0 else {
+            return false
+        }
+
+        let nameChanged = name != (first.mealName ?? "Meal").trimmingCharacters(in: .whitespacesAndNewlines)
+        let quantityChanged = abs(quantity - origMealQuantity) > 0.001
+        let unitChanged = unit != normalizedUnit(first.mealUnit ?? "serving")
+
+        return nameChanged || quantityChanged || unitChanged || saveEditedMealAsQuickAdd
+    }
+
     private var mealScaleFactor: Double? {
         guard let newQty = Double(editMealQuantity), origMealQuantity > 0 else { return nil }
         return newQty / origMealQuantity
@@ -1011,6 +1065,15 @@ struct MacrosView: View {
                 .foregroundStyle(color)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func normalizedUnit(_ unit: String) -> String {
+        let trimmed = unit.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "serving" : trimmed
+    }
+
+    private func editableWholeNumberBaseline(for value: Double) -> Double {
+        Double(Int(value))
     }
 
     private func macroBreakdownText(protein: Double, carbs: Double, fat: Double) -> String {
@@ -1224,7 +1287,9 @@ struct MacrosView: View {
     // MARK: - Edit Targets Sheet
 
     private var editTargetsSheet: some View {
-        NavigationStack {
+        let canSave = canSaveMacroTargets
+
+        return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
                     targetField("Calories (kcal)", text: $editCalories)
@@ -1238,7 +1303,8 @@ struct MacrosView: View {
                         Text("Save Targets").font(.headline).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(Color.neonCyan)
+                    .tint(canSave ? Color.neonCyan : .gray)
+                    .disabled(!canSave)
 
                     Spacer(minLength: 0)
                 }
@@ -1257,6 +1323,21 @@ struct MacrosView: View {
         .presentationContentInteraction(.scrolls)
     }
 
+    private var canSaveMacroTargets: Bool {
+        guard let targets = dashboard?.targets else { return false }
+        guard let calories = Double(editCalories.trimmingCharacters(in: .whitespacesAndNewlines)), calories > 0,
+              let protein = Double(editProtein.trimmingCharacters(in: .whitespacesAndNewlines)), protein >= 0,
+              let carbs = Double(editCarbs.trimmingCharacters(in: .whitespacesAndNewlines)), carbs >= 0,
+              let fat = Double(editFat.trimmingCharacters(in: .whitespacesAndNewlines)), fat >= 0 else {
+            return false
+        }
+
+        return abs(calories - targets.calories) > 0.001 ||
+            abs(protein - targets.protein) > 0.001 ||
+            abs(carbs - targets.carbs) > 0.001 ||
+            abs(fat - targets.fat) > 0.001
+    }
+
     private func targetField(_ label: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
@@ -1266,6 +1347,7 @@ struct MacrosView: View {
                 .textFieldStyle(.roundedBorder)
                 .keyboardType(.numberPad)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Add Sheet (combined meal entry + quick add)
@@ -1653,7 +1735,9 @@ struct MacrosView: View {
     }
 
     private var editParsedItemSheet: some View {
-        NavigationStack {
+        let canSave = canSaveParsedItem
+
+        return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
                     editEntryField("Item Name", text: $editParsedName, keyboard: .default)
@@ -1670,8 +1754,11 @@ struct MacrosView: View {
                                     scaleParsedMacros(newQuantityStr: newValue)
                                 }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
                         editEntryField("Unit", text: $editParsedUnit, keyboard: .default)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     macroFieldGrid(
                         calories: $editParsedCal,
@@ -1687,8 +1774,8 @@ struct MacrosView: View {
                         Text("Save").font(.headline).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(Color.neonCyan)
-                    .disabled(editParsedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .tint(canSave ? Color.neonCyan : .gray)
+                    .disabled(!canSave)
                 }
                 .padding()
             }
@@ -1706,6 +1793,32 @@ struct MacrosView: View {
         .presentationContentInteraction(.scrolls)
     }
 
+    private var canSaveParsedItem: Bool {
+        guard let index = editingParsedIndex, parsedItems.indices.contains(index) else { return false }
+        let item = parsedItems[index]
+        let name = editParsedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unit = normalizedUnit(editParsedUnit)
+
+        guard !name.isEmpty,
+              let quantity = Double(editParsedQuantity.trimmingCharacters(in: .whitespacesAndNewlines)), quantity > 0,
+              let calories = Double(editParsedCal.trimmingCharacters(in: .whitespacesAndNewlines)), calories >= 0,
+              let protein = Double(editParsedProtein.trimmingCharacters(in: .whitespacesAndNewlines)), protein >= 0,
+              let carbs = Double(editParsedCarbs.trimmingCharacters(in: .whitespacesAndNewlines)), carbs >= 0,
+              let fat = Double(editParsedFat.trimmingCharacters(in: .whitespacesAndNewlines)), fat >= 0 else {
+            return false
+        }
+
+        let nameChanged = name != item.itemName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let quantityChanged = abs(quantity - item.quantity) > 0.001
+        let unitChanged = unit != normalizedUnit(item.unit ?? "serving")
+        let caloriesChanged = abs(calories - editableWholeNumberBaseline(for: item.calories)) > 0.001
+        let proteinChanged = abs(protein - editableWholeNumberBaseline(for: item.protein)) > 0.001
+        let carbsChanged = abs(carbs - editableWholeNumberBaseline(for: item.carbs)) > 0.001
+        let fatChanged = abs(fat - editableWholeNumberBaseline(for: item.fat)) > 0.001
+
+        return nameChanged || quantityChanged || unitChanged || caloriesChanged || proteinChanged || carbsChanged || fatChanged
+    }
+
     private func scaleParsedMacros(newQuantityStr: String) {
         guard let newQty = Double(newQuantityStr), origParsedQuantity > 0 else { return }
         let scale = newQty / origParsedQuantity
@@ -1716,6 +1829,7 @@ struct MacrosView: View {
     }
 
     private func saveEditedParsedItem() {
+        guard canSaveParsedItem else { return }
         guard let index = editingParsedIndex, parsedItems.indices.contains(index) else { return }
         parsedItems[index] = ParsedMealItem(
             itemName: editParsedName.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1744,7 +1858,9 @@ struct MacrosView: View {
     }
 
     private func editQuickAddSheet(_ template: QuickAddTemplate) -> some View {
-        NavigationStack {
+        let canSave = canSaveQuickAdd(template)
+
+        return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
                     editEntryField("Name", text: $editQuickName, keyboard: .default)
@@ -1762,30 +1878,44 @@ struct MacrosView: View {
                         keyboard: .decimalPad
                     )
 
-                    Button {
-                        Task { await saveQuickAdd(template) }
-                    } label: {
-                        if isSaving {
-                            ProgressView().frame(maxWidth: .infinity)
-                        } else {
-                            Text(template.isSaved ? "Save Quick Add" : "Save as Quick Add")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.neonCyan)
-                    .disabled(editQuickName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
-
                     if let savedItemId = template.savedItemId {
-                        Button(role: .destructive) {
-                            Task { await deleteQuickAdd(id: savedItemId) }
-                        } label: {
-                            Text("Delete Quick Add")
-                                .font(.subheadline)
-                                .frame(maxWidth: .infinity)
+                        HStack(spacing: 12) {
+                            Button(role: .destructive) {
+                                Task { await deleteQuickAdd(id: savedItemId) }
+                            } label: {
+                                Text("Delete").font(.headline).frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.red)
+
+                            Button {
+                                Task { await saveQuickAdd(template) }
+                            } label: {
+                                if isSaving {
+                                    ProgressView().frame(maxWidth: .infinity)
+                                } else {
+                                    Text("Save").font(.headline).frame(maxWidth: .infinity)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(canSave ? Color.neonCyan : .gray)
+                            .disabled(!canSave)
                         }
-                        .buttonStyle(.bordered)
+                    } else {
+                        Button {
+                            Task { await saveQuickAdd(template) }
+                        } label: {
+                            if isSaving {
+                                ProgressView().frame(maxWidth: .infinity)
+                            } else {
+                                Text("Save as Quick Add")
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(canSave ? Color.neonCyan : .gray)
+                        .disabled(!canSave)
                     }
                 }
                 .padding()
@@ -1802,6 +1932,33 @@ struct MacrosView: View {
         }
         .presentationDetents([.medium, .large])
         .presentationContentInteraction(.scrolls)
+    }
+
+    private func canSaveQuickAdd(_ template: QuickAddTemplate) -> Bool {
+        guard !isSaving else { return false }
+        let name = editQuickName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unit = normalizedUnit(editQuickUnit)
+
+        guard !name.isEmpty,
+              let quantity = Double(editQuickQuantity.trimmingCharacters(in: .whitespacesAndNewlines)), quantity > 0,
+              let calories = Double(editQuickCal.trimmingCharacters(in: .whitespacesAndNewlines)), calories >= 0,
+              let protein = Double(editQuickProtein.trimmingCharacters(in: .whitespacesAndNewlines)), protein >= 0,
+              let carbs = Double(editQuickCarbs.trimmingCharacters(in: .whitespacesAndNewlines)), carbs >= 0,
+              let fat = Double(editQuickFat.trimmingCharacters(in: .whitespacesAndNewlines)), fat >= 0 else {
+            return false
+        }
+
+        guard template.isSaved else { return true }
+
+        let nameChanged = name != template.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let quantityChanged = abs(quantity - template.quantity) > 0.001
+        let unitChanged = unit != normalizedUnit(template.unit)
+        let caloriesChanged = abs(calories - editableWholeNumberBaseline(for: template.calories)) > 0.001
+        let proteinChanged = abs(protein - editableWholeNumberBaseline(for: template.protein)) > 0.001
+        let carbsChanged = abs(carbs - editableWholeNumberBaseline(for: template.carbs)) > 0.001
+        let fatChanged = abs(fat - editableWholeNumberBaseline(for: template.fat)) > 0.001
+
+        return nameChanged || quantityChanged || unitChanged || caloriesChanged || proteinChanged || carbsChanged || fatChanged
     }
 
     // MARK: - Actions
@@ -1928,6 +2085,7 @@ struct MacrosView: View {
 
     private func saveEditedEntry() async {
         guard let entry = editingEntry else { return }
+        guard canSaveEditedEntry else { return }
         isSaving = true
         defer { isSaving = false }
         do {
@@ -1964,6 +2122,7 @@ struct MacrosView: View {
 
     private func saveEditedMeal() async {
         guard let mealGroup = editingMealGroup else { return }
+        guard canSaveEditedMeal else { return }
         isSaving = true
         defer { isSaving = false }
         do {
@@ -2004,6 +2163,7 @@ struct MacrosView: View {
     }
 
     private func saveQuickAdd(_ template: QuickAddTemplate) async {
+        guard canSaveQuickAdd(template) else { return }
         isSaving = true
         defer { isSaving = false }
         do {
@@ -2119,6 +2279,7 @@ struct MacrosView: View {
     }
 
     private func saveTargets() async {
+        guard canSaveMacroTargets else { return }
         do {
             if let cal = Double(editCalories) { try await api.setMacroTarget(macro: "calories", target: cal) }
             if let prot = Double(editProtein) { try await api.setMacroTarget(macro: "protein", target: prot) }
@@ -2221,6 +2382,10 @@ struct MacrosView: View {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
         return f.date(from: iso) ?? Date.distantPast
+    }
+
+    private func isSameDisplayedMinute(_ lhs: Date, _ rhs: Date) -> Bool {
+        Calendar.current.compare(lhs, to: rhs, toGranularity: .minute) == .orderedSame
     }
 
     private func savedSignature(name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double) -> String {
