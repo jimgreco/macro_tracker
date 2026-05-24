@@ -591,9 +591,16 @@ struct WeightView: View {
             newWeight = ""
             newWeightDate = Date()
             showAddSheet = false
+            triggerHealthKitExport()
             await loadEntries(reset: true)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func triggerHealthKitExport() {
+        Task {
+            _ = try? await healthKitSync.syncRecentWeight(api: api)
         }
     }
 

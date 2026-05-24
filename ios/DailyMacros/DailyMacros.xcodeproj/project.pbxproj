@@ -23,6 +23,7 @@
 		A1000014 /* SwipeToDeleteRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015; };
 		A1000015 /* HealthKitWorkoutSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016; };
 		A1000016 /* HealthKitWellnessSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017; };
+		A1000017 /* HealthKitAutoSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +44,7 @@
 		A2000015 /* SwipeToDeleteRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeToDeleteRow.swift; sourceTree = "<group>"; };
 		A2000016 /* HealthKitWorkoutSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitWorkoutSync.swift; sourceTree = "<group>"; };
 		A2000017 /* HealthKitWellnessSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitWellnessSync.swift; sourceTree = "<group>"; };
+		A2000018 /* HealthKitAutoSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitAutoSync.swift; sourceTree = "<group>"; };
 		A3000001 /* DailyMacros.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DailyMacros.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -73,6 +75,7 @@
 				A2000015 /* SwipeToDeleteRow.swift */,
 				A2000016 /* HealthKitWorkoutSync.swift */,
 				A2000017 /* HealthKitWellnessSync.swift */,
+				A2000018 /* HealthKitAutoSync.swift */,
 				A2000014 /* DailyMacros.entitlements */,
 				A2000010 /* Assets.xcassets */,
 			);
@@ -177,6 +180,7 @@
 				A1000014 /* SwipeToDeleteRow.swift in Sources */,
 				A1000015 /* HealthKitWorkoutSync.swift in Sources */,
 				A1000016 /* HealthKitWellnessSync.swift in Sources */,
+				A1000017 /* HealthKitAutoSync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

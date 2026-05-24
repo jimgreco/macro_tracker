@@ -1203,6 +1203,7 @@ struct HealthView: View {
             try await api.addHealthEntry(type: selectedActivityType, loggedAt: f.string(from: healthLogDate))
             showLogHealth = false
             healthLogDate = Date()
+            triggerSexualActivityHealthKitExport()
             await loadHealth(reset: true)
         } catch {
             showErrorUnlessCancelled(error)
@@ -1225,9 +1226,22 @@ struct HealthView: View {
             sleepHours = "7.5"
             sleepWakeUps = "0"
             sleepLogDate = Date()
+            triggerSleepHealthKitExport()
             await loadSleep(reset: true)
         } catch {
             showErrorUnlessCancelled(error)
+        }
+    }
+
+    private func triggerSleepHealthKitExport() {
+        Task {
+            _ = try? await healthKitSync.syncRecentSleep(api: api)
+        }
+    }
+
+    private func triggerSexualActivityHealthKitExport() {
+        Task {
+            _ = try? await healthKitSync.syncRecentSexualActivity(api: api)
         }
     }
 

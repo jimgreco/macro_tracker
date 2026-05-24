@@ -135,6 +135,15 @@ test('iOS quick items are searchable and preload saved items in the background',
   assert.equal(swift.includes('if !hasLoadedSavedItems'), true);
 });
 
+test('iOS macros add button uses the same toolbar group sizing as other tabs', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+
+  assert.equal(swift.includes('ToolbarItemGroup(placement: .primaryAction)'), true);
+  assert.equal(swift.includes('Image(systemName: "arrow.triangle.2.circlepath")'), true);
+  assert.equal(swift.includes('.hidden()'), true);
+  assert.equal(swift.includes('Image(systemName: "plus")'), true);
+});
+
 test('iOS macro entry rows do not show drag handle icons', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
 
@@ -280,6 +289,29 @@ test('iOS health refresh ignores cancellation errors', () => {
   assert.equal(health.includes('error is CancellationError'), true);
   assert.equal(health.includes('URLError, urlError.code == .cancelled'), true);
   assert.equal(health.includes('NSURLErrorCancelled'), true);
+});
+
+test('iOS HealthKit auto-sync registers background delivery and exports after local creates', () => {
+  const app = read('ios/DailyMacros/DailyMacros/DailyMacrosApp.swift');
+  const autoSync = read('ios/DailyMacros/DailyMacros/HealthKitAutoSync.swift');
+  const entitlements = read('ios/DailyMacros/DailyMacros/DailyMacros.entitlements');
+  const workouts = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
+  const weight = read('ios/DailyMacros/DailyMacros/WeightView.swift');
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+
+  assert.equal(app.includes('@StateObject private var healthKitAutoSync = HealthKitAutoSync()'), true);
+  assert.equal(app.includes('await healthKitAutoSync.start('), true);
+  assert.equal(autoSync.includes('HKObserverQuery'), true);
+  assert.equal(autoSync.includes('enableBackgroundDelivery(for: sampleType, frequency: .hourly)'), true);
+  assert.equal(autoSync.includes('syncRecentWorkouts(api: api)'), true);
+  assert.equal(autoSync.includes('syncRecentWeight(api: api)'), true);
+  assert.equal(autoSync.includes('syncRecentSleep(api: api)'), true);
+  assert.equal(autoSync.includes('syncRecentSexualActivity(api: api)'), true);
+  assert.equal(entitlements.includes('com.apple.developer.healthkit.background-delivery'), true);
+  assert.equal(workouts.includes('triggerHealthKitExport()'), true);
+  assert.equal(weight.includes('triggerHealthKitExport()'), true);
+  assert.equal(health.includes('triggerSleepHealthKitExport()'), true);
+  assert.equal(health.includes('triggerSexualActivityHealthKitExport()'), true);
 });
 
 test('mobile sleep target is editable and drives sleep chart', () => {
