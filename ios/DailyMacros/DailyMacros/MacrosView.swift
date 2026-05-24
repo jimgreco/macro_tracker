@@ -1058,6 +1058,8 @@ struct MacrosView: View {
         let avg = values.reduce(0, +) / Double(max(values.count, 1))
         let unit = selectedTrendMacro == "calories" ? "cal" : "g"
         let axisLabelWidth: CGFloat = 36
+        let xLabelIndices = trendXAxisLabelIndices(count: trendData.count)
+        let xLabelWidth: CGFloat = trendData.count <= 7 ? 34 : 44
 
         let tickCount = 4
         let tickValues = (0...tickCount).map { i in
@@ -1122,6 +1124,30 @@ struct MacrosView: View {
                 .frame(height: 180)
             }
             .frame(height: 180)
+
+            HStack(spacing: 0) {
+                Color.clear
+                    .frame(width: axisLabelWidth)
+                    .padding(.trailing, 4)
+
+                HStack(spacing: 0) {
+                    ForEach(Array(xLabelIndices.enumerated()), id: \.element) { position, index in
+                        if position > 0 {
+                            Spacer(minLength: 0)
+                        }
+
+                        Text(trendDateLabel(trendData[index].day))
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(Color.mutedText)
+                            .frame(
+                                width: xLabelWidth,
+                                alignment: trendXAxisLabelAlignment(position: position, count: xLabelIndices.count)
+                            )
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .accessibilityHidden(true)
 
             HStack(spacing: 16) {
                 HStack(spacing: 6) {
@@ -2110,6 +2136,42 @@ struct MacrosView: View {
         let f = ISO8601DateFormatter()
         f.timeZone = TimeZone(identifier: "America/New_York")
         return f.string(from: date)
+    }
+
+    private func trendXAxisLabelIndices(count: Int) -> [Int] {
+        guard count > 0 else { return [] }
+        let desired = count <= 7 ? count : 4
+        guard count > desired else { return Array(0..<count) }
+
+        return (0..<desired).reduce(into: [Int]()) { indices, labelIndex in
+            let index = Int((Double(labelIndex) * Double(count - 1) / Double(desired - 1)).rounded())
+            if indices.last != index {
+                indices.append(index)
+            }
+        }
+    }
+
+    private func trendXAxisLabelAlignment(position: Int, count: Int) -> Alignment {
+        if position == 0 {
+            return .leading
+        }
+        if position == count - 1 {
+            return .trailing
+        }
+        return .center
+    }
+
+    private func trendDateLabel(_ day: String) -> String {
+        let inputFormatter = DateFormatter()
+        inputFormatter.dateFormat = "yyyy-MM-dd"
+
+        guard let date = inputFormatter.date(from: day) else {
+            return String(day.prefix(5))
+        }
+
+        let outputFormatter = DateFormatter()
+        outputFormatter.setLocalizedDateFormatFromTemplate("M/d")
+        return outputFormatter.string(from: date)
     }
 
     private func parseISO(_ iso: String) -> Date {
