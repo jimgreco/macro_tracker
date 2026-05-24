@@ -609,6 +609,7 @@ test('subscription indexes exist', () => {
 
 test('deploy workflow verifies SSH host and smokes production endpoints', () => {
   const workflow = read('.github/workflows/deploy.yml');
+  const script = read('scripts/production-smoke.sh');
   assert.ok(workflow.includes('actions/checkout@v5'));
   assert.ok(workflow.includes('workflow_dispatch:'));
   assert.ok(workflow.includes('paths:'));
@@ -631,6 +632,8 @@ test('deploy workflow verifies SSH host and smokes production endpoints', () => 
   assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL != ''"));
   assert.equal(workflow.includes('for name in EC2_SSH_KEY EC2_USER EC2_HOST PRODUCTION_BASE_URL; do'), false);
   assert.ok(workflow.includes('scripts/production-smoke.sh'));
+  assert.ok(script.includes('SMOKE_CURL_RETRIES'));
+  assert.ok(script.includes('--retry "$SMOKE_CURL_RETRIES"'));
 });
 
 test('scheduled production smoke workflow can run public and authenticated checks', () => {

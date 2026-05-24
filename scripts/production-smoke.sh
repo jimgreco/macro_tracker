@@ -4,6 +4,8 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-${PRODUCTION_BASE_URL:-}}"
 API_TOKEN="${API_TOKEN:-${PRODUCTION_SMOKE_API_TOKEN:-}}"
 SMOKE_RUN_ID="${SMOKE_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+SMOKE_CURL_RETRIES="${SMOKE_CURL_RETRIES:-12}"
+SMOKE_CURL_RETRY_DELAY_SECONDS="${SMOKE_CURL_RETRY_DELAY_SECONDS:-5}"
 
 if [ -z "$BASE_URL" ]; then
   echo "Set BASE_URL or PRODUCTION_BASE_URL."
@@ -13,8 +15,8 @@ fi
 BASE_URL="${BASE_URL%/}"
 
 echo "Checking public health endpoints..."
-curl --fail --show-error --silent "$BASE_URL/healthz" >/dev/null
-curl --fail --show-error --silent "$BASE_URL/version" >/dev/null
+curl --fail --show-error --silent --retry "$SMOKE_CURL_RETRIES" --retry-delay "$SMOKE_CURL_RETRY_DELAY_SECONDS" --retry-connrefused "$BASE_URL/healthz" >/dev/null
+curl --fail --show-error --silent --retry "$SMOKE_CURL_RETRIES" --retry-delay "$SMOKE_CURL_RETRY_DELAY_SECONDS" --retry-connrefused "$BASE_URL/version" >/dev/null
 
 if [ -z "$API_TOKEN" ]; then
   echo "Skipping authenticated smoke checks because API_TOKEN is not set."
