@@ -1349,7 +1349,7 @@ function showAccountPrivacyModal() {
         <p><strong>Support</strong><span>Contact the person who invited you. Include any request reference shown in an error message and the build details below.</span></p>
         <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
         <p><strong>AI processing</strong><span>Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them.</span></p>
-        <p><strong>Controls</strong><span>You can export a JSON copy of your account data or permanently delete your account from here.</span></p>
+        <p><strong>Controls</strong><span>You can export a JSON copy of your account data or permanently delete your account from here. <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span></p>
       </div>
       <div class="account-build-meta">
         <span>Web ${escapeHtml(packageVersion)}</span>

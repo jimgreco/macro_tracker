@@ -1,0 +1,12 @@
+[Unit]
+Description=DailyMacros logical Postgres backup
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=ec2-user
+WorkingDirectory=/home/ec2-user/macros
+Environment=DEPLOY_DIR=/home/ec2-user/deploy
+Environment=RETENTION_DAYS=14
+ExecStart=/home/ec2-user/macros/scripts/production-db-backup.sh

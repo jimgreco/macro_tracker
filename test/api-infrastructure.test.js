@@ -682,6 +682,53 @@ test('scheduled production smoke workflow can run public and authenticated check
   assert.ok(script.includes('dashboard_entry_id'));
 });
 
+test('production database backup script supports Docker Postgres restore drills', () => {
+  const script = read('scripts/production-db-backup.sh');
+  const runbook = read('docs/ec2-release-runbook.md');
+  const readme = read('README.md');
+  const service = read('ops/systemd/dailymacros-db-backup.service');
+  const timer = read('ops/systemd/dailymacros-db-backup.timer');
+
+  assert.ok(script.includes('DB_CONTAINER="${DB_CONTAINER:-shared_db}"'));
+  assert.ok(script.includes('DB_NAME="${DB_NAME:-macro_tracker}"'));
+  assert.ok(script.includes('read_env_value DB_PASSWORD "$ENV_FILE"'));
+  assert.equal(script.includes('. "$ENV_FILE"'), false);
+  assert.equal(script.includes('source "$ENV_FILE"'), false);
+  assert.ok(script.includes('pg_dump'));
+  assert.ok(script.includes('pg_restore'));
+  assert.ok(script.includes('RESTORE_DRILL'));
+  assert.ok(script.includes('chmod 600 "$backup_path"'));
+  assert.ok(script.includes('current_schema()'));
+  assert.ok(script.includes('RETENTION_DAYS'));
+  assert.ok(script.includes('find "$BACKUP_DIR" -type f -name'));
+  assert.ok(runbook.includes('shared Docker Postgres container'));
+  assert.ok(runbook.includes('RESTORE_DRILL=true DEPLOY_DIR=~/deploy scripts/production-db-backup.sh'));
+  assert.ok(readme.includes('EC2/Docker Compose deployment'));
+  assert.ok(readme.includes('PGSSL=false'));
+  assert.ok(service.includes('ExecStart=/home/ec2-user/macros/scripts/production-db-backup.sh'));
+  assert.ok(service.includes('Environment=RETENTION_DAYS=14'));
+  assert.ok(timer.includes('OnCalendar=*-*-* 02:35:00'));
+});
+
+test('public privacy policy is served before frontend auth guard', () => {
+  const server = read('src/server.js');
+  const privacyHtml = read('public/privacy.html');
+  const policy = read('docs/privacy-policy.md');
+  const appStoreNotes = read('docs/app-store-privacy.md');
+
+  assert.ok(server.includes("fs.readFileSync(path.join(process.cwd(), 'public', 'privacy.html')"));
+  assert.ok(server.includes("app.get(['/privacy', '/privacy.html']"));
+  assert.ok(server.indexOf("app.get(['/privacy', '/privacy.html']") < server.indexOf('app.use(requireAuth, enforceActiveAccount);'));
+  assert.ok(privacyHtml.includes('DailyMacros Privacy Policy'));
+  assert.ok(privacyHtml.includes('OpenAI'));
+  assert.ok(privacyHtml.includes('HealthKit'));
+  assert.ok(privacyHtml.includes('does not use third-party advertising or cross-app tracking'));
+  assert.ok(policy.includes('DailyMacros Privacy Policy'));
+  assert.ok(appStoreNotes.includes('Privacy Policy URL'));
+  assert.ok(appStoreNotes.includes('Tracking: No.'));
+  assert.ok(appStoreNotes.includes('HealthKit permissions are optional'));
+});
+
 test('barcode lookup uses Open Food Facts with normalized nutrition output', () => {
   const server = read('src/server.js');
 

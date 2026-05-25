@@ -450,6 +450,7 @@ test('web account menu surfaces privacy support export delete and build info', (
   assert.equal(script.includes("/api/account', { method: 'DELETE' }"), true);
   assert.equal(script.includes('/api/version'), true);
   assert.equal(script.includes('meal photos may be sent to OpenAI'), true);
+  assert.equal(script.includes('href="/privacy"'), true);
   assert.equal(styles.includes('.account-privacy-modal'), true);
 });
 

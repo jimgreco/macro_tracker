@@ -93,10 +93,9 @@ Required GitHub Actions secrets for deploy:
 - `PRODUCTION_BASE_URL` (optional for deploy; enables post-deploy smoke checks)
 - `PRODUCTION_SMOKE_API_TOKEN` (optional; enables authenticated deploy and scheduled smoke checks)
 
-For AWS/RDS deployments set:
-- `DATABASE_URL` to your RDS connection string
-- `PGSSL=true`
-- `PGSSL_REJECT_UNAUTHORIZED=true`
+For the current EC2/Docker Compose deployment set:
+- `DATABASE_URL` to the internal Docker Postgres connection string
+- `PGSSL=false`
 - `APP_BASE_URL=https://your-production-domain`
 - `SESSION_SECRET` to a long random value (required in production)
 - `APP_BUILD` to the deployed git SHA
@@ -109,7 +108,9 @@ Operational safeguards:
 - The deploy workflow pins SSH host keys with `ssh-keyscan` and fails if configured post-deploy smoke checks fail.
 - `.github/workflows/production-smoke.yml` runs hourly production smoke checks using `scripts/production-smoke.sh`.
 - Authenticated production smoke checks use the configured smoke account to exercise disposable meal, quick-add, weight, sleep, and optional sexual-activity create/update/delete journeys, then clean up created records.
-- Before wider beta pushes, confirm the latest database backup exists, restore has been tested recently, and the smoke token still reaches the intended production account.
+- `dailymacros-db-backup.timer` runs `scripts/production-db-backup.sh` nightly on the EC2 host before the AWS DLM snapshot window; local dumps are pruned by `RETENTION_DAYS` and the DLM policy retains 7 daily off-host EBS snapshots.
+- Before wider beta pushes, run `RESTORE_DRILL=true DEPLOY_DIR=~/deploy scripts/production-db-backup.sh` from the EC2 host to create and restore-test a Docker Postgres backup, confirm the latest DLM snapshot is fresh, and confirm the smoke token still reaches the intended production account.
+- The public privacy policy is served at `/privacy`; the repo copy lives in `docs/privacy-policy.md`, and App Store privacy notes live in `docs/app-store-privacy.md`.
 - Elastic Beanstalk material in `docs/aws-production-security-audit.md` is legacy unless that platform is intentionally revived.
 - Use `npm run ops:rotate-prod-db-password` only if the RDS/Elastic Beanstalk path is revived and verified.
 - Do not enable RDS managed master-password rotation unless the app is changed to read the current secret from Secrets Manager at runtime.

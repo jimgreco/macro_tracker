@@ -122,6 +122,16 @@ struct SettingsView: View {
                 Text("Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them.")
                     .font(.subheadline)
             }
+
+            Link(destination: api.baseURL.appendingPathComponent("privacy")) {
+                HStack {
+                    Text("Privacy Policy")
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 

@@ -1,4 +1,4 @@
-# Macro Tracker — Claude Code Guide
+# Macro Tracker — Codex Guide
 
 ## Project Overview
 
@@ -165,7 +165,7 @@ When asked to deploy or "push live", always run these steps in order — no skip
 
 1. **`git status`** — identify all modified/untracked files
 2. **`git add`** all changed files relevant to the work
-3. **Update `CLAUDE.md`** if anything was learned (new gotchas, architecture decisions, changed patterns) — then `git add CLAUDE.md`
+3. **Update `AGENTS.md`** if anything was learned (new gotchas, architecture decisions, changed patterns) — then `git add AGENTS.md`
 4. **`git commit`** with a clear message describing what changed and why
 5. **`git push origin main`** — GitHub Actions will automatically deploy when the changed paths match `.github/workflows/deploy.yml`
 

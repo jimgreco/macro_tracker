@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DailyMacros Privacy Policy</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --text: #17202a;
+      --muted: #5d6b7a;
+      --accent: #0f766e;
+      --border: #d9e2ec;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101418;
+        --panel: #171d22;
+        --text: #eef4f8;
+        --muted: #aab7c3;
+        --accent: #2dd4bf;
+        --border: #2d3742;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 20px 64px;
+    }
+
+    article {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: clamp(24px, 5vw, 44px);
+    }
+
+    h1,
+    h2 {
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 7vw, 3.5rem);
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 1.15rem;
+      margin-top: 2rem;
+    }
+
+    p,
+    li {
+      color: var(--muted);
+    }
+
+    a {
+      color: var(--accent);
+    }
+
+    .updated {
+      margin-top: 0.5rem;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    ul {
+      padding-left: 1.2rem;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      <h1>DailyMacros Privacy Policy</h1>
+      <p class="updated">Last updated May 25, 2026</p>
+
+      <p>DailyMacros is a private friends and family beta for nutrition, workout, weight, sleep, and wellness tracking. This policy explains what the app collects, why it is collected, and the controls available to you.</p>
+
+      <h2>Data We Collect</h2>
+      <ul>
+        <li>Account details from sign-in providers, such as name, email address, provider identifiers, and profile image when provided.</li>
+        <li>Nutrition data, saved foods, meal groups, macro targets, meal text, barcode lookups, and meal photos you submit for parsing.</li>
+        <li>Workout, weight, sleep, and wellness entries. Sexual activity entries are available only when enabled for an account.</li>
+        <li>Subscription and billing state from Stripe when paid features are enabled.</li>
+        <li>Operational records such as API tokens, audit events, request references, build/version metadata, and beta usage limits needed to run and support the service.</li>
+        <li>Diagnostics that you choose to export and share for support. The iOS diagnostic export is stored locally until you share it.</li>
+      </ul>
+
+      <h2>Apple Health</h2>
+      <p>HealthKit permissions are optional. If you grant access, DailyMacros may read or write supported weight, workout, sleep, and sexual activity data so the app and Apple Health stay in sync. You can change Health permissions at any time in iOS Settings.</p>
+
+      <h2>AI Processing</h2>
+      <p>When you ask DailyMacros to parse or analyze a meal, workout, meal photo, or report, that content may be sent to OpenAI to produce nutrition or workout estimates. DailyMacros does not send that content to OpenAI unless you use those AI features. OpenAI publishes its API data controls at <a href="https://platform.openai.com/docs/guides/your-data">platform.openai.com/docs/guides/your-data</a>.</p>
+
+      <h2>Barcode Data</h2>
+      <p>Barcode lookups use Open Food Facts product data. DailyMacros sends the barcode value needed to look up the product and stores the nutrition entry only when you save it.</p>
+
+      <h2>How We Use Data</h2>
+      <p>Data is used for app functionality, account authentication, syncing across web and iOS, support, security, abuse prevention, beta reliability, billing when enabled, and account export or deletion. DailyMacros does not sell personal data and does not use third-party advertising or cross-app tracking.</p>
+
+      <h2>Backups And Retention</h2>
+      <p>Production data is backed up for operational recovery. Account data remains in the active database until you delete your account or request help deleting it. Deleted account data is removed from the active database, while encrypted transport and provider logs or infrastructure backups may remain for a limited operational window before aging out.</p>
+
+      <h2>Your Controls</h2>
+      <p>You can export a JSON copy of your account data or permanently delete your account from Account &amp; Privacy on the web or Settings on iOS. You can also revoke HealthKit access from iOS Settings and sign out from the app.</p>
+
+      <h2>Support</h2>
+      <p>For support or privacy requests, contact the person who invited you. Include the request reference shown in any error message and the build information from Settings or Account &amp; Privacy.</p>
+    </article>
+  </main>
+</body>
+</html>

@@ -7,6 +7,9 @@ This is the production release path for the friends and family beta.
 - Remote app checkout: `~/macros`
 - Remote compose directory: `~/deploy`
 - Remote service name: `macros`
+- Production database: shared Docker Postgres container in the remote compose stack (`shared_db`)
+- Logical DB backup timer: `dailymacros-db-backup.timer`
+- Off-host backup layer: AWS DLM policy `policy-06a5ef1af3cbbc321` snapshots the tagged EC2 instance daily at 03:00 UTC and retains 7 snapshots.
 - Smoke endpoints: `/healthz` and `/version`
 
 ## Required GitHub Secrets
@@ -26,9 +29,7 @@ Set these on the remote compose environment for the `macros` service:
 - `SESSION_SECRET`
 - `SESSION_TTL_DAYS`
 - `DATABASE_URL`
-- `PGSSL=true`
-- `PGSSL_REJECT_UNAUTHORIZED=true`
-- `PGSSL_CA_CERT` or `PGSSL_CA_FILE`
+- `PGSSL=false`
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`
 - `OPEN_FOOD_FACTS_USER_AGENT` (optional; identifies barcode lookup traffic)
@@ -60,9 +61,13 @@ npm audit --omit=dev
 ```
 
 Confirm the app has a recent restorable database backup:
-- Identify the latest automated RDS snapshot or manual backup for the production database.
-- Confirm a restore drill has succeeded recently enough to trust the runbook.
-- If the release includes schema changes, take a fresh manual snapshot before deploy.
+- The active production database is Dockerized Postgres on the EC2 host, not RDS.
+- The nightly systemd timer runs `scripts/production-db-backup.sh` at 02:35 UTC so a logical dump exists before the 03:00 UTC DLM EBS snapshot window.
+- From the EC2 host, run `systemctl list-timers dailymacros-db-backup.timer` to confirm the next scheduled logical backup.
+- For a manual proof, run `cd ~/macros && RESTORE_DRILL=true DEPLOY_DIR=~/deploy scripts/production-db-backup.sh`.
+- Confirm the script reports a successful restore drill and retains a fresh dump under `~/deploy/backups/macros/`.
+- If the release includes schema changes, run a fresh logical backup with `RESTORE_DRILL=true` before deploy.
+- In AWS, confirm the DLM policy still reports completed snapshots for the consolidated EC2 volume and the most recent snapshot is less than 26 hours old.
 
 Confirm the workflow secrets are present:
 ```bash
@@ -131,3 +136,4 @@ If the database migration is the suspected cause, stop and restore from the late
 - Server logs are JSON lines with `requestId`, method, path, status, duration, and user id when available.
 - Deploy and `.github/workflows/production-smoke.yml` run `scripts/production-smoke.sh`; both include authenticated checks when `PRODUCTION_SMOKE_API_TOKEN` is set.
 - Treat `/healthz` failures and sustained 5xx spikes as beta-stopping incidents.
+- The public privacy policy is served at `/privacy` and the repo copy lives in `docs/privacy-policy.md`.
