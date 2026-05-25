@@ -737,17 +737,27 @@ struct HealthView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(format: "%.1f hours", entry.durationHours))
                     .font(.subheadline.bold())
-                let details = sleepEntryDetails(entry)
+                let details = sleepEntryDetailLines(entry)
                 if !details.isEmpty {
-                    Text(details)
+                    VStack(alignment: .leading, spacing: 1) {
+                        ForEach(details, id: \.self) { detail in
+                            Text(detail)
+                        }
+                    }
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             Spacer()
-            Text(formatDate(entry.loggedAt))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(formatDateOnly(entry.loggedAt))
+                    .font(.subheadline.bold())
+                Text(formatTime(entry.loggedAt))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
         }
         .padding()
         .background(Color(.secondarySystemBackground))
@@ -782,7 +792,7 @@ struct HealthView: View {
         return abs(entry.durationHours - sleepTargetHours) >= 1
     }
 
-    private func sleepEntryDetails(_ entry: SleepEntry) -> String {
+    private func sleepEntryDetailLines(_ entry: SleepEntry) -> [String] {
         var parts: [String] = []
         if let quality = entry.quality {
             parts.append("\(sleepQualityLabel(quality)) sleep")
@@ -790,7 +800,7 @@ struct HealthView: View {
         if entry.wakeUps > 0 {
             parts.append("\(entry.wakeUps) wake-up\(entry.wakeUps == 1 ? "" : "s")")
         }
-        return parts.joined(separator: " · ")
+        return parts
     }
 
     // MARK: - Log Health Sheet
@@ -1586,6 +1596,23 @@ struct HealthView: View {
             return f.string(from: date)
         }
         return String(iso.prefix(10))
+    }
+
+    private func formatDateOnly(_ iso: String) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+        if let date = f.date(from: iso) {
+            f.dateStyle = .medium
+            f.timeStyle = .none
+            return f.string(from: date)
+        }
+        return String(iso.prefix(10))
+    }
+
+    private func formatTime(_ iso: String) -> String {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        return f.string(from: parseISO(iso))
     }
 
     private func parseISO(_ iso: String) -> Date {
