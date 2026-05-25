@@ -2301,6 +2301,14 @@ async function deleteApiToken(userId, tokenId) {
   return result.rowCount || 0;
 }
 
+async function deleteAllApiTokens(userId) {
+  const result = await pool.query(
+    'DELETE FROM api_tokens WHERE user_id = $1',
+    [userId]
+  );
+  return result.rowCount || 0;
+}
+
 // ── GDPR ──
 
 async function exportUserData(userId) {
@@ -2556,6 +2564,7 @@ module.exports = {
   validateApiToken,
   listApiTokens,
   deleteApiToken,
+  deleteAllApiTokens,
   exportUserData,
   deleteUserAccount,
   getPlanLimits,

@@ -64,6 +64,7 @@ const {
   validateApiToken,
   listApiTokens,
   deleteApiToken,
+  deleteAllApiTokens,
   exportUserData,
   deleteUserAccount,
   getPlanLimits,
@@ -2968,6 +2969,17 @@ apiRouter.post('/auth/tokens', async (req, res) => {
     res.json(token);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.delete('/auth/tokens', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    const deletedCount = await deleteAllApiTokens(userId);
+    logAudit(userId, 'delete', 'api_tokens', 'all');
+    return res.json({ ok: true, deletedCount });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
   }
 });
 

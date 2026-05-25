@@ -147,6 +147,13 @@ class AuthManager: ObservableObject {
         Diagnostics.shared.record(category: "auth", message: "Signed out")
     }
 
+    func signOutEverywhere() async throws {
+        try await api.deleteAllTokens()
+        user = nil
+        isAuthenticated = false
+        Diagnostics.shared.record(category: "auth", message: "Signed out everywhere")
+    }
+
     private var shouldAttemptLocalDevBypass: Bool {
         guard let host = api.baseURL.host?.lowercased() else { return false }
         return host == "localhost" || host == "127.0.0.1" || host == "::1"

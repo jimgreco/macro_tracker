@@ -51,6 +51,7 @@ test('db.js exports all required functions', () => {
     'validateApiToken',
     'listApiTokens',
     'deleteApiToken',
+    'deleteAllApiTokens',
     'exportUserData',
     'deleteUserAccount',
     'getPlanLimits',
@@ -282,6 +283,7 @@ test('server.js imports all new db functions', () => {
     'validateApiToken',
     'listApiTokens',
     'deleteApiToken',
+    'deleteAllApiTokens',
     'exportUserData',
     'deleteUserAccount',
     'consumeDailyUsage'
@@ -453,6 +455,7 @@ test('server.js has API token endpoints', () => {
   const server = read('src/server.js');
   assert.ok(server.includes("apiRouter.get('/auth/tokens'"));
   assert.ok(server.includes("apiRouter.post('/auth/tokens'"));
+  assert.ok(server.includes("apiRouter.delete('/auth/tokens'"));
   assert.ok(server.includes("apiRouter.delete('/auth/tokens/:id'"));
 });
 
@@ -711,7 +714,10 @@ test('iOS settings exposes support privacy and build metadata', () => {
   assert.ok(settings.includes('meal photos submitted for parsing'));
   assert.ok(settings.includes('appBuildLabel'));
   assert.ok(settings.includes('apiBuildLabel'));
-  assert.ok(settings.includes('private let buildHashDigits = 7'));
+  assert.ok(settings.includes('private enum SettingsBuildLabel'));
+  assert.ok(settings.includes('private static let buildHashDigits = 7'));
+  assert.ok(settings.includes('AccountDetailsView'));
+  assert.ok(settings.includes('Sign Out Everywhere'));
   assert.ok(settings.includes('shortBuildIdentifier(version.appBuild)'));
   assert.ok(settings.includes('String(raw.prefix(buildHashDigits))'));
   assert.ok(api.includes('func getVersion()'));

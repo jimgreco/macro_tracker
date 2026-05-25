@@ -780,6 +780,12 @@ class APIClient: ObservableObject {
         let request = try authorizedRequest(apiURL("/auth/tokens/\(id)"), method: "DELETE")
         let _: OkResponse = try await perform(request)
     }
+
+    func deleteAllTokens() async throws {
+        let request = try authorizedRequest(apiURL("/auth/tokens"), method: "DELETE")
+        let _: OkResponse = try await perform(request)
+        token = nil
+    }
 }
 
 // MARK: - Keychain Helper

@@ -15,7 +15,7 @@ struct SettingsView: View {
     @State private var remindersEnabled = ReminderScheduler.shared.isEnabled
     @State private var reminderDate = ReminderScheduler.shared.reminderDate
     @State private var errorMessage: String?
-    private let buildHashDigits = 7
+    @State private var showAccountDetails = false
 
     var body: some View {
         NavigationStack {
@@ -49,33 +49,48 @@ struct SettingsView: View {
             } message: {
                 Text("This will permanently delete your account and all associated data. This cannot be undone.")
             }
+            .sheet(isPresented: $showAccountDetails) {
+                AccountDetailsView()
+                    .environmentObject(auth)
+                    .environmentObject(api)
+            }
         }
     }
 
     // MARK: - Account
 
     private var accountSection: some View {
-        Section("Account") {
-            if let user = auth.user {
-                if let name = user.name {
-                    HStack {
-                        Text("Name")
-                        Spacer()
-                        Text(name).foregroundStyle(.secondary)
-                    }
-                }
-                if let email = user.email {
-                    HStack {
-                        Text("Email")
-                        Spacer()
-                        Text(email).foregroundStyle(.secondary)
-                    }
-                }
-            }
+        Section {
+            Button {
+                showAccountDetails = true
+            } label: {
+                HStack(spacing: 14) {
+                    AccountAvatarView(user: auth.user, size: 44)
 
-            Button("Sign Out", role: .destructive) {
-                auth.signOut()
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(accountDisplayName)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        Text(accountEmail)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+        } header: {
+            Text("Account")
         }
     }
 
@@ -421,12 +436,7 @@ struct SettingsView: View {
     }
 
     private var appBuildLabel: String {
-        let bundleVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        let build = Bundle.main.object(forInfoDictionaryKey: "AppBuild") as? String
-        let hash = Bundle.main.object(forInfoDictionaryKey: "GitCommitHash") as? String
-        let cleanBuild = shortBuildIdentifier(build)
-        let cleanHash = shortBuildIdentifier(hash)
-        return [bundleVersion, cleanBuild, cleanHash].compactMap { $0 }.joined(separator: " / ")
+        SettingsBuildLabel.appBuildLabel
     }
 
     private var apiBuildLabel: String {
@@ -435,8 +445,415 @@ struct SettingsView: View {
     }
 
     private func shortBuildIdentifier(_ value: String?) -> String? {
-        guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              raw.isEmpty == false,
+        SettingsBuildLabel.shortIdentifier(value)
+    }
+
+    private var accountDisplayName: String {
+        SettingsAccountText.displayName(for: auth.user)
+    }
+
+    private var accountEmail: String {
+        SettingsAccountText.email(for: auth.user)
+    }
+}
+
+private struct AccountDetailsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var auth: AuthManager
+    @EnvironmentObject private var api: APIClient
+    @StateObject private var offlineQueue = OfflineMutationStore.shared
+    @State private var isFlushingPending = false
+    @State private var isExporting = false
+    @State private var isSigningOutEverywhere = false
+    @State private var showSignOutEverywhereConfirm = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 26) {
+                    profileCard
+
+                    groupedSection(title: "Sync") {
+                        syncStatusRow
+                        accountDivider
+                        syncNowButton
+                    }
+
+                    groupedSection(title: "Data") {
+                        exportDataRow
+                    }
+
+                    signOutCard
+
+                    Text(SettingsBuildLabel.accountVersionLabel)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 22)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 32)
+                .padding(.bottom, 40)
+            }
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .navigationTitle("Account")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .font(.headline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 9)
+                    .background(.regularMaterial, in: Capsule())
+                }
+            }
+            .alert("Sign Out Everywhere?", isPresented: $showSignOutEverywhereConfirm) {
+                Button("Cancel", role: .cancel) { }
+                Button("Sign Out", role: .destructive) {
+                    Task { await signOutEverywhere() }
+                }
+            } message: {
+                Text("This revokes DailyMacros API tokens on every device and signs you out here.")
+            }
+            .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                Button("OK") { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    private var profileCard: some View {
+        HStack(spacing: 16) {
+            AccountAvatarView(user: auth.user, size: 64)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(SettingsAccountText.displayName(for: auth.user))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Text(SettingsAccountText.email(for: auth.user))
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 22)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    }
+
+    private var syncStatusRow: some View {
+        HStack(spacing: 14) {
+            Text("Status")
+                .font(.body)
+                .foregroundStyle(.primary)
+
+            Spacer()
+
+            Image(systemName: syncStatusIcon)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(syncStatusColor)
+
+            Text(syncStatusText)
+                .font(.body.weight(.medium))
+                .foregroundStyle(syncStatusColor)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 24)
+        .frame(minHeight: 58)
+    }
+
+    private var syncNowButton: some View {
+        Button {
+            Task { await flushPendingLogs() }
+        } label: {
+            HStack(spacing: 10) {
+                Spacer()
+
+                if isFlushingPending {
+                    ProgressView()
+                }
+
+                Text("Sync Now")
+                    .font(.body.weight(.medium))
+
+                Spacer()
+            }
+            .frame(minHeight: 58)
+        }
+        .foregroundStyle(.cyan)
+        .disabled(isFlushingPending || api.token == nil)
+    }
+
+    private var exportDataRow: some View {
+        Button {
+            Task { await exportData() }
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.title3)
+                    .foregroundStyle(.cyan)
+                    .frame(width: 28)
+
+                Text("Export All Data")
+                    .font(.body)
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                if isExporting {
+                    ProgressView()
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 20)
+            .frame(minHeight: 58)
+        }
+        .buttonStyle(.plain)
+        .disabled(isExporting)
+    }
+
+    private var signOutCard: some View {
+        VStack(spacing: 0) {
+            Button {
+                showSignOutEverywhereConfirm = true
+            } label: {
+                HStack(spacing: 10) {
+                    Spacer()
+
+                    if isSigningOutEverywhere {
+                        ProgressView()
+                    }
+
+                    Text("Sign Out Everywhere")
+                        .font(.body.weight(.medium))
+
+                    Spacer()
+                }
+                .frame(minHeight: 58)
+            }
+            .foregroundStyle(.red)
+            .disabled(isSigningOutEverywhere)
+
+            accountDivider
+
+            Button(role: .destructive) {
+                auth.signOut()
+                dismiss()
+            } label: {
+                Text("Sign Out")
+                    .font(.body.weight(.medium))
+                    .frame(maxWidth: .infinity, minHeight: 58)
+            }
+        }
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    private var accountDivider: some View {
+        Divider()
+            .padding(.leading, 24)
+            .padding(.trailing, 24)
+    }
+
+    private func groupedSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 24)
+
+            VStack(spacing: 0) {
+                content()
+            }
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        }
+    }
+
+    private func flushPendingLogs() async {
+        isFlushingPending = true
+        defer { isFlushingPending = false }
+        do {
+            try await api.flushPendingMutations()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func exportData() async {
+        isExporting = true
+        defer { isExporting = false }
+        do {
+            let data = try await api.exportData()
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("dailymacros-export.json")
+            try data.write(to: tempURL)
+            await MainActor.run {
+                let controller = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
+                if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                   let root = scene.windows.first?.rootViewController {
+                    root.present(controller, animated: true)
+                }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func signOutEverywhere() async {
+        isSigningOutEverywhere = true
+        defer { isSigningOutEverywhere = false }
+        do {
+            try await auth.signOutEverywhere()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private var syncStatusText: String {
+        guard api.token != nil, auth.isAuthenticated else { return "Disconnected" }
+        if offlineQueue.pendingCount > 0 {
+            return "\(offlineQueue.pendingCount) Pending"
+        }
+        return "Connected"
+    }
+
+    private var syncStatusIcon: String {
+        guard api.token != nil, auth.isAuthenticated else { return "xmark.circle.fill" }
+        return offlineQueue.pendingCount > 0 ? "exclamationmark.circle.fill" : "checkmark.circle.fill"
+    }
+
+    private var syncStatusColor: Color {
+        guard api.token != nil, auth.isAuthenticated else { return .red }
+        return offlineQueue.pendingCount > 0 ? .orange : .green
+    }
+}
+
+private struct AccountAvatarView: View {
+    let user: User?
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let pictureURL {
+                AsyncImage(url: pictureURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        initialsAvatar
+                    }
+                }
+            } else {
+                initialsAvatar
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .accessibilityHidden(true)
+    }
+
+    private var initialsAvatar: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color.cyan.opacity(0.75), Color.blue.opacity(0.65)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            Text(initials)
+                .font(.system(size: max(size * 0.34, 13), weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+        }
+    }
+
+    private var pictureURL: URL? {
+        guard let raw = user?.picture?.trimmingCharacters(in: .whitespacesAndNewlines),
+              raw.isEmpty == false
+        else {
+            return nil
+        }
+        return URL(string: raw)
+    }
+
+    private var initials: String {
+        let source = user?.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? user?.name : user?.email
+        let parts = (source ?? "DM")
+            .split { $0.isWhitespace || $0 == "@" || $0 == "." }
+            .prefix(2)
+        let letters = parts.compactMap { $0.first }.map(String.init).joined()
+        return letters.isEmpty ? "DM" : letters.uppercased()
+    }
+}
+
+private enum SettingsAccountText {
+    static func displayName(for user: User?) -> String {
+        clean(user?.name) ?? "DailyMacros Account"
+    }
+
+    static func email(for user: User?) -> String {
+        clean(user?.email) ?? clean(user?.provider).map { "\($0.capitalized) sign-in" } ?? "Signed in"
+    }
+
+    private static func clean(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              trimmed.isEmpty == false
+        else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
+private enum SettingsBuildLabel {
+    private static let buildHashDigits = 7
+
+    static var appBuildLabel: String {
+        let bundleVersion = clean(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+        let build = shortIdentifier(Bundle.main.object(forInfoDictionaryKey: "AppBuild") as? String)
+        let hash = shortIdentifier(Bundle.main.object(forInfoDictionaryKey: "GitCommitHash") as? String)
+        return [bundleVersion, build, hash].compactMap { $0 }.joined(separator: " / ")
+    }
+
+    static var accountVersionLabel: String {
+        let bundleVersion = clean(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+        let build = shortIdentifier(Bundle.main.object(forInfoDictionaryKey: "AppBuild") as? String)
+        let hash = shortIdentifier(Bundle.main.object(forInfoDictionaryKey: "GitCommitHash") as? String)
+
+        let base: String
+        if let bundleVersion, let build {
+            base = "Version \(bundleVersion) (\(build))"
+        } else if let bundleVersion {
+            base = "Version \(bundleVersion)"
+        } else if let build {
+            base = "Build \(build)"
+        } else {
+            base = "Version unavailable"
+        }
+
+        if let hash {
+            return "\(base) - \(hash)"
+        }
+        return base
+    }
+
+    static func shortIdentifier(_ value: String?) -> String? {
+        guard let raw = clean(value),
               raw.contains("$(") == false
         else {
             return nil
@@ -446,6 +863,16 @@ struct SettingsView: View {
             return String(raw.prefix(buildHashDigits))
         }
 
+        return raw
+    }
+
+    private static func clean(_ value: String?) -> String? {
+        guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              raw.isEmpty == false,
+              raw.contains("$(") == false
+        else {
+            return nil
+        }
         return raw
     }
 }
