@@ -29,7 +29,7 @@
           <button type="button" class="nav-tab" data-page="workout">Workouts</button>
           <button type="button" class="nav-tab" data-page="weight">Weight</button>
           <button type="button" class="nav-tab" data-page="sleep">Sleep</button>
-          <button type="button" class="nav-tab sexual-activity-feature" data-page="sexual-activity" hidden>Sexual Activity</button>
+          <button type="button" class="nav-tab sexual-activity-feature" data-page="sexual-activity" hidden>Sex</button>
           <button type="button" class="nav-tab" data-page="analysis">Analysis</button>
         </nav>
         <div class="topbar-right">
@@ -383,9 +383,16 @@
               <input id="sleep-logged-at" type="datetime-local" />
             </div>
           </div>
-          <div class="inline-log-row">
+          <div class="inline-log-row sleep-log-row">
             <input id="sleep-hours" type="number" step="0.25" min="0" max="24" placeholder="Hours" />
             <input id="sleep-wake-ups" type="number" step="1" min="0" max="99" placeholder="Wake-ups" style="max-width:110px" />
+            <select id="sleep-quality" aria-label="Sleep quality">
+              <option value="1">Poor</option>
+              <option value="2">Fair</option>
+              <option value="3" selected>Okay</option>
+              <option value="4">Good</option>
+              <option value="5">Great</option>
+            </select>
             <button id="save-sleep-btn" type="button">Log Sleep</button>
           </div>
         </section>

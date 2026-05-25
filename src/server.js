@@ -891,6 +891,10 @@ function buildAnalysisMetrics(snapshot, context) {
   const sleepDays = Array.isArray(snapshot?.sleep?.dailyTotals) ? snapshot.sleep.dailyTotals : [];
   const sleepHoursArr = sleepDays.map((row) => toFinite(row.totalHours));
   const avgSleepHours = sleepHoursArr.length ? sleepHoursArr.reduce((a, b) => a + b, 0) / sleepHoursArr.length : 0;
+  const sleepQualityArr = sleepDays
+    .map((row) => toFinite(row.avgQuality, NaN))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const avgSleepQuality = sleepQualityArr.length ? sleepQualityArr.reduce((a, b) => a + b, 0) / sleepQualityArr.length : 0;
   const dailyCalories = mealDays.map((row) => toFinite(row.calories));
   const dailyProtein = mealDays.map((row) => toFinite(row.protein));
 
@@ -1001,7 +1005,8 @@ function buildAnalysisMetrics(snapshot, context) {
       weightEntryCount: weightEntries.length,
       weightChange: Number(weightChange.toFixed(2)),
       sleepDaysLogged: sleepDays.length,
-      avgSleepHours: Number(avgSleepHours.toFixed(2))
+      avgSleepHours: Number(avgSleepHours.toFixed(2)),
+      avgSleepQuality: Number(avgSleepQuality.toFixed(2))
     },
     goalAlignment: {
       goal,
@@ -1092,7 +1097,7 @@ async function generateAiAnalysis(snapshot, context) {
       {
         role: 'system',
         content:
-          'You are a direct fitness and nutrition coach. Be honest, specific, and practical. Use only the data provided. Return strict JSON only. Next-week plan items must be numeric and measurable. IMPORTANT: completedWorkoutCount and plannedWorkoutCount represent distinct days with at least one workout — not total session counts. Two workouts logged on the same day still count as only one workout day. If sleep data is available, incorporate sleep patterns into your analysis and recommendations (e.g. average hours, consistency, impact on recovery).'
+          'You are a direct fitness and nutrition coach. Be honest, specific, and practical. Use only the data provided. Return strict JSON only. Next-week plan items must be numeric and measurable. IMPORTANT: completedWorkoutCount and plannedWorkoutCount represent distinct days with at least one workout — not total session counts. Two workouts logged on the same day still count as only one workout day. If sleep data is available, incorporate sleep patterns into your analysis and recommendations (e.g. average hours, quality rating, consistency, impact on recovery).'
       },
       {
         role: 'user',

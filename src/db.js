@@ -203,6 +203,7 @@ async function initDb() {
       user_id TEXT NOT NULL,
       duration_hours DOUBLE PRECISION NOT NULL,
       wake_ups INTEGER NOT NULL DEFAULT 0,
+      quality INTEGER CHECK (quality IS NULL OR (quality BETWEEN 1 AND 5)),
       logged_at TIMESTAMPTZ NOT NULL,
       source TEXT NOT NULL DEFAULT 'manual',
       external_id TEXT,
@@ -211,6 +212,7 @@ async function initDb() {
     );
   `);
   await pool.query(`ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS wake_ups INTEGER NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS quality INTEGER;`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS weight_targets (
@@ -317,6 +319,18 @@ async function initDb() {
   await pool.query(`ALTER TABLE sexual_activity_entries ADD COLUMN IF NOT EXISTS external_id TEXT;`);
   await pool.query(`ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';`);
   await pool.query(`ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS external_id TEXT;`);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'sleep_entries_quality_range'
+      ) THEN
+        ALTER TABLE sleep_entries
+          ADD CONSTRAINT sleep_entries_quality_range
+          CHECK (quality IS NULL OR (quality BETWEEN 1 AND 5));
+      END IF;
+    END $$;
+  `);
 
   await pool.query(`
     ALTER TABLE entries
@@ -1809,6 +1823,23 @@ async function listSexualActivityEntries(userId, options = {}) {
 
 // ── Sleep entries ──
 
+function hasSleepQualityPayload(payload = {}) {
+  return Object.prototype.hasOwnProperty.call(payload, 'quality') ||
+    Object.prototype.hasOwnProperty.call(payload, 'sleepQuality');
+}
+
+function normalizeSleepQuality(payload = {}) {
+  const raw = payload.quality ?? payload.sleepQuality;
+  if (raw == null || raw === '') {
+    return null;
+  }
+  const quality = Number(raw);
+  if (!Number.isFinite(quality) || Math.round(quality) !== quality || quality < 1 || quality > 5) {
+    throw new Error('Sleep quality must be a whole number between 1 and 5.');
+  }
+  return quality;
+}
+
 async function addSleepEntry(userId, payload) {
   const durationHours = Number(payload.durationHours);
   if (!Number.isFinite(durationHours) || durationHours <= 0 || durationHours > 24) {
@@ -1820,6 +1851,7 @@ async function addSleepEntry(userId, payload) {
   }
 
   const wakeUps = Math.max(0, Math.min(99, Math.round(Number(payload.wakeUps) || 0)));
+  const quality = normalizeSleepQuality(payload);
   const source = normalizeHealthEntrySource(payload.source, 'Sleep');
   const externalId = normalizeExternalId(payload.externalId ?? payload.external_id, 'Sleep');
 
@@ -1837,10 +1869,10 @@ async function addSleepEntry(userId, payload) {
   }
 
   const result = await pool.query(
-    `INSERT INTO sleep_entries (user_id, duration_hours, wake_ups, logged_at, source, external_id)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO sleep_entries (user_id, duration_hours, wake_ups, quality, logged_at, source, external_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING id`,
-    [userId, Number(durationHours.toFixed(2)), wakeUps, loggedAt, source, externalId]
+    [userId, Number(durationHours.toFixed(2)), wakeUps, quality, loggedAt, source, externalId]
   );
   return { id: Number(result.rows[0].id), created: true };
 }
@@ -1856,6 +1888,8 @@ async function updateSleepEntry(userId, id, payload) {
   }
 
   const wakeUps = Math.max(0, Math.min(99, Math.round(Number(payload.wakeUps) || 0)));
+  const hasQuality = hasSleepQualityPayload(payload);
+  const quality = hasQuality ? normalizeSleepQuality(payload) : null;
   const source = payload.source == null ? null : normalizeHealthEntrySource(payload.source, 'Sleep');
   const externalId = payload.externalId == null && payload.external_id == null ? null : normalizeExternalId(payload.externalId ?? payload.external_id, 'Sleep');
 
@@ -1865,9 +1899,10 @@ async function updateSleepEntry(userId, id, payload) {
          wake_ups = $4,
          logged_at = $5,
          source = COALESCE($6, source),
-         external_id = COALESCE($7, external_id)
+         external_id = COALESCE($7, external_id),
+         quality = CASE WHEN $8 THEN $9::integer ELSE quality END
      WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
-    [userId, id, Number(durationHours.toFixed(2)), wakeUps, loggedAt, source, externalId]
+    [userId, id, Number(durationHours.toFixed(2)), wakeUps, loggedAt, source, externalId, hasQuality, quality]
   );
 
   return result.rowCount;
@@ -1891,6 +1926,7 @@ async function listSleepEntries(userId, options = {}) {
     `SELECT id,
             duration_hours AS "durationHours",
             wake_ups AS "wakeUps",
+            quality,
             logged_at AS "loggedAt",
             source,
             external_id AS "externalId"
@@ -1918,6 +1954,7 @@ async function listSleepEntries(userId, options = {}) {
       id: Number(row.id),
       durationHours: Number(row.durationHours),
       wakeUps: Number(row.wakeUps || 0),
+      quality: row.quality == null ? null : Number(row.quality),
       loggedAt: new Date(row.loggedAt).toISOString(),
       source: row.source || 'manual',
       externalId: row.externalId || null
@@ -2017,7 +2054,8 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
       ),
       pool.query(
         `SELECT (logged_at AT TIME ZONE $3)::date::text AS day,
-                ROUND(SUM(duration_hours)::numeric, 2) AS total_hours
+                ROUND(SUM(duration_hours)::numeric, 2) AS total_hours,
+                ROUND(AVG(quality)::numeric, 2) AS avg_quality
          FROM sleep_entries
          WHERE user_id = $1 AND deleted_at IS NULL
            AND logged_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
@@ -2127,7 +2165,8 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
     sleep: {
       dailyTotals: sleepResult.rows.map((row) => ({
         day: row.day,
-        totalHours: Number(row.total_hours || 0)
+        totalHours: Number(row.total_hours || 0),
+        avgQuality: row.avg_quality == null ? null : Number(row.avg_quality)
       })),
       daysLogged: sleepResult.rows.length,
       avgHours: sleepResult.rows.length
@@ -2275,7 +2314,7 @@ async function exportUserData(userId) {
       pool.query('SELECT id, weight, logged_at, source, external_id, created_at FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       pool.query('SELECT id, description, intensity, duration_hours, calories_burned, logged_at, source, external_id, created_at FROM workout_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       pool.query('SELECT id, type, logged_at, source, external_id, created_at FROM sexual_activity_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
-      pool.query('SELECT id, duration_hours, wake_ups, logged_at, source, external_id, created_at FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
+      pool.query('SELECT id, duration_hours, wake_ups, quality, logged_at, source, external_id, created_at FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       getWeightTarget(userId),
       pool.query('SELECT id, period_days, report_json, created_at FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC', [userId]),
       pool.query('SELECT feature, usage_date, count, updated_at FROM daily_usage_counts WHERE user_id = $1 ORDER BY usage_date DESC, feature', [userId])

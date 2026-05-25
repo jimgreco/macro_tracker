@@ -326,6 +326,12 @@ body {
   white-space: nowrap;
 }
 
+.sleep-log-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(86px, 0.7fr) minmax(104px, 0.8fr) auto;
+  align-items: center;
+}
+
 #weight-logged-at {
   width: 100%;
   min-width: 0;
@@ -1645,7 +1651,8 @@ button[disabled] {
   margin-bottom: 0.2rem;
 }
 
-.entry-modal-field input {
+.entry-modal-field input,
+.entry-modal-field select {
   width: 100%;
   margin-bottom: 0.6rem;
   padding: 0.4rem 0.5rem;
@@ -2154,9 +2161,19 @@ button[disabled] {
   #consumed-at,
   #weight-logged-at,
   #workout-logged-at,
+  #sleep-logged-at,
   #health-logged-at {
     padding: 0.36rem 0.42rem;
     font-size: 0.82rem;
+  }
+
+  .sleep-log-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .sleep-log-row #sleep-quality,
+  .sleep-log-row #save-sleep-btn {
+    grid-column: 1 / -1;
   }
 
   .quick-top-row {

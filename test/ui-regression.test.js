@@ -472,6 +472,8 @@ test('web UI reflects admin-controlled sexual activity feature flag', () => {
   const script = read('public/script.js');
 
   assert.equal(html.includes('class="nav-tab sexual-activity-feature" data-page="sexual-activity" hidden'), true);
+  assert.equal(html.includes('class="nav-tab sexual-activity-feature" data-page="sexual-activity" hidden>Sex</button>'), true);
+  assert.equal(html.includes('class="nav-tab sexual-activity-feature" data-page="sexual-activity" hidden>Sexual Activity</button>'), false);
   assert.equal(html.includes('id="sexual-activity-page"'), true);
   assert.equal(html.includes('id="admin-page-btn"'), true);
   assert.equal(script.includes('features: {\n    sexualActivity: false'), true);
@@ -719,4 +721,27 @@ test('mobile sleep target is editable and drives sleep chart', () => {
   assert.equal(script.includes('/api/macro-targets/sleep_hours'), true);
   assert.equal(script.includes('targetValue: getSleepTargetHours()'), true);
   assert.equal(db.includes('sleep_hours: 8'), true);
+});
+
+test('sleep entries capture quality on web and iOS', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+  const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  const models = read('ios/DailyMacros/DailyMacros/Models.swift');
+
+  assert.equal(html.includes('id="sleep-quality"'), true);
+  assert.equal(html.includes('<option value="3" selected>Okay</option>'), true);
+  assert.equal(script.includes('const sleepQualityEl'), true);
+  assert.equal(script.includes('SLEEP_QUALITY_LABELS'), true);
+  assert.equal(script.includes('body: JSON.stringify({ durationHours, wakeUps, quality, loggedAt })'), true);
+  assert.equal(script.includes('qualityLabel = quality ? ` · ${sleepQualityLabel(quality)} sleep` : \'\''), true);
+  assert.equal(models.includes('let quality: Int?'), true);
+  assert.equal(api.includes('func addSleepEntry(durationHours: Double, wakeUps: Int, quality: Int? = nil'), true);
+  assert.equal(api.includes('payload["quality"] = quality.map { $0 as Any } ?? NSNull()'), true);
+  assert.equal(health.includes('@State private var sleepQuality = "3"'), true);
+  assert.equal(health.includes('sleepQualityPicker(selection: $sleepQuality)'), true);
+  assert.equal(health.includes('sleepQualityPicker(selection: $editSleepQuality)'), true);
+  assert.equal(health.includes('sleepQualityLabel(_ quality: Int?)'), true);
+  assert.equal(health.includes('let qualityChanged = sleepQualityValue(from: editSleepQuality) != entry.quality'), true);
 });

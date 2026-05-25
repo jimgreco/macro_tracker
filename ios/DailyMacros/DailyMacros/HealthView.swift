@@ -57,6 +57,7 @@ struct HealthView: View {
     @State private var showLogSleep = false
     @State private var sleepHours = ""
     @State private var sleepWakeUps = "0"
+    @State private var sleepQuality = "3"
     @State private var sleepLogDate = Date()
     @State private var isSavingSleep = false
     @State private var sleepTargetHours: Double = 8
@@ -74,12 +75,14 @@ struct HealthView: View {
     @State private var editHealthDate = Date()
     @State private var editSleepHours = ""
     @State private var editSleepWakeUps = ""
+    @State private var editSleepQuality = ""
     @State private var editSleepDate = Date()
 
     @State private var errorMessage: String?
     @State private var isSyncingHealthKit = false
 
     private let activityTypes = ["masturbation", "oral sex", "vaginal sex", "other"]
+    private let sleepQualityValues = ["1", "2", "3", "4", "5"]
     private let scopes = ["week", "month", "year"]
     private let logPageSize = 30
 
@@ -708,6 +711,7 @@ struct HealthView: View {
                             .onTapGesture {
                                 editSleepHours = sleepHoursEditText(for: entry)
                                 editSleepWakeUps = "\(entry.wakeUps)"
+                                editSleepQuality = sleepQualityEditText(for: entry)
                                 editSleepDate = parseISO(entry.loggedAt)
                                 editingSleep = entry
                             }
@@ -733,8 +737,9 @@ struct HealthView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(format: "%.1f hours", entry.durationHours))
                     .font(.subheadline.bold())
-                if entry.wakeUps > 0 {
-                    Text("\(entry.wakeUps) wake-up\(entry.wakeUps == 1 ? "" : "s")")
+                let details = sleepEntryDetails(entry)
+                if !details.isEmpty {
+                    Text(details)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -775,6 +780,17 @@ struct HealthView: View {
     private func isBadSleepNight(_ entry: SleepEntry) -> Bool {
         guard sleepTargetHours > 0 else { return false }
         return abs(entry.durationHours - sleepTargetHours) >= 1
+    }
+
+    private func sleepEntryDetails(_ entry: SleepEntry) -> String {
+        var parts: [String] = []
+        if let quality = entry.quality {
+            parts.append("\(sleepQualityLabel(quality)) sleep")
+        }
+        if entry.wakeUps > 0 {
+            parts.append("\(entry.wakeUps) wake-up\(entry.wakeUps == 1 ? "" : "s")")
+        }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - Log Health Sheet
@@ -863,6 +879,8 @@ struct HealthView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
+                    sleepQualityPicker(selection: $sleepQuality)
+
                     Button {
                         Task { await saveSleepEntry() }
                     } label: {
@@ -901,7 +919,26 @@ struct HealthView: View {
         guard let wakeUps = Int(sleepWakeUps.trimmingCharacters(in: .whitespacesAndNewlines)), wakeUps >= 0 else {
             return false
         }
+        guard sleepQuality.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sleepQualityValue(from: sleepQuality) != nil else {
+            return false
+        }
         return true
+    }
+
+    private func sleepQualityPicker(selection: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Quality")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Picker("Quality", selection: selection) {
+                Text("Not rated").tag("")
+                ForEach(sleepQualityValues, id: \.self) { value in
+                    Text(sleepQualityLabel(value)).tag(value)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Edit Sleep Targets Sheet
@@ -1065,6 +1102,8 @@ struct HealthView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
+                    sleepQualityPicker(selection: $editSleepQuality)
+
                     HStack(spacing: 12) {
                         Button(role: .destructive) {
                             Task { await deleteSleep(entry) }
@@ -1111,17 +1150,25 @@ struct HealthView: View {
         guard let wakeUps = Int(editSleepWakeUps.trimmingCharacters(in: .whitespacesAndNewlines)), wakeUps >= 0 else {
             return false
         }
+        guard editSleepQuality.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sleepQualityValue(from: editSleepQuality) != nil else {
+            return false
+        }
 
         let baselineHours = Double(sleepHoursEditText(for: entry)) ?? entry.durationHours
         let hoursChanged = abs(hours - baselineHours) > 0.001
         let wakeUpsChanged = wakeUps != entry.wakeUps
+        let qualityChanged = sleepQualityValue(from: editSleepQuality) != entry.quality
         let loggedAtChanged = !isSameDisplayedMinute(editSleepDate, parseISO(entry.loggedAt))
 
-        return hoursChanged || wakeUpsChanged || loggedAtChanged
+        return hoursChanged || wakeUpsChanged || qualityChanged || loggedAtChanged
     }
 
     private func sleepHoursEditText(for entry: SleepEntry) -> String {
         String(format: "%.2g", entry.durationHours)
+    }
+
+    private func sleepQualityEditText(for entry: SleepEntry) -> String {
+        entry.quality.map { String($0) } ?? ""
     }
 
     private func isSameDisplayedMinute(_ lhs: Date, _ rhs: Date) -> Bool {
@@ -1290,12 +1337,14 @@ struct HealthView: View {
                 return
             }
             let wakeUps = Int(sleepWakeUps.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            let quality = sleepQualityValue(from: sleepQuality)
             let f = ISO8601DateFormatter()
             f.timeZone = TimeZone(identifier: "America/New_York")
-            try await api.addSleepEntry(durationHours: hours, wakeUps: wakeUps, loggedAt: f.string(from: sleepLogDate))
+            try await api.addSleepEntry(durationHours: hours, wakeUps: wakeUps, quality: quality, loggedAt: f.string(from: sleepLogDate))
             showLogSleep = false
             sleepHours = ""
             sleepWakeUps = "0"
+            sleepQuality = "3"
             sleepLogDate = Date()
             triggerSleepHealthKitExport()
             await loadSleep(reset: true)
@@ -1374,9 +1423,10 @@ struct HealthView: View {
                 return
             }
             let wakeUps = Int(editSleepWakeUps.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            let quality = sleepQualityValue(from: editSleepQuality)
             let f = ISO8601DateFormatter()
             f.timeZone = TimeZone(identifier: "America/New_York")
-            try await api.updateSleepEntry(id: entry.id, durationHours: hours, wakeUps: wakeUps, loggedAt: f.string(from: editSleepDate))
+            try await api.updateSleepEntry(id: entry.id, durationHours: hours, wakeUps: wakeUps, quality: quality, loggedAt: f.string(from: editSleepDate))
             editingSleep = nil
             await loadSleep(reset: true)
         } catch {
@@ -1435,6 +1485,7 @@ struct HealthView: View {
             sleepLogDate = Date()
             sleepHours = ""
             sleepWakeUps = "0"
+            sleepQuality = "3"
             showLogSleep = true
         case .sexualActivity:
             guard sexualActivityEnabled else {
@@ -1491,6 +1542,29 @@ struct HealthView: View {
             return "\(Int(rounded))"
         }
         return String(format: "%.1f", hours)
+    }
+
+    private func sleepQualityValue(from text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let quality = Int(trimmed), (1...5).contains(quality) else {
+            return nil
+        }
+        return quality
+    }
+
+    private func sleepQualityLabel(_ text: String) -> String {
+        sleepQualityLabel(sleepQualityValue(from: text))
+    }
+
+    private func sleepQualityLabel(_ quality: Int?) -> String {
+        switch quality {
+        case 1: return "Poor"
+        case 2: return "Fair"
+        case 3: return "Okay"
+        case 4: return "Good"
+        case 5: return "Great"
+        default: return "Not rated"
+        }
     }
 
     private func activityColor(_ type: String) -> Color {

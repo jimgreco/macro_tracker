@@ -182,6 +182,7 @@ const editWorkoutTargetLinkEl = document.getElementById('edit-workout-target-lin
 const sleepLoggedAtEl = document.getElementById('sleep-logged-at');
 const sleepHoursEl = document.getElementById('sleep-hours');
 const sleepWakeUpsEl = document.getElementById('sleep-wake-ups');
+const sleepQualityEl = document.getElementById('sleep-quality');
 const saveSleepBtnEl = document.getElementById('save-sleep-btn');
 const sleepLogListEl = document.getElementById('sleep-log-list');
 const sleepCanvasEl = document.getElementById('sleep-canvas');
@@ -4597,19 +4598,51 @@ function parseWorkoutInput(text) {
 
 // ── Sleep Tracking ──
 
+const SLEEP_QUALITY_LABELS = {
+  1: 'Poor',
+  2: 'Fair',
+  3: 'Okay',
+  4: 'Good',
+  5: 'Great'
+};
+
+function normalizeSleepQuality(value) {
+  if (value == null || value === '') return null;
+  const quality = Number(value);
+  if (!Number.isInteger(quality) || quality < 1 || quality > 5) return null;
+  return quality;
+}
+
+function sleepQualityLabel(value) {
+  const quality = normalizeSleepQuality(value);
+  return quality ? SLEEP_QUALITY_LABELS[quality] : 'Not rated';
+}
+
+function sleepQualityOptions(selectedValue) {
+  const selectedQuality = normalizeSleepQuality(selectedValue);
+  return Object.entries(SLEEP_QUALITY_LABELS)
+    .map(([value, label]) => {
+      const selected = Number(value) === selectedQuality ? ' selected' : '';
+      return `<option value="${escapeAttr(value)}"${selected}>${escapeHtml(label)}</option>`;
+    })
+    .join('');
+}
+
 function renderSleepCard(entry) {
   const loggedAt = new Date(entry.loggedAt);
   const dateText = loggedAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const hours = Number(entry.durationHours || 0);
   const wakeUps = Number(entry.wakeUps || 0);
+  const quality = normalizeSleepQuality(entry.quality);
   const hoursLabel = hours === 1 ? '1 hour' : `${fmtNumber(hours)} hours`;
   const wakeUpsLabel = wakeUps > 0 ? ` · ${wakeUps} wake-up${wakeUps === 1 ? '' : 's'}` : '';
+  const qualityLabel = quality ? ` · ${sleepQualityLabel(quality)} sleep` : '';
   const entryId = safeId(entry.id);
   return `
     <div class="entry-card" data-sleep-action="edit" data-sleep-id="${entryId}">
       <div class="entry-card-icon entry-card-icon--health" style="background:#7c4dff22;color:#7c4dff">●</div>
       <div class="entry-card-body">
-        <div class="entry-card-title">${escapeHtml(hoursLabel + wakeUpsLabel)}</div>
+        <div class="entry-card-title">${escapeHtml(hoursLabel + wakeUpsLabel + qualityLabel)}</div>
         <div class="entry-card-sub">${escapeHtml(dateText)}</div>
       </div>
     </div>
@@ -4642,6 +4675,13 @@ function showSleepEditModal(entry) {
           <label for="sleep-modal-wake-ups">Wake-ups</label>
           <input id="sleep-modal-wake-ups" type="number" step="1" min="0" max="99" value="${escapeAttr(entry.wakeUps || 0)}" />
         </div>
+        <div class="entry-modal-field">
+          <label for="sleep-modal-quality">Quality</label>
+          <select id="sleep-modal-quality">
+            <option value="">Not rated</option>
+            ${sleepQualityOptions(entry.quality)}
+          </select>
+        </div>
       </div>
       <div class="combine-modal-actions">
         <button id="sleep-modal-cancel-btn" class="btn-secondary">Cancel</button>
@@ -4661,9 +4701,10 @@ function showSleepEditModal(entry) {
       const loggedAt = asIso(document.getElementById('sleep-modal-date').value);
       const durationHours = Number(document.getElementById('sleep-modal-hours').value);
       const wakeUps = Number(document.getElementById('sleep-modal-wake-ups').value) || 0;
+      const quality = normalizeSleepQuality(document.getElementById('sleep-modal-quality').value);
       await api(`/api/sleep/${entry.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ durationHours, wakeUps, loggedAt })
+        body: JSON.stringify({ durationHours, wakeUps, quality, loggedAt })
       });
       overlay.remove();
       setActionBanner('Sleep entry updated.', 'success');
@@ -5230,16 +5271,19 @@ if (saveSleepBtnEl) {
         return;
       }
       const wakeUps = Number(sleepWakeUpsEl?.value) || 0;
+      const quality = normalizeSleepQuality(sleepQualityEl?.value);
       await api('/api/sleep', {
         method: 'POST',
         body: JSON.stringify({
           loggedAt: asIso(sleepLoggedAtEl?.value || toDateTimeLocalValue()),
           durationHours,
-          wakeUps
+          wakeUps,
+          quality
         })
       });
       if (sleepHoursEl) sleepHoursEl.value = '';
       if (sleepWakeUpsEl) sleepWakeUpsEl.value = '';
+      if (sleepQualityEl) sleepQualityEl.value = '3';
       if (sleepLoggedAtEl) sleepLoggedAtEl.value = toDateTimeLocalValue();
       setActionBanner('Sleep logged.', 'success');
       await refreshSleepData();
