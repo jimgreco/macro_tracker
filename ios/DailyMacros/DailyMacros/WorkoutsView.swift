@@ -831,12 +831,39 @@ struct WorkoutsView: View {
             resetWorkoutSheet()
             workoutLogDate = Date()
             showLogSheet = true
+        case .logWorkoutEntry:
+            guard let workout = action.workout else { return }
+            workoutLogDate = Date()
+            Task { await logCoachWorkout(workout) }
         case .editTargets:
             editWorkoutsPerWeek = "\(Int(workoutsTarget))"
             editCaloriesPerWeek = "\(Int(caloriesTarget))"
             showEditTargets = true
         case .openLogMeal, .openQuickAdd, .logMealItem, .openLogWeight, .openLogSleep:
             break
+        }
+    }
+
+    private func logCoachWorkout(_ workout: CoachWorkoutPayload) async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "America/New_York")
+
+        do {
+            try await api.addWorkout(
+                description: workout.description,
+                intensity: normalizeWorkoutIntensity(workout.intensity),
+                durationHours: workout.durationHours,
+                caloriesBurned: workout.caloriesBurned,
+                loggedAt: formatter.string(from: workoutLogDate)
+            )
+            triggerHealthKitExport()
+            await loadWorkouts(reset: true)
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

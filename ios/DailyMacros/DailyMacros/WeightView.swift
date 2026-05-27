@@ -655,7 +655,7 @@ struct WeightView: View {
                 editTargetDate = Date()
             }
             showEditTarget = true
-        case .openLogMeal, .openQuickAdd, .logMealItem, .openLogWorkout, .openLogSleep:
+        case .openLogMeal, .openQuickAdd, .logMealItem, .openLogWorkout, .logWorkoutEntry, .openLogSleep:
             break
         }
     }

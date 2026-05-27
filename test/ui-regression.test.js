@@ -679,18 +679,23 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
 test('iOS Compass coach uses learned meal windows and action context', () => {
   const coach = read('ios/DailyMacros/DailyMacros/AICoach.swift');
   const macros = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const workouts = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
 
   assert.ok(coach.includes('private enum CoachDaypart'));
   assert.ok(coach.includes('learnedMealWindow(for: daypart'));
   assert.ok(coach.includes('summary.latestFirstLogHour + 1'));
   assert.ok(coach.includes('days.count >= 3'));
   assert.ok(coach.includes('case logMealItem'));
+  assert.ok(coach.includes('case logWorkoutEntry'));
   assert.ok(coach.includes('mealItem: match.mealItem'));
+  assert.ok(coach.includes('repeatWorkoutPrompt(entries: entries'));
+  assert.ok(coach.includes('workout: match.workout'));
   assert.ok(coach.includes('category: "goal_tracking"'));
   assert.ok(coach.includes('Wake-ups are also repeatedly elevated'));
   assert.ok(macros.includes('private func handleCoachAction(_ action: CoachAction)'));
   assert.ok(macros.includes('quickSearchText = action.type == .openQuickAdd ? (action.searchText ?? "") : ""'));
   assert.ok(macros.includes('private func logCoachMealItem(_ mealItem: CoachMealItemPayload) async'));
+  assert.ok(workouts.includes('private func logCoachWorkout(_ workout: CoachWorkoutPayload) async'));
 });
 
 test('iOS app includes onboarding reminders offline queue and diagnostics foundations', () => {

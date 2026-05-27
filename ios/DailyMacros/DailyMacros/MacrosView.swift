@@ -2083,7 +2083,7 @@ struct MacrosView: View {
                 editFat = "\(Int(targets.fat))"
                 showEditTargets = true
             }
-        case .openLogWorkout, .openLogWeight, .openLogSleep:
+        case .openLogWorkout, .logWorkoutEntry, .openLogWeight, .openLogSleep:
             break
         }
     }

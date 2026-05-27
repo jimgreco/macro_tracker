@@ -7,6 +7,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Started iOS implementation with a shared AI coach suggestion model, dismissals, coach card UI, and deterministic high-confidence candidate rules for Macros, Workouts, Weight, and Sleep.
 - 2026-05-27: Named the iOS coach `Compass`, changed the coach card to lead with the suggestion title before the author/source line, and added Settings controls to show/hide Compass cards and reset dismissed suggestions.
 - 2026-05-27: Improved Compass candidate quality with learned meal windows for missed breakfast/lunch prompts, distinct-day habitual quick-add detection with direct add payloads, weight goal-date pace coaching, repeated-evidence wake-up handling for sleep, and local diagnostics for shown/dismissed/acted-on suggestions.
+- 2026-05-27: Added iOS repeat-workout coaching that detects recurring workouts across distinct recent days and logs the reconstructed workout directly from the Compass card.
 - The current implementation uses local deterministic rules/templates as the confidence gate and fallback path. Local AFM narration/ranking is still pending and should be layered on top of these candidates rather than replacing the rule calculations.
 
 ## Goal
@@ -193,6 +194,7 @@ Backlog items:
   - If higher than usual and recent sleep is poor, suggest recovery-oriented phrasing.
 - Repeat workout quick action:
   - Detect common recurring workouts and offer a one-tap "Log usual workout" action.
+  - Started in iOS: Compass requires at least 3 matching workout days in the last 30 days and no matching workout today before showing a direct log action.
 - Rest/recovery guardrail:
   - If the user has several consecutive high-intensity days and poor sleep, suggest an easier session or rest day without making medical claims.
 

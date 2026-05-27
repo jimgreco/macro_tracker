@@ -38,6 +38,7 @@ enum CoachActionType {
     case openQuickAdd
     case logMealItem
     case openLogWorkout
+    case logWorkoutEntry
     case openLogWeight
     case openLogSleep
     case editTargets
@@ -53,22 +54,32 @@ struct CoachMealItemPayload {
     let fat: Double
 }
 
+struct CoachWorkoutPayload {
+    let description: String
+    let intensity: String
+    let durationHours: Double
+    let caloriesBurned: Double
+}
+
 struct CoachAction {
     let label: String
     let type: CoachActionType
     let searchText: String?
     let mealItem: CoachMealItemPayload?
+    let workout: CoachWorkoutPayload?
 
     init(
         label: String,
         type: CoachActionType,
         searchText: String? = nil,
-        mealItem: CoachMealItemPayload? = nil
+        mealItem: CoachMealItemPayload? = nil,
+        workout: CoachWorkoutPayload? = nil
     ) {
         self.label = label
         self.type = type
         self.searchText = searchText
         self.mealItem = mealItem
+        self.workout = workout
     }
 }
 
@@ -356,7 +367,7 @@ struct AICoachCard: View {
         switch actionType {
         case .openLogMeal, .openQuickAdd, .logMealItem:
             return "fork.knife"
-        case .openLogWorkout:
+        case .openLogWorkout, .logWorkoutEntry:
             return "figure.run"
         case .openLogWeight:
             return "scalemass"
@@ -432,6 +443,14 @@ enum CoachCandidateEngine {
         let dayCount: Int
         let latestLoggedAt: Date
         let mealItem: CoachMealItemPayload
+    }
+
+    private struct HabitualWorkoutCandidate {
+        let normalizedDescription: String
+        let displayName: String
+        let dayCount: Int
+        let latestLoggedAt: Date
+        let workout: CoachWorkoutPayload
     }
 
     static func macros(dashboard: DashboardResponse, selectedDate: Date, now: Date = Date()) -> [CoachSuggestion] {
@@ -590,6 +609,10 @@ enum CoachCandidateEngine {
 
         if let trend = workoutTrend(entries: entries, now: now) {
             candidates.append(trend)
+        }
+
+        if let repeatWorkout = repeatWorkoutPrompt(entries: entries, now: now) {
+            candidates.append(repeatWorkout)
         }
 
         return candidates
@@ -1065,6 +1088,72 @@ enum CoachCandidateEngine {
         return nil
     }
 
+    private static func repeatWorkoutPrompt(entries: [WorkoutEntry], now: Date) -> CoachSuggestion? {
+        let today = dayString(now)
+        let recentEntries = entries
+            .filter { dayString(parseDate($0.loggedAt)) != today }
+            .filter { parseDate($0.loggedAt) >= addingDays(-30, to: now) }
+
+        guard recentEntries.count >= 5 else { return nil }
+
+        let todaysWorkoutNames = Set(entries
+            .filter { dayString(parseDate($0.loggedAt)) == today }
+            .map { normalizedName($0.description) })
+
+        let grouped = Dictionary(grouping: recentEntries, by: { normalizedName($0.description) })
+        let candidates = grouped.compactMap { normalizedDescription, values -> HabitualWorkoutCandidate? in
+            let days = Set(values.map { dayString(parseDate($0.loggedAt)) })
+            guard !todaysWorkoutNames.contains(normalizedDescription), days.count >= 3 else { return nil }
+
+            let sortedValues = values.sorted { parseDate($0.loggedAt) > parseDate($1.loggedAt) }
+            guard let latest = sortedValues.first,
+                  parseDate(latest.loggedAt) >= addingDays(-14, to: now) else {
+                return nil
+            }
+
+            return HabitualWorkoutCandidate(
+                normalizedDescription: normalizedDescription,
+                displayName: latest.description,
+                dayCount: days.count,
+                latestLoggedAt: parseDate(latest.loggedAt),
+                workout: CoachWorkoutPayload(
+                    description: latest.description,
+                    intensity: normalizeWorkoutIntensity(latest.intensity),
+                    durationHours: latest.durationHours,
+                    caloriesBurned: latest.caloriesBurned
+                )
+            )
+        }
+
+        guard let match = candidates
+            .sorted(by: {
+                if $0.dayCount == $1.dayCount {
+                    return $0.latestLoggedAt > $1.latestLoggedAt
+                }
+                return $0.dayCount > $1.dayCount
+            })
+            .first else {
+            return nil
+        }
+
+        return suggestion(
+            id: "workout-usual-\(match.normalizedDescription)-\(today)",
+            surface: .workouts,
+            category: "quick_add",
+            priority: 75,
+            confidence: match.dayCount >= 4 ? 0.89 : 0.86,
+            title: "Usual workout?",
+            message: "You often log \(match.displayName). Add it now if that is today's workout.",
+            evidence: ["\(match.dayCount) matching workout days in 30 days", "not logged today"],
+            action: CoachAction(
+                label: "Log usual workout",
+                type: .logWorkoutEntry,
+                workout: match.workout
+            ),
+            dismissalKey: "workouts:usual:v1:\(match.normalizedDescription)"
+        )
+    }
+
     private static func suggestion(
         id: String,
         surface: CoachSurface,
@@ -1114,6 +1203,17 @@ enum CoachCandidateEngine {
             return 3
         default:
             return 2
+        }
+    }
+
+    private static func normalizeWorkoutIntensity(_ intensity: String) -> String {
+        switch intensity.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "low", "light", "easy":
+            return "low"
+        case "high", "intense", "hard":
+            return "high"
+        default:
+            return "medium"
         }
     }
 

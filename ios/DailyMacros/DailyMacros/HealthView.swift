@@ -1209,7 +1209,7 @@ struct HealthView: View {
         case .editTargets:
             editSleepTargetHours = formatTargetHours(sleepTargetHours)
             showEditSleepTargets = true
-        case .openLogMeal, .openQuickAdd, .logMealItem, .openLogWorkout, .openLogWeight:
+        case .openLogMeal, .openQuickAdd, .logMealItem, .openLogWorkout, .logWorkoutEntry, .openLogWeight:
             break
         }
     }
