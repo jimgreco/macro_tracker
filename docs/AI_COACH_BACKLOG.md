@@ -15,7 +15,8 @@ Last updated: 2026-05-27
 - 2026-05-27: Added iOS end-of-day macro steering when protein is behind pace and calories remain available.
 - 2026-05-27: Added iOS weight plateau coaching that requires 8+ weigh-ins across 21+ days and a target that still needs movement.
 - 2026-05-27: Expanded iOS workout trend coaching to include workout-calorie shifts against the recent baseline.
-- The current implementation uses local deterministic rules/templates as the confidence gate and fallback path. Local AFM narration/ranking is still pending and should be layered on top of these candidates rather than replacing the rule calculations.
+- 2026-05-27: Added iOS local AFM narration/ranking for Compass. Foundation Models only sees already-eligible rule candidates, may choose among the top candidates, and may rewrite only title/message while rule evidence, confidence, actions, expiry, and dismissal keys remain authoritative.
+- 2026-05-27: Replaced the simple iOS Compass on/off toggle with modes for On, Rules Only, Local AI Only, and Off, including runtime local-AI availability copy in Settings.
 
 ## Goal
 
@@ -97,11 +98,13 @@ Suggested thresholds:
 Backlog tasks:
 - Add a `CoachCandidateEngine` that computes deterministic candidates from local summaries, targets, and logging history.
 - Add a local `CoachNarrator` backed by Apple Foundation Models on supported iOS versions.
+  - Started in iOS: `CoachNarrator` uses Foundation Models on iOS 26+ when Apple Intelligence is available and returns to deterministic behavior when unavailable.
 - Use AFM for:
   - choosing the clearest candidate when several qualify,
   - generating firm but friendly copy,
   - shortening copy to fit the card,
   - producing structured output that matches the suggestion contract.
+  - Started in iOS: Compass sends the top eligible candidates to AFM and validates the returned candidate id, title, and message before displaying a local-AI card.
 - Do not use AFM for:
   - numeric calculations,
   - target comparisons,
@@ -109,14 +112,16 @@ Backlog tasks:
   - meal-photo analysis,
   - medical or diagnostic claims.
 - Add runtime availability checks. If AFM is unavailable, use deterministic templates.
+  - Started in iOS: Settings reports Foundation Models availability, Local AI Only suppresses template cards when AFM is unavailable, and On mode falls back to local templates.
 - Add a Settings toggle for AI Coach with options:
   - On,
   - Off,
   - Local model only,
   - Local model with fallback templates.
-- Started: iOS Settings now has a Compass on/off control and reset for dismissed suggestions. More granular local-model modes are still pending.
+- Started in iOS: Settings now supports On, Rules Only, Local AI Only, and Off, plus reset for dismissed suggestions.
 - Add diagnostics that expose which source produced the suggestion: rule template, AFM local, or server fallback if server fallback is later enabled.
   - Started in iOS: Compass records local diagnostics when suggestions are shown, dismissed, or acted on, including surface, category, confidence, source, and dismissal key.
+  - Started in iOS: Compass records local-AI narration success and local-AI/template fallback events.
 
 ## Shared Data Requirements
 

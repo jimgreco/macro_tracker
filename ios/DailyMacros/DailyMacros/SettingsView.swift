@@ -4,7 +4,8 @@ struct SettingsView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var api: APIClient
     @AppStorage("onboarding_complete") private var onboardingComplete = true
-    @AppStorage(CoachSettingKeys.enabled) private var aiCoachEnabled = true
+    @AppStorage(CoachSettingKeys.enabled) private var legacyAICoachEnabled = true
+    @AppStorage(CoachSettingKeys.mode) private var aiCoachModeRaw = CoachMode.localModelWithTemplates.rawValue
     @StateObject private var offlineQueue = OfflineMutationStore.shared
     @StateObject private var diagnostics = Diagnostics.shared
     @StateObject private var coachDismissals = CoachDismissalStore.shared
@@ -154,7 +155,21 @@ struct SettingsView: View {
 
     private var compassSection: some View {
         Section {
-            Toggle("Show \(CoachBrand.name) cards", isOn: $aiCoachEnabled)
+            Picker("Mode", selection: compassModeBinding) {
+                ForEach(CoachMode.allCases) { mode in
+                    Text(mode.label).tag(mode.rawValue)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(currentCompassMode.detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+
+                Text(CoachNarrator.availabilitySummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Button("Reset Dismissed Suggestions") {
                 coachDismissals.resetDismissals()
@@ -163,8 +178,28 @@ struct SettingsView: View {
         } header: {
             Text(CoachBrand.name)
         } footer: {
-            Text("\(CoachBrand.name) uses local rules to surface high-confidence coaching from your logged data. Local AI narration can be layered on later without changing the confidence gates.")
+            Text("\(CoachBrand.name) always uses local rule confidence gates first. Local AI can rank and phrase eligible cards, but it cannot invent facts or override the rule evidence.")
         }
+    }
+
+    private var currentCompassMode: CoachMode {
+        CoachMode.resolved(rawValue: aiCoachModeRaw, legacyEnabled: legacyAICoachEnabled)
+    }
+
+    private var compassModeBinding: Binding<String> {
+        Binding(
+            get: { currentCompassMode.rawValue },
+            set: { newValue in
+                let mode = CoachMode(rawValue: newValue) ?? .localModelWithTemplates
+                aiCoachModeRaw = mode.rawValue
+                legacyAICoachEnabled = mode != .off
+                Diagnostics.shared.record(
+                    category: "coach",
+                    message: "Set \(CoachBrand.name) mode",
+                    details: ["mode": mode.rawValue]
+                )
+            }
+        )
     }
 
     // MARK: - Subscription

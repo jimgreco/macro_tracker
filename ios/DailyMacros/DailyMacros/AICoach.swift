@@ -1,5 +1,8 @@
 import Foundation
 import SwiftUI
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 enum CoachBrand {
     static let name = "Compass"
@@ -7,6 +10,65 @@ enum CoachBrand {
 
 enum CoachSettingKeys {
     static let enabled = "ai_coach_enabled"
+    static let mode = "ai_coach_mode"
+}
+
+enum CoachMode: String, CaseIterable, Identifiable {
+    case localModelWithTemplates = "local_model_with_templates"
+    case ruleTemplates = "rule_templates"
+    case localModelOnly = "local_model_only"
+    case off
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .localModelWithTemplates:
+            return "On"
+        case .ruleTemplates:
+            return "Rules Only"
+        case .localModelOnly:
+            return "Local AI Only"
+        case .off:
+            return "Off"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .localModelWithTemplates:
+            return "Use local AI when available, with local rule templates as the fallback."
+        case .ruleTemplates:
+            return "Use deterministic local rules and templated copy only."
+        case .localModelOnly:
+            return "Show cards only when the on-device model can narrate an eligible rule."
+        case .off:
+            return "Hide Compass cards."
+        }
+    }
+
+    var allowsTemplateFallback: Bool {
+        switch self {
+        case .localModelWithTemplates, .ruleTemplates:
+            return true
+        case .localModelOnly, .off:
+            return false
+        }
+    }
+
+    var allowsLocalModel: Bool {
+        switch self {
+        case .localModelWithTemplates, .localModelOnly:
+            return true
+        case .ruleTemplates, .off:
+            return false
+        }
+    }
+
+    static func resolved(rawValue: String, legacyEnabled: Bool) -> CoachMode {
+        guard legacyEnabled else { return .off }
+        return CoachMode(rawValue: rawValue) ?? .localModelWithTemplates
+    }
 }
 
 enum CoachSurface: String {
@@ -96,6 +158,23 @@ struct CoachSuggestion: Identifiable {
     let dismissalKey: String
     let expiresAt: Date
     let modelSource: CoachModelSource
+
+    func narrated(title: String, message: String) -> CoachSuggestion {
+        CoachSuggestion(
+            id: id,
+            surface: surface,
+            category: category,
+            priority: priority,
+            confidence: confidence,
+            title: title,
+            message: message,
+            evidence: evidence,
+            primaryAction: primaryAction,
+            dismissalKey: dismissalKey,
+            expiresAt: expiresAt,
+            modelSource: .afmLocal
+        )
+    }
 }
 
 final class CoachDismissalStore: ObservableObject {
@@ -112,6 +191,10 @@ final class CoachDismissalStore: ObservableObject {
     }
 
     func visibleSuggestion(from suggestions: [CoachSuggestion], now: Date = Date()) -> CoachSuggestion? {
+        visibleSuggestions(from: suggestions, now: now).first
+    }
+
+    func visibleSuggestions(from suggestions: [CoachSuggestion], now: Date = Date()) -> [CoachSuggestion] {
         _ = revision
         removeExpiredTodayDismissals(now: now)
 
@@ -125,7 +208,6 @@ final class CoachDismissalStore: ObservableObject {
                 }
                 return $0.priority > $1.priority
             }
-            .first
     }
 
     func dismissForToday(_ suggestion: CoachSuggestion, now: Date = Date()) {
@@ -206,34 +288,47 @@ final class CoachDismissalStore: ObservableObject {
 
 struct AICoachSlot: View {
     @ObservedObject var dismissals: CoachDismissalStore
-    @AppStorage(CoachSettingKeys.enabled) private var coachEnabled = true
+    @AppStorage(CoachSettingKeys.enabled) private var legacyCoachEnabled = true
+    @AppStorage(CoachSettingKeys.mode) private var coachModeRaw = CoachMode.localModelWithTemplates.rawValue
     @State private var recordedShownSuggestionID: String?
+    @State private var narratedSuggestion: CoachSuggestion?
+    @State private var narrationFailureKey: String?
 
     let suggestions: [CoachSuggestion]
     let onPrimaryAction: (CoachAction) -> Void
 
     var body: some View {
-        if coachEnabled, let suggestion = dismissals.visibleSuggestion(from: suggestions) {
-            AICoachCard(
-                suggestion: suggestion,
-                onPrimaryAction: { action in
-                    recordCoachEvent("acted_on", suggestion: suggestion, action: action)
-                    onPrimaryAction(action)
-                },
-                onDismissForToday: {
-                    recordCoachEvent("dismissed_today", suggestion: suggestion)
-                    dismissals.dismissForToday(suggestion)
-                },
-                onDismissAction: {
-                    recordCoachEvent("dismissed_pattern", suggestion: suggestion)
-                    dismissals.dismissAction(suggestion)
-                },
-                onNotUseful: {
-                    recordCoachEvent("not_useful", suggestion: suggestion)
-                    dismissals.dismissAction(suggestion)
-                }
-            )
-            .onAppear { recordShown(suggestion) }
+        let mode = CoachMode.resolved(rawValue: coachModeRaw, legacyEnabled: legacyCoachEnabled)
+        let visibleCandidates = dismissals.visibleSuggestions(from: suggestions)
+        let suggestion = displayedSuggestion(from: visibleCandidates, mode: mode)
+
+        Group {
+            if let suggestion {
+                AICoachCard(
+                    suggestion: suggestion,
+                    onPrimaryAction: { action in
+                        recordCoachEvent("acted_on", suggestion: suggestion, action: action)
+                        onPrimaryAction(action)
+                    },
+                    onDismissForToday: {
+                        recordCoachEvent("dismissed_today", suggestion: suggestion)
+                        dismissals.dismissForToday(suggestion)
+                    },
+                    onDismissAction: {
+                        recordCoachEvent("dismissed_pattern", suggestion: suggestion)
+                        dismissals.dismissAction(suggestion)
+                    },
+                    onNotUseful: {
+                        recordCoachEvent("not_useful", suggestion: suggestion)
+                        dismissals.dismissAction(suggestion)
+                    }
+                )
+                .onAppear { recordShown(suggestion) }
+                .id("\(suggestion.id):\(suggestion.modelSource.rawValue)")
+            }
+        }
+        .task(id: narrationTaskID(for: visibleCandidates, mode: mode)) {
+            await refreshNarration(for: visibleCandidates, mode: mode)
         }
     }
 
@@ -261,7 +356,230 @@ struct AICoachSlot: View {
             details: details
         )
     }
+
+    private func displayedSuggestion(from candidates: [CoachSuggestion], mode: CoachMode) -> CoachSuggestion? {
+        guard mode != .off, let templateSuggestion = candidates.first else {
+            return nil
+        }
+
+        if let narratedSuggestion,
+           narratedSuggestion.dismissalKey == templateSuggestion.dismissalKey || candidates.contains(where: { $0.dismissalKey == narratedSuggestion.dismissalKey }) {
+            return narratedSuggestion
+        }
+
+        return mode.allowsTemplateFallback ? templateSuggestion : nil
+    }
+
+    private func narrationTaskID(for candidates: [CoachSuggestion], mode: CoachMode) -> String {
+        let candidateKey = candidates
+            .prefix(3)
+            .map { "\($0.id):\($0.dismissalKey):\($0.priority)" }
+            .joined(separator: "|")
+        return "\(mode.rawValue):\(dismissals.revision):\(candidateKey)"
+    }
+
+    @MainActor
+    private func refreshNarration(for candidates: [CoachSuggestion], mode: CoachMode) async {
+        guard mode.allowsLocalModel, !candidates.isEmpty else {
+            narratedSuggestion = nil
+            narrationFailureKey = nil
+            return
+        }
+
+        let activeKey = narrationTaskID(for: candidates, mode: mode)
+        let eligibleCandidates = Array(candidates.prefix(3))
+        let narrated = await CoachNarrator.shared.narrate(candidates: eligibleCandidates)
+
+        guard activeKey == narrationTaskID(for: candidates, mode: mode) else {
+            return
+        }
+
+        if let narrated {
+            narratedSuggestion = narrated
+            narrationFailureKey = nil
+            recordCoachEvent("local_ai_narrated", suggestion: narrated)
+        } else {
+            narratedSuggestion = nil
+            if narrationFailureKey != activeKey {
+                narrationFailureKey = activeKey
+                Diagnostics.shared.record(
+                    level: "warning",
+                    category: "coach",
+                    message: mode.allowsTemplateFallback ? "\(CoachBrand.name) used template fallback" : "\(CoachBrand.name) local AI unavailable",
+                    details: ["mode": mode.rawValue, "candidate_count": "\(eligibleCandidates.count)"]
+                )
+            }
+        }
+    }
 }
+
+actor CoachNarrator {
+    static let shared = CoachNarrator()
+
+    func narrate(candidates: [CoachSuggestion]) async -> CoachSuggestion? {
+        guard !candidates.isEmpty else { return nil }
+
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            return await FoundationCoachNarrator.narrate(candidates: candidates)
+        }
+        #endif
+
+        return nil
+    }
+
+    static var availabilitySummary: String {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            return FoundationCoachNarrator.availabilitySummary
+        }
+        #endif
+
+        return "Local AI requires iOS 26 and an Apple Intelligence-capable device."
+    }
+}
+
+private struct CoachNarrationCandidatePayload: Encodable {
+    let id: String
+    let surface: String
+    let category: String
+    let priority: Int
+    let confidence: Double
+    let title: String
+    let message: String
+    let evidence: [String]
+    let actionLabel: String?
+}
+
+private struct CoachNarrationResponse: Decodable {
+    let id: String
+    let title: String
+    let message: String
+}
+
+#if canImport(FoundationModels)
+@available(iOS 26.0, *)
+private enum FoundationCoachNarrator {
+    static func narrate(candidates: [CoachSuggestion]) async -> CoachSuggestion? {
+        let model = SystemLanguageModel.default
+        guard model.isAvailable else { return nil }
+
+        let session = LanguageModelSession(
+            model: model,
+            instructions: """
+            You are Compass, a firm but friendly coach inside DailyMacros.
+            You receive only rule-approved, high-confidence coaching candidates.
+            Choose the clearest candidate for the user right now and rewrite only its title and message.
+            Preserve the facts exactly. Do not add numbers, dates, health claims, diagnoses, guarantees, shame, or medical advice.
+            Keep the title under 45 characters and the message under 190 characters.
+            Return JSON only.
+            """
+        )
+
+        let prompt = """
+        Pick one candidate by id from this JSON array:
+        \(candidateJSON(candidates))
+
+        Return exactly this JSON object:
+        {"id":"candidate id","title":"short title","message":"firm friendly message"}
+        """
+
+        do {
+            let response = try await session.respond(
+                to: prompt,
+                options: GenerationOptions(sampling: .greedy, temperature: 0.1, maximumResponseTokens: 180)
+            )
+            return validate(response.content, candidates: candidates)
+        } catch {
+            return nil
+        }
+    }
+
+    static var availabilitySummary: String {
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            return "Local AI is available for Compass narration."
+        case .unavailable(.deviceNotEligible):
+            return "Local AI is unavailable because this device is not eligible for Apple Intelligence."
+        case .unavailable(.appleIntelligenceNotEnabled):
+            return "Local AI is unavailable until Apple Intelligence is enabled in iOS Settings."
+        case .unavailable(.modelNotReady):
+            return "Local AI is unavailable while the Apple Intelligence model is still preparing."
+        @unknown default:
+            return "Local AI is unavailable on this device right now."
+        }
+    }
+
+    private static func candidateJSON(_ candidates: [CoachSuggestion]) -> String {
+        let payload = candidates.map {
+            CoachNarrationCandidatePayload(
+                id: $0.id,
+                surface: $0.surface.rawValue,
+                category: $0.category,
+                priority: $0.priority,
+                confidence: $0.confidence,
+                title: $0.title,
+                message: $0.message,
+                evidence: $0.evidence,
+                actionLabel: $0.primaryAction?.label
+            )
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(payload),
+              let json = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return json
+    }
+
+    private static func validate(_ content: String, candidates: [CoachSuggestion]) -> CoachSuggestion? {
+        guard let data = jsonData(from: content),
+              let response = try? JSONDecoder().decode(CoachNarrationResponse.self, from: data),
+              let candidate = candidates.first(where: { $0.id == response.id }) else {
+            return nil
+        }
+
+        let title = response.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = response.message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidTitle(title), isValidMessage(message) else {
+            return nil
+        }
+
+        return candidate.narrated(title: title, message: message)
+    }
+
+    private static func jsonData(from content: String) -> Data? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let data = trimmed.data(using: .utf8),
+           (try? JSONDecoder().decode(CoachNarrationResponse.self, from: data)) != nil {
+            return data
+        }
+
+        guard let start = trimmed.firstIndex(of: "{"),
+              let end = trimmed.lastIndex(of: "}"),
+              start <= end else {
+            return nil
+        }
+        return String(trimmed[start...end]).data(using: .utf8)
+    }
+
+    private static func isValidTitle(_ title: String) -> Bool {
+        !title.isEmpty && title.count <= 60 && !title.contains("\n")
+    }
+
+    private static func isValidMessage(_ message: String) -> Bool {
+        guard !message.isEmpty, message.count <= 230, !message.contains("\n") else {
+            return false
+        }
+
+        let lowercased = message.lowercased()
+        let blockedPhrases = ["guarantee", "diagnose", "disease", "cure", "you failed", "you must"]
+        return !blockedPhrases.contains { lowercased.contains($0) }
+    }
+}
+#endif
 
 struct AICoachCard: View {
     @State private var showingWhyDetails = false

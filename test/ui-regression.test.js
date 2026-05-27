@@ -660,11 +660,23 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
 
   assert.ok(coach.includes('static let name = "Compass"'));
   assert.ok(coach.includes('static let enabled = "ai_coach_enabled"'));
+  assert.ok(coach.includes('static let mode = "ai_coach_mode"'));
+  assert.ok(coach.includes('enum CoachMode'));
+  assert.ok(coach.includes('case localModelWithTemplates'));
+  assert.ok(coach.includes('case localModelOnly'));
+  assert.ok(coach.includes('actor CoachNarrator'));
+  assert.ok(coach.includes('import FoundationModels'));
+  assert.ok(coach.includes('FoundationCoachNarrator.narrate'));
+  assert.ok(coach.includes('SystemLanguageModel.default.availability'));
+  assert.ok(coach.includes('candidate.narrated(title: title, message: message)'));
+  assert.ok(coach.includes('modelSource: .afmLocal'));
   assert.ok(coach.includes('@AppStorage(CoachSettingKeys.enabled)'));
+  assert.ok(coach.includes('@AppStorage(CoachSettingKeys.mode)'));
   assert.ok(coach.includes('confidence >= 0.85'));
   assert.ok(coach.includes('recordCoachEvent("shown"'));
   assert.ok(coach.includes('recordCoachEvent("acted_on"'));
   assert.ok(coach.includes('recordCoachEvent("not_useful"'));
+  assert.ok(coach.includes('recordCoachEvent("local_ai_narrated"'));
   assert.ok(coach.includes('Button("Dismiss for today"'));
   assert.ok(coach.includes('Button("Hide this pattern"'));
   assert.ok(coach.includes('Button("Not useful", action: onNotUseful)'));
@@ -678,7 +690,11 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(coach.indexOf('Text(suggestion.title)') < coach.indexOf('Text(CoachBrand.name)'));
   assert.ok(coach.indexOf('Text(suggestion.message)') > coach.indexOf('.accessibilityLabel("Dismiss \\(CoachBrand.name) suggestion")'));
   assert.ok(settings.includes('@AppStorage(CoachSettingKeys.enabled)'));
-  assert.ok(settings.includes('Show \\(CoachBrand.name) cards'));
+  assert.ok(settings.includes('@AppStorage(CoachSettingKeys.mode)'));
+  assert.ok(settings.includes('Picker("Mode", selection: compassModeBinding)'));
+  assert.ok(settings.includes('ForEach(CoachMode.allCases)'));
+  assert.ok(settings.includes('CoachNarrator.availabilitySummary'));
+  assert.ok(settings.includes('legacyAICoachEnabled = mode != .off'));
   assert.ok(settings.includes('Reset Dismissed Suggestions'));
   assert.ok(settings.includes('coachDismissals.resetDismissals()'));
 });
