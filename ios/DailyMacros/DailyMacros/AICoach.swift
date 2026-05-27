@@ -230,6 +230,63 @@ final class CoachDismissalStore: ObservableObject {
         revision += 1
     }
 
+    func syncedRecords(now: Date = Date()) -> [CoachDismissalRecord] {
+        removeExpiredTodayDismissals(now: now)
+
+        let todayRecords = loadTodayDismissals().map { key, dismissedUntil in
+            CoachDismissalRecord(
+                type: "today",
+                key: key,
+                dismissedUntil: Self.isoString(from: dismissedUntil),
+                updatedAt: nil
+            )
+        }
+
+        let actionRecords = loadActionDismissals().map { key in
+            CoachDismissalRecord(
+                type: "pattern",
+                key: key,
+                dismissedUntil: nil,
+                updatedAt: nil
+            )
+        }
+
+        return (todayRecords + actionRecords).sorted {
+            if $0.type == $1.type {
+                return $0.key < $1.key
+            }
+            return $0.type < $1.type
+        }
+    }
+
+    func mergeSyncedRecords(_ records: [CoachDismissalRecord], now: Date = Date()) {
+        var todayDismissals = loadTodayDismissals()
+        var actionDismissals = loadActionDismissals()
+
+        for record in records {
+            switch record.type {
+            case "today":
+                guard let dismissedUntilString = record.dismissedUntil,
+                      let dismissedUntil = Self.parseIsoDate(dismissedUntilString),
+                      dismissedUntil > now else {
+                    continue
+                }
+                let existing = todayDismissals[record.key]
+                if existing == nil || dismissedUntil > existing! {
+                    todayDismissals[record.key] = dismissedUntil
+                }
+            case "pattern":
+                actionDismissals.insert(record.key)
+            default:
+                continue
+            }
+        }
+
+        saveTodayDismissals(todayDismissals.filter { $0.value > now })
+        saveActionDismissals(actionDismissals)
+        revision += 1
+    }
+
     private func isDismissed(_ suggestion: CoachSuggestion, now: Date) -> Bool {
         if loadActionDismissals().contains(suggestion.dismissalKey) {
             return true
@@ -284,15 +341,31 @@ final class CoachDismissalStore: ObservableObject {
         let start = calendar.startOfDay(for: date)
         return calendar.date(byAdding: DateComponents(day: 1, second: -1), to: start) ?? date
     }
+
+    private static func isoString(from date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+
+    private static func parseIsoDate(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: value) {
+            return date
+        }
+
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value)
+    }
 }
 
 struct AICoachSlot: View {
+    @EnvironmentObject private var api: APIClient
     @ObservedObject var dismissals: CoachDismissalStore
     @AppStorage(CoachSettingKeys.enabled) private var legacyCoachEnabled = true
     @AppStorage(CoachSettingKeys.mode) private var coachModeRaw = CoachMode.localModelWithTemplates.rawValue
     @State private var recordedShownSuggestionID: String?
     @State private var narratedSuggestion: CoachSuggestion?
     @State private var narrationFailureKey: String?
+    @State private var didAttemptDismissalSync = false
 
     let suggestions: [CoachSuggestion]
     let onPrimaryAction: (CoachAction) -> Void
@@ -313,19 +386,25 @@ struct AICoachSlot: View {
                     onDismissForToday: {
                         recordCoachEvent("dismissed_today", suggestion: suggestion)
                         dismissals.dismissForToday(suggestion)
+                        Task { await syncDismissalsToServer(reason: "dismissed_today") }
                     },
                     onDismissAction: {
                         recordCoachEvent("dismissed_pattern", suggestion: suggestion)
                         dismissals.dismissAction(suggestion)
+                        Task { await syncDismissalsToServer(reason: "dismissed_pattern") }
                     },
                     onNotUseful: {
                         recordCoachEvent("not_useful", suggestion: suggestion)
                         dismissals.dismissAction(suggestion)
+                        Task { await syncDismissalsToServer(reason: "not_useful") }
                     }
                 )
                 .onAppear { recordShown(suggestion) }
                 .id("\(suggestion.id):\(suggestion.modelSource.rawValue)")
             }
+        }
+        .task {
+            await syncDismissalsFromServerIfNeeded()
         }
         .task(id: narrationTaskID(for: visibleCandidates, mode: mode)) {
             await refreshNarration(for: visibleCandidates, mode: mode)
@@ -355,6 +434,57 @@ struct AICoachSlot: View {
             message: "\(CoachBrand.name) \(event)",
             details: details
         )
+    }
+
+    @MainActor
+    private func syncDismissalsFromServerIfNeeded() async {
+        guard !didAttemptDismissalSync else { return }
+        didAttemptDismissalSync = true
+
+        do {
+            let response = try await api.getCoachDismissals()
+            dismissals.mergeSyncedRecords(response.dismissals)
+            let mergedRecords = dismissals.syncedRecords()
+            if !mergedRecords.isEmpty {
+                let synced = try await api.syncCoachDismissals(mergedRecords)
+                dismissals.mergeSyncedRecords(synced.dismissals)
+            }
+            Diagnostics.shared.record(
+                category: "coach",
+                message: "\(CoachBrand.name) synced dismissals",
+                details: ["count": "\(mergedRecords.count)"]
+            )
+        } catch {
+            Diagnostics.shared.record(
+                level: "warning",
+                category: "coach",
+                message: "\(CoachBrand.name) dismissal sync skipped",
+                details: ["error": error.localizedDescription]
+            )
+        }
+    }
+
+    @MainActor
+    private func syncDismissalsToServer(reason: String) async {
+        let records = dismissals.syncedRecords()
+        guard !records.isEmpty else { return }
+
+        do {
+            let response = try await api.syncCoachDismissals(records)
+            dismissals.mergeSyncedRecords(response.dismissals)
+            Diagnostics.shared.record(
+                category: "coach",
+                message: "\(CoachBrand.name) pushed dismissals",
+                details: ["reason": reason, "count": "\(records.count)"]
+            )
+        } catch {
+            Diagnostics.shared.record(
+                level: "warning",
+                category: "coach",
+                message: "\(CoachBrand.name) dismissal push skipped",
+                details: ["reason": reason, "error": error.localizedDescription]
+            )
+        }
     }
 
     private func displayedSuggestion(from candidates: [CoachSuggestion], mode: CoachMode) -> CoachSuggestion? {

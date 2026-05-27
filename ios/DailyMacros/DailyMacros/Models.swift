@@ -389,6 +389,17 @@ struct SleepEntriesResponse: Codable {
     let pagination: Pagination?
 }
 
+struct CoachDismissalRecord: Codable {
+    let type: String
+    let key: String
+    let dismissedUntil: String?
+    let updatedAt: String?
+}
+
+struct CoachDismissalsResponse: Codable {
+    let dismissals: [CoachDismissalRecord]
+}
+
 struct AppleSignInUser: Codable {
     let id: String
     let name: String?

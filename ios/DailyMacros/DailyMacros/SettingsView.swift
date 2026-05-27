@@ -174,6 +174,18 @@ struct SettingsView: View {
             Button("Reset Dismissed Suggestions") {
                 coachDismissals.resetDismissals()
                 Diagnostics.shared.record(category: "coach", message: "Reset \(CoachBrand.name) dismissals")
+                Task {
+                    do {
+                        try await api.resetSyncedCoachDismissals()
+                    } catch {
+                        Diagnostics.shared.record(
+                            level: "warning",
+                            category: "coach",
+                            message: "Synced \(CoachBrand.name) dismissal reset skipped",
+                            details: ["error": error.localizedDescription]
+                        )
+                    }
+                }
             }
         } header: {
             Text(CoachBrand.name)

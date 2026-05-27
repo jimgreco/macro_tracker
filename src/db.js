@@ -300,6 +300,20 @@ async function initDb() {
     );
   `);
 
+  // ── Synced AI coach dismissals ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS coach_dismissals (
+      user_id TEXT NOT NULL,
+      dismissal_type TEXT NOT NULL,
+      dismissal_key TEXT NOT NULL,
+      dismissed_until TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, dismissal_type, dismissal_key),
+      CHECK (dismissal_type IN ('today', 'pattern'))
+    );
+  `);
+
   // ── Migrations for existing databases ──
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN NOT NULL DEFAULT FALSE;`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sexual_activity_enabled BOOLEAN NOT NULL DEFAULT FALSE;`);
@@ -388,6 +402,7 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id);
     CREATE INDEX IF NOT EXISTS idx_billing_events_stripe ON billing_events(stripe_event_id);
     CREATE INDEX IF NOT EXISTS idx_daily_usage_counts_user_date ON daily_usage_counts(user_id, usage_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_coach_dismissals_user_updated ON coach_dismissals(user_id, updated_at DESC);
   `);
 }
 
@@ -2309,10 +2324,91 @@ async function deleteAllApiTokens(userId) {
   return result.rowCount || 0;
 }
 
+// ── AI coach dismissals ──
+
+function normalizeCoachDismissalType(type) {
+  const normalized = String(type || '').trim().toLowerCase();
+  if (normalized !== 'today' && normalized !== 'pattern') {
+    throw new Error('Invalid coach dismissal type.');
+  }
+  return normalized;
+}
+
+function mapCoachDismissalRow(row) {
+  return {
+    type: row.dismissal_type,
+    key: row.dismissal_key,
+    dismissedUntil: dateToIso(row.dismissed_until),
+    updatedAt: dateToIso(row.updated_at)
+  };
+}
+
+async function listCoachDismissals(userId) {
+  const result = await pool.query(
+    `SELECT dismissal_type, dismissal_key, dismissed_until, updated_at
+     FROM coach_dismissals
+     WHERE user_id = $1
+       AND (dismissed_until IS NULL OR dismissed_until > NOW())
+     ORDER BY updated_at DESC`,
+    [userId]
+  );
+  return result.rows.map(mapCoachDismissalRow);
+}
+
+async function upsertCoachDismissals(userId, dismissals) {
+  if (!Array.isArray(dismissals)) {
+    throw new Error('dismissals must be an array.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const dismissal of dismissals) {
+      const type = normalizeCoachDismissalType(dismissal.type);
+      const key = String(dismissal.key || '').trim();
+      if (!key) {
+        throw new Error('dismissal key is required.');
+      }
+      if (key.length > 512) {
+        throw new Error('dismissal key must be 512 characters or less.');
+      }
+
+      const dismissedUntil = dismissal.dismissedUntil ? new Date(dismissal.dismissedUntil) : null;
+      if (dismissedUntil && Number.isNaN(dismissedUntil.getTime())) {
+        throw new Error('dismissedUntil must be a valid date.');
+      }
+
+      await client.query(
+        `INSERT INTO coach_dismissals (user_id, dismissal_type, dismissal_key, dismissed_until, updated_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (user_id, dismissal_type, dismissal_key)
+         DO UPDATE SET dismissed_until = EXCLUDED.dismissed_until, updated_at = NOW()`,
+        [userId, type, key, dismissedUntil]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return listCoachDismissals(userId);
+}
+
+async function deleteCoachDismissals(userId) {
+  const result = await pool.query(
+    'DELETE FROM coach_dismissals WHERE user_id = $1',
+    [userId]
+  );
+  return result.rowCount || 0;
+}
+
 // ── GDPR ──
 
 async function exportUserData(userId) {
-  const [user, identities, entries, savedItems, macroTargets, weightEntries, workoutEntries, sexualActivityEntries, sleepEntries, weightTarget, analysisReports, usageCounts] =
+  const [user, identities, entries, savedItems, macroTargets, weightEntries, workoutEntries, sexualActivityEntries, sleepEntries, weightTarget, analysisReports, usageCounts, coachDismissals] =
     await Promise.all([
       pool.query('SELECT id, email, name, provider, created_at, updated_at FROM users WHERE id = $1', [userId]),
       pool.query('SELECT provider, provider_user_id, created_at, updated_at FROM user_identities WHERE user_id = $1 ORDER BY provider', [userId]),
@@ -2325,7 +2421,8 @@ async function exportUserData(userId) {
       pool.query('SELECT id, duration_hours, wake_ups, quality, logged_at, source, external_id, created_at FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       getWeightTarget(userId),
       pool.query('SELECT id, period_days, report_json, created_at FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC', [userId]),
-      pool.query('SELECT feature, usage_date, count, updated_at FROM daily_usage_counts WHERE user_id = $1 ORDER BY usage_date DESC, feature', [userId])
+      pool.query('SELECT feature, usage_date, count, updated_at FROM daily_usage_counts WHERE user_id = $1 ORDER BY usage_date DESC, feature', [userId]),
+      pool.query('SELECT dismissal_type, dismissal_key, dismissed_until, created_at, updated_at FROM coach_dismissals WHERE user_id = $1 ORDER BY updated_at DESC', [userId])
     ]);
 
   return {
@@ -2341,7 +2438,8 @@ async function exportUserData(userId) {
     sleepEntries: sleepEntries.rows,
     weightTarget,
     analysisReports: analysisReports.rows,
-    usageCounts: usageCounts.rows
+    usageCounts: usageCounts.rows,
+    coachDismissals: coachDismissals.rows
   };
 }
 
@@ -2361,6 +2459,7 @@ async function deleteUserAccount(userId) {
     await client.query('DELETE FROM analysis_reports WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM api_tokens WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM daily_usage_counts WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM coach_dismissals WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM billing_events WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM subscriptions WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM audit_log WHERE user_id = $1', [userId]);
@@ -2565,6 +2664,9 @@ module.exports = {
   listApiTokens,
   deleteApiToken,
   deleteAllApiTokens,
+  listCoachDismissals,
+  upsertCoachDismissals,
+  deleteCoachDismissals,
   exportUserData,
   deleteUserAccount,
   getPlanLimits,

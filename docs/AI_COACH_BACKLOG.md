@@ -18,6 +18,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Added iOS local AFM narration/ranking for Compass. Foundation Models only sees already-eligible rule candidates, may choose among the top candidates, and may rewrite only title/message while rule evidence, confidence, actions, expiry, and dismissal keys remain authoritative.
 - 2026-05-27: Replaced the simple iOS Compass on/off toggle with modes for On, Rules Only, Local AI Only, and Off, including runtime local-AI availability copy in Settings.
 - 2026-05-27: Added iOS cross-page Compass guardrails for Workouts plus Sleep recovery and Weight plus macro consistency.
+- 2026-05-27: Added backend synced Compass dismissals and wired iOS to pull/push local dismissals while preserving offline local behavior.
 
 ## Goal
 
@@ -140,6 +141,7 @@ Backlog tasks:
 - Add suggestion dismissal persistence.
   - iOS first: local storage with stable keys.
   - Later: sync dismissals through the backend so web and iOS do not repeat dismissed coaching.
+  - Started: backend `/api/coach/dismissals` stores user-scoped today/pattern dismissals; iOS merges remote dismissals on card load and pushes local dismissals after user action.
 - Add lightweight analytics for quality only if privacy-safe:
   - shown,
   - dismissed for today,

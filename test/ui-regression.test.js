@@ -677,6 +677,10 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(coach.includes('recordCoachEvent("acted_on"'));
   assert.ok(coach.includes('recordCoachEvent("not_useful"'));
   assert.ok(coach.includes('recordCoachEvent("local_ai_narrated"'));
+  assert.ok(coach.includes('func syncedRecords(now: Date = Date()) -> [CoachDismissalRecord]'));
+  assert.ok(coach.includes('func mergeSyncedRecords(_ records: [CoachDismissalRecord]'));
+  assert.ok(coach.includes('api.getCoachDismissals()'));
+  assert.ok(coach.includes('api.syncCoachDismissals(records)'));
   assert.ok(coach.includes('Button("Dismiss for today"'));
   assert.ok(coach.includes('Button("Hide this pattern"'));
   assert.ok(coach.includes('Button("Not useful", action: onNotUseful)'));
@@ -695,6 +699,7 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(settings.includes('ForEach(CoachMode.allCases)'));
   assert.ok(settings.includes('CoachNarrator.availabilitySummary'));
   assert.ok(settings.includes('legacyAICoachEnabled = mode != .off'));
+  assert.ok(settings.includes('api.resetSyncedCoachDismissals()'));
   assert.ok(settings.includes('Reset Dismissed Suggestions'));
   assert.ok(settings.includes('coachDismissals.resetDismissals()'));
 });

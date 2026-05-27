@@ -65,6 +65,9 @@ const {
   listApiTokens,
   deleteApiToken,
   deleteAllApiTokens,
+  listCoachDismissals,
+  upsertCoachDismissals,
+  deleteCoachDismissals,
   exportUserData,
   deleteUserAccount,
   getPlanLimits,
@@ -2950,6 +2953,70 @@ apiRouter.get('/daily-totals', async (req, res) => {
     const totals = await getDailyTotals(userIdFromReq(req), scope, tz);
     const targets = await getMacroTargets(userIdFromReq(req));
     res.json({ dailyTotals: totals, targets });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ── AI coach dismissals ──
+
+function normalizeCoachDismissalPayload(item, index) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    throw new Error(`dismissals[${index}] must be an object.`);
+  }
+
+  const type = normalizeString(item.type, `dismissals[${index}].type`, { maxLength: 20, required: true });
+  if (type !== 'today' && type !== 'pattern') {
+    throw new Error(`dismissals[${index}].type must be today or pattern.`);
+  }
+
+  const key = normalizeString(item.key, `dismissals[${index}].key`, { maxLength: 512, required: true });
+  const dismissedUntil = item.dismissedUntil == null || item.dismissedUntil === ''
+    ? null
+    : normalizeString(item.dismissedUntil, `dismissals[${index}].dismissedUntil`, { maxLength: 40, required: true });
+
+  if (dismissedUntil && Number.isNaN(new Date(dismissedUntil).getTime())) {
+    throw new Error(`dismissals[${index}].dismissedUntil must be a valid date.`);
+  }
+
+  return { type, key, dismissedUntil };
+}
+
+apiRouter.get('/coach/dismissals', async (req, res) => {
+  try {
+    const dismissals = await listCoachDismissals(userIdFromReq(req));
+    res.json({ dismissals });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.put('/coach/dismissals', async (req, res) => {
+  try {
+    const body = requirePlainObject(req.body);
+    if (!Array.isArray(body.dismissals)) {
+      throw new Error('dismissals must be an array.');
+    }
+    if (body.dismissals.length > 200) {
+      throw new Error('dismissals must include 200 items or fewer.');
+    }
+
+    const userId = userIdFromReq(req);
+    const dismissals = body.dismissals.map(normalizeCoachDismissalPayload);
+    const synced = await upsertCoachDismissals(userId, dismissals);
+    logAudit(userId, 'sync', 'coach_dismissals', null, { count: dismissals.length });
+    res.json({ dismissals: synced });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.delete('/coach/dismissals', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    const deletedCount = await deleteCoachDismissals(userId);
+    logAudit(userId, 'delete', 'coach_dismissals', 'all');
+    res.json({ ok: true, deletedCount });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

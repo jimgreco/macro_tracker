@@ -315,6 +315,34 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
+    // MARK: - Coach Dismissals
+
+    func getCoachDismissals() async throws -> CoachDismissalsResponse {
+        let request = try authorizedRequest(apiURL("/coach/dismissals"))
+        return try await perform(request)
+    }
+
+    func syncCoachDismissals(_ dismissals: [CoachDismissalRecord]) async throws -> CoachDismissalsResponse {
+        let payload = ["dismissals": dismissals.map { record -> [String: Any] in
+            var item: [String: Any] = [
+                "type": record.type,
+                "key": record.key
+            ]
+            if let dismissedUntil = record.dismissedUntil {
+                item["dismissedUntil"] = dismissedUntil
+            }
+            return item
+        }]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/coach/dismissals"), method: "PUT", body: body)
+        return try await perform(request)
+    }
+
+    func resetSyncedCoachDismissals() async throws {
+        let request = try authorizedRequest(apiURL("/coach/dismissals"), method: "DELETE")
+        let _: OkResponse = try await perform(request)
+    }
+
     // MARK: - Meal Parsing
 
     func parseMeal(text: String, consumedAt: String? = nil, imageDataUrl: String? = nil) async throws -> ParseMealResponse {

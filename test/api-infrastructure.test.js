@@ -52,6 +52,9 @@ test('db.js exports all required functions', () => {
     'listApiTokens',
     'deleteApiToken',
     'deleteAllApiTokens',
+    'listCoachDismissals',
+    'upsertCoachDismissals',
+    'deleteCoachDismissals',
     'exportUserData',
     'deleteUserAccount',
     'getPlanLimits',
@@ -216,6 +219,7 @@ test('GDPR deleteUserAccount performs hard delete across all tables', () => {
     'analysis_reports',
     'api_tokens',
     'daily_usage_counts',
+    'coach_dismissals',
     'audit_log',
     'users'
   ];
@@ -237,6 +241,7 @@ test('GDPR exportUserData queries all data tables', () => {
   assert.ok(db.includes("FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL"));
   assert.ok(db.includes("FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL"));
   assert.ok(db.includes('FROM daily_usage_counts WHERE user_id = $1'));
+  assert.ok(db.includes('FROM coach_dismissals WHERE user_id = $1'));
 });
 
 test('daily AI usage counters are durable and keyed by user feature and date', () => {
@@ -246,6 +251,18 @@ test('daily AI usage counters are durable and keyed by user feature and date', (
   assert.ok(db.includes('async function consumeDailyUsage'));
   assert.ok(db.includes('ON CONFLICT (user_id, feature, usage_date)'));
   assert.ok(db.includes('daily_usage_counts.count < $4'));
+});
+
+test('coach dismissals are durable and user scoped', () => {
+  const db = read('src/db.js');
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS coach_dismissals'));
+  assert.ok(db.includes("CHECK (dismissal_type IN ('today', 'pattern'))"));
+  assert.ok(db.includes('PRIMARY KEY (user_id, dismissal_type, dismissal_key)'));
+  assert.ok(db.includes('idx_coach_dismissals_user_updated'));
+  assert.ok(db.includes('async function listCoachDismissals'));
+  assert.ok(db.includes('async function upsertCoachDismissals'));
+  assert.ok(db.includes('async function deleteCoachDismissals'));
+  assert.ok(db.includes('ON CONFLICT (user_id, dismissal_type, dismissal_key)'));
 });
 
 test('getDashboard supports pagination via limit/offset', () => {
@@ -422,6 +439,18 @@ test('server.js has GDPR endpoints', () => {
   assert.ok(server.includes("apiRouter.delete('/account'"));
   assert.ok(server.includes('exportUserData'));
   assert.ok(server.includes('deleteUserAccount'));
+});
+
+test('server.js exposes synced coach dismissal endpoints', () => {
+  const server = read('src/server.js');
+  assert.ok(server.includes("apiRouter.get('/coach/dismissals'"));
+  assert.ok(server.includes("apiRouter.put('/coach/dismissals'"));
+  assert.ok(server.includes("apiRouter.delete('/coach/dismissals'"));
+  assert.ok(server.includes('normalizeCoachDismissalPayload'));
+  assert.ok(server.includes('listCoachDismissals(userIdFromReq(req))'));
+  assert.ok(server.includes('upsertCoachDismissals(userId, dismissals)'));
+  assert.ok(server.includes('deleteCoachDismissals(userId)'));
+  assert.ok(server.includes("logAudit(userId, 'sync', 'coach_dismissals'"));
 });
 
 test('server.js exposes protected admin account controls', () => {
