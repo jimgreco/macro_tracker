@@ -264,6 +264,8 @@ struct AICoachSlot: View {
 }
 
 struct AICoachCard: View {
+    @State private var showingWhyDetails = false
+
     let suggestion: CoachSuggestion
     let onPrimaryAction: (CoachAction) -> Void
     let onDismissForToday: () -> Void
@@ -308,6 +310,10 @@ struct AICoachCard: View {
                 Spacer(minLength: 8)
 
                 Menu {
+                    Button("Why am I seeing this?") {
+                        showingWhyDetails = true
+                    }
+                    Divider()
                     Button("Dismiss for today", action: onDismissForToday)
                     Button("Hide this pattern", action: onDismissAction)
                     Button("Not useful", action: onNotUseful)
@@ -365,6 +371,9 @@ struct AICoachCard: View {
             RoundedRectangle(cornerRadius: 14)
                 .stroke(.white.opacity(0.12), lineWidth: 1)
         }
+        .sheet(isPresented: $showingWhyDetails) {
+            AICoachWhySheet(suggestion: suggestion)
+        }
         .accessibilityElement(children: .combine)
     }
 
@@ -381,6 +390,68 @@ struct AICoachCard: View {
         case .editTargets:
             return "target"
         }
+    }
+}
+
+private struct AICoachWhySheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let suggestion: CoachSuggestion
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Reason") {
+                    Text(suggestion.message)
+                }
+
+                if !suggestion.evidence.isEmpty {
+                    Section("Evidence") {
+                        ForEach(Array(suggestion.evidence.enumerated()), id: \.offset) { _, item in
+                            Label(item, systemImage: "checkmark.circle")
+                        }
+                    }
+                }
+
+                Section("Confidence") {
+                    detailRow("Confidence", "\(Int((suggestion.confidence * 100).rounded()))%")
+                    detailRow("Source", suggestion.modelSource.label)
+                    detailRow("Category", readableCategory(suggestion.category))
+                    detailRow("Expires", formatExpiration(suggestion.expiresAt))
+                }
+            }
+            .navigationTitle("Why this appeared")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func detailRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(value)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func readableCategory(_ category: String) -> String {
+        category
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+    }
+
+    private func formatExpiration(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }
 
