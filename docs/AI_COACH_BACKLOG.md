@@ -353,8 +353,11 @@ Example copy:
 - Unit-test dismissal keys so "dismiss today" and "dismiss this action" behave differently.
 - Snapshot-test coach card layout on small and large iPhones.
 - Verify VoiceOver labels for the sparkle/AI icon, dismiss menu, and evidence text.
+  - Started in iOS: Compass labels the AI icon, dismiss menu, and evidence text explicitly for accessibility, with regression coverage.
 - Verify AFM unavailable path uses deterministic templates.
+  - Started in iOS: On mode falls back to deterministic templates when local narration is unavailable; Local AI Only suppresses template fallback.
 - Verify no network AI request is made for routine iOS coach generation when local mode is available.
+  - Started in tests: Compass regression coverage keeps `AICoach.swift` free of OpenAI and parser endpoint calls.
 - Verify suggestions expire at the expected local-day boundary.
 
 ## Open Questions

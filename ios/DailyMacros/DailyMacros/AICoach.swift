@@ -735,7 +735,7 @@ struct AICoachCard: View {
                         ),
                         in: RoundedRectangle(cornerRadius: 13)
                     )
-                    .accessibilityHidden(true)
+                    .accessibilityLabel("\(CoachBrand.name) AI suggestion")
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text(suggestion.title)
@@ -773,6 +773,7 @@ struct AICoachCard: View {
                         .frame(width: 36, height: 36)
                 }
                 .accessibilityLabel("Dismiss \(CoachBrand.name) suggestion")
+                .accessibilityHint("Opens options to explain or dismiss this suggestion")
             }
 
             Text(suggestion.message)
@@ -785,6 +786,7 @@ struct AICoachCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Evidence: \(suggestion.evidence.joined(separator: ", "))")
             }
 
             if let action = suggestion.primaryAction {

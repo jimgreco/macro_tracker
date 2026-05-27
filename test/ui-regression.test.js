@@ -677,6 +677,9 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(coach.includes('recordCoachEvent("acted_on"'));
   assert.ok(coach.includes('recordCoachEvent("not_useful"'));
   assert.ok(coach.includes('recordCoachEvent("local_ai_narrated"'));
+  assert.equal(coach.includes('OpenAI'), false);
+  assert.equal(coach.includes('/parse'), false);
+  assert.ok(coach.includes('mode.allowsTemplateFallback ? templateSuggestion : nil'));
   assert.ok(coach.includes('func syncedRecords(now: Date = Date()) -> [CoachDismissalRecord]'));
   assert.ok(coach.includes('func mergeSyncedRecords(_ records: [CoachDismissalRecord]'));
   assert.ok(coach.includes('api.getCoachDismissals()'));
@@ -691,6 +694,9 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(coach.includes('detailRow("Confidence"'));
   assert.ok(coach.includes('suggestion.modelSource.label'));
   assert.ok(coach.includes('.frame(width: 48, height: 48)'));
+  assert.ok(coach.includes('.accessibilityLabel("\\(CoachBrand.name) AI suggestion")'));
+  assert.ok(coach.includes('.accessibilityHint("Opens options to explain or dismiss this suggestion")'));
+  assert.ok(coach.includes('.accessibilityLabel("Evidence: \\(suggestion.evidence.joined(separator: ", "))")'));
   assert.ok(coach.indexOf('Text(suggestion.title)') < coach.indexOf('Text(CoachBrand.name)'));
   assert.ok(coach.indexOf('Text(suggestion.message)') > coach.indexOf('.accessibilityLabel("Dismiss \\(CoachBrand.name) suggestion")'));
   assert.ok(settings.includes('@AppStorage(CoachSettingKeys.enabled)'));
