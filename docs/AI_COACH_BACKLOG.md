@@ -10,6 +10,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Added iOS repeat-workout coaching that detects recurring workouts across distinct recent days and logs the reconstructed workout directly from the Compass card.
 - 2026-05-27: Added iOS weight-maintenance congratulations that require repeated weigh-ins across at least 10 days, all within the goal band.
 - 2026-05-27: Added iOS sleep-streak congratulations for consecutive logged nights that meet the sleep target.
+- 2026-05-27: Split iOS Compass "Not useful" into a distinct local diagnostics event while still suppressing the specific pattern.
 - The current implementation uses local deterministic rules/templates as the confidence gate and fallback path. Local AFM narration/ranking is still pending and should be layered on top of these candidates rather than replacing the rule calculations.
 
 ## Goal
@@ -268,6 +269,7 @@ Backlog items:
 - Add a weekly coach recap once daily coach cards are reliable.
 - Add "Why am I seeing this?" detail for every suggestion.
 - Add "Not useful" feedback so repeated poor suggestions can be suppressed.
+  - Started in iOS: the card records `not_useful` separately from dismissals and hides that specific suggestion pattern.
 
 ## Copy Guidelines
 

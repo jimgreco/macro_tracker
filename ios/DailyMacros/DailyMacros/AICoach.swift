@@ -227,6 +227,10 @@ struct AICoachSlot: View {
                 onDismissAction: {
                     recordCoachEvent("dismissed_pattern", suggestion: suggestion)
                     dismissals.dismissAction(suggestion)
+                },
+                onNotUseful: {
+                    recordCoachEvent("not_useful", suggestion: suggestion)
+                    dismissals.dismissAction(suggestion)
                 }
             )
             .onAppear { recordShown(suggestion) }
@@ -264,6 +268,7 @@ struct AICoachCard: View {
     let onPrimaryAction: (CoachAction) -> Void
     let onDismissForToday: () -> Void
     let onDismissAction: () -> Void
+    let onNotUseful: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
@@ -305,7 +310,7 @@ struct AICoachCard: View {
                 Menu {
                     Button("Dismiss for today", action: onDismissForToday)
                     Button("Hide this pattern", action: onDismissAction)
-                    Button("Not useful", action: onDismissAction)
+                    Button("Not useful", action: onNotUseful)
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title3)

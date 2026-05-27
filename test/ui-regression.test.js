@@ -664,9 +664,10 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(coach.includes('confidence >= 0.85'));
   assert.ok(coach.includes('recordCoachEvent("shown"'));
   assert.ok(coach.includes('recordCoachEvent("acted_on"'));
+  assert.ok(coach.includes('recordCoachEvent("not_useful"'));
   assert.ok(coach.includes('Button("Dismiss for today"'));
   assert.ok(coach.includes('Button("Hide this pattern"'));
-  assert.ok(coach.includes('Button("Not useful"'));
+  assert.ok(coach.includes('Button("Not useful", action: onNotUseful)'));
   assert.ok(coach.includes('.frame(width: 48, height: 48)'));
   assert.ok(coach.indexOf('Text(suggestion.title)') < coach.indexOf('Text(CoachBrand.name)'));
   assert.ok(coach.indexOf('Text(suggestion.message)') > coach.indexOf('.accessibilityLabel("Dismiss \\(CoachBrand.name) suggestion")'));
