@@ -3,6 +3,7 @@ import SwiftUI
 struct WeightView: View {
     @EnvironmentObject var api: APIClient
     @StateObject private var healthKitSync = HealthKitWellnessSync()
+    @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var entries: [WeightEntry] = []
     @State private var target: WeightTarget?
     @State private var scope = "month"
@@ -31,6 +32,12 @@ struct WeightView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
+                    AICoachSlot(
+                        dismissals: coachDismissals,
+                        suggestions: CoachCandidateEngine.weight(entries: entries, target: target),
+                        onPrimaryAction: handleCoachAction
+                    )
+
                     scopePicker
                     targetCard
                     chartView
@@ -634,6 +641,24 @@ struct WeightView: View {
     }
 
     // MARK: - Actions
+
+    private func handleCoachAction(_ action: CoachActionType) {
+        switch action {
+        case .openLogWeight:
+            newWeightDate = Date()
+            showAddSheet = true
+        case .editTargets:
+            editTargetWeight = target?.targetWeight.map { String(format: "%.1f", $0) } ?? ""
+            if let dateStr = target?.targetDate {
+                editTargetDate = parseTargetDate(dateStr) ?? Date()
+            } else {
+                editTargetDate = Date()
+            }
+            showEditTarget = true
+        case .openLogMeal, .openQuickAdd, .openLogWorkout, .openLogSleep:
+            break
+        }
+    }
 
     private func loadData() async {
         await loadEntries(reset: true)

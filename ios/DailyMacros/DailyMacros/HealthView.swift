@@ -33,6 +33,7 @@ struct HealthView: View {
     @EnvironmentObject var api: APIClient
     @EnvironmentObject var auth: AuthManager
     @StateObject private var healthKitSync = HealthKitWellnessSync()
+    @StateObject private var coachDismissals = CoachDismissalStore.shared
 
     init(mode: HealthViewMode = .sleep) {
         self.mode = mode
@@ -478,6 +479,16 @@ struct HealthView: View {
 
     private var sleepSection: some View {
         VStack(spacing: 12) {
+            AICoachSlot(
+                dismissals: coachDismissals,
+                suggestions: CoachCandidateEngine.sleep(
+                    entries: sleepEntries,
+                    dailyTotals: sleepDailyTotals,
+                    targetHours: sleepTargetHours
+                ),
+                onPrimaryAction: handleCoachAction
+            )
+
             Picker("Scope", selection: $sleepScope) {
                 ForEach(scopes, id: \.self) { s in
                     Text(s.capitalized).tag(s)
@@ -1186,6 +1197,22 @@ struct HealthView: View {
     }
 
     // MARK: - Actions
+
+    private func handleCoachAction(_ action: CoachActionType) {
+        switch action {
+        case .openLogSleep:
+            sleepLogDate = Date()
+            sleepHours = ""
+            sleepWakeUps = "0"
+            sleepQuality = "3"
+            showLogSleep = true
+        case .editTargets:
+            editSleepTargetHours = formatTargetHours(sleepTargetHours)
+            showEditSleepTargets = true
+        case .openLogMeal, .openQuickAdd, .openLogWorkout, .openLogWeight:
+            break
+        }
+    }
 
     private func showErrorUnlessCancelled(_ error: Error) {
         guard !isCancellation(error) else { return }

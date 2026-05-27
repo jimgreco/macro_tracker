@@ -137,12 +137,15 @@ SwiftUI app targeting iOS 17+. Uses token-based auth (either via Sign in with Ap
 | `BarcodeScannerView.swift` | AVFoundation barcode scanner used by meal logging |
 | `WeightView.swift` | Weight logging, Canvas trend chart, history |
 | `WorkoutsView.swift` | Workout logging/parsing, intensity cards |
+| `AICoach.swift` | Shared iOS AI coach suggestion model, deterministic candidate rules, dismissals, and coach card UI |
 | `SettingsView.swift` | Account, subscription, reminder controls, pending-log sync, data and diagnostics export, delete account |
 | `ReminderScheduler.swift` | Local daily log notification scheduling |
 | `OfflineMutationStore.swift` | UserDefaults-backed pending mutation queue |
 | `Diagnostics.swift` | Local diagnostic event log and export text |
 
 The iOS app communicates with the backend via Bearer token auth. Sign in with Apple sends the identity token to `/auth/apple/mobile` which verifies it and returns an API token stored in Keychain.
+
+AI Coach on iOS starts from deterministic local candidate rules in `AICoach.swift`; those rules compute confidence, evidence, priority, dismissal keys, and page actions. Any future AFM/local-model work should narrate or rank these already-computed candidates, not replace numeric calculations or confidence gates.
 
 ## Production (AWS)
 

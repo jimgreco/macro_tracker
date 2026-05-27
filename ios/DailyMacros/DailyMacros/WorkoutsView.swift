@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkoutsView: View {
     @EnvironmentObject var api: APIClient
     @StateObject private var healthKitSync = HealthKitWorkoutSync()
+    @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var workouts: [WorkoutEntry] = []
     @State private var dailyCalories: [WorkoutDailyCalories] = []
     @State private var workoutText = ""
@@ -48,6 +49,17 @@ struct WorkoutsView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 16) {
+                    AICoachSlot(
+                        dismissals: coachDismissals,
+                        suggestions: CoachCandidateEngine.workouts(
+                            entries: workouts,
+                            dailyCalories: dailyCalories,
+                            workoutsTarget: workoutsTarget,
+                            caloriesTarget: caloriesTarget
+                        ),
+                        onPrimaryAction: handleCoachAction
+                    )
+
                     scopePicker
                     statsSection
                     workoutOccurrenceSection
@@ -812,6 +824,21 @@ struct WorkoutsView: View {
     }
 
     // MARK: - Actions
+
+    private func handleCoachAction(_ action: CoachActionType) {
+        switch action {
+        case .openLogWorkout:
+            resetWorkoutSheet()
+            workoutLogDate = Date()
+            showLogSheet = true
+        case .editTargets:
+            editWorkoutsPerWeek = "\(Int(workoutsTarget))"
+            editCaloriesPerWeek = "\(Int(caloriesTarget))"
+            showEditTargets = true
+        case .openLogMeal, .openQuickAdd, .openLogWeight, .openLogSleep:
+            break
+        }
+    }
 
     private func loadWorkouts(reset: Bool = true) async {
         guard !isLoadingWorkoutPage else { return }

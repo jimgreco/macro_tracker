@@ -83,6 +83,7 @@ private struct QuickAddTemplate: Identifiable {
 
 struct MacrosView: View {
     @EnvironmentObject var api: APIClient
+    @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var dashboard: DashboardResponse?
     @State private var savedItems: [SavedItem] = []
     @State private var quickTemplates: [QuickAddTemplate] = []
@@ -311,6 +312,14 @@ struct MacrosView: View {
             ZStack(alignment: .bottom) {
                 ScrollView {
                     VStack(spacing: 20) {
+                        if let dash = dashboard {
+                            AICoachSlot(
+                                dismissals: coachDismissals,
+                                suggestions: CoachCandidateEngine.macros(dashboard: dash, selectedDate: selectedDate),
+                                onPrimaryAction: handleCoachAction
+                            )
+                        }
+
                         datePicker
 
                         if let dash = dashboard {
@@ -2049,6 +2058,31 @@ struct MacrosView: View {
     }
 
     // MARK: - Actions
+
+    private func handleCoachAction(_ action: CoachActionType) {
+        switch action {
+        case .openLogMeal, .openQuickAdd:
+            showParsed = false
+            mealText = ""
+            consumedAt = Date()
+            quickSearchText = ""
+            clearMealImage()
+            if !hasLoadedSavedItems {
+                Task { await loadSavedItems(showErrors: false) }
+            }
+            showAddSheet = true
+        case .editTargets:
+            if let targets = dashboard?.targets {
+                editCalories = "\(Int(targets.calories))"
+                editProtein = "\(Int(targets.protein))"
+                editCarbs = "\(Int(targets.carbs))"
+                editFat = "\(Int(targets.fat))"
+                showEditTargets = true
+            }
+        case .openLogWorkout, .openLogWeight, .openLogSleep:
+            break
+        }
+    }
 
     private func loadDashboard() async {
         do {

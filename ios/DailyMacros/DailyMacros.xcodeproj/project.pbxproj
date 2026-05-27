@@ -29,6 +29,7 @@
 		A1000020 /* ReminderScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000021; };
 		A1000021 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000022; };
 		A1000022 /* BarcodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000023; };
+		A1000023 /* AICoach.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000024; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -55,6 +56,7 @@
 		A2000021 /* ReminderScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderScheduler.swift; sourceTree = "<group>"; };
 		A2000022 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A2000023 /* BarcodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeScannerView.swift; sourceTree = "<group>"; };
+		A2000024 /* AICoach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICoach.swift; sourceTree = "<group>"; };
 		A3000001 /* DailyMacros.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DailyMacros.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -79,6 +81,7 @@
 				A2000006 /* MacrosView.swift */,
 				A2000007 /* WeightView.swift */,
 				A2000008 /* WorkoutsView.swift */,
+				A2000024 /* AICoach.swift */,
 				A2000011 /* SettingsView.swift */,
 				A2000012 /* AnalysisView.swift */,
 				A2000013 /* HealthView.swift */,
@@ -201,6 +204,7 @@
 				A1000020 /* ReminderScheduler.swift in Sources */,
 				A1000021 /* OnboardingView.swift in Sources */,
 				A1000022 /* BarcodeScannerView.swift in Sources */,
+				A1000023 /* AICoach.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
