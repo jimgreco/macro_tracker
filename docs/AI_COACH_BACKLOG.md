@@ -12,6 +12,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Added iOS sleep-streak congratulations for consecutive logged nights that meet the sleep target.
 - 2026-05-27: Split iOS Compass "Not useful" into a distinct local diagnostics event while still suppressing the specific pattern.
 - 2026-05-27: Added an iOS Compass "Why am I seeing this?" detail sheet with reason, evidence, confidence, source, category, and expiry.
+- 2026-05-27: Added iOS end-of-day macro steering when protein is behind pace and calories remain available.
 - The current implementation uses local deterministic rules/templates as the confidence gate and fallback path. Local AFM narration/ranking is still pending and should be layered on top of these candidates rather than replacing the rule calculations.
 
 ## Goal
@@ -170,6 +171,7 @@ Backlog items:
 - End-of-day steering:
   - In late afternoon or evening, detect whether one macro is clearly lagging while calories remain available.
   - Suggest a concrete direction, for example "protein-first dinner" or "lighter snack."
+  - Started in iOS: Compass shows a protein-first dinner nudge after 4 PM only when calories remain and protein is materially behind calorie pace.
 - Saved-item cleanup prompt:
   - If the same food is manually entered often but not saved, suggest saving it as a quick add.
 

@@ -692,6 +692,10 @@ test('iOS Compass coach uses learned meal windows and action context', () => {
   assert.ok(coach.includes('learnedMealWindow(for: daypart'));
   assert.ok(coach.includes('summary.latestFirstLogHour + 1'));
   assert.ok(coach.includes('days.count >= 3'));
+  assert.ok(coach.includes('macroEndOfDaySteering('));
+  assert.ok(coach.includes('category: "steering"'));
+  assert.ok(coach.includes('proteinProgress + 0.15 < calorieProgress'));
+  assert.ok(coach.includes('caloriesRemaining >= max(250, targets.calories * 0.15)'));
   assert.ok(coach.includes('case logMealItem'));
   assert.ok(coach.includes('case logWorkoutEntry'));
   assert.ok(coach.includes('mealItem: match.mealItem'));

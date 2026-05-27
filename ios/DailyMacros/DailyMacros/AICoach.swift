@@ -606,6 +606,15 @@ enum CoachCandidateEngine {
             candidates.append(habitualMeal)
         }
 
+        if let steering = macroEndOfDaySteering(
+            totals: dashboard.currentDayTotals,
+            targets: targets,
+            selectedIsToday: selectedIsToday,
+            now: now
+        ) {
+            candidates.append(steering)
+        }
+
         if let alcohol = alcoholPrompt(entries: dashboard.entries, now: now) {
             candidates.append(alcohol)
         }
@@ -1082,6 +1091,48 @@ enum CoachCandidateEngine {
             evidence: ["calories within 5%", "protein at least 95% of target"],
             action: nil,
             dismissalKey: "macro:target_hit:v1:\(totals.day)"
+        )
+    }
+
+    private static func macroEndOfDaySteering(
+        totals: DailyTotals,
+        targets: MacroTargets,
+        selectedIsToday: Bool,
+        now: Date
+    ) -> CoachSuggestion? {
+        guard selectedIsToday,
+              targets.calories > 0,
+              targets.protein > 0,
+              totals.calories > 0 else {
+            return nil
+        }
+
+        let hour = easternCalendar.component(.hour, from: now)
+        guard hour >= 16 else { return nil }
+
+        let caloriesRemaining = targets.calories - totals.calories
+        guard caloriesRemaining >= max(250, targets.calories * 0.15) else { return nil }
+
+        let proteinRemaining = targets.protein - totals.protein
+        let calorieProgress = totals.calories / targets.calories
+        let proteinProgress = totals.protein / targets.protein
+        guard proteinRemaining >= 30, proteinProgress + 0.15 < calorieProgress else { return nil }
+
+        return suggestion(
+            id: "macro-evening-protein-\(totals.day)",
+            surface: .macros,
+            category: "steering",
+            priority: 81,
+            confidence: 0.88,
+            title: "Make dinner protein-first",
+            message: "Calories are still available, but protein is behind the day's pace. Make the next meal protein-first before adding extras.",
+            evidence: [
+                "\(Int(caloriesRemaining.rounded())) cal remaining",
+                "\(Int(proteinRemaining.rounded()))g protein short",
+                "after \(formatHour(hour))"
+            ],
+            action: CoachAction(label: "Log dinner", type: .openLogMeal),
+            dismissalKey: "macro:evening_protein:v1:\(Int(proteinRemaining.rounded() / 10)):\(Int(caloriesRemaining.rounded() / 100))"
         )
     }
 
