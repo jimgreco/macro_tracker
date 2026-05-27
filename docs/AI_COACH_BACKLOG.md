@@ -8,6 +8,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Named the iOS coach `Compass`, changed the coach card to lead with the suggestion title before the author/source line, and added Settings controls to show/hide Compass cards and reset dismissed suggestions.
 - 2026-05-27: Improved Compass candidate quality with learned meal windows for missed breakfast/lunch prompts, distinct-day habitual quick-add detection with direct add payloads, weight goal-date pace coaching, repeated-evidence wake-up handling for sleep, and local diagnostics for shown/dismissed/acted-on suggestions.
 - 2026-05-27: Added iOS repeat-workout coaching that detects recurring workouts across distinct recent days and logs the reconstructed workout directly from the Compass card.
+- 2026-05-27: Added iOS weight-maintenance congratulations that require repeated weigh-ins across at least 10 days, all within the goal band.
 - The current implementation uses local deterministic rules/templates as the confidence gate and fallback path. Local AFM narration/ranking is still pending and should be layered on top of these candidates rather than replacing the rule calculations.
 
 ## Goal
@@ -219,6 +220,7 @@ Backlog items:
 - Goal congratulations:
   - Congratulate when the user reaches the target band.
   - Add a separate maintenance congratulations when the user remains within the target band for a defined period, such as 14 or 30 days.
+  - Started in iOS: Compass shows a separate maintenance card only after at least 5 recent weigh-ins across 10+ days are all within 1 lb of target.
 - Weigh-in consistency:
   - If the user normally logs weight but has not logged recently, prompt for a check-in.
   - Do not prompt users who do not have an established weight logging habit.

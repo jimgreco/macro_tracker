@@ -651,6 +651,15 @@ enum CoachCandidateEngine {
 
         let recentAverage = average(recentFourteen.suffix(min(3, recentFourteen.count)).map(\.weight))
 
+        if let targetWeight = target?.targetWeight,
+           let maintenance = weightMaintenanceSuggestion(
+            recentEntries: Array(recentFourteen),
+            targetWeight: targetWeight,
+            now: now
+           ) {
+            candidates.append(maintenance)
+        }
+
         if let targetWeight = target?.targetWeight, abs(recentAverage - targetWeight) <= 1.0 {
             candidates.append(
                 suggestion(
@@ -708,6 +717,43 @@ enum CoachCandidateEngine {
         }
 
         return candidates
+    }
+
+    private static func weightMaintenanceSuggestion(
+        recentEntries: [WeightEntry],
+        targetWeight: Double,
+        now: Date
+    ) -> CoachSuggestion? {
+        let sorted = recentEntries.sorted { parseDate($0.loggedAt) < parseDate($1.loggedAt) }
+        guard sorted.count >= 5,
+              let firstDate = sorted.first.map({ parseDate($0.loggedAt) }),
+              let latestDate = sorted.last.map({ parseDate($0.loggedAt) }) else {
+            return nil
+        }
+
+        let spanDays = daysBetween(firstDate, latestDate)
+        guard spanDays >= 10 else { return nil }
+
+        let outsideBand = sorted.filter { abs($0.weight - targetWeight) > 1.0 }
+        guard outsideBand.isEmpty else { return nil }
+
+        let recentAverage = average(sorted.map(\.weight))
+        return suggestion(
+            id: "weight-maintenance-\(dayString(now))",
+            surface: .weight,
+            category: "maintenance",
+            priority: 94,
+            confidence: 0.96,
+            title: "Goal range is holding",
+            message: "Your recent weigh-ins have stayed within 1 lb of target long enough to count as maintenance. Keep the routine steady.",
+            evidence: [
+                "\(sorted.count) weigh-ins across \(spanDays) days",
+                "all within 1 lb of \(formatWeight(targetWeight))",
+                "average \(formatWeight(recentAverage))"
+            ],
+            action: nil,
+            dismissalKey: "weight:maintenance:v1:\(Int(targetWeight.rounded())):\(spanDays)"
+        )
     }
 
     static func sleep(

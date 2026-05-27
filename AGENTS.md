@@ -145,7 +145,7 @@ SwiftUI app targeting iOS 17+. Uses token-based auth (either via Sign in with Ap
 
 The iOS app communicates with the backend via Bearer token auth. Sign in with Apple sends the identity token to `/auth/apple/mobile` which verifies it and returns an API token stored in Keychain.
 
-The iOS coach is named Compass. It starts from deterministic local candidate rules in `AICoach.swift`; those rules compute confidence, evidence, priority, dismissal keys, and page actions. Macro missed-meal prompts use learned `CoachDaypart` windows, habitual quick-add suggestions pass reconstructed meal payloads through `CoachAction`, and repeat-workout suggestions can pass reconstructed workout payloads for direct logging. Coach cards record local diagnostics for shown/dismissed/acted-on events. Any future AFM/local-model work should narrate or rank these already-computed candidates, not replace numeric calculations or confidence gates.
+The iOS coach is named Compass. It starts from deterministic local candidate rules in `AICoach.swift`; those rules compute confidence, evidence, priority, dismissal keys, and page actions. Macro missed-meal prompts use learned `CoachDaypart` windows, habitual quick-add suggestions pass reconstructed meal payloads through `CoachAction`, repeat-workout suggestions can pass reconstructed workout payloads for direct logging, and weight maintenance cards require repeated in-band weigh-ins before congratulating. Coach cards record local diagnostics for shown/dismissed/acted-on events. Any future AFM/local-model work should narrate or rank these already-computed candidates, not replace numeric calculations or confidence gates.
 
 ## Production (AWS)
 
