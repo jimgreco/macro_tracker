@@ -9,6 +9,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Improved Compass candidate quality with learned meal windows for missed breakfast/lunch prompts, distinct-day habitual quick-add detection with direct add payloads, weight goal-date pace coaching, repeated-evidence wake-up handling for sleep, and local diagnostics for shown/dismissed/acted-on suggestions.
 - 2026-05-27: Added iOS repeat-workout coaching that detects recurring workouts across distinct recent days and logs the reconstructed workout directly from the Compass card.
 - 2026-05-27: Added iOS weight-maintenance congratulations that require repeated weigh-ins across at least 10 days, all within the goal band.
+- 2026-05-27: Added iOS sleep-streak congratulations for consecutive logged nights that meet the sleep target.
 - The current implementation uses local deterministic rules/templates as the confidence gate and fallback path. Local AFM narration/ranking is still pending and should be layered on top of these candidates rather than replacing the rule calculations.
 
 ## Goal
@@ -249,6 +250,7 @@ Backlog items:
   - If sleep is below target and workouts have been high intensity, suggest a lighter workout or earlier wind-down.
 - Sleep congratulations:
   - Congratulate on meeting the target for several nights in a row or improving the weekly average.
+  - Started in iOS: Compass recognizes 3+ consecutive logged nights that meet the target before showing a streak card.
 - Logging reminder:
   - If the user usually logs sleep and missed the prior night, ask whether they want to enter it.
 

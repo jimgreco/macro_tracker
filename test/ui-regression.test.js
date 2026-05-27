@@ -696,6 +696,9 @@ test('iOS Compass coach uses learned meal windows and action context', () => {
   assert.ok(coach.includes('sorted.count >= 5'));
   assert.ok(coach.includes('spanDays >= 10'));
   assert.ok(coach.includes('outsideBand.isEmpty'));
+  assert.ok(coach.includes('sleepTargetStreakSuggestion('));
+  assert.ok(coach.includes('streakCount >= 3'));
+  assert.ok(coach.includes('consecutive target nights'));
   assert.ok(coach.includes('Wake-ups are also repeatedly elevated'));
   assert.ok(macros.includes('private func handleCoachAction(_ action: CoachAction)'));
   assert.ok(macros.includes('quickSearchText = action.type == .openQuickAdd ? (action.searchText ?? "") : ""'));

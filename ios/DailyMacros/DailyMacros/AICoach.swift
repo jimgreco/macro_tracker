@@ -805,6 +805,14 @@ enum CoachCandidateEngine {
             ? " Wake-ups are also repeatedly elevated, so keep the plan simple."
             : ""
 
+        if let streak = sleepTargetStreakSuggestion(
+            dailyTotals: recentTotals,
+            targetHours: targetHours,
+            now: now
+        ) {
+            candidates.append(streak)
+        }
+
         if targetHours > 0, averageHours <= targetHours - 0.75 {
             candidates.append(
                 suggestion(
@@ -838,6 +846,51 @@ enum CoachCandidateEngine {
         }
 
         return candidates
+    }
+
+    private static func sleepTargetStreakSuggestion(
+        dailyTotals: [SleepDailyTotals],
+        targetHours: Double,
+        now: Date
+    ) -> CoachSuggestion? {
+        guard targetHours > 0 else { return nil }
+
+        let sorted = dailyTotals.sorted { $0.day > $1.day }
+        guard let latest = sorted.first else { return nil }
+
+        let latestDate = parseDay(latest.day)
+        guard daysBetween(latestDate, now) <= 1 else { return nil }
+
+        var streakCount = 0
+        var expectedDay = latestDate
+
+        for total in sorted {
+            let totalDate = parseDay(total.day)
+            guard dayString(totalDate) == dayString(expectedDay), total.totalHours >= targetHours else {
+                break
+            }
+
+            streakCount += 1
+            expectedDay = addingDays(-1, to: expectedDay)
+        }
+
+        guard streakCount >= 3 else { return nil }
+
+        return suggestion(
+            id: "sleep-target-streak-\(dayString(now))",
+            surface: .sleep,
+            category: "congratulations",
+            priority: 90,
+            confidence: 0.94,
+            title: "Sleep streak is holding",
+            message: "You have met the sleep target for \(streakCount) straight logged nights. Keep tonight's routine boring and repeatable.",
+            evidence: [
+                "\(streakCount) consecutive target nights",
+                "target \(formatHours(targetHours))"
+            ],
+            action: nil,
+            dismissalKey: "sleep:target_streak:v1:\(streakCount):\(Int(targetHours.rounded()))"
+        )
     }
 
     private static func weightGoalPaceSuggestion(
