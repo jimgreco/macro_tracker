@@ -1384,6 +1384,7 @@ function renderCoachForPage(pageKey) {
       <p class="coach-evidence">${escapeHtml(suggestion.evidence.join(' '))}</p>
       <div class="coach-actions">
         ${actionButton}
+        <button type="button" class="coach-dismiss-btn" data-coach-why="1">Why?</button>
         <button type="button" class="coach-dismiss-btn" data-coach-dismiss="today">Dismiss today</button>
         <button type="button" class="coach-dismiss-btn" data-coach-dismiss="pattern">Hide pattern</button>
         <button type="button" class="coach-dismiss-btn" data-coach-dismiss="pattern">Not useful</button>
@@ -1391,6 +1392,60 @@ function renderCoachForPage(pageKey) {
     </div>
   `;
   slot.hidden = false;
+}
+
+function coachSourceLabel(source) {
+  if (source === 'local_rules') {
+    return 'Local rules';
+  }
+  if (source === 'afm_local') {
+    return 'Local AI';
+  }
+  return source ? String(source) : 'Local rules';
+}
+
+function showCoachWhyModal(suggestion) {
+  if (!suggestion) {
+    return;
+  }
+  let overlay = document.getElementById('entry-modal-overlay');
+  if (overlay) overlay.remove();
+
+  const confidence = Number(suggestion.confidence || 0);
+  const evidenceItems = (suggestion.evidence || [])
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join('');
+  overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal coach-why-modal">
+      <h3>Why am I seeing this?</h3>
+      <p class="coach-why-reason">${escapeHtml(suggestion.message)}</p>
+      <div class="coach-why-grid">
+        <p><strong>Confidence</strong><span>${Math.round(confidence * 100)}%</span></p>
+        <p><strong>Source</strong><span>${escapeHtml(coachSourceLabel(suggestion.modelSource))}</span></p>
+        <p><strong>Surface</strong><span>${escapeHtml(suggestion.page || 'coach')}</span></p>
+        <p><strong>Category</strong><span>${escapeHtml(suggestion.category || 'general')}</span></p>
+      </div>
+      <div class="coach-why-evidence">
+        <strong>Evidence</strong>
+        <ul>${evidenceItems}</ul>
+      </div>
+      <div class="coach-why-key">
+        <strong>Dismissal pattern</strong>
+        <code>${escapeHtml(suggestion.patternKey || '')}</code>
+      </div>
+      <div class="combine-modal-actions">
+        <button type="button" class="btn-muted table-action-btn" id="coach-why-close-btn">Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.getElementById('coach-why-close-btn').addEventListener('click', () => overlay.remove());
 }
 
 function runCoachAction(actionType) {
@@ -1439,12 +1494,16 @@ function bindCoachSlots() {
       continue;
     }
     slot.addEventListener('click', async (event) => {
-      const target = event.target.closest('[data-coach-action], [data-coach-dismiss]');
+      const target = event.target.closest('[data-coach-action], [data-coach-dismiss], [data-coach-why]');
       if (!(target instanceof HTMLElement)) {
         return;
       }
       const actionType = target.dataset.coachAction;
       const dismissalType = target.dataset.coachDismiss;
+      if (target.dataset.coachWhy) {
+        showCoachWhyModal(state.visibleCoachSuggestions[pageKey]);
+        return;
+      }
       if (actionType) {
         runCoachAction(actionType);
         return;

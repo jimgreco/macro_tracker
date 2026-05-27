@@ -86,6 +86,7 @@ test('macro protein coach requires enough complete days and repeated misses', ()
   const suggestion = rules.buildCoachCandidates('macros', highConfidence).find((s) => s.category === 'protein-shortfall');
   assert.ok(suggestion);
   assert.equal(suggestion.confidence >= 0.85, true);
+  assert.equal(suggestion.modelSource, 'local_rules');
   assert.equal(suggestion.evidence[0].includes('4 recent complete days'), true);
 });
 

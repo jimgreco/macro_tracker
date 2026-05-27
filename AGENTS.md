@@ -185,7 +185,7 @@ The server sets a strict CSP header. Key constraints for frontend development:
 ## Frontend Notes
 
 - All state lives in the global `state` object in `public/script.js`
-- Web Compass coach cards live in `public/index.html` slots (`macros-coach`, `workout-coach`, `weight-coach`, `sleep-coach`) and are rendered from deterministic local rules in `public/coach-rules.js`; `public/script.js` owns DOM rendering and dismissal sync. Web Compass shares `/api/coach/dismissals` today/pattern sync with iOS and must not call OpenAI for routine coaching.
+- Web Compass coach cards live in `public/index.html` slots (`macros-coach`, `workout-coach`, `weight-coach`, `sleep-coach`) and are rendered from deterministic local rules in `public/coach-rules.js`; `public/script.js` owns DOM rendering, the "Why am I seeing this?" modal, and dismissal sync. Web Compass shares `/api/coach/dismissals` today/pattern sync with iOS and must not call OpenAI for routine coaching.
 - Period toggles (weekly/monthly/annual) controlled by `state.macroSnapshotPeriod`, `state.weightSnapshotPeriod`, `state.workoutSnapshotPeriod`. Switching period triggers a server request with `scope` param (e.g. `/api/daily-totals?scope=month`) to fetch the full date range.
 - Charts are drawn on `<canvas>` elements with device pixel ratio scaling. All charts support tooltips on hover/click/touch.
 - TDEE/energy balance feature was removed — no longer present in the codebase.

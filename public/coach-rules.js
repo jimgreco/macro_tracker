@@ -105,6 +105,7 @@
       evidence: Array.isArray(evidence) ? evidence : [evidence],
       action,
       confidence,
+      modelSource: 'local_rules',
       todayKey: `web:${page}:${category}:${today}`,
       patternKey: `web:${page}:${category}`
     };

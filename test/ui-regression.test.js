@@ -741,6 +741,11 @@ test('web Compass coach renders local suggestions with synced dismissals', () =>
   assert.ok(script.includes('Compass'));
   assert.ok(script.includes('Local rules'));
   assert.ok(script.includes('High confidence'));
+  assert.ok(script.includes('data-coach-why="1"'));
+  assert.ok(script.includes('showCoachWhyModal'));
+  assert.ok(script.includes('Why am I seeing this?'));
+  assert.ok(script.includes('suggestion.modelSource'));
+  assert.ok(styles.includes('.coach-why-modal'));
   assert.ok(script.includes('Dismiss today'));
   assert.ok(script.includes('Hide pattern'));
   assert.ok(script.includes('Not useful'));

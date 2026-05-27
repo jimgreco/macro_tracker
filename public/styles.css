@@ -257,6 +257,62 @@ body {
   color: rgba(220, 233, 255, 0.86);
 }
 
+.coach-why-modal {
+  max-width: 460px;
+}
+
+.coach-why-reason {
+  margin: 0 0 0.8rem;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.45;
+}
+
+.coach-why-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.coach-why-grid p,
+.coach-why-key {
+  margin: 0;
+  padding: 0.62rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.coach-why-grid strong,
+.coach-why-key strong,
+.coach-why-evidence strong {
+  display: block;
+  margin-bottom: 0.22rem;
+  color: rgba(220, 233, 255, 0.72);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.coach-why-grid span,
+.coach-why-key code {
+  color: #dce9ff;
+  font-size: 0.88rem;
+}
+
+.coach-why-evidence {
+  margin-bottom: 0.8rem;
+}
+
+.coach-why-evidence ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.coach-why-evidence li + li {
+  margin-top: 0.24rem;
+}
+
 .scope-row {
   display: flex;
   gap: 0.45rem;
@@ -2173,6 +2229,10 @@ button[disabled] {
 
   .coach-title-row {
     flex-direction: column;
+  }
+
+  .coach-why-grid {
+    grid-template-columns: 1fr;
   }
 
   .row {

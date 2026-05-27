@@ -21,6 +21,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Added backend synced Compass dismissals and wired iOS to pull/push local dismissals while preserving offline local behavior.
 - 2026-05-27: Added web Compass parity with deterministic high-confidence coach cards for Macros, Workouts, Weight, and Sleep, sharing synced today/pattern dismissals with iOS.
 - 2026-05-27: Extracted web Compass rules into `public/coach-rules.js` and added behavioral unit coverage for confidence gates, insufficient/borderline data, target-hit suppression, and today-vs-pattern dismissals.
+- 2026-05-27: Added web Compass "Why am I seeing this?" detail modal with evidence, confidence, source, surface, category, and dismissal pattern.
 
 ## Goal
 
@@ -291,6 +292,7 @@ Backlog items:
 - Add a weekly coach recap once daily coach cards are reliable.
 - Add "Why am I seeing this?" detail for every suggestion.
   - Started in iOS: every Compass card can open a detail sheet with the suggestion reason, evidence, confidence, source, category, and expiry.
+  - Started on web: every Compass card can open a detail modal with reason, evidence, confidence, source, surface, category, and dismissal pattern.
 - Add "Not useful" feedback so repeated poor suggestions can be suppressed.
   - Started in iOS: the card records `not_useful` separately from dismissals and hides that specific suggestion pattern.
 
