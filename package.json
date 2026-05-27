@@ -14,7 +14,7 @@
     "db:logs": "docker compose logs -f db",
     "db:seed:local": "node scripts/load-local-test-data.js",
     "test": "node --test test/*.test.js",
-    "test:check": "node --check public/login.js && node --check public/script.js && node --check src/server.js && npm test"
+    "test:check": "node --check public/login.js && node --check public/coach-rules.js && node --check public/script.js && node --check src/server.js && npm test"
   },
   "dependencies": {
     "apple-signin-auth": "^2.0.0",

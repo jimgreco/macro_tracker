@@ -20,6 +20,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Added iOS cross-page Compass guardrails for Workouts plus Sleep recovery and Weight plus macro consistency.
 - 2026-05-27: Added backend synced Compass dismissals and wired iOS to pull/push local dismissals while preserving offline local behavior.
 - 2026-05-27: Added web Compass parity with deterministic high-confidence coach cards for Macros, Workouts, Weight, and Sleep, sharing synced today/pattern dismissals with iOS.
+- 2026-05-27: Extracted web Compass rules into `public/coach-rules.js` and added behavioral unit coverage for confidence gates, insufficient/borderline data, target-hit suppression, and today-vs-pattern dismissals.
 
 ## Goal
 
@@ -326,6 +327,7 @@ Example copy:
 - Add page-level coach card UI in iOS.
 - Add template fallback copy.
 - Add tests for confidence gates and dismissal behavior.
+  - Started on web: `test/coach-rules.test.js` exercises the shared browser rule module with low, borderline, and high-confidence fixtures.
 
 ### Phase 2: Macros And Workouts
 
@@ -353,7 +355,9 @@ Example copy:
 ## Test Plan
 
 - Unit-test each confidence gate with insufficient data, borderline data, and high-confidence data.
+  - Started on web: macro protein, missed-meal, workout target, weight trend, and sleep target gates have behavioral fixtures.
 - Unit-test dismissal keys so "dismiss today" and "dismiss this action" behave differently.
+  - Started on web: today dismissals expire by timestamp while pattern dismissals persist.
 - Snapshot-test coach card layout on small and large iPhones.
 - Verify VoiceOver labels for the sparkle/AI icon, dismiss menu, and evidence text.
   - Started in iOS: Compass labels the AI icon, dismiss menu, and evidence text explicitly for accessibility, with regression coverage.

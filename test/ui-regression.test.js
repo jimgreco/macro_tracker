@@ -713,6 +713,7 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
 test('web Compass coach renders local suggestions with synced dismissals', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');
+  const coachRules = read('public/coach-rules.js');
   const styles = read('public/styles.css');
   const coachSection = script.slice(
     script.indexOf('const WEB_COACH_LOCAL_DISMISSALS_KEY'),
@@ -723,17 +724,19 @@ test('web Compass coach renders local suggestions with synced dismissals', () =>
   assert.ok(html.includes('id="workout-coach"'));
   assert.ok(html.includes('id="weight-coach"'));
   assert.ok(html.includes('id="sleep-coach"'));
+  assert.ok(html.includes('/coach-rules.js'));
   assert.ok(styles.includes('.coach-card'));
   assert.ok(styles.includes('linear-gradient(125deg'));
   assert.ok(styles.includes('.coach-icon'));
   assert.ok(script.includes("api('/api/coach/dismissals'"));
   assert.ok(script.includes("api('/api/coach/dismissals',"));
   assert.ok(script.includes('WEB_COACH_LOCAL_DISMISSALS_KEY'));
-  assert.ok(script.includes('coachEndOfTodayIso'));
-  assert.ok(script.includes('buildMacroCoachSuggestions'));
-  assert.ok(script.includes('buildWorkoutCoachSuggestions'));
-  assert.ok(script.includes('buildWeightCoachSuggestions'));
-  assert.ok(script.includes('buildSleepCoachSuggestions'));
+  assert.ok(script.includes('DailyMacrosCoachRules'));
+  assert.ok(coachRules.includes('coachEndOfTodayIso'));
+  assert.ok(coachRules.includes('buildMacroCoachSuggestions'));
+  assert.ok(coachRules.includes('buildWorkoutCoachSuggestions'));
+  assert.ok(coachRules.includes('buildWeightCoachSuggestions'));
+  assert.ok(coachRules.includes('buildSleepCoachSuggestions'));
   assert.ok(script.includes('confidence >= 0.85'));
   assert.ok(script.includes('Compass'));
   assert.ok(script.includes('Local rules'));
