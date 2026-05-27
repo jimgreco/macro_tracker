@@ -720,6 +720,14 @@ test('iOS Compass coach uses learned meal windows and action context', () => {
   assert.ok(coach.includes('workout-calorie-trend-'));
   assert.ok(coach.includes('baselineCalories > 0'));
   assert.ok(coach.includes('abs(calorieDelta) >= 0.15'));
+  assert.ok(coach.includes('workoutSleepRecoveryGuardrail('));
+  assert.ok(coach.includes('category: "recovery"'));
+  assert.ok(coach.includes('sleepShortfall >= 0.75'));
+  assert.ok(coach.includes('highIntensityDays.count >= 2'));
+  assert.ok(workouts.includes('@State private var sleepDailyTotals: [SleepDailyTotals] = []'));
+  assert.ok(workouts.includes('sleepDailyTotals: sleepDailyTotals'));
+  assert.ok(workouts.includes('loadWorkoutRecoveryContext()'));
+  assert.ok(workouts.includes('api.getSleepEntries(scope: "week", limit: 1)'));
   assert.ok(coach.includes('category: "goal_tracking"'));
   assert.ok(coach.includes('weightMaintenanceSuggestion('));
   assert.ok(coach.includes('category: "maintenance"'));
@@ -731,6 +739,11 @@ test('iOS Compass coach uses learned meal windows and action context', () => {
   assert.ok(coach.includes('recentTwentyEight.count >= 8'));
   assert.ok(coach.includes('spanDays >= 21'));
   assert.ok(coach.includes('distanceToGoal > 1.5, abs(delta) <= 0.35'));
+  assert.ok(coach.includes('weightMacroConsistencySuggestion('));
+  assert.ok(coach.includes('category: "cross_page"'));
+  assert.ok(coach.includes('completeMacroDays.count >= 10'));
+  assert.ok(coach.includes('patternThreshold = max(5'));
+  assert.ok(coach.includes('!movingTowardGoal || abs(rollingChange) <= 0.35'));
   assert.ok(coach.includes('sleepTargetStreakSuggestion('));
   assert.ok(coach.includes('streakCount >= 3'));
   assert.ok(coach.includes('consecutive target nights'));
@@ -738,6 +751,11 @@ test('iOS Compass coach uses learned meal windows and action context', () => {
   assert.ok(macros.includes('private func handleCoachAction(_ action: CoachAction)'));
   assert.ok(macros.includes('quickSearchText = action.type == .openQuickAdd ? (action.searchText ?? "") : ""'));
   assert.ok(macros.includes('private func logCoachMealItem(_ mealItem: CoachMealItemPayload) async'));
+  const weight = read('ios/DailyMacros/DailyMacros/WeightView.swift');
+  assert.ok(weight.includes('@State private var macroDailyTotals: [DailyTotals] = []'));
+  assert.ok(weight.includes('macroDailyTotals: macroDailyTotals'));
+  assert.ok(weight.includes('loadWeightMacroContext()'));
+  assert.ok(weight.includes('api.getDailyTotals(scope: "month")'));
   assert.ok(workouts.includes('private func logCoachWorkout(_ workout: CoachWorkoutPayload) async'));
 });
 

@@ -17,6 +17,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Expanded iOS workout trend coaching to include workout-calorie shifts against the recent baseline.
 - 2026-05-27: Added iOS local AFM narration/ranking for Compass. Foundation Models only sees already-eligible rule candidates, may choose among the top candidates, and may rewrite only title/message while rule evidence, confidence, actions, expiry, and dismissal keys remain authoritative.
 - 2026-05-27: Replaced the simple iOS Compass on/off toggle with modes for On, Rules Only, Local AI Only, and Off, including runtime local-AI availability copy in Settings.
+- 2026-05-27: Added iOS cross-page Compass guardrails for Workouts plus Sleep recovery and Weight plus macro consistency.
 
 ## Goal
 
@@ -211,6 +212,7 @@ Backlog items:
   - Started in iOS: Compass requires at least 3 matching workout days in the last 30 days and no matching workout today before showing a direct log action.
 - Rest/recovery guardrail:
   - If the user has several consecutive high-intensity days and poor sleep, suggest an easier session or rest day without making medical claims.
+  - Started in iOS: Workouts loads recent sleep totals and Compass shows a recovery guardrail only when sleep is under target across multiple recent logged nights and there are multiple recent high-intensity workout days.
 
 Acceptance criteria:
 - Workout coaching distinguishes workout days from total session count.
@@ -230,6 +232,7 @@ Backlog items:
   - Estimate whether the current trend is on track, ahead, or behind.
   - Keep language practical and non-alarming.
   - Started in iOS: Compass compares recent rolling pace with the pace needed for a future target date when there are at least 6 recent weigh-ins.
+  - Started in iOS: Weight can load month macro totals and Compass can flag macro consistency as the lever only when weight is not moving toward target and there are enough complete macro days across a multi-week window.
 - Goal congratulations:
   - Congratulate when the user reaches the target band.
   - Add a separate maintenance congratulations when the user remains within the target band for a defined period, such as 14 or 30 days.
@@ -261,6 +264,7 @@ Backlog items:
   - Started in iOS: wake-up language now requires repeated recent nights rather than one rough night.
 - Recovery tie-in:
   - If sleep is below target and workouts have been high intensity, suggest a lighter workout or earlier wind-down.
+  - Started in iOS Workouts: Compass uses recent sleep totals and high-intensity workout days to suggest an easier next session without medical claims.
 - Sleep congratulations:
   - Congratulate on meeting the target for several nights in a row or improving the weekly average.
   - Started in iOS: Compass recognizes 3+ consecutive logged nights that meet the target before showing a streak card.
@@ -276,7 +280,9 @@ Acceptance criteria:
 
 Backlog items:
 - Correlate sleep and workouts when both data sets are strong enough.
+  - Started in iOS Workouts: Compass combines recent sleep target adherence with recent high-intensity workout days for a recovery guardrail.
 - Correlate macro adherence and weight trend only over multi-week windows.
+  - Started in iOS Weight: Compass requires 6+ recent weigh-ins across 14+ days, 10+ complete macro days, distance remaining to target, and a repeated calorie/protein pattern before showing a cross-page macro-consistency card.
 - Detect "good streaks" across multiple surfaces, for example macro adherence plus workout target met.
 - Add a weekly coach recap once daily coach cards are reliable.
 - Add "Why am I seeing this?" detail for every suggestion.

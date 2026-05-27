@@ -6,6 +6,7 @@ struct WorkoutsView: View {
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var workouts: [WorkoutEntry] = []
     @State private var dailyCalories: [WorkoutDailyCalories] = []
+    @State private var sleepDailyTotals: [SleepDailyTotals] = []
     @State private var workoutText = ""
     @State private var parsedWorkout: ParseWorkoutResponse?
     @State private var workoutLogDate = Date()
@@ -28,6 +29,7 @@ struct WorkoutsView: View {
     // Stats from dashboard targets
     @State private var workoutsTarget: Double = 5
     @State private var caloriesTarget: Double = 0
+    @State private var sleepTargetHours: Double = 8
 
     // Target editing state
     @State private var editWorkoutsPerWeek = ""
@@ -55,7 +57,9 @@ struct WorkoutsView: View {
                             entries: workouts,
                             dailyCalories: dailyCalories,
                             workoutsTarget: workoutsTarget,
-                            caloriesTarget: caloriesTarget
+                            caloriesTarget: caloriesTarget,
+                            sleepDailyTotals: sleepDailyTotals,
+                            sleepTargetHours: sleepTargetHours
                         ),
                         onPrimaryAction: handleCoachAction
                     )
@@ -890,6 +894,7 @@ struct WorkoutsView: View {
 
         guard reset else { return }
         await loadWorkoutTargets()
+        await loadWorkoutRecoveryContext()
     }
 
     private func loadWorkoutTargets() async {
@@ -897,6 +902,14 @@ struct WorkoutsView: View {
             let dash = try await api.getDashboard(limit: 1)
             workoutsTarget = dash.targets.workouts
             caloriesTarget = dash.targets.workoutCalories ?? 0
+            sleepTargetHours = dash.targets.sleepHours ?? sleepTargetHours
+        } catch { /* non-critical */ }
+    }
+
+    private func loadWorkoutRecoveryContext() async {
+        do {
+            let response = try await api.getSleepEntries(scope: "week", limit: 1)
+            sleepDailyTotals = response.dailyTotals
         } catch { /* non-critical */ }
     }
 

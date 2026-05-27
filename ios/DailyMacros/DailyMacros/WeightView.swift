@@ -6,6 +6,8 @@ struct WeightView: View {
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var entries: [WeightEntry] = []
     @State private var target: WeightTarget?
+    @State private var macroDailyTotals: [DailyTotals] = []
+    @State private var macroTargets: MacroTargets?
     @State private var scope = "month"
     @State private var newWeight = ""
     @State private var newWeightDate = Date()
@@ -34,7 +36,12 @@ struct WeightView: View {
                 VStack(spacing: 20) {
                     AICoachSlot(
                         dismissals: coachDismissals,
-                        suggestions: CoachCandidateEngine.weight(entries: entries, target: target),
+                        suggestions: CoachCandidateEngine.weight(
+                            entries: entries,
+                            target: target,
+                            macroDailyTotals: macroDailyTotals,
+                            macroTargets: macroTargets
+                        ),
                         onPrimaryAction: handleCoachAction
                     )
 
@@ -663,6 +670,7 @@ struct WeightView: View {
     private func loadData() async {
         await loadEntries(reset: true)
         await loadTarget(showErrors: false)
+        await loadWeightMacroContext()
     }
 
     private func loadTarget(showErrors: Bool = true) async {
@@ -694,6 +702,14 @@ struct WeightView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func loadWeightMacroContext() async {
+        do {
+            let response = try await api.getDailyTotals(scope: "month")
+            macroDailyTotals = response.dailyTotals
+            macroTargets = response.targets
+        } catch { /* non-critical */ }
     }
 
     private func appendUniqueWeightEntries(_ newEntries: [WeightEntry]) {

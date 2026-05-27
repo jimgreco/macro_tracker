@@ -945,6 +945,8 @@ enum CoachCandidateEngine {
         dailyCalories: [WorkoutDailyCalories],
         workoutsTarget: Double,
         caloriesTarget: Double,
+        sleepDailyTotals: [SleepDailyTotals] = [],
+        sleepTargetHours: Double? = nil,
         now: Date = Date()
     ) -> [CoachSuggestion] {
         var candidates: [CoachSuggestion] = []
@@ -1014,6 +1016,15 @@ enum CoachCandidateEngine {
             candidates.append(trend)
         }
 
+        if let recovery = workoutSleepRecoveryGuardrail(
+            entries: entries,
+            sleepDailyTotals: sleepDailyTotals,
+            sleepTargetHours: sleepTargetHours,
+            now: now
+        ) {
+            candidates.append(recovery)
+        }
+
         if let repeatWorkout = repeatWorkoutPrompt(entries: entries, now: now) {
             candidates.append(repeatWorkout)
         }
@@ -1021,7 +1032,13 @@ enum CoachCandidateEngine {
         return candidates
     }
 
-    static func weight(entries: [WeightEntry], target: WeightTarget?, now: Date = Date()) -> [CoachSuggestion] {
+    static func weight(
+        entries: [WeightEntry],
+        target: WeightTarget?,
+        macroDailyTotals: [DailyTotals] = [],
+        macroTargets: MacroTargets? = nil,
+        now: Date = Date()
+    ) -> [CoachSuggestion] {
         let sorted = entries.sorted { parseDate($0.loggedAt) < parseDate($1.loggedAt) }
         guard !sorted.isEmpty else { return [] }
 
@@ -1093,6 +1110,16 @@ enum CoachCandidateEngine {
             candidates.append(plateau)
         }
 
+        if let macroConsistency = weightMacroConsistencySuggestion(
+            entries: sorted,
+            target: target,
+            macroDailyTotals: macroDailyTotals,
+            macroTargets: macroTargets,
+            now: now
+        ) {
+            candidates.append(macroConsistency)
+        }
+
         if recentFourteen.count >= 6 {
             let earlier = Array(recentFourteen.prefix(recentFourteen.count / 2))
             let later = Array(recentFourteen.suffix(recentFourteen.count - earlier.count))
@@ -1124,6 +1151,82 @@ enum CoachCandidateEngine {
         }
 
         return candidates
+    }
+
+    private static func weightMacroConsistencySuggestion(
+        entries: [WeightEntry],
+        target: WeightTarget?,
+        macroDailyTotals: [DailyTotals],
+        macroTargets: MacroTargets?,
+        now: Date
+    ) -> CoachSuggestion? {
+        guard let targetWeight = target?.targetWeight,
+              let macroTargets,
+              macroTargets.calories > 0,
+              macroTargets.protein > 0 else {
+            return nil
+        }
+
+        let recentTwentyEight = entries
+            .filter { parseDate($0.loggedAt) >= addingDays(-28, to: now) }
+            .sorted { parseDate($0.loggedAt) < parseDate($1.loggedAt) }
+        guard recentTwentyEight.count >= 6,
+              let firstDate = recentTwentyEight.first.map({ parseDate($0.loggedAt) }),
+              let latestDate = recentTwentyEight.last.map({ parseDate($0.loggedAt) }),
+              daysBetween(firstDate, latestDate) >= 14 else {
+            return nil
+        }
+
+        let splitIndex = recentTwentyEight.count / 2
+        let earlier = Array(recentTwentyEight.prefix(splitIndex))
+        let later = Array(recentTwentyEight.suffix(recentTwentyEight.count - splitIndex))
+        let earlierAverage = average(earlier.map(\.weight))
+        let laterAverage = average(later.map(\.weight))
+        let recentAverage = average(later.suffix(min(4, later.count)).map(\.weight))
+        let distanceToGoal = abs(recentAverage - targetWeight)
+        guard distanceToGoal > 1.5 else { return nil }
+
+        let movingTowardGoal = abs(laterAverage - targetWeight) < abs(earlierAverage - targetWeight)
+        let rollingChange = laterAverage - earlierAverage
+        guard !movingTowardGoal || abs(rollingChange) <= 0.35 else {
+            return nil
+        }
+
+        let completeMacroDays = macroDailyTotals
+            .filter { parseDay($0.day) >= addingDays(-28, to: now) }
+            .filter { isCompleteMacroDay($0, targets: macroTargets) }
+        guard completeMacroDays.count >= 10 else { return nil }
+
+        let highCalorieDays = completeMacroDays.filter { $0.calories > macroTargets.calories * 1.05 }
+        let lowProteinDays = completeMacroDays.filter { $0.protein < macroTargets.protein * 0.85 }
+        let patternThreshold = max(5, Int(ceil(Double(completeMacroDays.count) * 0.40)))
+        guard highCalorieDays.count >= patternThreshold || lowProteinDays.count >= patternThreshold else {
+            return nil
+        }
+
+        var evidence = [
+            "\(completeMacroDays.count) complete macro days",
+            "weight \(formatWeight(distanceToGoal)) from target"
+        ]
+        if highCalorieDays.count >= patternThreshold {
+            evidence.append("\(highCalorieDays.count) calorie-high days")
+        }
+        if lowProteinDays.count >= patternThreshold {
+            evidence.append("\(lowProteinDays.count) low-protein days")
+        }
+
+        return suggestion(
+            id: "weight-macro-consistency-\(dayString(now))",
+            surface: .weight,
+            category: "cross_page",
+            priority: 83,
+            confidence: 0.88,
+            title: "Macro consistency is the lever",
+            message: "Weight is not moving toward the target yet, and the macro pattern has been loose across complete days. Tighten the next few logs before changing the goal.",
+            evidence: evidence,
+            action: CoachAction(label: "Review targets", type: .editTargets),
+            dismissalKey: "weight:macro_consistency:v1:\(completeMacroDays.count):\(highCalorieDays.count):\(lowProteinDays.count)"
+        )
     }
 
     private static func weightPlateauSuggestion(
@@ -1703,6 +1806,51 @@ enum CoachCandidateEngine {
         }
 
         return nil
+    }
+
+    private static func workoutSleepRecoveryGuardrail(
+        entries: [WorkoutEntry],
+        sleepDailyTotals: [SleepDailyTotals],
+        sleepTargetHours: Double?,
+        now: Date
+    ) -> CoachSuggestion? {
+        guard let targetHours = sleepTargetHours, targetHours > 0 else { return nil }
+
+        let recentSleep = sleepDailyTotals
+            .filter { parseDay($0.day) >= addingDays(-5, to: now) }
+            .sorted { $0.day > $1.day }
+        guard recentSleep.count >= 3 else { return nil }
+
+        let averageSleep = average(recentSleep.map(\.totalHours))
+        let sleepShortfall = targetHours - averageSleep
+        guard sleepShortfall >= 0.75 else { return nil }
+
+        let recentWorkouts = entries
+            .filter { parseDate($0.loggedAt) >= addingDays(-5, to: now) }
+            .sorted { parseDate($0.loggedAt) > parseDate($1.loggedAt) }
+        guard recentWorkouts.count >= 2 else { return nil }
+
+        let highIntensityDays = Set(recentWorkouts
+            .filter { intensityScore($0.intensity) >= 3 }
+            .map { dayString(parseDate($0.loggedAt)) })
+        guard highIntensityDays.count >= 2 else { return nil }
+
+        return suggestion(
+            id: "workout-sleep-recovery-\(dayString(now))",
+            surface: .workouts,
+            category: "recovery",
+            priority: 85,
+            confidence: 0.88,
+            title: "Keep recovery in view",
+            message: "Sleep has been under target while recent workouts were high intensity. Make the next session easier or keep it cleanly logged.",
+            evidence: [
+                "\(recentSleep.count) recent sleep nights",
+                "average \(formatHours(averageSleep)) vs target \(formatHours(targetHours))",
+                "\(highIntensityDays.count) high-intensity workout days"
+            ],
+            action: CoachAction(label: "Log workout", type: .openLogWorkout),
+            dismissalKey: "workouts:recovery:v1:\(Int((sleepShortfall * 10).rounded())):\(highIntensityDays.count)"
+        )
     }
 
     private static func repeatWorkoutPrompt(entries: [WorkoutEntry], now: Date) -> CoachSuggestion? {
