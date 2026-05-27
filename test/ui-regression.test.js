@@ -679,7 +679,13 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(coach.includes('recordCoachEvent("local_ai_narrated"'));
   assert.equal(coach.includes('OpenAI'), false);
   assert.equal(coach.includes('/parse'), false);
-  assert.ok(coach.includes('mode.allowsTemplateFallback ? templateSuggestion : nil'));
+  assert.ok(coach.includes('mode.allowsTemplateFallback ? topCandidates : []'));
+  assert.ok(coach.includes('private struct AICoachPageIndicator'));
+  assert.ok(coach.includes('private func displayedSuggestions(from candidates: [CoachSuggestion], mode: CoachMode) -> [CoachSuggestion]'));
+  assert.ok(coach.includes('let topCandidates = Array(candidates.prefix(3))'));
+  assert.ok(coach.includes('DragGesture(minimumDistance: 24)'));
+  assert.ok(coach.includes('AICoachPageIndicator('));
+  assert.ok(coach.includes('suggestions.count > 1'));
   assert.ok(coach.includes('func syncedRecords(now: Date = Date()) -> [CoachDismissalRecord]'));
   assert.ok(coach.includes('func mergeSyncedRecords(_ records: [CoachDismissalRecord]'));
   assert.ok(coach.includes('api.getCoachDismissals()'));
@@ -708,6 +714,30 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(settings.includes('api.resetSyncedCoachDismissals()'));
   assert.ok(settings.includes('Reset Dismissed Suggestions'));
   assert.ok(settings.includes('coachDismissals.resetDismissals()'));
+});
+
+test('iOS Compass coach computes candidates off the render path', () => {
+  const coach = read('ios/DailyMacros/DailyMacros/AICoach.swift');
+  const macros = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const workouts = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
+  const weight = read('ios/DailyMacros/DailyMacros/WeightView.swift');
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+  const views = [macros, workouts, weight, health];
+
+  assert.ok(coach.includes('actor CoachCandidateWorker'));
+  assert.ok(coach.includes('actor CoachNarrationWorker'));
+  assert.ok(coach.includes('CoachNarrationWorker.shared.narrate'));
+  assert.ok(macros.includes('CoachCandidateWorker.shared.macros'));
+  assert.ok(workouts.includes('CoachCandidateWorker.shared.workouts'));
+  assert.ok(weight.includes('CoachCandidateWorker.shared.weight'));
+  assert.ok(health.includes('CoachCandidateWorker.shared.sleep'));
+  assert.ok(macros.includes('@State private var coachSuggestions: [CoachSuggestion] = []'));
+  assert.ok(workouts.includes('@State private var coachSuggestions: [CoachSuggestion] = []'));
+  assert.ok(weight.includes('@State private var coachSuggestions: [CoachSuggestion] = []'));
+  assert.ok(health.includes('@State private var sleepCoachSuggestions: [CoachSuggestion] = []'));
+  for (const view of views) {
+    assert.equal(/suggestions:\s*CoachCandidateEngine\./.test(view), false);
+  }
 });
 
 test('web Compass coach renders local suggestions with synced dismissals', () => {

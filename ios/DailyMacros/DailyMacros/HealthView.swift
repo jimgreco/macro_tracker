@@ -54,6 +54,7 @@ struct HealthView: View {
     // Sleep state
     @State private var sleepEntries: [SleepEntry] = []
     @State private var sleepDailyTotals: [SleepDailyTotals] = []
+    @State private var sleepCoachSuggestions: [CoachSuggestion] = []
     @State private var sleepScope = "week"
     @State private var showLogSleep = false
     @State private var sleepHours = ""
@@ -481,11 +482,7 @@ struct HealthView: View {
         VStack(spacing: 12) {
             AICoachSlot(
                 dismissals: coachDismissals,
-                suggestions: CoachCandidateEngine.sleep(
-                    entries: sleepEntries,
-                    dailyTotals: sleepDailyTotals,
-                    targetHours: sleepTargetHours
-                ),
+                suggestions: sleepCoachSuggestions,
                 onPrimaryAction: handleCoachAction
             )
 
@@ -1311,8 +1308,25 @@ struct HealthView: View {
         } catch {
             showErrorUnlessCancelled(error)
         }
-        guard reset else { return }
+        guard reset else {
+            await rebuildSleepCoachSuggestions()
+            return
+        }
         await loadSleepTarget()
+        await rebuildSleepCoachSuggestions()
+    }
+
+    private func rebuildSleepCoachSuggestions() async {
+        let sleepEntries = sleepEntries
+        let sleepDailyTotals = sleepDailyTotals
+        let sleepTargetHours = sleepTargetHours
+        let suggestions = await CoachCandidateWorker.shared.sleep(
+            entries: sleepEntries,
+            dailyTotals: sleepDailyTotals,
+            targetHours: sleepTargetHours
+        )
+        guard !Task.isCancelled else { return }
+        sleepCoachSuggestions = suggestions
     }
 
     private func appendUniqueHealthEntries(_ entries: [HealthEntry]) {

@@ -85,6 +85,7 @@ struct MacrosView: View {
     @EnvironmentObject var api: APIClient
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var dashboard: DashboardResponse?
+    @State private var coachSuggestions: [CoachSuggestion] = []
     @State private var savedItems: [SavedItem] = []
     @State private var quickTemplates: [QuickAddTemplate] = []
     @State private var mealText = ""
@@ -312,10 +313,10 @@ struct MacrosView: View {
             ZStack(alignment: .bottom) {
                 ScrollView {
                     VStack(spacing: 20) {
-                        if let dash = dashboard {
+                        if dashboard != nil {
                             AICoachSlot(
                                 dismissals: coachDismissals,
-                                suggestions: CoachCandidateEngine.macros(dashboard: dash, selectedDate: selectedDate),
+                                suggestions: coachSuggestions,
                                 onPrimaryAction: handleCoachAction
                             )
                         }
@@ -2113,9 +2114,22 @@ struct MacrosView: View {
         do {
             dashboard = try await api.getDashboard(date: dateString)
             rebuildQuickTemplates()
+            await rebuildCoachSuggestions()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func rebuildCoachSuggestions() async {
+        guard let dashboard else {
+            coachSuggestions = []
+            return
+        }
+
+        let selectedDate = selectedDate
+        let suggestions = await CoachCandidateWorker.shared.macros(dashboard: dashboard, selectedDate: selectedDate)
+        guard !Task.isCancelled else { return }
+        coachSuggestions = suggestions
     }
 
     private func loadTrend() async {

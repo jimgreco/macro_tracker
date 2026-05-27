@@ -7,6 +7,7 @@ struct WorkoutsView: View {
     @State private var workouts: [WorkoutEntry] = []
     @State private var dailyCalories: [WorkoutDailyCalories] = []
     @State private var sleepDailyTotals: [SleepDailyTotals] = []
+    @State private var coachSuggestions: [CoachSuggestion] = []
     @State private var workoutText = ""
     @State private var parsedWorkout: ParseWorkoutResponse?
     @State private var workoutLogDate = Date()
@@ -53,14 +54,7 @@ struct WorkoutsView: View {
                 LazyVStack(spacing: 16) {
                     AICoachSlot(
                         dismissals: coachDismissals,
-                        suggestions: CoachCandidateEngine.workouts(
-                            entries: workouts,
-                            dailyCalories: dailyCalories,
-                            workoutsTarget: workoutsTarget,
-                            caloriesTarget: caloriesTarget,
-                            sleepDailyTotals: sleepDailyTotals,
-                            sleepTargetHours: sleepTargetHours
-                        ),
+                        suggestions: coachSuggestions,
                         onPrimaryAction: handleCoachAction
                     )
 
@@ -892,9 +886,13 @@ struct WorkoutsView: View {
             errorMessage = error.localizedDescription
         }
 
-        guard reset else { return }
+        guard reset else {
+            await rebuildCoachSuggestions()
+            return
+        }
         await loadWorkoutTargets()
         await loadWorkoutRecoveryContext()
+        await rebuildCoachSuggestions()
     }
 
     private func loadWorkoutTargets() async {
@@ -911,6 +909,25 @@ struct WorkoutsView: View {
             let response = try await api.getSleepEntries(scope: "week", limit: 1)
             sleepDailyTotals = response.dailyTotals
         } catch { /* non-critical */ }
+    }
+
+    private func rebuildCoachSuggestions() async {
+        let workouts = workouts
+        let dailyCalories = dailyCalories
+        let workoutsTarget = workoutsTarget
+        let caloriesTarget = caloriesTarget
+        let sleepDailyTotals = sleepDailyTotals
+        let sleepTargetHours = sleepTargetHours
+        let suggestions = await CoachCandidateWorker.shared.workouts(
+            entries: workouts,
+            dailyCalories: dailyCalories,
+            workoutsTarget: workoutsTarget,
+            caloriesTarget: caloriesTarget,
+            sleepDailyTotals: sleepDailyTotals,
+            sleepTargetHours: sleepTargetHours
+        )
+        guard !Task.isCancelled else { return }
+        coachSuggestions = suggestions
     }
 
     private func appendUniqueWorkouts(_ entries: [WorkoutEntry]) {

@@ -8,6 +8,7 @@ struct WeightView: View {
     @State private var target: WeightTarget?
     @State private var macroDailyTotals: [DailyTotals] = []
     @State private var macroTargets: MacroTargets?
+    @State private var coachSuggestions: [CoachSuggestion] = []
     @State private var scope = "month"
     @State private var newWeight = ""
     @State private var newWeightDate = Date()
@@ -36,12 +37,7 @@ struct WeightView: View {
                 VStack(spacing: 20) {
                     AICoachSlot(
                         dismissals: coachDismissals,
-                        suggestions: CoachCandidateEngine.weight(
-                            entries: entries,
-                            target: target,
-                            macroDailyTotals: macroDailyTotals,
-                            macroTargets: macroTargets
-                        ),
+                        suggestions: coachSuggestions,
                         onPrimaryAction: handleCoachAction
                     )
 
@@ -671,6 +667,7 @@ struct WeightView: View {
         await loadEntries(reset: true)
         await loadTarget(showErrors: false)
         await loadWeightMacroContext()
+        await rebuildCoachSuggestions()
     }
 
     private func loadTarget(showErrors: Bool = true) async {
@@ -702,6 +699,8 @@ struct WeightView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+
+        await rebuildCoachSuggestions()
     }
 
     private func loadWeightMacroContext() async {
@@ -720,6 +719,21 @@ struct WeightView: View {
     private func loadMoreWeightsIfNeeded(current entry: WeightEntry) {
         guard hasMoreWeightEntries, entry.id == entries.last?.id else { return }
         Task { await loadEntries(reset: false) }
+    }
+
+    private func rebuildCoachSuggestions() async {
+        let entries = entries
+        let target = target
+        let macroDailyTotals = macroDailyTotals
+        let macroTargets = macroTargets
+        let suggestions = await CoachCandidateWorker.shared.weight(
+            entries: entries,
+            target: target,
+            macroDailyTotals: macroDailyTotals,
+            macroTargets: macroTargets
+        )
+        guard !Task.isCancelled else { return }
+        coachSuggestions = suggestions
     }
 
     private func addWeight() async {

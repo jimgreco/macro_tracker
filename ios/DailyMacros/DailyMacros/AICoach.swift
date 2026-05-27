@@ -13,7 +13,7 @@ enum CoachSettingKeys {
     static let mode = "ai_coach_mode"
 }
 
-enum CoachMode: String, CaseIterable, Identifiable {
+enum CoachMode: String, CaseIterable, Identifiable, Sendable {
     case localModelWithTemplates = "local_model_with_templates"
     case ruleTemplates = "rule_templates"
     case localModelOnly = "local_model_only"
@@ -71,14 +71,14 @@ enum CoachMode: String, CaseIterable, Identifiable {
     }
 }
 
-enum CoachSurface: String {
+enum CoachSurface: String, Sendable {
     case macros
     case workouts
     case weight
     case sleep
 }
 
-enum CoachModelSource: String {
+enum CoachModelSource: String, Sendable {
     case ruleTemplate = "rule_template"
     case afmLocal = "afm_local"
     case serverFallback = "server_fallback"
@@ -95,7 +95,7 @@ enum CoachModelSource: String {
     }
 }
 
-enum CoachActionType {
+enum CoachActionType: Sendable {
     case openLogMeal
     case openQuickAdd
     case logMealItem
@@ -106,7 +106,7 @@ enum CoachActionType {
     case editTargets
 }
 
-struct CoachMealItemPayload {
+struct CoachMealItemPayload: Sendable {
     let itemName: String
     let quantity: Double
     let unit: String
@@ -116,14 +116,14 @@ struct CoachMealItemPayload {
     let fat: Double
 }
 
-struct CoachWorkoutPayload {
+struct CoachWorkoutPayload: Sendable {
     let description: String
     let intensity: String
     let durationHours: Double
     let caloriesBurned: Double
 }
 
-struct CoachAction {
+struct CoachAction: Sendable {
     let label: String
     let type: CoachActionType
     let searchText: String?
@@ -145,7 +145,7 @@ struct CoachAction {
     }
 }
 
-struct CoachSuggestion: Identifiable {
+struct CoachSuggestion: Identifiable, Sendable {
     let id: String
     let surface: CoachSurface
     let category: String
@@ -362,10 +362,11 @@ struct AICoachSlot: View {
     @ObservedObject var dismissals: CoachDismissalStore
     @AppStorage(CoachSettingKeys.enabled) private var legacyCoachEnabled = true
     @AppStorage(CoachSettingKeys.mode) private var coachModeRaw = CoachMode.localModelWithTemplates.rawValue
-    @State private var recordedShownSuggestionID: String?
+    @State private var recordedShownSuggestionKeys: Set<String> = []
     @State private var narratedSuggestion: CoachSuggestion?
     @State private var narrationFailureKey: String?
     @State private var didAttemptDismissalSync = false
+    @State private var selectedSuggestionID: String?
 
     let suggestions: [CoachSuggestion]
     let onPrimaryAction: (CoachAction) -> Void
@@ -373,34 +374,53 @@ struct AICoachSlot: View {
     var body: some View {
         let mode = CoachMode.resolved(rawValue: coachModeRaw, legacyEnabled: legacyCoachEnabled)
         let visibleCandidates = dismissals.visibleSuggestions(from: suggestions)
-        let suggestion = displayedSuggestion(from: visibleCandidates, mode: mode)
+        let displayedSuggestions = displayedSuggestions(from: visibleCandidates, mode: mode)
+        let suggestion = selectedSuggestion(from: displayedSuggestions)
 
         Group {
             if let suggestion {
-                AICoachCard(
-                    suggestion: suggestion,
-                    onPrimaryAction: { action in
-                        recordCoachEvent("acted_on", suggestion: suggestion, action: action)
-                        onPrimaryAction(action)
-                    },
-                    onDismissForToday: {
-                        recordCoachEvent("dismissed_today", suggestion: suggestion)
-                        dismissals.dismissForToday(suggestion)
-                        Task { await syncDismissalsToServer(reason: "dismissed_today") }
-                    },
-                    onDismissAction: {
-                        recordCoachEvent("dismissed_pattern", suggestion: suggestion)
-                        dismissals.dismissAction(suggestion)
-                        Task { await syncDismissalsToServer(reason: "dismissed_pattern") }
-                    },
-                    onNotUseful: {
-                        recordCoachEvent("not_useful", suggestion: suggestion)
-                        dismissals.dismissAction(suggestion)
-                        Task { await syncDismissalsToServer(reason: "not_useful") }
+                VStack(spacing: 8) {
+                    AICoachCard(
+                        suggestion: suggestion,
+                        onPrimaryAction: { action in
+                            recordCoachEvent("acted_on", suggestion: suggestion, action: action)
+                            onPrimaryAction(action)
+                        },
+                        onDismissForToday: {
+                            recordCoachEvent("dismissed_today", suggestion: suggestion)
+                            dismissals.dismissForToday(suggestion)
+                            Task { await syncDismissalsToServer(reason: "dismissed_today") }
+                        },
+                        onDismissAction: {
+                            recordCoachEvent("dismissed_pattern", suggestion: suggestion)
+                            dismissals.dismissAction(suggestion)
+                            Task { await syncDismissalsToServer(reason: "dismissed_pattern") }
+                        },
+                        onNotUseful: {
+                            recordCoachEvent("not_useful", suggestion: suggestion)
+                            dismissals.dismissAction(suggestion)
+                            Task { await syncDismissalsToServer(reason: "not_useful") }
+                        }
+                    )
+                    .id(pageID(for: suggestion))
+                    .transition(.opacity.combined(with: .scale(scale: 0.99)))
+
+                    if displayedSuggestions.count > 1 {
+                        AICoachPageIndicator(
+                            suggestions: displayedSuggestions,
+                            selectedID: pageID(for: suggestion),
+                            pageID: pageID,
+                            onSelect: { selectedID in
+                                withAnimation(.snappy(duration: 0.22)) {
+                                    selectedSuggestionID = selectedID
+                                }
+                            }
+                        )
                     }
-                )
+                }
+                .simultaneousGesture(swipeGesture(for: displayedSuggestions))
+                .animation(.snappy(duration: 0.22), value: pageID(for: suggestion))
                 .onAppear { recordShown(suggestion) }
-                .id("\(suggestion.id):\(suggestion.modelSource.rawValue)")
             }
         }
         .task {
@@ -412,8 +432,9 @@ struct AICoachSlot: View {
     }
 
     private func recordShown(_ suggestion: CoachSuggestion) {
-        guard recordedShownSuggestionID != suggestion.id else { return }
-        recordedShownSuggestionID = suggestion.id
+        let shownKey = pageID(for: suggestion)
+        guard !recordedShownSuggestionKeys.contains(shownKey) else { return }
+        recordedShownSuggestionKeys.insert(shownKey)
         recordCoachEvent("shown", suggestion: suggestion)
     }
 
@@ -487,17 +508,59 @@ struct AICoachSlot: View {
         }
     }
 
-    private func displayedSuggestion(from candidates: [CoachSuggestion], mode: CoachMode) -> CoachSuggestion? {
-        guard mode != .off, let templateSuggestion = candidates.first else {
-            return nil
-        }
+    private func displayedSuggestions(from candidates: [CoachSuggestion], mode: CoachMode) -> [CoachSuggestion] {
+        guard mode != .off else { return [] }
+        let topCandidates = Array(candidates.prefix(3))
+        guard !topCandidates.isEmpty else { return [] }
 
         if let narratedSuggestion,
-           narratedSuggestion.dismissalKey == templateSuggestion.dismissalKey || candidates.contains(where: { $0.dismissalKey == narratedSuggestion.dismissalKey }) {
-            return narratedSuggestion
+           topCandidates.contains(where: { $0.dismissalKey == narratedSuggestion.dismissalKey }) {
+            if mode.allowsTemplateFallback {
+                let remainingCandidates = topCandidates.filter { $0.dismissalKey != narratedSuggestion.dismissalKey }
+                return [narratedSuggestion] + remainingCandidates
+            }
+            return [narratedSuggestion]
         }
 
-        return mode.allowsTemplateFallback ? templateSuggestion : nil
+        return mode.allowsTemplateFallback ? topCandidates : []
+    }
+
+    private func selectedSuggestion(from suggestions: [CoachSuggestion]) -> CoachSuggestion? {
+        guard !suggestions.isEmpty else { return nil }
+        if let selectedSuggestionID,
+           let selected = suggestions.first(where: { pageID(for: $0) == selectedSuggestionID }) {
+            return selected
+        }
+        return suggestions.first
+    }
+
+    private func pageID(for suggestion: CoachSuggestion) -> String {
+        "\(suggestion.id):\(suggestion.modelSource.rawValue)"
+    }
+
+    private func swipeGesture(for suggestions: [CoachSuggestion]) -> some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard suggestions.count > 1,
+                      abs(horizontal) > 44,
+                      abs(horizontal) > abs(vertical),
+                      let current = selectedSuggestion(from: suggestions),
+                      let currentIndex = suggestions.firstIndex(where: { pageID(for: $0) == pageID(for: current) }) else {
+                    return
+                }
+
+                let nextIndex = horizontal < 0
+                    ? min(currentIndex + 1, suggestions.count - 1)
+                    : max(currentIndex - 1, 0)
+                guard nextIndex != currentIndex else { return }
+
+                withAnimation(.snappy(duration: 0.22)) {
+                    selectedSuggestionID = pageID(for: suggestions[nextIndex])
+                }
+                recordShown(suggestions[nextIndex])
+            }
     }
 
     private func narrationTaskID(for candidates: [CoachSuggestion], mode: CoachMode) -> String {
@@ -518,7 +581,7 @@ struct AICoachSlot: View {
 
         let activeKey = narrationTaskID(for: candidates, mode: mode)
         let eligibleCandidates = Array(candidates.prefix(3))
-        let narrated = await CoachNarrator.shared.narrate(candidates: eligibleCandidates)
+        let narrated = await CoachNarrationWorker.shared.narrate(candidates: eligibleCandidates, mode: mode)
 
         guard activeKey == narrationTaskID(for: candidates, mode: mode) else {
             return
@@ -540,6 +603,63 @@ struct AICoachSlot: View {
                 )
             }
         }
+    }
+}
+
+actor CoachCandidateWorker {
+    static let shared = CoachCandidateWorker()
+
+    func macros(dashboard: DashboardResponse, selectedDate: Date) -> [CoachSuggestion] {
+        CoachCandidateEngine.macros(dashboard: dashboard, selectedDate: selectedDate)
+    }
+
+    func workouts(
+        entries: [WorkoutEntry],
+        dailyCalories: [WorkoutDailyCalories],
+        workoutsTarget: Double,
+        caloriesTarget: Double,
+        sleepDailyTotals: [SleepDailyTotals],
+        sleepTargetHours: Double?
+    ) -> [CoachSuggestion] {
+        CoachCandidateEngine.workouts(
+            entries: entries,
+            dailyCalories: dailyCalories,
+            workoutsTarget: workoutsTarget,
+            caloriesTarget: caloriesTarget,
+            sleepDailyTotals: sleepDailyTotals,
+            sleepTargetHours: sleepTargetHours
+        )
+    }
+
+    func weight(
+        entries: [WeightEntry],
+        target: WeightTarget?,
+        macroDailyTotals: [DailyTotals],
+        macroTargets: MacroTargets?
+    ) -> [CoachSuggestion] {
+        CoachCandidateEngine.weight(
+            entries: entries,
+            target: target,
+            macroDailyTotals: macroDailyTotals,
+            macroTargets: macroTargets
+        )
+    }
+
+    func sleep(
+        entries: [SleepEntry],
+        dailyTotals: [SleepDailyTotals],
+        targetHours: Double
+    ) -> [CoachSuggestion] {
+        CoachCandidateEngine.sleep(entries: entries, dailyTotals: dailyTotals, targetHours: targetHours)
+    }
+}
+
+actor CoachNarrationWorker {
+    static let shared = CoachNarrationWorker()
+
+    func narrate(candidates: [CoachSuggestion], mode: CoachMode) async -> CoachSuggestion? {
+        guard mode.allowsLocalModel, !candidates.isEmpty else { return nil }
+        return await CoachNarrator.shared.narrate(candidates: Array(candidates.prefix(3)))
     }
 }
 
@@ -710,6 +830,36 @@ private enum FoundationCoachNarrator {
     }
 }
 #endif
+
+private struct AICoachPageIndicator: View {
+    let suggestions: [CoachSuggestion]
+    let selectedID: String
+    let pageID: (CoachSuggestion) -> String
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        HStack(spacing: 7) {
+            ForEach(Array(suggestions.enumerated()), id: \.offset) { index, suggestion in
+                let id = pageID(suggestion)
+                Button {
+                    onSelect(id)
+                } label: {
+                    Circle()
+                        .fill(id == selectedID ? Color.cyan : Color.secondary.opacity(0.35))
+                        .frame(width: id == selectedID ? 8 : 6, height: id == selectedID ? 8 : 6)
+                        .frame(width: 28, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(CoachBrand.name) suggestion \(index + 1) of \(suggestions.count)")
+                .accessibilityAddTraits(id == selectedID ? [.isSelected] : [])
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 1)
+        .accessibilityElement(children: .contain)
+    }
+}
 
 struct AICoachCard: View {
     @State private var showingWhyDetails = false
@@ -906,7 +1056,7 @@ private struct AICoachWhySheet: View {
 }
 
 enum CoachCandidateEngine {
-    private enum CoachDaypart: String, CaseIterable {
+    private enum CoachDaypart: String, CaseIterable, Sendable {
         case breakfast
         case lunch
         case dinner
@@ -956,14 +1106,14 @@ enum CoachCandidateEngine {
         }
     }
 
-    private struct MealWindowSummary {
+    private struct MealWindowSummary: Sendable {
         let daypart: CoachDaypart
         let dayCount: Int
         let latestFirstLogHour: Int
         let averageFirstLogHour: Double
     }
 
-    private struct HabitualItemCandidate {
+    private struct HabitualItemCandidate: Sendable {
         let normalizedName: String
         let displayName: String
         let dayCount: Int
@@ -971,7 +1121,7 @@ enum CoachCandidateEngine {
         let mealItem: CoachMealItemPayload
     }
 
-    private struct HabitualWorkoutCandidate {
+    private struct HabitualWorkoutCandidate: Sendable {
         let normalizedDescription: String
         let displayName: String
         let dayCount: Int

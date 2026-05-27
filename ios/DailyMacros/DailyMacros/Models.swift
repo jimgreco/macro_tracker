@@ -45,7 +45,7 @@ struct MeResponse: Codable {
     let user: User?
 }
 
-struct Entry: Codable, Identifiable {
+struct Entry: Codable, Identifiable, Sendable {
     let id: Int
     let itemName: String
     let quantity: Double
@@ -62,7 +62,7 @@ struct Entry: Codable, Identifiable {
     let mealUnit: String?
 }
 
-struct DailyTotals: Codable {
+struct DailyTotals: Codable, Sendable {
     let day: String
     let calories: Double
     let protein: Double
@@ -70,7 +70,7 @@ struct DailyTotals: Codable {
     let fat: Double
 }
 
-struct SevenDayAverage: Codable {
+struct SevenDayAverage: Codable, Sendable {
     let daysWithData: Int
     let calories: Double
     let protein: Double
@@ -78,7 +78,7 @@ struct SevenDayAverage: Codable {
     let fat: Double
 }
 
-struct MacroTargets: Codable {
+struct MacroTargets: Codable, Sendable {
     let calories: Double
     let protein: Double
     let carbs: Double
@@ -94,13 +94,13 @@ struct MacroTargets: Codable {
     }
 }
 
-struct Pagination: Codable {
+struct Pagination: Codable, Sendable {
     let limit: Int
     let offset: Int
     let returned: Int
 }
 
-struct DashboardResponse: Codable {
+struct DashboardResponse: Codable, Sendable {
     let currentDayTotals: DailyTotals
     let previousDays: [DailyTotals]
     let sevenDayAverage: SevenDayAverage
@@ -109,7 +109,7 @@ struct DashboardResponse: Codable {
     let pagination: Pagination?
 }
 
-struct WeightEntry: Codable, Identifiable {
+struct WeightEntry: Codable, Identifiable, Sendable {
     let id: Int
     let weight: Double
     let loggedAt: String
@@ -122,12 +122,12 @@ struct WeightEntriesResponse: Codable {
     let pagination: Pagination?
 }
 
-struct WeightTarget: Codable {
+struct WeightTarget: Codable, Sendable {
     let targetWeight: Double?
     let targetDate: String?
 }
 
-struct WorkoutEntry: Codable, Identifiable {
+struct WorkoutEntry: Codable, Identifiable, Sendable {
     let id: Int
     let description: String
     let intensity: String
@@ -138,7 +138,7 @@ struct WorkoutEntry: Codable, Identifiable {
     let externalId: String?
 }
 
-struct WorkoutDailyCalories: Codable {
+struct WorkoutDailyCalories: Codable, Sendable {
     let day: String
     let calories: Double
 }
@@ -368,7 +368,7 @@ struct HealthEntriesResponse: Codable {
 
 // MARK: - Sleep
 
-struct SleepEntry: Codable, Identifiable {
+struct SleepEntry: Codable, Identifiable, Sendable {
     let id: Int
     let durationHours: Double
     let wakeUps: Int
@@ -378,7 +378,7 @@ struct SleepEntry: Codable, Identifiable {
     let externalId: String?
 }
 
-struct SleepDailyTotals: Codable {
+struct SleepDailyTotals: Codable, Sendable {
     let day: String
     let totalHours: Double
 }
