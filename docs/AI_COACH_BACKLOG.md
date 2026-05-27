@@ -13,6 +13,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Split iOS Compass "Not useful" into a distinct local diagnostics event while still suppressing the specific pattern.
 - 2026-05-27: Added an iOS Compass "Why am I seeing this?" detail sheet with reason, evidence, confidence, source, category, and expiry.
 - 2026-05-27: Added iOS end-of-day macro steering when protein is behind pace and calories remain available.
+- 2026-05-27: Added iOS weight plateau coaching that requires 8+ weigh-ins across 21+ days and a target that still needs movement.
 - The current implementation uses local deterministic rules/templates as the confidence gate and fallback path. Local AFM narration/ranking is still pending and should be layered on top of these candidates rather than replacing the rule calculations.
 
 ## Goal
@@ -232,6 +233,7 @@ Backlog items:
 - Plateau coaching:
   - Detect a flat rolling trend over 3 or more weeks only when the goal requires movement.
   - Suggest reviewing recent macro adherence rather than making unsupported claims.
+  - Started in iOS: Compass detects a flat 28-day rolling trend only with enough weigh-ins, a multi-week span, and distance remaining to target.
 
 Acceptance criteria:
 - No weight suggestion is based on a single weigh-in.

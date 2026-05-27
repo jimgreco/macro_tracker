@@ -707,6 +707,11 @@ test('iOS Compass coach uses learned meal windows and action context', () => {
   assert.ok(coach.includes('sorted.count >= 5'));
   assert.ok(coach.includes('spanDays >= 10'));
   assert.ok(coach.includes('outsideBand.isEmpty'));
+  assert.ok(coach.includes('weightPlateauSuggestion(entries: sorted'));
+  assert.ok(coach.includes('category: "plateau"'));
+  assert.ok(coach.includes('recentTwentyEight.count >= 8'));
+  assert.ok(coach.includes('spanDays >= 21'));
+  assert.ok(coach.includes('distanceToGoal > 1.5, abs(delta) <= 0.35'));
   assert.ok(coach.includes('sleepTargetStreakSuggestion('));
   assert.ok(coach.includes('streakCount >= 3'));
   assert.ok(coach.includes('consecutive target nights'));

@@ -771,6 +771,10 @@ enum CoachCandidateEngine {
             candidates.append(goalPace)
         }
 
+        if let plateau = weightPlateauSuggestion(entries: sorted, target: target, now: now) {
+            candidates.append(plateau)
+        }
+
         if recentFourteen.count >= 6 {
             let earlier = Array(recentFourteen.prefix(recentFourteen.count / 2))
             let later = Array(recentFourteen.suffix(recentFourteen.count - earlier.count))
@@ -802,6 +806,54 @@ enum CoachCandidateEngine {
         }
 
         return candidates
+    }
+
+    private static func weightPlateauSuggestion(
+        entries: [WeightEntry],
+        target: WeightTarget?,
+        now: Date
+    ) -> CoachSuggestion? {
+        guard let targetWeight = target?.targetWeight else { return nil }
+
+        let recentTwentyEight = entries
+            .filter { parseDate($0.loggedAt) >= addingDays(-28, to: now) }
+            .sorted { parseDate($0.loggedAt) < parseDate($1.loggedAt) }
+        guard recentTwentyEight.count >= 8,
+              let firstDate = recentTwentyEight.first.map({ parseDate($0.loggedAt) }),
+              let latestDate = recentTwentyEight.last.map({ parseDate($0.loggedAt) }) else {
+            return nil
+        }
+
+        let spanDays = daysBetween(firstDate, latestDate)
+        guard spanDays >= 21 else { return nil }
+
+        let splitIndex = recentTwentyEight.count / 2
+        let earlier = Array(recentTwentyEight.prefix(splitIndex))
+        let later = Array(recentTwentyEight.suffix(recentTwentyEight.count - splitIndex))
+        let earlierAverage = average(earlier.map(\.weight))
+        let laterAverage = average(later.map(\.weight))
+        let recentAverage = average(later.suffix(min(4, later.count)).map(\.weight))
+        let delta = laterAverage - earlierAverage
+        let distanceToGoal = abs(recentAverage - targetWeight)
+
+        guard distanceToGoal > 1.5, abs(delta) <= 0.35 else { return nil }
+
+        return suggestion(
+            id: "weight-plateau-\(dayString(now))",
+            surface: .weight,
+            category: "plateau",
+            priority: 84,
+            confidence: 0.87,
+            title: "Weight trend is flat",
+            message: "Your rolling weight average has been flat for a few weeks while the goal still needs movement. Review recent macro consistency before changing the target.",
+            evidence: [
+                "\(recentTwentyEight.count) weigh-ins across \(spanDays) days",
+                "rolling change \(formatWeight(abs(delta)))",
+                "\(formatWeight(distanceToGoal)) from target"
+            ],
+            action: CoachAction(label: "Review target", type: .editTargets),
+            dismissalKey: "weight:plateau:v1:\(Int(targetWeight.rounded())):\(Int(distanceToGoal.rounded()))"
+        )
     }
 
     private static func weightMaintenanceSuggestion(
