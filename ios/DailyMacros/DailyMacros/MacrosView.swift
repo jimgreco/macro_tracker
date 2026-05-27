@@ -2059,18 +2059,22 @@ struct MacrosView: View {
 
     // MARK: - Actions
 
-    private func handleCoachAction(_ action: CoachActionType) {
-        switch action {
+    private func handleCoachAction(_ action: CoachAction) {
+        switch action.type {
         case .openLogMeal, .openQuickAdd:
             showParsed = false
             mealText = ""
             consumedAt = Date()
-            quickSearchText = ""
+            quickSearchText = action.type == .openQuickAdd ? (action.searchText ?? "") : ""
             clearMealImage()
             if !hasLoadedSavedItems {
                 Task { await loadSavedItems(showErrors: false) }
             }
             showAddSheet = true
+        case .logMealItem:
+            guard let mealItem = action.mealItem else { return }
+            consumedAt = Date()
+            Task { await logCoachMealItem(mealItem) }
         case .editTargets:
             if let targets = dashboard?.targets {
                 editCalories = "\(Int(targets.calories))"
@@ -2081,6 +2085,27 @@ struct MacrosView: View {
             }
         case .openLogWorkout, .openLogWeight, .openLogSleep:
             break
+        }
+    }
+
+    private func logCoachMealItem(_ mealItem: CoachMealItemPayload) async {
+        let timestamp = isoTimestamp
+        let item: [String: Any] = [
+            "itemName": mealItem.itemName,
+            "quantity": mealItem.quantity,
+            "unit": mealItem.unit,
+            "calories": mealItem.calories,
+            "protein": mealItem.protein,
+            "carbs": mealItem.carbs,
+            "fat": mealItem.fat,
+            "consumedAt": timestamp
+        ]
+
+        do {
+            try await api.saveMealEntries(items: [item], consumedAt: timestamp)
+            await loadDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

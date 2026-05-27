@@ -6,6 +6,7 @@ Last updated: 2026-05-27
 
 - 2026-05-27: Started iOS implementation with a shared AI coach suggestion model, dismissals, coach card UI, and deterministic high-confidence candidate rules for Macros, Workouts, Weight, and Sleep.
 - 2026-05-27: Named the iOS coach `Compass`, changed the coach card to lead with the suggestion title before the author/source line, and added Settings controls to show/hide Compass cards and reset dismissed suggestions.
+- 2026-05-27: Improved Compass candidate quality with learned meal windows for missed breakfast/lunch prompts, distinct-day habitual quick-add detection with direct add payloads, weight goal-date pace coaching, repeated-evidence wake-up handling for sleep, and local diagnostics for shown/dismissed/acted-on suggestions.
 - The current implementation uses local deterministic rules/templates as the confidence gate and fallback path. Local AFM narration/ranking is still pending and should be layered on top of these candidates rather than replacing the rule calculations.
 
 ## Goal
@@ -107,12 +108,15 @@ Backlog tasks:
   - Local model with fallback templates.
 - Started: iOS Settings now has a Compass on/off control and reset for dismissed suggestions. More granular local-model modes are still pending.
 - Add diagnostics that expose which source produced the suggestion: rule template, AFM local, or server fallback if server fallback is later enabled.
+  - Started in iOS: Compass records local diagnostics when suggestions are shown, dismissed, or acted on, including surface, category, confidence, source, and dismissal key.
 
 ## Shared Data Requirements
 
 Backlog tasks:
 - Add normalized daypart helpers: breakfast, lunch, dinner, evening, late night.
+  - Started in iOS: `CoachDaypart` now normalizes meal windows and powers missed-meal and usual-item rules.
 - Add per-user "usual logging window" learning for meals and workouts.
+  - Started in iOS: breakfast/lunch prompts require at least 3 historical daypart logs and wait until later than the learned first-log window.
 - Add rolling summaries for:
   - previous day,
   - last 3 days,
@@ -151,6 +155,7 @@ Backlog items:
   - Detect repeated foods around the same time, such as yogurt and granola for breakfast.
   - Require at least 3 occurrences in 14 days with similar timing.
   - Offer one-tap quick add for the saved item or reconstructed meal group.
+  - Started in iOS: Compass detects repeated foods by distinct daypart days and can add the reconstructed item directly from the card.
 - Macro target congratulations:
   - Congratulate when the current day or previous complete day lands within a realistic band:
     - calories within 5 percent,
@@ -208,6 +213,7 @@ Backlog items:
   - Compare current rolling trend against target weight and target date when available.
   - Estimate whether the current trend is on track, ahead, or behind.
   - Keep language practical and non-alarming.
+  - Started in iOS: Compass compares recent rolling pace with the pace needed for a future target date when there are at least 6 recent weigh-ins.
 - Goal congratulations:
   - Congratulate when the user reaches the target band.
   - Add a separate maintenance congratulations when the user remains within the target band for a defined period, such as 14 or 30 days.
@@ -234,6 +240,7 @@ Backlog items:
 - Target comparison:
   - Show whether the user's average duration is above, near, or below target.
   - Include wake-up counts when they are consistently elevated.
+  - Started in iOS: wake-up language now requires repeated recent nights rather than one rough night.
 - Recovery tie-in:
   - If sleep is below target and workouts have been high intensity, suggest a lighter workout or earlier wind-down.
 - Sleep congratulations:

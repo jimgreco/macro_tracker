@@ -642,8 +642,8 @@ struct WeightView: View {
 
     // MARK: - Actions
 
-    private func handleCoachAction(_ action: CoachActionType) {
-        switch action {
+    private func handleCoachAction(_ action: CoachAction) {
+        switch action.type {
         case .openLogWeight:
             newWeightDate = Date()
             showAddSheet = true
@@ -655,7 +655,7 @@ struct WeightView: View {
                 editTargetDate = Date()
             }
             showEditTarget = true
-        case .openLogMeal, .openQuickAdd, .openLogWorkout, .openLogSleep:
+        case .openLogMeal, .openQuickAdd, .logMealItem, .openLogWorkout, .openLogSleep:
             break
         }
     }

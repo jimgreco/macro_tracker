@@ -1198,8 +1198,8 @@ struct HealthView: View {
 
     // MARK: - Actions
 
-    private func handleCoachAction(_ action: CoachActionType) {
-        switch action {
+    private func handleCoachAction(_ action: CoachAction) {
+        switch action.type {
         case .openLogSleep:
             sleepLogDate = Date()
             sleepHours = ""
@@ -1209,7 +1209,7 @@ struct HealthView: View {
         case .editTargets:
             editSleepTargetHours = formatTargetHours(sleepTargetHours)
             showEditSleepTargets = true
-        case .openLogMeal, .openQuickAdd, .openLogWorkout, .openLogWeight:
+        case .openLogMeal, .openQuickAdd, .logMealItem, .openLogWorkout, .openLogWeight:
             break
         }
     }

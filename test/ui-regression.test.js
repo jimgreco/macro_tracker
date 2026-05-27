@@ -662,6 +662,8 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(coach.includes('static let enabled = "ai_coach_enabled"'));
   assert.ok(coach.includes('@AppStorage(CoachSettingKeys.enabled)'));
   assert.ok(coach.includes('confidence >= 0.85'));
+  assert.ok(coach.includes('recordCoachEvent("shown"'));
+  assert.ok(coach.includes('recordCoachEvent("acted_on"'));
   assert.ok(coach.includes('Button("Dismiss for today"'));
   assert.ok(coach.includes('Button("Hide this pattern"'));
   assert.ok(coach.includes('Button("Not useful"'));
@@ -670,6 +672,23 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(settings.includes('Show \\(CoachBrand.name) cards'));
   assert.ok(settings.includes('Reset Dismissed Suggestions'));
   assert.ok(settings.includes('coachDismissals.resetDismissals()'));
+});
+
+test('iOS Compass coach uses learned meal windows and action context', () => {
+  const coach = read('ios/DailyMacros/DailyMacros/AICoach.swift');
+  const macros = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+
+  assert.ok(coach.includes('private enum CoachDaypart'));
+  assert.ok(coach.includes('learnedMealWindow(for: daypart'));
+  assert.ok(coach.includes('summary.latestFirstLogHour + 1'));
+  assert.ok(coach.includes('days.count >= 3'));
+  assert.ok(coach.includes('case logMealItem'));
+  assert.ok(coach.includes('mealItem: match.mealItem'));
+  assert.ok(coach.includes('category: "goal_tracking"'));
+  assert.ok(coach.includes('Wake-ups are also repeatedly elevated'));
+  assert.ok(macros.includes('private func handleCoachAction(_ action: CoachAction)'));
+  assert.ok(macros.includes('quickSearchText = action.type == .openQuickAdd ? (action.searchText ?? "") : ""'));
+  assert.ok(macros.includes('private func logCoachMealItem(_ mealItem: CoachMealItemPayload) async'));
 });
 
 test('iOS app includes onboarding reminders offline queue and diagnostics foundations', () => {

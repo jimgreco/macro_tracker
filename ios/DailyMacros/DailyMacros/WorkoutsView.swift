@@ -825,8 +825,8 @@ struct WorkoutsView: View {
 
     // MARK: - Actions
 
-    private func handleCoachAction(_ action: CoachActionType) {
-        switch action {
+    private func handleCoachAction(_ action: CoachAction) {
+        switch action.type {
         case .openLogWorkout:
             resetWorkoutSheet()
             workoutLogDate = Date()
@@ -835,7 +835,7 @@ struct WorkoutsView: View {
             editWorkoutsPerWeek = "\(Int(workoutsTarget))"
             editCaloriesPerWeek = "\(Int(caloriesTarget))"
             showEditTargets = true
-        case .openLogMeal, .openQuickAdd, .openLogWeight, .openLogSleep:
+        case .openLogMeal, .openQuickAdd, .logMealItem, .openLogWeight, .openLogSleep:
             break
         }
     }

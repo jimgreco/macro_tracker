@@ -36,15 +36,40 @@ enum CoachModelSource: String {
 enum CoachActionType {
     case openLogMeal
     case openQuickAdd
+    case logMealItem
     case openLogWorkout
     case openLogWeight
     case openLogSleep
     case editTargets
 }
 
+struct CoachMealItemPayload {
+    let itemName: String
+    let quantity: Double
+    let unit: String
+    let calories: Double
+    let protein: Double
+    let carbs: Double
+    let fat: Double
+}
+
 struct CoachAction {
     let label: String
     let type: CoachActionType
+    let searchText: String?
+    let mealItem: CoachMealItemPayload?
+
+    init(
+        label: String,
+        type: CoachActionType,
+        searchText: String? = nil,
+        mealItem: CoachMealItemPayload? = nil
+    ) {
+        self.label = label
+        self.type = type
+        self.searchText = searchText
+        self.mealItem = mealItem
+    }
 }
 
 struct CoachSuggestion: Identifiable {
@@ -171,25 +196,61 @@ final class CoachDismissalStore: ObservableObject {
 struct AICoachSlot: View {
     @ObservedObject var dismissals: CoachDismissalStore
     @AppStorage(CoachSettingKeys.enabled) private var coachEnabled = true
+    @State private var recordedShownSuggestionID: String?
 
     let suggestions: [CoachSuggestion]
-    let onPrimaryAction: (CoachActionType) -> Void
+    let onPrimaryAction: (CoachAction) -> Void
 
     var body: some View {
         if coachEnabled, let suggestion = dismissals.visibleSuggestion(from: suggestions) {
             AICoachCard(
                 suggestion: suggestion,
-                onPrimaryAction: onPrimaryAction,
-                onDismissForToday: { dismissals.dismissForToday(suggestion) },
-                onDismissAction: { dismissals.dismissAction(suggestion) }
+                onPrimaryAction: { action in
+                    recordCoachEvent("acted_on", suggestion: suggestion, action: action)
+                    onPrimaryAction(action)
+                },
+                onDismissForToday: {
+                    recordCoachEvent("dismissed_today", suggestion: suggestion)
+                    dismissals.dismissForToday(suggestion)
+                },
+                onDismissAction: {
+                    recordCoachEvent("dismissed_pattern", suggestion: suggestion)
+                    dismissals.dismissAction(suggestion)
+                }
             )
+            .onAppear { recordShown(suggestion) }
         }
+    }
+
+    private func recordShown(_ suggestion: CoachSuggestion) {
+        guard recordedShownSuggestionID != suggestion.id else { return }
+        recordedShownSuggestionID = suggestion.id
+        recordCoachEvent("shown", suggestion: suggestion)
+    }
+
+    private func recordCoachEvent(_ event: String, suggestion: CoachSuggestion, action: CoachAction? = nil) {
+        var details = [
+            "surface": suggestion.surface.rawValue,
+            "category": suggestion.category,
+            "confidence": String(format: "%.2f", suggestion.confidence),
+            "source": suggestion.modelSource.rawValue,
+            "dismissal_key": suggestion.dismissalKey
+        ]
+        if let action {
+            details["action"] = "\(action.type)"
+        }
+
+        Diagnostics.shared.record(
+            category: "coach",
+            message: "\(CoachBrand.name) \(event)",
+            details: details
+        )
     }
 }
 
 struct AICoachCard: View {
     let suggestion: CoachSuggestion
-    let onPrimaryAction: (CoachActionType) -> Void
+    let onPrimaryAction: (CoachAction) -> Void
     let onDismissForToday: () -> Void
     let onDismissAction: () -> Void
 
@@ -258,7 +319,7 @@ struct AICoachCard: View {
 
             if let action = suggestion.primaryAction {
                 Button {
-                    onPrimaryAction(action.type)
+                    onPrimaryAction(action)
                 } label: {
                     Label(action.label, systemImage: actionIcon(for: action.type))
                         .font(.subheadline.weight(.semibold))
@@ -293,7 +354,7 @@ struct AICoachCard: View {
 
     private func actionIcon(for actionType: CoachActionType) -> String {
         switch actionType {
-        case .openLogMeal, .openQuickAdd:
+        case .openLogMeal, .openQuickAdd, .logMealItem:
             return "fork.knife"
         case .openLogWorkout:
             return "figure.run"
@@ -308,6 +369,71 @@ struct AICoachCard: View {
 }
 
 enum CoachCandidateEngine {
+    private enum CoachDaypart: String, CaseIterable {
+        case breakfast
+        case lunch
+        case dinner
+        case evening
+        case lateNight
+
+        var label: String { rawValue }
+
+        var hours: Range<Int> {
+            switch self {
+            case .breakfast:
+                return 5..<11
+            case .lunch:
+                return 11..<15
+            case .dinner:
+                return 17..<22
+            case .evening:
+                return 20..<24
+            case .lateNight:
+                return 0..<5
+            }
+        }
+
+        var defaultPromptHour: Int? {
+            switch self {
+            case .breakfast:
+                return 11
+            case .lunch:
+                return 14
+            case .dinner, .evening, .lateNight:
+                return nil
+            }
+        }
+
+        var supportsUsualQuickAdd: Bool {
+            switch self {
+            case .breakfast, .lunch, .dinner:
+                return true
+            case .evening, .lateNight:
+                return false
+            }
+        }
+
+        static func currentMealWindow(for date: Date) -> CoachDaypart? {
+            let hour = CoachCandidateEngine.hourOfDay(date)
+            return allCases.first { $0.supportsUsualQuickAdd && $0.hours.contains(hour) }
+        }
+    }
+
+    private struct MealWindowSummary {
+        let daypart: CoachDaypart
+        let dayCount: Int
+        let latestFirstLogHour: Int
+        let averageFirstLogHour: Double
+    }
+
+    private struct HabitualItemCandidate {
+        let normalizedName: String
+        let displayName: String
+        let dayCount: Int
+        let latestLoggedAt: Date
+        let mealItem: CoachMealItemPayload
+    }
+
     static func macros(dashboard: DashboardResponse, selectedDate: Date, now: Date = Date()) -> [CoachSuggestion] {
         var candidates: [CoachSuggestion] = []
         let calendar = easternCalendar
@@ -519,6 +645,15 @@ enum CoachCandidateEngine {
             )
         }
 
+        if let goalPace = weightGoalPaceSuggestion(
+            recentEntries: Array(recentFourteen),
+            recentAverage: recentAverage,
+            target: target,
+            now: now
+        ) {
+            candidates.append(goalPace)
+        }
+
         if recentFourteen.count >= 6 {
             let earlier = Array(recentFourteen.prefix(recentFourteen.count / 2))
             let later = Array(recentFourteen.suffix(recentFourteen.count - earlier.count))
@@ -592,8 +727,14 @@ enum CoachCandidateEngine {
         }
 
         let averageHours = average(recentTotals.map(\.totalHours))
-        let wakeUpAverage = average(entries.prefix(7).map { Double($0.wakeUps) })
-        let wakeUpPhrase = wakeUpAverage >= 2 ? " Wake-ups are also running high, so keep the plan simple." : ""
+        let recentSleepEntries = entries
+            .filter { parseDate($0.loggedAt) >= addingDays(-7, to: now) }
+            .sorted { parseDate($0.loggedAt) > parseDate($1.loggedAt) }
+        let highWakeUpNights = recentSleepEntries.filter { $0.wakeUps >= 2 }
+        let wakeUpAverage = average(recentSleepEntries.map { Double($0.wakeUps) })
+        let wakeUpPhrase = highWakeUpNights.count >= 3 && wakeUpAverage >= 2
+            ? " Wake-ups are also repeatedly elevated, so keep the plan simple."
+            : ""
 
         if targetHours > 0, averageHours <= targetHours - 0.75 {
             candidates.append(
@@ -628,6 +769,88 @@ enum CoachCandidateEngine {
         }
 
         return candidates
+    }
+
+    private static func weightGoalPaceSuggestion(
+        recentEntries: [WeightEntry],
+        recentAverage: Double,
+        target: WeightTarget?,
+        now: Date
+    ) -> CoachSuggestion? {
+        guard recentEntries.count >= 6,
+              let targetWeight = target?.targetWeight,
+              let targetDateString = target?.targetDate else {
+            return nil
+        }
+
+        let targetDate = parseDay(targetDateString)
+        let remainingDays = daysBetween(now, targetDate)
+        guard targetDate > now, remainingDays >= 7, abs(recentAverage - targetWeight) > 1.0 else {
+            return nil
+        }
+
+        let sorted = recentEntries.sorted { parseDate($0.loggedAt) < parseDate($1.loggedAt) }
+        let splitIndex = sorted.count / 2
+        let earlier = Array(sorted.prefix(splitIndex))
+        let later = Array(sorted.suffix(sorted.count - splitIndex))
+        guard let earlierMidpoint = midpointDate(for: earlier),
+              let laterMidpoint = midpointDate(for: later) else {
+            return nil
+        }
+
+        let elapsedDays = max(daysBetween(earlierMidpoint, laterMidpoint), 1)
+        let earlierAverage = average(earlier.map(\.weight))
+        let laterAverage = average(later.map(\.weight))
+        let actualDailyChange = (laterAverage - earlierAverage) / Double(elapsedDays)
+        let requiredDailyChange = (targetWeight - recentAverage) / Double(remainingDays)
+
+        guard abs(requiredDailyChange) >= 0.03 else { return nil }
+
+        let movingTowardGoal = actualDailyChange * requiredDailyChange > 0
+        let paceRatio = abs(actualDailyChange) / max(abs(requiredDailyChange), 0.001)
+        let actualWeeklyChange = abs(actualDailyChange * 7)
+        let requiredWeeklyChange = abs(requiredDailyChange * 7)
+
+        if movingTowardGoal, paceRatio >= 0.60 {
+            let paceWord = paceRatio >= 1.15 ? "ahead of" : "on"
+            return suggestion(
+                id: "weight-goal-pace-\(dayString(now))",
+                surface: .weight,
+                category: "goal_tracking",
+                priority: 82,
+                confidence: 0.89,
+                title: "Weight goal is \(paceWord) pace",
+                message: "Your rolling average is moving toward the goal at a pace that fits the current target date. Keep the plan steady.",
+                evidence: [
+                    "\(recentEntries.count) weigh-ins in 14 days",
+                    "trend \(formatWeight(actualWeeklyChange))/week",
+                    "needed \(formatWeight(requiredWeeklyChange))/week"
+                ],
+                action: nil,
+                dismissalKey: "weight:goal_pace:v1:on:\(targetDateString):\(Int(paceRatio.rounded()))"
+            )
+        }
+
+        if !movingTowardGoal || paceRatio < 0.35 {
+            return suggestion(
+                id: "weight-goal-behind-\(dayString(now))",
+                surface: .weight,
+                category: "goal_tracking",
+                priority: 86,
+                confidence: 0.88,
+                title: "Goal date needs attention",
+                message: "Your rolling average is not moving fast enough for the current goal date. Review macro consistency before changing the target.",
+                evidence: [
+                    "\(recentEntries.count) weigh-ins in 14 days",
+                    "recent average \(formatWeight(recentAverage)) vs target \(formatWeight(targetWeight))",
+                    "needed \(formatWeight(requiredWeeklyChange))/week"
+                ],
+                action: CoachAction(label: "Review target", type: .editTargets),
+                dismissalKey: "weight:goal_pace:v1:behind:\(targetDateString):\(Int(recentAverage.rounded()))"
+            )
+        }
+
+        return nil
     }
 
     private static func macroTargetCongratulations(
@@ -667,49 +890,34 @@ enum CoachCandidateEngine {
     private static func missedMealPrompt(entries: [Entry], now: Date) -> CoachSuggestion? {
         let today = dayString(now)
         let todaysEntries = entries.filter { entryDay($0) == today }
+        let nowHour = hourOfDay(now)
 
-        if easternCalendar.component(.hour, from: now) >= 11 {
-            let historicalBreakfastDays = Set(entries
-                .filter { entryDay($0) != today }
-                .filter { hourOfDay(parseDate($0.consumedAt)) >= 5 && hourOfDay(parseDate($0.consumedAt)) < 11 }
-                .map(entryDay))
-            let hasBreakfastToday = todaysEntries.contains { hourOfDay(parseDate($0.consumedAt)) >= 5 && hourOfDay(parseDate($0.consumedAt)) < 11 }
-            if historicalBreakfastDays.count >= 3, !hasBreakfastToday {
-                return suggestion(
-                    id: "macro-breakfast-missing-\(today)",
-                    surface: .macros,
-                    category: "missing_meal",
-                    priority: 86,
-                    confidence: 0.88,
-                    title: "Still need to enter breakfast?",
-                    message: "It is later than your usual breakfast window and breakfast is not logged yet.",
-                    evidence: ["breakfast logged on \(historicalBreakfastDays.count) recent days", "no breakfast entry today"],
-                    action: CoachAction(label: "Log breakfast", type: .openLogMeal),
-                    dismissalKey: "macro:missing_breakfast:v1:\(today)"
-                )
+        for daypart in [CoachDaypart.breakfast, .lunch] {
+            guard let summary = learnedMealWindow(for: daypart, entries: entries, excludingDay: today, now: now),
+                  let defaultPromptHour = daypart.defaultPromptHour else {
+                continue
             }
-        }
 
-        if easternCalendar.component(.hour, from: now) >= 14 {
-            let historicalLunchDays = Set(entries
-                .filter { entryDay($0) != today }
-                .filter { hourOfDay(parseDate($0.consumedAt)) >= 11 && hourOfDay(parseDate($0.consumedAt)) < 15 }
-                .map(entryDay))
-            let hasLunchToday = todaysEntries.contains { hourOfDay(parseDate($0.consumedAt)) >= 11 && hourOfDay(parseDate($0.consumedAt)) < 15 }
-            if historicalLunchDays.count >= 3, !hasLunchToday {
-                return suggestion(
-                    id: "macro-lunch-missing-\(today)",
-                    surface: .macros,
-                    category: "missing_meal",
-                    priority: 84,
-                    confidence: 0.88,
-                    title: "Still need to enter lunch?",
-                    message: "It is later than your usual lunch window and lunch is not logged yet.",
-                    evidence: ["lunch logged on \(historicalLunchDays.count) recent days", "no lunch entry today"],
-                    action: CoachAction(label: "Log lunch", type: .openLogMeal),
-                    dismissalKey: "macro:missing_lunch:v1:\(today)"
-                )
-            }
+            let promptHour = max(defaultPromptHour, summary.latestFirstLogHour + 1)
+            let hasLoggedToday = todaysEntries.contains { daypart.hours.contains(hourOfDay(parseDate($0.consumedAt))) }
+            guard nowHour >= promptHour, !hasLoggedToday else { continue }
+
+            return suggestion(
+                id: "macro-\(daypart.rawValue)-missing-\(today)",
+                surface: .macros,
+                category: "missing_\(daypart.rawValue)",
+                priority: daypart == .breakfast ? 86 : 84,
+                confidence: 0.89,
+                title: "Still need to enter \(daypart.label)?",
+                message: "It is later than your learned \(daypart.label) logging window and \(daypart.label) is not logged yet.",
+                evidence: [
+                    "\(daypart.label) usually logged by \(formatHour(summary.latestFirstLogHour))",
+                    "\(summary.dayCount) recent \(daypart.label) days",
+                    "no \(daypart.label) entry today"
+                ],
+                action: CoachAction(label: "Log \(daypart.label)", type: .openLogMeal),
+                dismissalKey: "macro:missing_\(daypart.rawValue):v2:\(summary.latestFirstLogHour):\(summary.dayCount)"
+            )
         }
 
         return nil
@@ -717,50 +925,68 @@ enum CoachCandidateEngine {
 
     private static func habitualMealPrompt(entries: [Entry], now: Date) -> CoachSuggestion? {
         let today = dayString(now)
-        let currentHour = hourOfDay(now)
-        let daypart: Range<Int>
-        let daypartLabel: String
+        guard let daypart = CoachDaypart.currentMealWindow(for: now) else { return nil }
 
-        switch currentHour {
-        case 6..<11:
-            daypart = 5..<11
-            daypartLabel = "breakfast"
-        case 11..<15:
-            daypart = 11..<15
-            daypartLabel = "lunch"
-        case 17..<22:
-            daypart = 17..<22
-            daypartLabel = "dinner"
-        default:
-            return nil
-        }
-
-        let todayNames = Set(entries.filter { entryDay($0) == today }.map { normalizedName($0.itemName) })
+        let todayNames = Set(entries
+            .filter { entryDay($0) == today }
+            .filter { daypart.hours.contains(hourOfDay(parseDate($0.consumedAt))) }
+            .map { normalizedName($0.itemName) })
         let recent = entries
             .filter { entryDay($0) != today }
             .filter { parseDate($0.consumedAt) >= addingDays(-14, to: now) }
-            .filter { daypart.contains(hourOfDay(parseDate($0.consumedAt))) }
+            .filter { daypart.hours.contains(hourOfDay(parseDate($0.consumedAt))) }
 
         let grouped = Dictionary(grouping: recent, by: { normalizedName($0.itemName) })
-        guard let match = grouped
-            .filter({ !todayNames.contains($0.key) && $0.value.count >= 3 })
-            .sorted(by: { $0.value.count > $1.value.count })
+        let candidates = grouped.compactMap { normalizedName, values -> HabitualItemCandidate? in
+            let days = Set(values.map(entryDay))
+            guard !todayNames.contains(normalizedName), days.count >= 3 else { return nil }
+            let sortedValues = values.sorted { parseDate($0.consumedAt) > parseDate($1.consumedAt) }
+            guard let latest = sortedValues.first else { return nil }
+            return HabitualItemCandidate(
+                normalizedName: normalizedName,
+                displayName: latest.itemName,
+                dayCount: days.count,
+                latestLoggedAt: parseDate(latest.consumedAt),
+                mealItem: CoachMealItemPayload(
+                    itemName: latest.itemName,
+                    quantity: latest.quantity,
+                    unit: latest.unit ?? "serving",
+                    calories: latest.calories,
+                    protein: latest.protein,
+                    carbs: latest.carbs,
+                    fat: latest.fat
+                )
+            )
+        }
+
+        guard let match = candidates
+            .sorted(by: {
+                if $0.dayCount == $1.dayCount {
+                    return $0.latestLoggedAt > $1.latestLoggedAt
+                }
+                return $0.dayCount > $1.dayCount
+            })
             .first,
-              let displayName = match.value.first?.itemName else {
+              match.dayCount >= 3 else {
             return nil
         }
 
         return suggestion(
-            id: "macro-usual-\(match.key)-\(today)",
+            id: "macro-usual-\(match.normalizedName)-\(today)",
             surface: .macros,
             category: "quick_add",
             priority: 76,
-            confidence: 0.86,
-            title: "Usual \(daypartLabel)?",
-            message: "You often log \(displayName) around this time. Open quick add if that is today's move.",
-            evidence: ["\(match.value.count) similar \(daypartLabel) logs in 14 days"],
-            action: CoachAction(label: "Open quick add", type: .openQuickAdd),
-            dismissalKey: "macro:usual_item:v1:\(match.key)"
+            confidence: match.dayCount >= 4 ? 0.89 : 0.86,
+            title: "Usual \(daypart.label)?",
+            message: "You often log \(match.displayName) around this time. Add it now if that is today's move.",
+            evidence: ["\(match.dayCount) \(daypart.label) days in 14 days", "not logged in this window today"],
+            action: CoachAction(
+                label: "Add usual item",
+                type: .logMealItem,
+                searchText: match.displayName,
+                mealItem: match.mealItem
+            ),
+            dismissalKey: "macro:usual_item:v2:\(match.normalizedName)"
         )
     }
 
@@ -898,6 +1124,36 @@ enum CoachCandidateEngine {
         return dayString(parseDate(entry.consumedAt))
     }
 
+    private static func learnedMealWindow(
+        for daypart: CoachDaypart,
+        entries: [Entry],
+        excludingDay: String,
+        now: Date
+    ) -> MealWindowSummary? {
+        let cutoff = addingDays(-21, to: now)
+        let matchingEntries = entries
+            .filter { entryDay($0) != excludingDay }
+            .filter { parseDate($0.consumedAt) >= cutoff }
+            .filter { daypart.hours.contains(hourOfDay(parseDate($0.consumedAt))) }
+
+        let entriesByDay = Dictionary(grouping: matchingEntries, by: entryDay)
+        guard entriesByDay.count >= 3 else { return nil }
+
+        let firstLogHours = entriesByDay.values.compactMap { dayEntries in
+            dayEntries
+                .map { hourOfDay(parseDate($0.consumedAt)) }
+                .min()
+        }
+        guard let latestFirstLogHour = firstLogHours.max() else { return nil }
+
+        return MealWindowSummary(
+            daypart: daypart,
+            dayCount: entriesByDay.count,
+            latestFirstLogHour: latestFirstLogHour,
+            averageFirstLogHour: average(firstLogHours.map(Double.init))
+        )
+    }
+
     private static func hasAlcoholToken(_ name: String) -> Bool {
         let tokens = name
             .lowercased()
@@ -940,12 +1196,30 @@ enum CoachCandidateEngine {
         max(easternCalendar.dateComponents([.day], from: start, to: end).day ?? 0, 0)
     }
 
+    private static func midpointDate(for entries: [WeightEntry]) -> Date? {
+        guard !entries.isEmpty else { return nil }
+        let sorted = entries.sorted { parseDate($0.loggedAt) < parseDate($1.loggedAt) }
+        return parseDate(sorted[sorted.count / 2].loggedAt)
+    }
+
     private static func addingDays(_ days: Int, to date: Date) -> Date {
         easternCalendar.date(byAdding: .day, value: days, to: date) ?? date
     }
 
     private static func hourOfDay(_ date: Date) -> Int {
         easternCalendar.component(.hour, from: date)
+    }
+
+    private static func formatHour(_ hour: Int) -> String {
+        let clampedHour = min(max(hour, 0), 23)
+        let components = DateComponents(calendar: easternCalendar, timeZone: easternCalendar.timeZone, hour: clampedHour)
+        guard let date = components.date else { return "\(clampedHour):00" }
+
+        let formatter = DateFormatter()
+        formatter.calendar = easternCalendar
+        formatter.timeZone = easternCalendar.timeZone
+        formatter.dateFormat = "h a"
+        return formatter.string(from: date)
     }
 
     private static func dayString(_ date: Date) -> String {
