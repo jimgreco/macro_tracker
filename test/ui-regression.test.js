@@ -338,6 +338,13 @@ test('iOS quick items are searchable and preload saved items in the background',
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
 
   assert.equal(swift.includes('@State private var quickSearchText'), true);
+  assert.equal(swift.includes('@State private var quickTemplates'), true);
+  assert.equal(swift.includes('private func rebuildQuickTemplates()'), true);
+  assert.equal(swift.includes('private var quickTemplates: [QuickAddTemplate] {'), false);
+  assert.equal(swift.includes('let searchText: String'), true);
+  assert.equal(swift.includes('private let quickItemsVisibleLimit = 40'), true);
+  assert.equal(swift.includes('private func quickTemplateDisplay()'), true);
+  assert.equal(swift.includes('private var filteredQuickTemplates'), false);
   assert.equal(swift.includes('TextField("Search quick entries"'), true);
   assert.equal(swift.includes('Task { await loadSavedItems(showErrors: false) }'), true);
   assert.equal(swift.includes('if !hasLoadedSavedItems'), true);

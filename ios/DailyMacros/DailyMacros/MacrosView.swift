@@ -40,14 +40,52 @@ private struct QuickAddTemplate: Identifiable {
     let carbs: Double
     let fat: Double
     let lastUsedAt: String?
+    let searchText: String
 
     var isSaved: Bool { savedItemId != nil }
+
+    init(
+        id: String,
+        savedItemId: Int?,
+        name: String,
+        quantity: Double,
+        unit: String,
+        calories: Double,
+        protein: Double,
+        carbs: Double,
+        fat: Double,
+        lastUsedAt: String?
+    ) {
+        self.id = id
+        self.savedItemId = savedItemId
+        self.name = name
+        self.quantity = quantity
+        self.unit = unit
+        self.calories = calories
+        self.protein = protein
+        self.carbs = carbs
+        self.fat = fat
+        self.lastUsedAt = lastUsedAt
+        self.searchText = [
+            name,
+            unit,
+            "\(Int(calories))",
+            "\(Int(protein))",
+            "\(Int(carbs))",
+            "\(Int(fat))",
+            "kcal",
+            "protein",
+            "carbs",
+            "fat"
+        ].joined(separator: " ").lowercased()
+    }
 }
 
 struct MacrosView: View {
     @EnvironmentObject var api: APIClient
     @State private var dashboard: DashboardResponse?
     @State private var savedItems: [SavedItem] = []
+    @State private var quickTemplates: [QuickAddTemplate] = []
     @State private var mealText = ""
     @State private var consumedAt = Date()
     @State private var selectedPhotoItem: PhotosPickerItem?
@@ -148,6 +186,7 @@ struct MacrosView: View {
     private let trendPeriods = ["week", "month", "year"]
     private let macroOptions = ["calories", "protein", "carbs", "fat"]
     private let addSheetTopAnchor = "add-sheet-top"
+    private let quickItemsVisibleLimit = 40
 
     private var hasMealImage: Bool {
         !mealImageDataUrl.isEmpty
@@ -157,7 +196,7 @@ struct MacrosView: View {
         hasMealImage ? "Optional: add a description, or parse from photo only." : "Describe your meal..."
     }
 
-    private var quickTemplates: [QuickAddTemplate] {
+    private func rebuildQuickTemplates() {
         var templates = savedItems.map { item in
             QuickAddTemplate(
                 id: "saved-\(item.id)",
@@ -173,7 +212,10 @@ struct MacrosView: View {
             )
         }
 
-        guard let entries = dashboard?.entries else { return templates }
+        guard let entries = dashboard?.entries else {
+            quickTemplates = templates
+            return
+        }
 
         let savedSignatures = Set(savedItems.map { savedSignature(
             name: $0.name,
@@ -224,30 +266,31 @@ struct MacrosView: View {
         templates.append(contentsOf: historyBySignature.values.sorted {
             parseISO($0.lastUsedAt ?? "") > parseISO($1.lastUsedAt ?? "")
         })
-        return templates
+        quickTemplates = templates
     }
 
-    private var filteredQuickTemplates: [QuickAddTemplate] {
+    private func quickTemplateDisplay() -> (items: [QuickAddTemplate], hasMore: Bool, isSearching: Bool) {
         let query = quickSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return quickTemplates }
+        guard !query.isEmpty else {
+            return (
+                Array(quickTemplates.prefix(quickItemsVisibleLimit)),
+                quickTemplates.count > quickItemsVisibleLimit,
+                false
+            )
+        }
 
         let tokens = query.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        return quickTemplates.filter { template in
-            let haystack = [
-                template.name,
-                template.unit,
-                "\(Int(template.calories))",
-                "\(Int(template.protein))",
-                "\(Int(template.carbs))",
-                "\(Int(template.fat))",
-                "kcal",
-                "protein",
-                "carbs",
-                "fat"
-            ].joined(separator: " ").lowercased()
+        var matches: [QuickAddTemplate] = []
+        matches.reserveCapacity(min(quickItemsVisibleLimit, quickTemplates.count))
 
-            return tokens.allSatisfy { haystack.contains($0) }
+        for template in quickTemplates where tokens.allSatisfy({ template.searchText.contains($0) }) {
+            guard matches.count < quickItemsVisibleLimit else {
+                return (matches, true, true)
+            }
+            matches.append(template)
         }
+
+        return (matches, false, true)
     }
 
     private var dateString: String {
@@ -1534,7 +1577,8 @@ struct MacrosView: View {
 
     @ViewBuilder
     private var quickItemsSection: some View {
-        let visibleTemplates = filteredQuickTemplates
+        let display = quickTemplateDisplay()
+        let visibleTemplates = display.items
 
         VStack(spacing: 0) {
             Divider()
@@ -1600,6 +1644,19 @@ struct MacrosView: View {
                                 .padding(.leading, 16)
                         }
                     }
+                }
+
+                if display.hasMore {
+                    Text(
+                        display.isSearching
+                            ? "Showing the first \(quickItemsVisibleLimit) matches. Keep typing to narrow results."
+                            : "Showing recent quick items. Search to narrow the full list."
+                    )
+                        .font(.caption2)
+                        .foregroundStyle(Color.mutedText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
                 }
             }
         }
@@ -1996,6 +2053,7 @@ struct MacrosView: View {
     private func loadDashboard() async {
         do {
             dashboard = try await api.getDashboard(date: dateString)
+            rebuildQuickTemplates()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -2019,6 +2077,7 @@ struct MacrosView: View {
         do {
             savedItems = try await api.getSavedItems()
             hasLoadedSavedItems = true
+            rebuildQuickTemplates()
         } catch {
             if showErrors {
                 errorMessage = error.localizedDescription
