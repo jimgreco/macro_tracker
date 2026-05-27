@@ -255,19 +255,19 @@ struct AICoachCard: View {
     let onDismissAction: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 23, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 48, height: 48)
                     .background(
                         LinearGradient(
                             colors: [.cyan, .purple, .pink],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
-                        in: RoundedRectangle(cornerRadius: 10)
+                        in: RoundedRectangle(cornerRadius: 13)
                     )
                     .accessibilityHidden(true)
 
@@ -287,11 +287,6 @@ struct AICoachCard: View {
                             .padding(.vertical, 2)
                             .background(.white.opacity(0.08), in: Capsule())
                     }
-
-                    Text(suggestion.message)
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Spacer(minLength: 8)
@@ -309,6 +304,11 @@ struct AICoachCard: View {
                 }
                 .accessibilityLabel("Dismiss \(CoachBrand.name) suggestion")
             }
+
+            Text(suggestion.message)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if !suggestion.evidence.isEmpty {
                 Text("Based on \(suggestion.evidence.joined(separator: " · ")).")

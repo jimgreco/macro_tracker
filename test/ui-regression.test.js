@@ -667,7 +667,9 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(coach.includes('Button("Dismiss for today"'));
   assert.ok(coach.includes('Button("Hide this pattern"'));
   assert.ok(coach.includes('Button("Not useful"'));
+  assert.ok(coach.includes('.frame(width: 48, height: 48)'));
   assert.ok(coach.indexOf('Text(suggestion.title)') < coach.indexOf('Text(CoachBrand.name)'));
+  assert.ok(coach.indexOf('Text(suggestion.message)') > coach.indexOf('.accessibilityLabel("Dismiss \\(CoachBrand.name) suggestion")'));
   assert.ok(settings.includes('@AppStorage(CoachSettingKeys.enabled)'));
   assert.ok(settings.includes('Show \\(CoachBrand.name) cards'));
   assert.ok(settings.includes('Reset Dismissed Suggestions'));
