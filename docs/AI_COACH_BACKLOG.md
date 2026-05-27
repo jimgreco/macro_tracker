@@ -14,6 +14,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Added an iOS Compass "Why am I seeing this?" detail sheet with reason, evidence, confidence, source, category, and expiry.
 - 2026-05-27: Added iOS end-of-day macro steering when protein is behind pace and calories remain available.
 - 2026-05-27: Added iOS weight plateau coaching that requires 8+ weigh-ins across 21+ days and a target that still needs movement.
+- 2026-05-27: Expanded iOS workout trend coaching to include workout-calorie shifts against the recent baseline.
 - The current implementation uses local deterministic rules/templates as the confidence gate and fallback path. Local AFM narration/ranking is still pending and should be layered on top of these candidates rather than replacing the rule calculations.
 
 ## Goal
@@ -189,6 +190,7 @@ Backlog items:
 - Recent workout trend:
   - Compare the last 3 to 5 workouts against the user's prior baseline for duration, calories, and intensity.
   - Show changes only when the difference is meaningful, for example at least 15 percent from baseline.
+  - Started in iOS: Compass compares recent duration, workout calories, and intensity against the prior 5-workout baseline.
 - Falling-behind reminder:
   - Compare current week-to-date workout days against weekly target and usual workout cadence.
   - Show only when there is still time to act and the user is materially behind.

@@ -1345,6 +1345,27 @@ enum CoachCandidateEngine {
             )
         }
 
+        let recentCalories = average(recent.map(\.caloriesBurned))
+        let baselineCalories = average(baseline.map(\.caloriesBurned))
+        if baselineCalories > 0 {
+            let calorieDelta = (recentCalories - baselineCalories) / baselineCalories
+            if abs(calorieDelta) >= 0.15 {
+                let direction = calorieDelta > 0 ? "higher" : "lower"
+                return suggestion(
+                    id: "workout-calorie-trend-\(dayString(now))",
+                    surface: .workouts,
+                    category: "trend",
+                    priority: 75,
+                    confidence: 0.86,
+                    title: "Workout calorie burn shifted",
+                    message: "Your last 3 workouts are trending \(direction) calorie burn than your recent baseline. Keep logging sessions consistently so the trend stays readable.",
+                    evidence: ["last 3 avg \(Int(recentCalories.rounded())) cal", "baseline \(Int(baselineCalories.rounded())) cal"],
+                    action: CoachAction(label: "Log workout", type: .openLogWorkout),
+                    dismissalKey: "workouts:calorie_trend:v1:\(Int((calorieDelta * 100).rounded()))"
+                )
+            }
+        }
+
         let recentIntensity = average(recent.map { Double(intensityScore($0.intensity)) })
         let baselineIntensity = average(baseline.map { Double(intensityScore($0.intensity)) })
         if abs(recentIntensity - baselineIntensity) >= 0.8 {

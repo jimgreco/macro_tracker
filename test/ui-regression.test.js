@@ -701,6 +701,9 @@ test('iOS Compass coach uses learned meal windows and action context', () => {
   assert.ok(coach.includes('mealItem: match.mealItem'));
   assert.ok(coach.includes('repeatWorkoutPrompt(entries: entries'));
   assert.ok(coach.includes('workout: match.workout'));
+  assert.ok(coach.includes('workout-calorie-trend-'));
+  assert.ok(coach.includes('baselineCalories > 0'));
+  assert.ok(coach.includes('abs(calorieDelta) >= 0.15'));
   assert.ok(coach.includes('category: "goal_tracking"'));
   assert.ok(coach.includes('weightMaintenanceSuggestion('));
   assert.ok(coach.includes('category: "maintenance"'));
