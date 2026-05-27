@@ -710,6 +710,45 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(settings.includes('coachDismissals.resetDismissals()'));
 });
 
+test('web Compass coach renders local suggestions with synced dismissals', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+  const styles = read('public/styles.css');
+  const coachSection = script.slice(
+    script.indexOf('const WEB_COACH_LOCAL_DISMISSALS_KEY'),
+    script.indexOf('function getLogPaging')
+  );
+
+  assert.ok(html.includes('id="macros-coach"'));
+  assert.ok(html.includes('id="workout-coach"'));
+  assert.ok(html.includes('id="weight-coach"'));
+  assert.ok(html.includes('id="sleep-coach"'));
+  assert.ok(styles.includes('.coach-card'));
+  assert.ok(styles.includes('linear-gradient(125deg'));
+  assert.ok(styles.includes('.coach-icon'));
+  assert.ok(script.includes("api('/api/coach/dismissals'"));
+  assert.ok(script.includes("api('/api/coach/dismissals',"));
+  assert.ok(script.includes('WEB_COACH_LOCAL_DISMISSALS_KEY'));
+  assert.ok(script.includes('coachEndOfTodayIso'));
+  assert.ok(script.includes('buildMacroCoachSuggestions'));
+  assert.ok(script.includes('buildWorkoutCoachSuggestions'));
+  assert.ok(script.includes('buildWeightCoachSuggestions'));
+  assert.ok(script.includes('buildSleepCoachSuggestions'));
+  assert.ok(script.includes('confidence >= 0.85'));
+  assert.ok(script.includes('Compass'));
+  assert.ok(script.includes('Local rules'));
+  assert.ok(script.includes('High confidence'));
+  assert.ok(script.includes('Dismiss today'));
+  assert.ok(script.includes('Hide pattern'));
+  assert.ok(script.includes('Not useful'));
+  assert.ok(script.includes("renderCoachForPage('macros')"));
+  assert.ok(script.includes("renderCoachForPage('workout')"));
+  assert.ok(script.includes("renderCoachForPage('weight')"));
+  assert.ok(script.includes("renderCoachForPage('sleep')"));
+  assert.equal(coachSection.includes('OpenAI'), false);
+  assert.equal(coachSection.includes('/api/parse'), false);
+});
+
 test('iOS Compass coach uses learned meal windows and action context', () => {
   const coach = read('ios/DailyMacros/DailyMacros/AICoach.swift');
   const macros = read('ios/DailyMacros/DailyMacros/MacrosView.swift');

@@ -19,6 +19,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Replaced the simple iOS Compass on/off toggle with modes for On, Rules Only, Local AI Only, and Off, including runtime local-AI availability copy in Settings.
 - 2026-05-27: Added iOS cross-page Compass guardrails for Workouts plus Sleep recovery and Weight plus macro consistency.
 - 2026-05-27: Added backend synced Compass dismissals and wired iOS to pull/push local dismissals while preserving offline local behavior.
+- 2026-05-27: Added web Compass parity with deterministic high-confidence coach cards for Macros, Workouts, Weight, and Sleep, sharing synced today/pattern dismissals with iOS.
 
 ## Goal
 
@@ -343,7 +344,9 @@ Example copy:
 
 - Add synced dismissals through the backend.
 - Add web coach card parity if the web app remains an active surface.
+  - Started on web: deterministic Compass cards render above Macros, Workouts, Weight, and Sleep content; they use local page data, high-confidence gates, and `/api/coach/dismissals` for today/pattern dismissal sync.
 - Add quality feedback controls.
+  - Started on web: "Not useful" hides the same synced pattern so repeated bad cards stop crossing surfaces.
 - Add weekly recap after daily cards prove reliable.
 - Add privacy copy and App Store notes for local AI coaching.
 

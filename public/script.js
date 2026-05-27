@@ -36,6 +36,12 @@ const state = {
   weightChartEntries: [],
   workoutEntries: [],
   workoutOccurrenceRows: [],
+  coachDismissalsLoaded: false,
+  coachDismissals: {
+    today: new Map(),
+    pattern: new Set()
+  },
+  visibleCoachSuggestions: {},
   expandedMealGroups: new Set(),
   selectedEntryIds: new Set(),
   selectedMealGroups: new Set(),
@@ -150,6 +156,12 @@ const appPages = {
   sleep: document.getElementById('sleep-page'),
   'sexual-activity': document.getElementById('sexual-activity-page'),
   analysis: document.getElementById('analysis-page')
+};
+const coachSlotEls = {
+  macros: document.getElementById('macros-coach'),
+  workout: document.getElementById('workout-coach'),
+  weight: document.getElementById('weight-coach'),
+  sleep: document.getElementById('sleep-coach')
 };
 const weightLoggedAtEl = document.getElementById('weight-logged-at');
 const weightValueEl = document.getElementById('weight-value');
@@ -1206,6 +1218,561 @@ async function api(path, options = {}) {
     throw err;
   }
   return body;
+}
+
+const WEB_COACH_LOCAL_DISMISSALS_KEY = 'dailyMacrosCompassDismissals:v1';
+
+function coachEndOfTodayIso() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+}
+
+function readLocalCoachDismissals() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(WEB_COACH_LOCAL_DISMISSALS_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function writeLocalCoachDismissals(records) {
+  try {
+    window.localStorage.setItem(WEB_COACH_LOCAL_DISMISSALS_KEY, JSON.stringify(records || []));
+  } catch (_error) {
+    // Local storage is best-effort; synced backend dismissals remain authoritative.
+  }
+}
+
+function currentCoachDismissalRecords() {
+  const records = [];
+  for (const key of state.coachDismissals.pattern) {
+    records.push({ type: 'pattern', key, dismissedUntil: null });
+  }
+  for (const [key, untilMs] of state.coachDismissals.today) {
+    if (untilMs > Date.now()) {
+      records.push({
+        type: 'today',
+        key,
+        dismissedUntil: untilMs === Number.MAX_SAFE_INTEGER ? null : new Date(untilMs).toISOString()
+      });
+    }
+  }
+  return records;
+}
+
+function mergeCoachDismissalRecords(records) {
+  const now = Date.now();
+  for (const record of records || []) {
+    if (!record || (record.type !== 'today' && record.type !== 'pattern') || !record.key) {
+      continue;
+    }
+    const dismissedUntil = record.dismissedUntil || null;
+    const untilMs = dismissedUntil ? new Date(dismissedUntil).getTime() : null;
+    if (untilMs && untilMs <= now) {
+      continue;
+    }
+    if (record.type === 'pattern') {
+      state.coachDismissals.pattern.add(record.key);
+    } else {
+      const existing = state.coachDismissals.today.get(record.key);
+      if (!existing || !untilMs || untilMs > existing) {
+        state.coachDismissals.today.set(record.key, untilMs || Number.MAX_SAFE_INTEGER);
+      }
+    }
+  }
+  writeLocalCoachDismissals(currentCoachDismissalRecords());
+}
+
+async function refreshCoachDismissals() {
+  if (state.coachDismissalsLoaded) {
+    return;
+  }
+  state.coachDismissals = {
+    today: new Map(),
+    pattern: new Set()
+  };
+  const localRecords = readLocalCoachDismissals();
+  mergeCoachDismissalRecords(localRecords);
+  try {
+    const response = await api('/api/coach/dismissals');
+    state.coachDismissals = {
+      today: new Map(),
+      pattern: new Set()
+    };
+    mergeCoachDismissalRecords([...(response.dismissals || []), ...localRecords]);
+  } catch (error) {
+    console.warn('Failed to load coach dismissals:', error);
+  } finally {
+    state.coachDismissalsLoaded = true;
+  }
+}
+
+function isCoachSuggestionDismissed(suggestion) {
+  if (!suggestion) {
+    return true;
+  }
+  if (state.coachDismissals.pattern.has(suggestion.patternKey)) {
+    return true;
+  }
+  const todayUntil = state.coachDismissals.today.get(suggestion.todayKey);
+  return Boolean(todayUntil && todayUntil > Date.now());
+}
+
+function targetNumber(targets, key) {
+  const value = Number(targets?.[key] || 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function macroRowsByDay() {
+  const rows = new Map();
+  for (const row of state.macroDailyTotals || []) {
+    if (row?.day) rows.set(row.day, row);
+  }
+  for (const row of state.dashboardData?.previousDays || []) {
+    if (row?.day && !rows.has(row.day)) rows.set(row.day, row);
+  }
+  const current = state.dashboardData?.currentDayTotals;
+  if (current?.day && !rows.has(current.day)) {
+    rows.set(current.day, current);
+  }
+  return Array.from(rows.values()).sort((a, b) => String(b.day).localeCompare(String(a.day)));
+}
+
+function recentCompleteMacroDays(count = 7) {
+  const today = getLocalIsoDay();
+  return macroRowsByDay()
+    .filter((row) => row.day < today && Number(row.calories || 0) > 0)
+    .slice(0, count);
+}
+
+function entriesForIsoDay(entries, isoDay) {
+  return (entries || []).filter((entry) => getLocalIsoDay(entry.consumedAt || entry.loggedAt) === isoDay);
+}
+
+function entryHour(entry, field = 'consumedAt') {
+  const date = new Date(entry?.[field]);
+  return Number.isNaN(date.getTime()) ? null : date.getHours();
+}
+
+function daypartForHour(hour) {
+  if (hour >= 5 && hour < 11) return 'breakfast';
+  if (hour >= 11 && hour < 15) return 'lunch';
+  if (hour >= 16 && hour < 21) return 'dinner';
+  return 'other';
+}
+
+function learnedDaypart(entries, daypart) {
+  const seenDays = new Set();
+  let latestHour = -1;
+  for (const entry of entries || []) {
+    const hour = entryHour(entry);
+    if (hour == null || daypartForHour(hour) !== daypart) {
+      continue;
+    }
+    const day = getLocalIsoDay(entry.consumedAt);
+    if (day === getLocalIsoDay()) {
+      continue;
+    }
+    seenDays.add(day);
+    latestHour = Math.max(latestHour, hour);
+  }
+  return { count: seenDays.size, latestHour };
+}
+
+function buildCoachSuggestion(page, category, priority, title, message, evidence, action = null, confidence = 0.9) {
+  return {
+    page,
+    category,
+    priority,
+    title,
+    message,
+    evidence: Array.isArray(evidence) ? evidence : [evidence],
+    action,
+    confidence,
+    todayKey: `web:${page}:${category}:${getLocalIsoDay()}`,
+    patternKey: `web:${page}:${category}`
+  };
+}
+
+function buildMacroCoachSuggestions() {
+  const suggestions = [];
+  const dashboard = state.dashboardData || {};
+  const targets = dashboard.targets || {};
+  const entries = dashboard.entries || [];
+  const completeDays = recentCompleteMacroDays(7);
+  const proteinTarget = targetNumber(targets, 'protein');
+  const calorieTarget = targetNumber(targets, 'calories');
+  const today = getLocalIsoDay();
+  const nowHour = new Date().getHours();
+  const todayEntries = entriesForIsoDay(entries, today);
+
+  if (proteinTarget > 0 && completeDays.length >= 5) {
+    const misses = completeDays.filter((day) => {
+      const shortfall = proteinTarget - Number(day.protein || 0);
+      return shortfall >= Math.max(25, proteinTarget * 0.18);
+    });
+    if (misses.length >= 4) {
+      const avgShortfall = misses.reduce((sum, day) => sum + Math.max(0, proteinTarget - Number(day.protein || 0)), 0) / misses.length;
+      suggestions.push(buildCoachSuggestion(
+        'macros',
+        'protein-shortfall',
+        96,
+        'Protein is lagging',
+        `Protein has landed meaningfully short on ${misses.length} of the last ${completeDays.length} complete days. Make the next meal protein-first.`,
+        `Based on ${misses.length} recent complete days below target; average shortfall ${Math.round(avgShortfall)}g.`,
+        { type: 'focus-meal', label: 'Log protein' },
+        0.92
+      ));
+    }
+  }
+
+  if (calorieTarget > 0 && completeDays.length >= 5) {
+    const highDays = completeDays.filter((day) => Number(day.calories || 0) >= calorieTarget * 1.12);
+    if (highDays.length >= 4) {
+      suggestions.push(buildCoachSuggestion(
+        'macros',
+        'calorie-trend-high',
+        90,
+        'Calories are running high',
+        `Calories have been more than 12% over target on ${highDays.length} of the last ${completeDays.length} complete days. Keep today boring and target-shaped.`,
+        `Target ${Math.round(calorieTarget)} cal; ${highDays.length} recent complete days were above the guardrail.`,
+        { type: 'focus-meal', label: 'Plan next meal' },
+        0.9
+      ));
+    }
+  }
+
+  const alcoholTerms = /\b(beer|wine|cocktail|liquor|vodka|whiskey|bourbon|tequila|margarita|alcohol)\b/i;
+  const recentAlcoholDays = new Set(entries
+    .filter((entry) => entry.consumedAt && getLocalIsoDay(entry.consumedAt) >= shiftIsoDay(today, -7))
+    .filter((entry) => alcoholTerms.test(entry.itemName || ''))
+    .map((entry) => getLocalIsoDay(entry.consumedAt)));
+  if (recentAlcoholDays.size >= 2) {
+    suggestions.push(buildCoachSuggestion(
+      'macros',
+      'alcohol-repeated',
+      88,
+      'Alcohol is showing up repeatedly',
+      'Alcohol has appeared on multiple recent days. If the goal is tighter macros, make the next few drinks intentional rather than automatic.',
+      `Detected alcohol-like entries on ${recentAlcoholDays.size} days in the last week.`,
+      null,
+      0.86
+    ));
+  }
+
+  for (const daypart of ['breakfast', 'lunch']) {
+    const learned = learnedDaypart(entries, daypart);
+    const daypartAlreadyLogged = todayEntries.some((entry) => daypartForHour(entryHour(entry) ?? -1) === daypart);
+    const isLate = daypart === 'breakfast'
+      ? nowHour >= Math.max(10, learned.latestHour + 1)
+      : nowHour >= Math.max(14, learned.latestHour + 1);
+    if (learned.count >= 3 && isLate && !daypartAlreadyLogged) {
+      suggestions.push(buildCoachSuggestion(
+        'macros',
+        `missed-${daypart}`,
+        daypart === 'breakfast' ? 94 : 92,
+        `${daypart[0].toUpperCase()}${daypart.slice(1)} is still open`,
+        `You usually log ${daypart} by this point. If you ate, log it now while the details are still fresh.`,
+        `Based on ${learned.count} previous ${daypart} logs around this time window.`,
+        { type: 'focus-meal', label: `Log ${daypart}` },
+        0.88
+      ));
+    }
+  }
+
+  const currentTotals = dashboard.currentDayTotals || {};
+  if (todayEntries.length >= 2 && calorieTarget > 0 && proteinTarget > 0) {
+    const closeCalories = Math.abs(Number(currentTotals.calories || 0) - calorieTarget) <= calorieTarget * 0.12;
+    const closeProtein = Math.abs(Number(currentTotals.protein || 0) - proteinTarget) <= Math.max(12, proteinTarget * 0.12);
+    if (closeCalories && closeProtein) {
+      suggestions.push(buildCoachSuggestion(
+        'macros',
+        'macro-target-hit',
+        70,
+        'Today is close to target',
+        'Calories and protein are both inside a practical target band. Hold the line from here.',
+        `Current total: ${Math.round(currentTotals.calories || 0)} cal and ${Math.round(currentTotals.protein || 0)}g protein.`,
+        null,
+        0.88
+      ));
+    }
+  }
+
+  return suggestions;
+}
+
+function buildWorkoutCoachSuggestions() {
+  const suggestions = [];
+  const entries = (state.workoutEntries || []).slice();
+  const targets = state.dashboardData?.targets || {};
+  const workoutTarget = targetNumber(targets, 'workouts');
+  const today = getLocalIsoDay();
+  const weekStart = (() => {
+    const d = new Date();
+    const day = d.getDay() || 7;
+    d.setDate(d.getDate() - day + 1);
+    return getLocalIsoDay(d);
+  })();
+  const recentThirty = entries.filter((entry) => getLocalIsoDay(entry.loggedAt) >= shiftIsoDay(today, -30));
+  const daysThisWeek = new Set(recentThirty.filter((entry) => getLocalIsoDay(entry.loggedAt) >= weekStart).map((entry) => getLocalIsoDay(entry.loggedAt)));
+  const lastWorkoutDay = recentThirty.length ? recentThirty.map((entry) => getLocalIsoDay(entry.loggedAt)).sort().pop() : null;
+  const daysSinceLast = lastWorkoutDay ? Math.round((fromIsoDayLocal(today) - fromIsoDayLocal(lastWorkoutDay)) / 86400000) : 99;
+
+  if (workoutTarget > 0 && recentThirty.length >= 4 && daysThisWeek.size <= Math.max(0, workoutTarget - 2) && daysSinceLast >= 2) {
+    suggestions.push(buildCoachSuggestion(
+      'workout',
+      'workout-target-behind',
+      92,
+      'Workouts are behind pace',
+      `You are at ${daysThisWeek.size} workout day${daysThisWeek.size === 1 ? '' : 's'} this week against a ${workoutTarget}/week target. Put one on the board today if recovery feels normal.`,
+      `Last workout was ${daysSinceLast} day${daysSinceLast === 1 ? '' : 's'} ago; target is ${workoutTarget}/week.`,
+      { type: 'focus-workout', label: 'Log workout' },
+      0.88
+    ));
+  }
+
+  const sorted = recentThirty.slice().sort((a, b) => new Date(b.loggedAt) - new Date(a.loggedAt));
+  const recentFive = sorted.slice(0, 5);
+  const priorFive = sorted.slice(5, 10);
+  if (recentFive.length >= 3 && priorFive.length >= 3) {
+    const avg = (rows, key) => rows.reduce((sum, row) => sum + Number(row[key] || 0), 0) / rows.length;
+    const recentDuration = avg(recentFive, 'durationHours');
+    const priorDuration = avg(priorFive, 'durationHours');
+    if (priorDuration > 0 && Math.abs(recentDuration - priorDuration) / priorDuration >= 0.25) {
+      const direction = recentDuration > priorDuration ? 'longer' : 'shorter';
+      suggestions.push(buildCoachSuggestion(
+        'workout',
+        `workout-duration-${direction}`,
+        84,
+        `Workouts are getting ${direction}`,
+        `Recent workouts are averaging ${fmtNumber(recentDuration)} hr versus ${fmtNumber(priorDuration)} hr before. Adjust the next session deliberately, not by drift.`,
+        `Compared ${recentFive.length} recent workouts with the prior ${priorFive.length}.`,
+        null,
+        0.86
+      ));
+    }
+  }
+
+  if (workoutTarget > 0 && daysThisWeek.size >= workoutTarget) {
+    suggestions.push(buildCoachSuggestion(
+      'workout',
+      'workout-target-hit',
+      74,
+      'Workout target is hit',
+      `You have ${daysThisWeek.size} workout days this week against a ${workoutTarget}/week target. Bank it and recover well.`,
+      `Weekly target met with ${daysThisWeek.size} distinct workout days.`,
+      null,
+      0.9
+    ));
+  }
+
+  return suggestions;
+}
+
+function buildWeightCoachSuggestions() {
+  const suggestions = [];
+  const entries = (state.weightChartEntries || state.weightEntries || [])
+    .slice()
+    .filter((entry) => Number(entry.weight || 0) > 0)
+    .sort((a, b) => new Date(a.loggedAt) - new Date(b.loggedAt));
+  const targetWeight = Number(state.weightTargetData?.targetWeight || state.weightTarget || 0);
+  if (!entries.length || !Number.isFinite(targetWeight) || targetWeight <= 0) {
+    return suggestions;
+  }
+  const recent = entries.filter((entry) => getLocalIsoDay(entry.loggedAt) >= shiftIsoDay(getLocalIsoDay(), -30));
+  if (recent.length < 4) {
+    return suggestions;
+  }
+  const first = recent[0];
+  const latest = recent[recent.length - 1];
+  const firstWeight = Number(first.weight || 0);
+  const latestWeight = Number(latest.weight || 0);
+  const delta = latestWeight - firstWeight;
+  const distance = latestWeight - targetWeight;
+
+  if (Math.abs(distance) <= 1 && recent.length >= 5) {
+    suggestions.push(buildCoachSuggestion(
+      'weight',
+      'weight-goal-maintained',
+      88,
+      'Weight is at goal',
+      'Recent weigh-ins are sitting inside the goal band. Keep the system steady instead of forcing a new move.',
+      `Latest ${fmtNumber(latestWeight)} lb; target ${fmtNumber(targetWeight)} lb across ${recent.length} recent weigh-ins.`,
+      null,
+      0.9
+    ));
+  } else if ((targetWeight < firstWeight && delta >= -0.3) || (targetWeight > firstWeight && delta <= 0.3)) {
+    const direction = targetWeight < firstWeight ? 'down' : 'up';
+    suggestions.push(buildCoachSuggestion(
+      'weight',
+      'weight-off-track',
+      90,
+      'Weight trend is off pace',
+      `The 30-day trend is not moving ${direction} toward the target yet. Tighten the repeatable inputs before changing the goal.`,
+      `Latest ${fmtNumber(latestWeight)} lb, target ${fmtNumber(targetWeight)} lb; recent change ${fmtNumber(delta)} lb.`,
+      { type: 'focus-weight', label: 'Log weight' },
+      0.87
+    ));
+  }
+
+  return suggestions;
+}
+
+function buildSleepCoachSuggestions() {
+  const suggestions = [];
+  const target = getSleepTargetHours();
+  const rows = (state.sleepChartRows || [])
+    .slice()
+    .filter((row) => Number(row.value || 0) > 0)
+    .sort((a, b) => Number(a.time || 0) - Number(b.time || 0));
+  const recent = rows.slice(-7);
+  if (target > 0 && recent.length >= 5) {
+    const avg = recent.reduce((sum, row) => sum + Number(row.value || 0), 0) / recent.length;
+    if (avg <= target - 0.75) {
+      suggestions.push(buildCoachSuggestion(
+        'sleep',
+        'sleep-below-target',
+        90,
+        'Sleep is below target',
+        `Recent sleep is averaging ${fmtNumber(avg)} hrs against a ${fmtNumber(target)} hr target. Protect tonight's start time first.`,
+        `Based on ${recent.length} logged nights in the current sleep window.`,
+        { type: 'focus-sleep', label: 'Log sleep' },
+        0.88
+      ));
+    }
+    const streak = rows.slice(-3);
+    if (streak.length === 3 && streak.every((row) => Number(row.value || 0) >= target)) {
+      suggestions.push(buildCoachSuggestion(
+        'sleep',
+        'sleep-target-streak',
+        76,
+        'Sleep target streak',
+        `The last ${streak.length} logged nights met the target. Keep the same bedtime pattern if you can.`,
+        `Three consecutive logged nights at or above ${fmtNumber(target)} hrs.`,
+        null,
+        0.9
+      ));
+    }
+  }
+  return suggestions;
+}
+
+function buildCoachCandidates(pageKey) {
+  if (pageKey === 'macros') return buildMacroCoachSuggestions();
+  if (pageKey === 'workout') return buildWorkoutCoachSuggestions();
+  if (pageKey === 'weight') return buildWeightCoachSuggestions();
+  if (pageKey === 'sleep') return buildSleepCoachSuggestions();
+  return [];
+}
+
+function renderCoachForPage(pageKey) {
+  const slot = coachSlotEls[pageKey];
+  if (!slot) {
+    return;
+  }
+  const suggestion = buildCoachCandidates(pageKey)
+    .filter((candidate) => candidate.confidence >= 0.85)
+    .sort((a, b) => b.priority - a.priority)
+    .find((candidate) => !isCoachSuggestionDismissed(candidate));
+
+  state.visibleCoachSuggestions[pageKey] = suggestion || null;
+  if (!suggestion) {
+    slot.hidden = true;
+    slot.innerHTML = '';
+    return;
+  }
+
+  const actionButton = suggestion.action
+    ? `<button type="button" class="coach-action-btn" data-coach-action="${escapeAttr(suggestion.action.type)}">${escapeHtml(suggestion.action.label)}</button>`
+    : '';
+  slot.innerHTML = `
+    <div class="coach-icon" role="img" aria-label="Compass AI suggestion">✦</div>
+    <div class="coach-body">
+      <div class="coach-title-row">
+        <div>
+          <h2 class="coach-title">${escapeHtml(suggestion.title)}</h2>
+          <div class="coach-meta">
+            <span>Compass</span>
+            <span class="coach-pill">Local rules</span>
+            <span class="coach-pill">High confidence</span>
+          </div>
+        </div>
+      </div>
+      <p class="coach-message">${escapeHtml(suggestion.message)}</p>
+      <p class="coach-evidence">${escapeHtml(suggestion.evidence.join(' '))}</p>
+      <div class="coach-actions">
+        ${actionButton}
+        <button type="button" class="coach-dismiss-btn" data-coach-dismiss="today">Dismiss today</button>
+        <button type="button" class="coach-dismiss-btn" data-coach-dismiss="pattern">Hide pattern</button>
+        <button type="button" class="coach-dismiss-btn" data-coach-dismiss="pattern">Not useful</button>
+      </div>
+    </div>
+  `;
+  slot.hidden = false;
+}
+
+function runCoachAction(actionType) {
+  if (actionType === 'focus-meal') {
+    mealTextEl?.focus();
+  } else if (actionType === 'focus-workout') {
+    workoutTextEl?.focus();
+  } else if (actionType === 'focus-weight') {
+    weightValueEl?.focus();
+  } else if (actionType === 'focus-sleep') {
+    sleepHoursEl?.focus();
+  }
+}
+
+async function dismissVisibleCoachSuggestion(pageKey, dismissalType) {
+  const suggestion = state.visibleCoachSuggestions[pageKey];
+  if (!suggestion) {
+    return;
+  }
+  const isPattern = dismissalType === 'pattern';
+  const record = {
+    type: isPattern ? 'pattern' : 'today',
+    key: isPattern ? suggestion.patternKey : suggestion.todayKey,
+    dismissedUntil: isPattern ? null : coachEndOfTodayIso()
+  };
+  mergeCoachDismissalRecords([record]);
+  renderCoachForPage(pageKey);
+  try {
+    const response = await api('/api/coach/dismissals', {
+      method: 'PUT',
+      body: JSON.stringify({ dismissals: [record] })
+    });
+    state.coachDismissals = {
+      today: new Map(),
+      pattern: new Set()
+    };
+    mergeCoachDismissalRecords(response.dismissals || []);
+  } catch (error) {
+    console.warn('Failed to sync coach dismissal:', error);
+  }
+}
+
+function bindCoachSlots() {
+  for (const [pageKey, slot] of Object.entries(coachSlotEls)) {
+    if (!slot) {
+      continue;
+    }
+    slot.addEventListener('click', async (event) => {
+      const target = event.target.closest('[data-coach-action], [data-coach-dismiss]');
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const actionType = target.dataset.coachAction;
+      const dismissalType = target.dataset.coachDismiss;
+      if (actionType) {
+        runCoachAction(actionType);
+        return;
+      }
+      if (dismissalType) {
+        await dismissVisibleCoachSuggestion(pageKey, dismissalType);
+      }
+    });
+  }
 }
 
 function getLogPaging(kind) {
@@ -2351,6 +2918,7 @@ async function refreshMacroSnapshotData() {
     }
     drawTrend(state.macroDailyTotals);
     renderSnapshotStats(state.macroDailyTotals, state.dashboardData.targets);
+    renderCoachForPage('macros');
   } catch (error) {
     console.error('Failed to refresh macro snapshot:', error);
   }
@@ -2495,6 +3063,7 @@ function renderDashboard(data) {
   setText(todayCarbsEl, `${fmtNumber(dayTotals.carbs)}g`);
   setText(todayFatEl, `${fmtNumber(dayTotals.fat)}g`);
   renderMacroTargets(dayTotals, data.targets || {});
+  renderCoachForPage('macros');
 
 
   entriesByDayEl.innerHTML = '';
@@ -3375,6 +3944,7 @@ function showWorkoutEditModal(entry) {
 
 async function refreshDashboard() {
   const tz = encodeURIComponent(getTimezone());
+  await refreshCoachDismissals();
   const dashboard = await api(`/api/dashboard?tz=${tz}`);
   state.dashboardData = dashboard;
   syncHistoryQuickItems();
@@ -3663,6 +4233,7 @@ function renderActivePage(pageKey) {
   for (const item of pageMenuItems) {
     item.classList.toggle('is-active', item.dataset.page === pageKey);
   }
+  renderCoachForPage(pageKey);
 }
 
 function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
@@ -4373,6 +4944,7 @@ async function refreshWeightData(options = {}) {
       renderCard: renderWeightCard,
       emptyText: 'No weight entries.'
     });
+    renderCoachForPage('weight');
   }
 }
 
@@ -4786,6 +5358,7 @@ async function refreshSleepData(options = {}) {
       renderCard: renderSleepCard,
       emptyText: 'No sleep entries.'
     });
+    renderCoachForPage('sleep');
   }
 }
 
@@ -5170,6 +5743,7 @@ async function refreshWorkoutData(options = {}) {
       renderCard: renderWorkoutCard,
       emptyText: 'No workouts logged.'
     });
+    renderCoachForPage('workout');
   }
 }
 
@@ -5556,6 +6130,7 @@ if (workoutQuickListEl) {
 
 renderActivePage('macros');
 bindPageChartsResize();
+bindCoachSlots();
 
 loadQuickEntries({ force: true });
 
