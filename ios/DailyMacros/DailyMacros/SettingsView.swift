@@ -4,8 +4,10 @@ struct SettingsView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var api: APIClient
     @AppStorage("onboarding_complete") private var onboardingComplete = true
+    @AppStorage(CoachSettingKeys.enabled) private var aiCoachEnabled = true
     @StateObject private var offlineQueue = OfflineMutationStore.shared
     @StateObject private var diagnostics = Diagnostics.shared
+    @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var subscription: SubscriptionResponse?
     @State private var version: VersionResponse?
     @State private var showDeleteConfirm = false
@@ -22,6 +24,7 @@ struct SettingsView: View {
             List {
                 accountSection
                 supportPrivacySection
+                compassSection
                 remindersSection
                 subscriptionSection
                 dataSection
@@ -146,6 +149,21 @@ struct SettingsView: View {
             ))
             DatePicker("Time", selection: $reminderDate, displayedComponents: .hourAndMinute)
                 .disabled(!remindersEnabled)
+        }
+    }
+
+    private var compassSection: some View {
+        Section {
+            Toggle("Show \(CoachBrand.name) cards", isOn: $aiCoachEnabled)
+
+            Button("Reset Dismissed Suggestions") {
+                coachDismissals.resetDismissals()
+                Diagnostics.shared.record(category: "coach", message: "Reset \(CoachBrand.name) dismissals")
+            }
+        } header: {
+            Text(CoachBrand.name)
+        } footer: {
+            Text("\(CoachBrand.name) uses local rules to surface high-confidence coaching from your logged data. Local AI narration can be layered on later without changing the confidence gates.")
         }
     }
 

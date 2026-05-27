@@ -654,6 +654,24 @@ test('iOS workouts annual occurrence graph renders 365 wrapped daily dots', () =
   assert.equal(workouts.includes('(0..<52)'), false);
 });
 
+test('iOS Compass coach exposes settings and title-first cards', () => {
+  const coach = read('ios/DailyMacros/DailyMacros/AICoach.swift');
+  const settings = read('ios/DailyMacros/DailyMacros/SettingsView.swift');
+
+  assert.ok(coach.includes('static let name = "Compass"'));
+  assert.ok(coach.includes('static let enabled = "ai_coach_enabled"'));
+  assert.ok(coach.includes('@AppStorage(CoachSettingKeys.enabled)'));
+  assert.ok(coach.includes('confidence >= 0.85'));
+  assert.ok(coach.includes('Button("Dismiss for today"'));
+  assert.ok(coach.includes('Button("Hide this pattern"'));
+  assert.ok(coach.includes('Button("Not useful"'));
+  assert.ok(coach.indexOf('Text(suggestion.title)') < coach.indexOf('Text(CoachBrand.name)'));
+  assert.ok(settings.includes('@AppStorage(CoachSettingKeys.enabled)'));
+  assert.ok(settings.includes('Show \\(CoachBrand.name) cards'));
+  assert.ok(settings.includes('Reset Dismissed Suggestions'));
+  assert.ok(settings.includes('coachDismissals.resetDismissals()'));
+});
+
 test('iOS app includes onboarding reminders offline queue and diagnostics foundations', () => {
   const project = read('ios/DailyMacros/DailyMacros.xcodeproj/project.pbxproj');
   const app = read('ios/DailyMacros/DailyMacros/DailyMacrosApp.swift');

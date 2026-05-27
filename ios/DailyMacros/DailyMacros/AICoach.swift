@@ -1,6 +1,14 @@
 import Foundation
 import SwiftUI
 
+enum CoachBrand {
+    static let name = "Compass"
+}
+
+enum CoachSettingKeys {
+    static let enabled = "ai_coach_enabled"
+}
+
 enum CoachSurface: String {
     case macros
     case workouts
@@ -98,6 +106,12 @@ final class CoachDismissalStore: ObservableObject {
         revision += 1
     }
 
+    func resetDismissals() {
+        defaults.removeObject(forKey: todayDismissalKey)
+        defaults.removeObject(forKey: actionDismissalKey)
+        revision += 1
+    }
+
     private func isDismissed(_ suggestion: CoachSuggestion, now: Date) -> Bool {
         if loadActionDismissals().contains(suggestion.dismissalKey) {
             return true
@@ -156,12 +170,13 @@ final class CoachDismissalStore: ObservableObject {
 
 struct AICoachSlot: View {
     @ObservedObject var dismissals: CoachDismissalStore
+    @AppStorage(CoachSettingKeys.enabled) private var coachEnabled = true
 
     let suggestions: [CoachSuggestion]
     let onPrimaryAction: (CoachActionType) -> Void
 
     var body: some View {
-        if let suggestion = dismissals.visibleSuggestion(from: suggestions) {
+        if coachEnabled, let suggestion = dismissals.visibleSuggestion(from: suggestions) {
             AICoachCard(
                 suggestion: suggestion,
                 onPrimaryAction: onPrimaryAction,
@@ -196,8 +211,12 @@ struct AICoachCard: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 5) {
+                    Text(suggestion.title)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.primary)
+
                     HStack(spacing: 6) {
-                        Text("AI Coach")
+                        Text(CoachBrand.name)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                         Text(suggestion.modelSource.label)
@@ -207,10 +226,6 @@ struct AICoachCard: View {
                             .padding(.vertical, 2)
                             .background(.white.opacity(0.08), in: Capsule())
                     }
-
-                    Text(suggestion.title)
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(.primary)
 
                     Text(suggestion.message)
                         .font(.subheadline)
@@ -222,7 +237,8 @@ struct AICoachCard: View {
 
                 Menu {
                     Button("Dismiss for today", action: onDismissForToday)
-                    Button("Don't show this action", action: onDismissAction)
+                    Button("Hide this pattern", action: onDismissAction)
+                    Button("Not useful", action: onDismissAction)
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title3)
@@ -230,7 +246,7 @@ struct AICoachCard: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 36, height: 36)
                 }
-                .accessibilityLabel("Dismiss AI coach suggestion")
+                .accessibilityLabel("Dismiss \(CoachBrand.name) suggestion")
             }
 
             if !suggestion.evidence.isEmpty {

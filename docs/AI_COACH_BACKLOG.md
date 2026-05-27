@@ -5,6 +5,7 @@ Last updated: 2026-05-27
 ## Implementation Status
 
 - 2026-05-27: Started iOS implementation with a shared AI coach suggestion model, dismissals, coach card UI, and deterministic high-confidence candidate rules for Macros, Workouts, Weight, and Sleep.
+- 2026-05-27: Named the iOS coach `Compass`, changed the coach card to lead with the suggestion title before the author/source line, and added Settings controls to show/hide Compass cards and reset dismissed suggestions.
 - The current implementation uses local deterministic rules/templates as the confidence gate and fallback path. Local AFM narration/ranking is still pending and should be layered on top of these candidates rather than replacing the rule calculations.
 
 ## Goal
@@ -104,6 +105,7 @@ Backlog tasks:
   - Off,
   - Local model only,
   - Local model with fallback templates.
+- Started: iOS Settings now has a Compass on/off control and reset for dismissed suggestions. More granular local-model modes are still pending.
 - Add diagnostics that expose which source produced the suggestion: rule template, AFM local, or server fallback if server fallback is later enabled.
 
 ## Shared Data Requirements
