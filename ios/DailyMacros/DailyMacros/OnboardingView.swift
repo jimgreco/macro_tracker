@@ -4,6 +4,55 @@ struct OnboardingView: View {
     @EnvironmentObject var api: APIClient
     @Binding var isComplete: Bool
 
+    private enum SetupStep: Int, CaseIterable {
+        case macros
+        case workouts
+        case weight
+        case sleep
+        case targets
+
+        var title: String {
+            switch self {
+            case .macros: return "Macros"
+            case .workouts: return "Workouts"
+            case .weight: return "Weight"
+            case .sleep: return "Sleep"
+            case .targets: return "Set Up DailyMacros"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .macros: return "fork.knife"
+            case .workouts: return "figure.run"
+            case .weight: return "scalemass"
+            case .sleep: return "bed.double"
+            case .targets: return "target"
+            }
+        }
+
+        var leadText: String {
+            switch self {
+            case .macros:
+                return "Log meals and track calories, protein, carbs, and fat against your daily targets."
+            case .workouts:
+                return "Capture training, calories burned, and weekly workout targets in the same place as nutrition."
+            case .weight:
+                return "Follow weight trends and compare progress against your target weight."
+            case .sleep:
+                return "Track sleep duration and wake-ups so recovery context is visible beside meals and workouts."
+            case .targets:
+                return "Set the targets DailyMacros uses for progress bars, weekly analysis, reminders, and weight goals."
+            }
+        }
+    }
+
+    @State private var setupStep: SetupStep = .macros
+    @State private var tutorialMealText = ""
+    @State private var tutorialMealStatus: String?
+    @State private var isLoggingTutorialMeal = false
+    @State private var didLogTutorialMeal = false
+
     @State private var calorieTarget = "2200"
     @State private var proteinTarget = "160"
     @State private var carbsTarget = "250"
@@ -22,53 +71,14 @@ struct OnboardingView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Text("Set the targets DailyMacros uses for progress bars, weekly analysis, reminders, and weight goals.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section("Daily Targets") {
-                    targetField("Calories", text: $calorieTarget)
-                    targetField("Protein (g)", text: $proteinTarget)
-                    targetField("Carbs (g)", text: $carbsTarget)
-                    targetField("Fat (g)", text: $fatTarget)
-                    targetField("Sleep (hours)", text: $sleepTarget, usesDecimalKeyboard: true)
-                }
-
-                Section("Weekly Targets") {
-                    targetField("Workouts per week", text: $workoutsPerWeek)
-                    targetField("Calories burned per week", text: $workoutCaloriesTarget)
-                }
-
-                Section("Weight") {
-                    targetField("Target weight (optional)", text: $targetWeight, usesDecimalKeyboard: true)
-                    DatePicker("Target date", selection: $targetDate, displayedComponents: .date)
-                }
-
-                Section("Reminder") {
-                    Toggle("Daily log reminder", isOn: $remindersEnabled)
-                    DatePicker("Time", selection: $reminderDate, displayedComponents: .hourAndMinute)
-                        .disabled(!remindersEnabled)
-                }
-
-                Section {
-                    Button {
-                        Task { await saveSetup() }
-                    } label: {
-                        HStack {
-                            Text("Save Setup")
-                            Spacer()
-                            if isSaving || isLoadingTargets {
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(isSaving || isLoadingTargets)
+            Group {
+                if setupStep == .targets {
+                    targetSetupForm
+                } else {
+                    tutorialForm
                 }
             }
-            .navigationTitle("Set Up DailyMacros")
+            .navigationTitle(setupStep.title)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Skip") {
@@ -82,10 +92,235 @@ struct OnboardingView: View {
             } message: {
                 Text(errorMessage ?? "")
             }
-            .task {
+            .task(id: setupStep) {
+                guard setupStep == .targets else { return }
                 await loadExistingTargets()
             }
         }
+    }
+
+    private var tutorialForm: some View {
+        Form {
+            Section {
+                tutorialHeader
+            }
+
+            tutorialStepSections
+
+            Section {
+                tutorialNavigation
+            }
+        }
+    }
+
+    private var targetSetupForm: some View {
+        Form {
+            Section {
+                Text(SetupStep.targets.leadText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Daily Targets") {
+                targetField("Calories", text: $calorieTarget)
+                targetField("Protein (g)", text: $proteinTarget)
+                targetField("Carbs (g)", text: $carbsTarget)
+                targetField("Fat (g)", text: $fatTarget)
+                targetField("Sleep (hours)", text: $sleepTarget, usesDecimalKeyboard: true)
+            }
+
+            Section("Weekly Targets") {
+                targetField("Workouts per week", text: $workoutsPerWeek)
+                targetField("Calories burned per week", text: $workoutCaloriesTarget)
+            }
+
+            Section("Weight") {
+                targetField("Target weight (optional)", text: $targetWeight, usesDecimalKeyboard: true)
+                DatePicker("Target date", selection: $targetDate, displayedComponents: .date)
+            }
+
+            Section("Reminder") {
+                Toggle("Daily log reminder", isOn: $remindersEnabled)
+                DatePicker("Time", selection: $reminderDate, displayedComponents: .hourAndMinute)
+                    .disabled(!remindersEnabled)
+            }
+
+            Section {
+                Button {
+                    Task { await saveSetup() }
+                } label: {
+                    HStack {
+                        Text("Save Setup")
+                        Spacer()
+                        if isSaving || isLoadingTargets {
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(isSaving || isLoadingTargets)
+            }
+        }
+    }
+
+    private var tutorialHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: setupStep.systemImage)
+                    .font(.title2)
+                    .foregroundStyle(.cyan)
+                    .frame(width: 32, height: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(setupStep.title)
+                        .font(.headline)
+                    Text("Step \(setupStep.rawValue + 1) of \(SetupStep.allCases.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            ProgressView(value: Double(setupStep.rawValue + 1), total: Double(SetupStep.allCases.count))
+                .tint(.cyan)
+
+            Text(setupStep.leadText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var tutorialStepSections: some View {
+        switch setupStep {
+        case .macros:
+            macrosTutorialSections
+        case .workouts:
+            workoutsTutorialSections
+        case .weight:
+            weightTutorialSections
+        case .sleep:
+            sleepTutorialSections
+        case .targets:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var macrosTutorialSections: some View {
+        Section("Log a Meal") {
+            Text("Describe a meal in natural language and DailyMacros will turn it into calorie and macro entries.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            TextField("Example: chicken bowl with rice and avocado", text: $tutorialMealText, axis: .vertical)
+                .lineLimit(3...5)
+                .textInputAutocapitalization(.sentences)
+
+            Button {
+                Task { await logTutorialMeal() }
+            } label: {
+                HStack {
+                    Label(didLogTutorialMeal ? "Log Another Meal" : "Log Meal", systemImage: didLogTutorialMeal ? "plus.circle" : "checkmark.circle")
+                    Spacer()
+                    if isLoggingTutorialMeal {
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(isLoggingTutorialMeal || tutorialMealText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            if let tutorialMealStatus {
+                Label(tutorialMealStatus, systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+        }
+
+        Section("Quick Add") {
+            featureRow(
+                "Quick Add reuses saved or recent meals when you want to log something you eat often.",
+                systemImage: "clock.arrow.circlepath"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var workoutsTutorialSections: some View {
+        Section("Workout Logging") {
+            featureRow(
+                "Describe a workout in natural language and DailyMacros can estimate duration, intensity, and calories burned.",
+                systemImage: "text.bubble"
+            )
+            featureRow(
+                "Sync workouts to Apple Health so DailyMacros and Health can stay aligned.",
+                systemImage: "heart.text.square"
+            )
+            featureRow(
+                "Import workouts from the Forge: Workout Planner app when you plan or log training there.",
+                systemImage: "square.and.arrow.down"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var weightTutorialSections: some View {
+        Section("Weight Trends") {
+            featureRow(
+                "Log weigh-ins manually or pull recent body weight from Apple Health.",
+                systemImage: "scalemass"
+            )
+            featureRow(
+                "Bidirectional Apple Health sync can import Health weight entries and write DailyMacros weigh-ins back to Health.",
+                systemImage: "arrow.left.arrow.right"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var sleepTutorialSections: some View {
+        Section("Sleep and Recovery") {
+            featureRow(
+                "Track sleep hours and wake-ups so recovery is visible beside meals, workouts, and weight.",
+                systemImage: "moon.zzz"
+            )
+            featureRow(
+                "Bidirectional Apple Health sync can import Health sleep sessions and write DailyMacros sleep entries back to Health.",
+                systemImage: "arrow.left.arrow.right"
+            )
+        }
+    }
+
+    private var tutorialNavigation: some View {
+        HStack(spacing: 12) {
+            if setupStep.rawValue > 0 {
+                Button("Back") {
+                    moveToPreviousStep()
+                }
+                .disabled(isLoggingTutorialMeal)
+            }
+
+            Button(setupStep == .sleep ? "Set Targets" : "Next") {
+                moveToNextStep()
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.cyan)
+            .disabled(isLoggingTutorialMeal)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    private func featureRow(_ text: String, systemImage: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.body)
+                .foregroundStyle(.cyan)
+                .frame(width: 22)
+
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
     }
 
     private func targetField(_ label: String, text: Binding<String>, usesDecimalKeyboard: Bool = false) -> some View {
@@ -98,6 +333,70 @@ struct OnboardingView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
+    }
+
+    private func moveToNextStep() {
+        guard let nextStep = SetupStep(rawValue: setupStep.rawValue + 1) else { return }
+        setupStep = nextStep
+    }
+
+    private func moveToPreviousStep() {
+        guard let previousStep = SetupStep(rawValue: setupStep.rawValue - 1) else { return }
+        setupStep = previousStep
+    }
+
+    private func logTutorialMeal() async {
+        let mealText = tutorialMealText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !mealText.isEmpty else { return }
+
+        isLoggingTutorialMeal = true
+        tutorialMealStatus = nil
+        defer { isLoggingTutorialMeal = false }
+
+        do {
+            let consumedAt = isoTimestamp(from: Date())
+            let response = try await api.parseMeal(text: mealText, consumedAt: consumedAt)
+            guard !response.items.isEmpty else {
+                throw APIError.serverError("DailyMacros could not find meal items in that description.")
+            }
+
+            try await api.saveMealEntries(
+                items: response.items.map(mealItemPayload),
+                consumedAt: consumedAt,
+                mealName: response.mealName,
+                mealQuantity: response.mealQuantity,
+                mealUnit: response.mealUnit
+            )
+
+            didLogTutorialMeal = true
+            tutorialMealText = ""
+            tutorialMealStatus = "Meal logged. You can edit it from the Macros page."
+            Diagnostics.shared.record(category: "onboarding", message: "Logged tutorial meal")
+        } catch {
+            Diagnostics.shared.record(level: "error", category: "onboarding", message: "Failed to log tutorial meal", details: ["error": error.localizedDescription])
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func mealItemPayload(_ item: ParsedMealItem) -> [String: Any] {
+        var payload: [String: Any] = [
+            "itemName": item.itemName,
+            "quantity": item.quantity,
+            "calories": item.calories,
+            "protein": item.protein,
+            "carbs": item.carbs,
+            "fat": item.fat
+        ]
+        if let unit = item.unit {
+            payload["unit"] = unit
+        }
+        return payload
+    }
+
+    private func isoTimestamp(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "America/New_York")
+        return formatter.string(from: date)
     }
 
     private func loadExistingTargets() async {
