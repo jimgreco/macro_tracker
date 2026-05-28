@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     @EnvironmentObject var api: APIClient
+    @EnvironmentObject var auth: AuthManager
     @Binding var isComplete: Bool
 
     private enum SetupStep: Int, CaseIterable {
@@ -70,46 +71,79 @@ struct OnboardingView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if setupStep == .targets {
+        Group {
+            if setupStep == .targets {
+                NavigationStack {
                     targetSetupForm
-                } else {
-                    tutorialForm
+                        .navigationTitle(setupStep.title)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                skipButton
+                            }
+                        }
                 }
+            } else {
+                tutorialOverlay
             }
-            .navigationTitle(setupStep.title)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Skip") {
-                        Diagnostics.shared.record(category: "onboarding", message: "Skipped setup")
-                        isComplete = true
-                    }
+        }
+        .alert("Setup", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK") { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .task(id: setupStep) {
+            guard setupStep == .targets else { return }
+            await loadExistingTargets()
+        }
+    }
+
+    private var skipButton: some View {
+        Button("Skip") {
+            Diagnostics.shared.record(category: "onboarding", message: "Skipped setup")
+            isComplete = true
+        }
+    }
+
+    private var tutorialOverlay: some View {
+        ZStack(alignment: .bottom) {
+            tutorialPageBackground
+                .id(setupStep)
+                .disabled(true)
+                .blur(radius: 0.7)
+                .overlay(Color.black.opacity(0.48))
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer()
+                    skipButton
+                        .buttonStyle(.bordered)
+                        .tint(.white)
+                        .background(.ultraThinMaterial, in: Capsule())
                 }
-            }
-            .alert("Setup", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-                Button("OK") { errorMessage = nil }
-            } message: {
-                Text(errorMessage ?? "")
-            }
-            .task(id: setupStep) {
-                guard setupStep == .targets else { return }
-                await loadExistingTargets()
+                .padding(.horizontal)
+                .padding(.top, 12)
+
+                Spacer(minLength: 0)
+
+                tutorialGuideCard
             }
         }
     }
 
-    private var tutorialForm: some View {
-        Form {
-            Section {
-                tutorialHeader
-            }
-
-            tutorialStepSections
-
-            Section {
-                tutorialNavigation
-            }
+    @ViewBuilder
+    private var tutorialPageBackground: some View {
+        switch setupStep {
+        case .macros:
+            MacrosView()
+        case .workouts:
+            WorkoutsView()
+        case .weight:
+            WeightView()
+        case .sleep:
+            SleepView()
+        case .targets:
+            EmptyView()
         }
     }
 
@@ -162,6 +196,32 @@ struct OnboardingView: View {
         }
     }
 
+    private var tutorialGuideCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            tutorialHeader
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    tutorialStepSections
+                }
+                .padding(.bottom, 2)
+            }
+            .frame(maxHeight: 330)
+            .scrollDismissesKeyboard(.interactively)
+
+            tutorialNavigation
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(.white.opacity(0.12), lineWidth: 1)
+        )
+        .padding(.horizontal, 14)
+        .padding(.bottom, 16)
+    }
+
     private var tutorialHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
@@ -207,7 +267,9 @@ struct OnboardingView: View {
 
     @ViewBuilder
     private var macrosTutorialSections: some View {
-        Section("Log a Meal") {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Log a Meal")
+                .font(.subheadline.bold())
             Text("Describe a meal in natural language and DailyMacros will turn it into calorie and macro entries.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -236,7 +298,9 @@ struct OnboardingView: View {
             }
         }
 
-        Section("Quick Add") {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Quick Add")
+                .font(.subheadline.bold())
             featureRow(
                 "Quick Add reuses saved or recent meals when you want to log something you eat often.",
                 systemImage: "clock.arrow.circlepath"
@@ -246,7 +310,9 @@ struct OnboardingView: View {
 
     @ViewBuilder
     private var workoutsTutorialSections: some View {
-        Section("Workout Logging") {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Workout Logging")
+                .font(.subheadline.bold())
             featureRow(
                 "Describe a workout in natural language and DailyMacros can estimate duration, intensity, and calories burned.",
                 systemImage: "text.bubble"
@@ -264,7 +330,9 @@ struct OnboardingView: View {
 
     @ViewBuilder
     private var weightTutorialSections: some View {
-        Section("Weight Trends") {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Weight Trends")
+                .font(.subheadline.bold())
             featureRow(
                 "Log weigh-ins manually or pull recent body weight from Apple Health.",
                 systemImage: "scalemass"
@@ -278,7 +346,9 @@ struct OnboardingView: View {
 
     @ViewBuilder
     private var sleepTutorialSections: some View {
-        Section("Sleep and Recovery") {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Sleep and Recovery")
+                .font(.subheadline.bold())
             featureRow(
                 "Track sleep hours and wake-ups so recovery is visible beside meals, workouts, and weight.",
                 systemImage: "moon.zzz"

@@ -22,6 +22,7 @@ struct DailyMacrosApp: App {
                         .background(Color(.systemBackground))
                 } else if auth.isAuthenticated, !onboardingComplete {
                     OnboardingView(isComplete: $onboardingComplete)
+                        .environmentObject(auth)
                         .environmentObject(api)
                         .task {
                             Diagnostics.shared.record(category: "app", message: "Showing onboarding")
