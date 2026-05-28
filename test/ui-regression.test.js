@@ -668,7 +668,14 @@ test('iOS Coach Tony P. exposes settings and title-first cards', () => {
   assert.ok(coach.includes('import FoundationModels'));
   assert.ok(coach.includes('FoundationCoachNarrator.narrate'));
   assert.ok(coach.includes('SystemLanguageModel.default.availability'));
-  assert.ok(coach.includes('candidate.narrated(title: title, message: message)'));
+  assert.ok(coach.includes('enum CoachNarrationResult'));
+  assert.ok(coach.includes('case vetoed(reason: String)'));
+  assert.ok(coach.includes('candidate.narrated(title: trimmedTitle, message: trimmedMessage)'));
+  assert.ok(coach.includes('You may hide all candidates'));
+  assert.ok(coach.includes('Do not encourage alcohol'));
+  assert.ok(coach.includes('record(\n                category: "coach",\n                message: "\\(CoachBrand.name) local_ai_vetoed"'));
+  assert.ok(coach.includes('if localAIVetoKey == narrationKey'));
+  assert.ok(coach.includes('if mode.allowsLocalModel, narrationFailureKey != narrationKey'));
   assert.ok(coach.includes('modelSource: .afmLocal'));
   assert.ok(coach.includes('@AppStorage(CoachSettingKeys.enabled)'));
   assert.ok(coach.includes('@AppStorage(CoachSettingKeys.mode)'));
@@ -681,7 +688,7 @@ test('iOS Coach Tony P. exposes settings and title-first cards', () => {
   assert.equal(coach.includes('/parse'), false);
   assert.ok(coach.includes('mode.allowsTemplateFallback ? topCandidates : []'));
   assert.ok(coach.includes('private struct AICoachPageIndicator'));
-  assert.ok(coach.includes('private func displayedSuggestions(from candidates: [CoachSuggestion], mode: CoachMode) -> [CoachSuggestion]'));
+  assert.ok(coach.includes('private func displayedSuggestions(from candidates: [CoachSuggestion], mode: CoachMode, narrationKey: String) -> [CoachSuggestion]'));
   assert.ok(coach.includes('let topCandidates = Array(candidates.prefix(3))'));
   assert.ok(coach.includes('DragGesture(minimumDistance: 24)'));
   assert.ok(coach.includes('AICoachPageIndicator('));
@@ -809,6 +816,7 @@ test('iOS Coach Tony P. uses learned meal windows and action context', () => {
   assert.ok(coach.includes('case logMealItem'));
   assert.ok(coach.includes('case logWorkoutEntry'));
   assert.ok(coach.includes('mealItem: match.mealItem'));
+  assert.ok(coach.includes('.filter { alcoholTag(for: $0.itemName) == nil }'));
   assert.ok(coach.includes('repeatWorkoutPrompt(entries: entries'));
   assert.ok(coach.includes('workout: match.workout'));
   assert.ok(coach.includes('workout-calorie-trend-'));

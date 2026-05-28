@@ -440,6 +440,7 @@ struct AICoachSlot: View {
     @AppStorage(CoachSettingKeys.disabledCategories) private var disabledCategoryIDsRaw = "[]"
     @State private var recordedShownSuggestionKeys: Set<String> = []
     @State private var narratedSuggestion: CoachSuggestion?
+    @State private var localAIVetoKey: String?
     @State private var narrationFailureKey: String?
     @State private var didAttemptDismissalSync = false
     @State private var selectedSuggestionID: String?
@@ -451,7 +452,8 @@ struct AICoachSlot: View {
         let mode = CoachMode.resolved(rawValue: coachModeRaw, legacyEnabled: legacyCoachEnabled)
         let visibleCandidates = dismissals.visibleSuggestions(from: suggestions)
             .filter { !CoachCategoryPreference.isDisabled($0, rawValue: disabledCategoryIDsRaw) }
-        let displayedSuggestions = displayedSuggestions(from: visibleCandidates, mode: mode)
+        let narrationKey = narrationTaskID(for: visibleCandidates, mode: mode)
+        let displayedSuggestions = displayedSuggestions(from: visibleCandidates, mode: mode, narrationKey: narrationKey)
         let suggestion = selectedSuggestion(from: displayedSuggestions)
 
         Group {
@@ -585,10 +587,14 @@ struct AICoachSlot: View {
         }
     }
 
-    private func displayedSuggestions(from candidates: [CoachSuggestion], mode: CoachMode) -> [CoachSuggestion] {
+    private func displayedSuggestions(from candidates: [CoachSuggestion], mode: CoachMode, narrationKey: String) -> [CoachSuggestion] {
         guard mode != .off else { return [] }
         let topCandidates = Array(candidates.prefix(3))
         guard !topCandidates.isEmpty else { return [] }
+
+        if localAIVetoKey == narrationKey {
+            return []
+        }
 
         if let narratedSuggestion,
            topCandidates.contains(where: { $0.dismissalKey == narratedSuggestion.dismissalKey }) {
@@ -597,6 +603,10 @@ struct AICoachSlot: View {
                 return [narratedSuggestion] + remainingCandidates
             }
             return [narratedSuggestion]
+        }
+
+        if mode.allowsLocalModel, narrationFailureKey != narrationKey {
+            return []
         }
 
         return mode.allowsTemplateFallback ? topCandidates : []
@@ -652,24 +662,42 @@ struct AICoachSlot: View {
     private func refreshNarration(for candidates: [CoachSuggestion], mode: CoachMode) async {
         guard mode.allowsLocalModel, !candidates.isEmpty else {
             narratedSuggestion = nil
+            localAIVetoKey = nil
             narrationFailureKey = nil
             return
         }
 
         let activeKey = narrationTaskID(for: candidates, mode: mode)
         let eligibleCandidates = Array(candidates.prefix(3))
-        let narrated = await CoachNarrationWorker.shared.narrate(candidates: eligibleCandidates, mode: mode)
+        let result = await CoachNarrationWorker.shared.narrate(candidates: eligibleCandidates, mode: mode)
 
         guard activeKey == narrationTaskID(for: candidates, mode: mode) else {
             return
         }
 
-        if let narrated {
+        switch result {
+        case .narrated(let narrated):
             narratedSuggestion = narrated
+            localAIVetoKey = nil
             narrationFailureKey = nil
             recordCoachEvent("local_ai_narrated", suggestion: narrated)
-        } else {
+        case .vetoed(let reason):
             narratedSuggestion = nil
+            localAIVetoKey = activeKey
+            narrationFailureKey = nil
+            Diagnostics.shared.record(
+                category: "coach",
+                message: "\(CoachBrand.name) local_ai_vetoed",
+                details: [
+                    "mode": mode.rawValue,
+                    "candidate_count": "\(eligibleCandidates.count)",
+                    "candidate_ids": eligibleCandidates.map(\.id).joined(separator: ","),
+                    "reason": reason
+                ]
+            )
+        case .unavailable:
+            narratedSuggestion = nil
+            localAIVetoKey = nil
             if narrationFailureKey != activeKey {
                 narrationFailureKey = activeKey
                 Diagnostics.shared.record(
@@ -734,8 +762,8 @@ actor CoachCandidateWorker {
 actor CoachNarrationWorker {
     static let shared = CoachNarrationWorker()
 
-    func narrate(candidates: [CoachSuggestion], mode: CoachMode) async -> CoachSuggestion? {
-        guard mode.allowsLocalModel, !candidates.isEmpty else { return nil }
+    func narrate(candidates: [CoachSuggestion], mode: CoachMode) async -> CoachNarrationResult {
+        guard mode.allowsLocalModel, !candidates.isEmpty else { return .unavailable }
         return await CoachNarrator.shared.narrate(candidates: Array(candidates.prefix(3)))
     }
 }
@@ -743,8 +771,8 @@ actor CoachNarrationWorker {
 actor CoachNarrator {
     static let shared = CoachNarrator()
 
-    func narrate(candidates: [CoachSuggestion]) async -> CoachSuggestion? {
-        guard !candidates.isEmpty else { return nil }
+    func narrate(candidates: [CoachSuggestion]) async -> CoachNarrationResult {
+        guard !candidates.isEmpty else { return .unavailable }
 
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
@@ -752,7 +780,7 @@ actor CoachNarrator {
         }
         #endif
 
-        return nil
+        return .unavailable
     }
 
     static var availabilitySummary: String {
@@ -775,28 +803,40 @@ private struct CoachNarrationCandidatePayload: Encodable {
     let title: String
     let message: String
     let evidence: [String]
+    let actionKind: String?
     let actionLabel: String?
+    let actionItemName: String?
 }
 
 private struct CoachNarrationResponse: Decodable {
-    let id: String
-    let title: String
-    let message: String
+    let display: Bool
+    let id: String?
+    let title: String?
+    let message: String?
+    let reason: String?
+}
+
+enum CoachNarrationResult: Sendable {
+    case narrated(CoachSuggestion)
+    case vetoed(reason: String)
+    case unavailable
 }
 
 #if canImport(FoundationModels)
 @available(iOS 26.0, *)
 private enum FoundationCoachNarrator {
-    static func narrate(candidates: [CoachSuggestion]) async -> CoachSuggestion? {
+    static func narrate(candidates: [CoachSuggestion]) async -> CoachNarrationResult {
         let model = SystemLanguageModel.default
-        guard model.isAvailable else { return nil }
+        guard model.isAvailable else { return .unavailable }
 
         let session = LanguageModelSession(
             model: model,
             instructions: """
             You are Coach Tony P., a firm but friendly coach inside DailyMacros.
-            You receive only rule-approved, high-confidence coaching candidates.
-            Choose the clearest candidate for the user right now and rewrite only its title and message.
+            You receive only rule-approved, high-confidence coaching candidates, but you are the final judgment layer.
+            You may hide all candidates if the coaching would feel awkward, socially tone-deaf, low-value, or like it is encouraging an unhelpful behavior.
+            Choose the clearest candidate only when it is genuinely useful for the user right now, then rewrite only its title and message.
+            Do not encourage alcohol. If the best candidate is a one-tap action for alcohol, hide it.
             Preserve the facts exactly. Do not add numbers, dates, health claims, diagnoses, guarantees, shame, or medical advice.
             Keep the title under 45 characters and the message under 190 characters.
             Return JSON only.
@@ -807,8 +847,9 @@ private enum FoundationCoachNarrator {
         Pick one candidate by id from this JSON array:
         \(candidateJSON(candidates))
 
-        Return exactly this JSON object:
-        {"id":"candidate id","title":"short title","message":"firm friendly message"}
+        Return exactly one of these JSON objects:
+        {"display":true,"id":"candidate id","title":"short title","message":"firm friendly message","reason":"why this should be shown"}
+        {"display":false,"id":null,"title":null,"message":null,"reason":"why every candidate should be hidden"}
         """
 
         do {
@@ -818,7 +859,7 @@ private enum FoundationCoachNarrator {
             )
             return validate(response.content, candidates: candidates)
         } catch {
-            return nil
+            return .unavailable
         }
     }
 
@@ -848,7 +889,9 @@ private enum FoundationCoachNarrator {
                 title: $0.title,
                 message: $0.message,
                 evidence: $0.evidence,
-                actionLabel: $0.primaryAction?.label
+                actionKind: actionKind($0.primaryAction?.type),
+                actionLabel: $0.primaryAction?.label,
+                actionItemName: $0.primaryAction?.mealItem?.itemName ?? $0.primaryAction?.searchText
             )
         }
 
@@ -861,20 +904,53 @@ private enum FoundationCoachNarrator {
         return json
     }
 
-    private static func validate(_ content: String, candidates: [CoachSuggestion]) -> CoachSuggestion? {
+    private static func actionKind(_ type: CoachActionType?) -> String? {
+        guard let type else { return nil }
+
+        switch type {
+        case .openLogMeal:
+            return "open_log_meal"
+        case .openQuickAdd:
+            return "open_quick_add"
+        case .logMealItem:
+            return "log_meal_item"
+        case .openLogWorkout:
+            return "open_log_workout"
+        case .logWorkoutEntry:
+            return "log_workout_entry"
+        case .openLogWeight:
+            return "open_log_weight"
+        case .openLogSleep:
+            return "open_log_sleep"
+        case .editTargets:
+            return "edit_targets"
+        }
+    }
+
+    private static func validate(_ content: String, candidates: [CoachSuggestion]) -> CoachNarrationResult {
         guard let data = jsonData(from: content),
-              let response = try? JSONDecoder().decode(CoachNarrationResponse.self, from: data),
-              let candidate = candidates.first(where: { $0.id == response.id }) else {
-            return nil
+              let response = try? JSONDecoder().decode(CoachNarrationResponse.self, from: data) else {
+            return .unavailable
         }
 
-        let title = response.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let message = response.message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isValidTitle(title), isValidMessage(message) else {
-            return nil
+        guard response.display else {
+            return .vetoed(reason: sanitizedReason(response.reason))
         }
 
-        return candidate.narrated(title: title, message: message)
+        guard let id = response.id,
+              let title = response.title,
+              let message = response.message,
+              let candidate = candidates.first(where: { $0.id == id }) else {
+            return .unavailable
+        }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidTitle(trimmedTitle), isValidMessage(trimmedMessage) else {
+            return .unavailable
+        }
+
+        return .narrated(candidate.narrated(title: trimmedTitle, message: trimmedMessage))
     }
 
     private static func jsonData(from content: String) -> Data? {
@@ -890,6 +966,14 @@ private enum FoundationCoachNarrator {
             return nil
         }
         return String(trimmed[start...end]).data(using: .utf8)
+    }
+
+    private static func sanitizedReason(_ reason: String?) -> String {
+        let trimmed = (reason ?? "Local AI hid every candidate.")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        let fallback = trimmed.isEmpty ? "Local AI hid every candidate." : trimmed
+        return String(fallback.prefix(180))
     }
 
     private static func isValidTitle(_ title: String) -> Bool {
@@ -2074,11 +2158,13 @@ enum CoachCandidateEngine {
         let todayNames = Set(entries
             .filter { entryDay($0) == today }
             .filter { daypart.hours.contains(hourOfDay(parseDate($0.consumedAt))) }
+            .filter { alcoholTag(for: $0.itemName) == nil }
             .map { normalizedName($0.itemName) })
         let recent = entries
             .filter { entryDay($0) != today }
             .filter { parseDate($0.consumedAt) >= addingDays(-14, to: now) }
             .filter { daypart.hours.contains(hourOfDay(parseDate($0.consumedAt))) }
+            .filter { alcoholTag(for: $0.itemName) == nil }
 
         let grouped = Dictionary(grouping: recent, by: { normalizedName($0.itemName) })
         let candidates = grouped.compactMap { normalizedName, values -> HabitualItemCandidate? in

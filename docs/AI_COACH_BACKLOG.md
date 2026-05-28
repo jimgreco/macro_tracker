@@ -16,6 +16,7 @@ Last updated: 2026-05-27
 - 2026-05-27: Added iOS weight plateau coaching that requires 8+ weigh-ins across 21+ days and a target that still needs movement.
 - 2026-05-27: Expanded iOS workout trend coaching to include workout-calorie shifts against the recent baseline.
 - 2026-05-27: Added iOS local AFM narration/ranking for Coach Tony P. Foundation Models only sees already-eligible rule candidates, may choose among the top candidates, and may rewrite only title/message while rule evidence, confidence, actions, expiry, and dismissal keys remain authoritative.
+- 2026-05-27: Expanded iOS local AFM into a judgment layer for Coach Tony P. so the model can veto all eligible cards when the coaching would be awkward, low-value, tone-deaf, or likely to encourage an unhelpful action.
 - 2026-05-27: Replaced the simple iOS Coach Tony P. on/off toggle with modes for On, Rules Only, Local AI Only, and Off, including runtime local-AI availability copy in Settings.
 - 2026-05-27: Added iOS cross-page Coach Tony P. guardrails for Workouts plus Sleep recovery and Weight plus macro consistency.
 - 2026-05-27: Added backend synced Coach Tony P. dismissals and wired iOS to pull/push local dismissals while preserving offline local behavior.
@@ -107,10 +108,11 @@ Backlog tasks:
   - Started in iOS: `CoachNarrator` uses Foundation Models on iOS 26+ when Apple Intelligence is available and returns to deterministic behavior when unavailable.
 - Use AFM for:
   - choosing the clearest candidate when several qualify,
+  - hiding all candidates when none of the rule-approved cards should be said to the user,
   - generating firm but friendly copy,
   - shortening copy to fit the card,
   - producing structured output that matches the suggestion contract.
-  - Started in iOS: Coach Tony P. sends the top eligible candidates to AFM and validates the returned candidate id, title, and message before displaying a local-AI card.
+  - Started in iOS: Coach Tony P. sends the top eligible candidates to AFM and validates either a display decision with candidate id/title/message or a hide-all decision before displaying a local-AI card.
 - Do not use AFM for:
   - numeric calculations,
   - target comparisons,
@@ -127,7 +129,7 @@ Backlog tasks:
 - Started in iOS: Settings now supports On, Rules Only, Local AI Only, and Off, plus reset for dismissed suggestions.
 - Add diagnostics that expose which source produced the suggestion: rule template, AFM local, or server fallback if server fallback is later enabled.
   - Started in iOS: Coach Tony P. records local diagnostics when suggestions are shown, dismissed, or acted on, including surface, category, confidence, source, and dismissal key.
-  - Started in iOS: Coach Tony P. records local-AI narration success and local-AI/template fallback events.
+  - Started in iOS: Coach Tony P. records local-AI narration success, local-AI veto, and local-AI/template fallback events.
 
 ## Shared Data Requirements
 
@@ -177,6 +179,7 @@ Backlog items:
   - Require at least 3 occurrences in 14 days with similar timing.
   - Offer one-tap quick add for the saved item or reconstructed meal group.
   - Started in iOS: Coach Tony P. detects repeated foods by distinct daypart days and can add the reconstructed item directly from the card.
+  - Started in iOS: alcohol-tagged entries are excluded from one-tap habitual quick-add cards and handled only by alcohol coaching.
 - Macro target congratulations:
   - Congratulate when the current day or previous complete day lands within a realistic band:
     - calories within 5 percent,
