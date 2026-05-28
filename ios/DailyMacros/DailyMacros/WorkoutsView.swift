@@ -861,8 +861,30 @@ struct WorkoutsView: View {
             triggerHealthKitExport()
             await loadWorkouts(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
+    }
+
+    private func showErrorUnlessCancelled(_ error: Error) {
+        guard !isCancellation(error) else { return }
+        errorMessage = error.localizedDescription
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+
+        if case APIError.networkError(let underlying) = error {
+            return isCancellation(underlying)
+        }
+
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 
     private func loadWorkouts(reset: Bool = true) async {
@@ -883,7 +905,7 @@ struct WorkoutsView: View {
             workoutOffset = offset + response.entries.count
             hasMoreWorkouts = response.entries.count == logPageSize
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
 
         guard reset else {
@@ -951,7 +973,7 @@ struct WorkoutsView: View {
             parsedDurationHours = String(format: "%.2g", parsed.durationHours)
             parsedCalories = "\(Int(parsed.caloriesBurned))"
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -972,7 +994,7 @@ struct WorkoutsView: View {
             triggerHealthKitExport()
             await loadWorkouts(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -994,7 +1016,7 @@ struct WorkoutsView: View {
             showEditTargets = false
             await loadWorkouts(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -1015,7 +1037,7 @@ struct WorkoutsView: View {
             editingWorkout = nil
             await loadWorkouts(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -1025,7 +1047,7 @@ struct WorkoutsView: View {
             editingWorkout = nil
             await loadWorkouts(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 

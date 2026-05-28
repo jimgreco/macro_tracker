@@ -383,6 +383,32 @@ test('iOS macro entry rows do not show drag handle icons', () => {
   assert.equal(swift.includes('Drag to combine meal items'), false);
 });
 
+test('iOS macros logged entries expose meal multi-select actions', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const entriesList = swift.slice(
+    swift.indexOf('private func entriesList'),
+    swift.indexOf('// MARK: - Edit Entry Sheet')
+  );
+
+  assert.equal(swift.includes('@State private var isMealEditing = false'), true);
+  assert.equal(swift.includes('@State private var selectedEntryIds: Set<Int> = []'), true);
+  assert.equal(swift.includes('@State private var selectedMealGroups: Set<String> = []'), true);
+  assert.equal(entriesList.includes('Button(isMealEditing ? "done" : "edit meals")'), true);
+  assert.equal(entriesList.includes('mealSelectionActionBar(entries: entries)'), true);
+  assert.equal(entriesList.includes('selectionIcon(isSelected: isSelected)'), true);
+  assert.equal(entriesList.includes('Color.neonCyan.opacity(0.16)'), true);
+  assert.equal(entriesList.includes('private func canCombineSelectedEntries'), true);
+  assert.equal(entriesList.includes('selected.allSatisfy { $0.mealGroup == nil }'), true);
+  assert.equal(entriesList.includes('private func canRemoveSelectedEntriesFromMeal'), true);
+  assert.equal(entriesList.includes('groups.count == 1'), true);
+  assert.equal(swift.includes('private func combineSelectedEntries(in entries: [Entry]) async'), true);
+  assert.equal(swift.includes('try await api.combineEntries(entryIds: ids, mealName: "Meal")'), true);
+  assert.equal(swift.includes('private func removeSelectedEntriesFromMeal(in entries: [Entry]) async'), true);
+  assert.equal(swift.includes('try await api.removeFromGroup(entryId: entry.id)'), true);
+  assert.equal(swift.includes('private func deleteSelectedMeals(in entries: [Entry]) async'), true);
+  assert.equal(swift.includes('try await api.deleteEntry(id: id)'), true);
+});
+
 test('iOS daily totals bars use the richer progress treatment', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
   const progressStart = swift.indexOf('private func macroProgressBar');
@@ -615,6 +641,21 @@ test('iOS health refresh ignores cancellation errors', () => {
   assert.equal(health.includes('NSURLErrorCancelled'), true);
 });
 
+test('iOS workout refresh ignores cancellation errors', () => {
+  const workouts = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
+  const loadWorkouts = workouts.slice(
+    workouts.indexOf('private func loadWorkouts'),
+    workouts.indexOf('private func loadWorkoutTargets')
+  );
+
+  assert.equal(workouts.includes('showErrorUnlessCancelled'), true);
+  assert.equal(workouts.includes('error is CancellationError'), true);
+  assert.equal(workouts.includes('URLError, urlError.code == .cancelled'), true);
+  assert.equal(workouts.includes('NSURLErrorCancelled'), true);
+  assert.equal(loadWorkouts.includes('showErrorUnlessCancelled(error)'), true);
+  assert.equal(loadWorkouts.includes('errorMessage = error.localizedDescription'), false);
+});
+
 test('iOS HealthKit auto-sync registers background delivery and exports after local creates', () => {
   const app = read('ios/DailyMacros/DailyMacros/DailyMacrosApp.swift');
   const autoSync = read('ios/DailyMacros/DailyMacros/HealthKitAutoSync.swift');
@@ -675,7 +716,11 @@ test('iOS Coach Tony P. exposes settings and title-first cards', () => {
   assert.ok(coach.includes('Do not encourage alcohol'));
   assert.ok(coach.includes('record(\n                category: "coach",\n                message: "\\(CoachBrand.name) local_ai_vetoed"'));
   assert.ok(coach.includes('if localAIVetoKey == narrationKey'));
-  assert.ok(coach.includes('if mode.allowsLocalModel, narrationFailureKey != narrationKey'));
+  assert.ok(coach.includes('if mode.allowsLocalModel, !mode.allowsTemplateFallback, narrationFailureKey != narrationKey'));
+  assert.ok(coach.includes('private func isLocalAIProcessing(for candidates: [CoachSuggestion], mode: CoachMode, narrationKey: String) -> Bool'));
+  assert.ok(coach.includes('isLocalAIProcessing: isLocalAIProcessing'));
+  assert.ok(coach.includes('ProgressView()'));
+  assert.ok(coach.includes('Label("Local AI", systemImage: "sparkles")'));
   assert.ok(coach.includes('modelSource: .afmLocal'));
   assert.ok(coach.includes('@AppStorage(CoachSettingKeys.enabled)'));
   assert.ok(coach.includes('@AppStorage(CoachSettingKeys.mode)'));

@@ -454,6 +454,7 @@ struct AICoachSlot: View {
             .filter { !CoachCategoryPreference.isDisabled($0, rawValue: disabledCategoryIDsRaw) }
         let narrationKey = narrationTaskID(for: visibleCandidates, mode: mode)
         let displayedSuggestions = displayedSuggestions(from: visibleCandidates, mode: mode, narrationKey: narrationKey)
+        let isLocalAIProcessing = isLocalAIProcessing(for: visibleCandidates, mode: mode, narrationKey: narrationKey)
         let suggestion = selectedSuggestion(from: displayedSuggestions)
 
         Group {
@@ -461,6 +462,7 @@ struct AICoachSlot: View {
                 VStack(spacing: 8) {
                     AICoachCard(
                         suggestion: suggestion,
+                        isLocalAIProcessing: isLocalAIProcessing,
                         onPrimaryAction: { action in
                             recordCoachEvent("acted_on", suggestion: suggestion, action: action)
                             onPrimaryAction(action)
@@ -605,11 +607,26 @@ struct AICoachSlot: View {
             return [narratedSuggestion]
         }
 
-        if mode.allowsLocalModel, narrationFailureKey != narrationKey {
+        if mode.allowsLocalModel, !mode.allowsTemplateFallback, narrationFailureKey != narrationKey {
             return []
         }
 
         return mode.allowsTemplateFallback ? topCandidates : []
+    }
+
+    private func isLocalAIProcessing(for candidates: [CoachSuggestion], mode: CoachMode, narrationKey: String) -> Bool {
+        guard mode.allowsLocalModel, !candidates.isEmpty else { return false }
+        if localAIVetoKey == narrationKey || narrationFailureKey == narrationKey {
+            return false
+        }
+
+        let topCandidates = Array(candidates.prefix(3))
+        if let narratedSuggestion,
+           topCandidates.contains(where: { $0.dismissalKey == narratedSuggestion.dismissalKey }) {
+            return false
+        }
+
+        return true
     }
 
     private func selectedSuggestion(from suggestions: [CoachSuggestion]) -> CoachSuggestion? {
@@ -1026,6 +1043,7 @@ struct AICoachCard: View {
     @State private var showingWhyDetails = false
 
     let suggestion: CoachSuggestion
+    let isLocalAIProcessing: Bool
     let onPrimaryAction: (CoachAction) -> Void
     let onDismissForToday: () -> Void
     let onDismissAction: () -> Void
@@ -1034,19 +1052,35 @@ struct AICoachCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 23, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
-                    .background(
-                        LinearGradient(
-                            colors: [.cyan, .purple, .pink],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        in: RoundedRectangle(cornerRadius: 13)
-                    )
-                    .accessibilityLabel("\(CoachBrand.name) AI suggestion")
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 23, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 48, height: 48)
+                        .background(
+                            LinearGradient(
+                                colors: [.cyan, .purple, .pink],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            in: RoundedRectangle(cornerRadius: 13)
+                        )
+                        .accessibilityLabel("\(CoachBrand.name) AI suggestion")
+
+                    if isLocalAIProcessing {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(.white)
+                            .frame(width: 20, height: 20)
+                            .background(.black.opacity(0.42), in: Circle())
+                            .overlay {
+                                Circle()
+                                    .stroke(.white.opacity(0.38), lineWidth: 1)
+                            }
+                            .offset(x: 5, y: -5)
+                            .accessibilityHidden(true)
+                    }
+                }
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text(suggestion.title)
@@ -1063,6 +1097,15 @@ struct AICoachCard: View {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(.white.opacity(0.08), in: Capsule())
+                        if isLocalAIProcessing {
+                            Label("Local AI", systemImage: "sparkles")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.cyan)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.cyan.opacity(0.12), in: Capsule())
+                                .accessibilityLabel("\(CoachBrand.name) local AI is checking this suggestion")
+                        }
                     }
                 }
 

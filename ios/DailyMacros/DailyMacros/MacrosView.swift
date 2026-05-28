@@ -113,6 +113,10 @@ struct MacrosView: View {
     @State private var showEditParsedItem = false
     @State private var errorMessage: String?
     @State private var selectedDate = Date()
+    @State private var isMealEditing = false
+    @State private var selectedEntryIds: Set<Int> = []
+    @State private var selectedMealGroups: Set<String> = []
+    @State private var isApplyingMealSelectionAction = false
 
     // Entry editing state
     @State private var editingEntry: Entry?
@@ -434,7 +438,11 @@ struct MacrosView: View {
 
     private var datePicker: some View {
         HStack {
-            Button { selectedDate = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate)!; Task { await loadDashboard() } } label: {
+            Button {
+                selectedDate = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate)!
+                clearMealSelection()
+                Task { await loadDashboard() }
+            } label: {
                 Image(systemName: "chevron.left")
                     .foregroundStyle(Color.neonCyan)
             }
@@ -442,7 +450,11 @@ struct MacrosView: View {
             Text(selectedDate, style: .date)
                 .font(.headline)
             Spacer()
-            Button { selectedDate = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate)!; Task { await loadDashboard() } } label: {
+            Button {
+                selectedDate = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate)!
+                clearMealSelection()
+                Task { await loadDashboard() }
+            } label: {
                 Image(systemName: "chevron.right")
                     .foregroundStyle(Color.neonCyan)
             }
@@ -547,11 +559,28 @@ struct MacrosView: View {
         let keys = entries.map { $0.mealGroup ?? "single_\($0.id)" }
         let orderedKeys = keys.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Logged Entries")
+                    .font(.headline)
+                Spacer()
+                if !entries.isEmpty {
+                    Button(isMealEditing ? "done" : "edit meals") {
+                        toggleMealEditing()
+                    }
+                    .font(.caption.bold())
+                    .foregroundStyle(Color.neonCyan)
+                }
+            }
+
+            if isMealEditing && hasMealSelection {
+                mealSelectionActionBar(entries: entries)
+            }
+
             ForEach(orderedKeys, id: \.self) { key in
                 if let items = grouped[key] {
                     if items.count > 1 {
-                        mealGroupCard(items: items)
+                        mealGroupCard(items: items, allEntries: entries)
                     } else {
                         singleEntryCard(items[0], allEntries: entries)
                     }
@@ -567,40 +596,218 @@ struct MacrosView: View {
         }
     }
 
+    private var hasMealSelection: Bool {
+        !selectedEntryIds.isEmpty || !selectedMealGroups.isEmpty
+    }
+
+    private func selectedEntries(in entries: [Entry]) -> [Entry] {
+        entries.filter { selectedEntryIds.contains($0.id) }
+    }
+
+    private func selectedMealEntries(in entries: [Entry]) -> [Entry] {
+        entries.filter { entry in
+            guard let mealGroup = entry.mealGroup else { return false }
+            return selectedMealGroups.contains(mealGroup)
+        }
+    }
+
+    private func selectedMealSelectionCount(in entries: [Entry]) -> Int {
+        let visibleEntryCount = entries.filter { selectedEntryIds.contains($0.id) }.count
+        let visibleMealCount = Set(entries.compactMap { entry -> String? in
+            guard let mealGroup = entry.mealGroup, selectedMealGroups.contains(mealGroup) else {
+                return nil
+            }
+            return mealGroup
+        }).count
+        return visibleEntryCount + visibleMealCount
+    }
+
+    private func canCombineSelectedEntries(in entries: [Entry]) -> Bool {
+        let selected = selectedEntries(in: entries)
+        return selectedMealGroups.isEmpty
+            && selected.count >= 2
+            && selected.allSatisfy { $0.mealGroup == nil }
+    }
+
+    private func canRemoveSelectedEntriesFromMeal(in entries: [Entry]) -> Bool {
+        let selected = selectedEntries(in: entries)
+        let groups = Set(selected.compactMap(\.mealGroup))
+        return selectedMealGroups.isEmpty
+            && !selected.isEmpty
+            && groups.count == 1
+            && selected.count == selectedEntryIds.count
+    }
+
+    private func toggleMealEditing() {
+        isMealEditing.toggle()
+        if !isMealEditing {
+            clearMealSelection()
+        }
+    }
+
+    private func clearMealSelection() {
+        selectedEntryIds.removeAll()
+        selectedMealGroups.removeAll()
+    }
+
+    private func toggleEntrySelection(_ entry: Entry, allEntries: [Entry]) {
+        guard isMealEditing else { return }
+
+        if selectedEntryIds.contains(entry.id) {
+            selectedEntryIds.remove(entry.id)
+            return
+        }
+
+        let currentEntries = selectedEntries(in: allEntries)
+        selectedMealGroups.removeAll()
+
+        if let mealGroup = entry.mealGroup {
+            let currentGroups = Set(currentEntries.compactMap(\.mealGroup))
+            let hasUngroupedSelection = currentEntries.contains { $0.mealGroup == nil }
+            if hasUngroupedSelection || currentGroups.contains(where: { $0 != mealGroup }) {
+                selectedEntryIds.removeAll()
+            }
+        } else if currentEntries.contains(where: { $0.mealGroup != nil }) {
+            selectedEntryIds.removeAll()
+        }
+
+        selectedEntryIds.insert(entry.id)
+    }
+
+    private func toggleMealGroupSelection(_ mealGroup: String) {
+        guard isMealEditing else { return }
+        selectedEntryIds.removeAll()
+
+        if selectedMealGroups.contains(mealGroup) {
+            selectedMealGroups.remove(mealGroup)
+        } else {
+            selectedMealGroups.insert(mealGroup)
+        }
+    }
+
+    private func selectionIcon(isSelected: Bool) -> some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.title3)
+            .foregroundStyle(isSelected ? Color.neonCyan : Color.mutedText.opacity(0.8))
+            .frame(width: 26)
+    }
+
+    private func selectedRowBackground(isSelected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 10)
+            .fill(isSelected ? Color.neonCyan.opacity(0.16) : Color.panelBg)
+    }
+
+    private func selectedRowStroke(isSelected: Bool, color: Color = .neonCyan) -> some View {
+        RoundedRectangle(cornerRadius: 10)
+            .stroke(isSelected ? color.opacity(0.9) : Color.clear, lineWidth: 1.5)
+    }
+
+    private func mealSelectionActionBar(entries: [Entry]) -> some View {
+        HStack(spacing: 8) {
+            Text("\(selectedMealSelectionCount(in: entries)) selected")
+                .font(.caption.bold())
+                .foregroundStyle(Color.mutedText)
+                .lineLimit(1)
+
+            Spacer(minLength: 4)
+
+            if canCombineSelectedEntries(in: entries) {
+                Button {
+                    Task { await combineSelectedEntries(in: entries) }
+                } label: {
+                    Label("Combine", systemImage: "rectangle.stack.badge.plus")
+                }
+                .tint(Color.neonGreen)
+            }
+
+            if canRemoveSelectedEntriesFromMeal(in: entries) {
+                Button {
+                    Task { await removeSelectedEntriesFromMeal(in: entries) }
+                } label: {
+                    Label("Remove", systemImage: "arrow.up.right.square")
+                }
+                .tint(Color.neonCyan)
+            }
+
+            Button(role: .destructive) {
+                Task { await deleteSelectedMeals(in: entries) }
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .tint(Color.neonPink)
+        }
+        .font(.caption.bold())
+        .labelStyle(.titleAndIcon)
+        .buttonStyle(.bordered)
+        .disabled(isApplyingMealSelectionAction)
+        .padding(10)
+        .background(Color.white.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
     // MARK: - Single Entry Card
 
+    @ViewBuilder
     private func singleEntryCard(_ entry: Entry, allEntries: [Entry]) -> some View {
-        SwipeToDeleteRow(actionTint: Color.neonPink) {
-            Task { await deleteEntry(entry.id) }
-        } content: {
-            entryRowContent(entry)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.panelBg)
-                .cornerRadius(10)
-                .contentShape(Rectangle())
-                .onTapGesture { beginEditEntry(entry) }
-                .dropDestination(for: EntryDragData.self) { items, _ in
-                    guard let dropped = items.first, dropped.entryId != entry.id else { return false }
-                    Task { await combineEntries(ids: [entry.id, dropped.entryId]) }
-                    return true
-                } isTargeted: { _ in
-                    // Visual feedback handled by overlay
-                }
+        let isSelected = selectedEntryIds.contains(entry.id)
+        let content = HStack(spacing: 8) {
+            if isMealEditing {
+                selectionIcon(isSelected: isSelected)
             }
+            entryRowContent(entry)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(selectedRowBackground(isSelected: isSelected))
+        .overlay(selectedRowStroke(isSelected: isSelected))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isMealEditing {
+                toggleEntrySelection(entry, allEntries: allEntries)
+            } else {
+                beginEditEntry(entry)
+            }
+        }
+        .dropDestination(for: EntryDragData.self) { items, _ in
+            guard let dropped = items.first, dropped.entryId != entry.id else { return false }
+            Task { await combineEntries(ids: [entry.id, dropped.entryId]) }
+            return true
+        } isTargeted: { _ in
+            // Visual feedback handled by overlay
+        }
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+
+        if isMealEditing {
+            content
+        } else {
+            SwipeToDeleteRow(actionTint: Color.neonPink) {
+                Task { await deleteEntry(entry.id) }
+            } content: {
+                content
+            }
+        }
     }
 
     // MARK: - Meal Group Card
 
-    private func mealGroupCard(items: [Entry]) -> some View {
+    private func mealGroupCard(items: [Entry], allEntries: [Entry]) -> some View {
         let totalCal = items.reduce(0) { $0 + $1.calories }
         let totalP = items.reduce(0) { $0 + $1.protein }
         let totalC = items.reduce(0) { $0 + $1.carbs }
         let totalF = items.reduce(0) { $0 + $1.fat }
+        let mealGroup = items.first?.mealGroup
+        let isSelected = mealGroup.map { selectedMealGroups.contains($0) } ?? false
 
         return VStack(alignment: .leading, spacing: 0) {
             // Meal header — tappable to edit meal
-            HStack {
+            HStack(spacing: 8) {
+                if isMealEditing {
+                    selectionIcon(isSelected: isSelected)
+                }
                 Text(items.first?.mealName ?? "Meal")
                     .font(.subheadline.bold())
                     .foregroundStyle(Color.neonGreen)
@@ -615,14 +822,23 @@ struct MacrosView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                 }
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(Color.mutedText)
+                if !isMealEditing {
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(Color.mutedText)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .contentShape(Rectangle())
-            .onTapGesture { beginEditMeal(items: items) }
+            .background(isSelected ? Color.neonCyan.opacity(0.12) : Color.clear)
+            .onTapGesture {
+                if isMealEditing, let mealGroup {
+                    toggleMealGroupSelection(mealGroup)
+                } else {
+                    beginEditMeal(items: items)
+                }
+            }
             // Drop onto meal header to add to this meal
             .dropDestination(for: EntryDragData.self) { droppedItems, _ in
                 guard let dropped = droppedItems.first else { return false }
@@ -641,7 +857,7 @@ struct MacrosView: View {
             // Sub-items
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(items) { entry in
-                    subItemRow(entry: entry, items: items)
+                    subItemRow(entry: entry, allEntries: allEntries)
 
                     if entry.id != items.last?.id {
                         Rectangle()
@@ -656,36 +872,58 @@ struct MacrosView: View {
         .background(Color.panelBg)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.neonGreen.opacity(0.2), lineWidth: 1)
+                .stroke(isSelected ? Color.neonCyan.opacity(0.9) : Color.neonGreen.opacity(0.2), lineWidth: isSelected ? 1.5 : 1)
         )
         .cornerRadius(10)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
-    private func subItemRow(entry: Entry, items: [Entry]) -> some View {
-        SwipeToDeleteRow(actionTint: Color.neonPink) {
-            Task { await deleteEntry(entry.id) }
-        } content: {
-            entryRowContent(entry, isSubItem: true)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
-                .onTapGesture { beginEditEntry(entry) }
-                .contextMenu {
-                    Button { beginEditEntry(entry) } label: {
-                        Label("Edit Item", systemImage: "pencil")
-                    }
-                    Button {
-                        Task { await removeFromGroup(entryId: entry.id) }
-                    } label: {
-                        Label("Remove from Meal", systemImage: "arrow.up.right.square")
-                    }
-                    Button(role: .destructive) {
-                        Task { await deleteEntry(entry.id) }
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                }
+    @ViewBuilder
+    private func subItemRow(entry: Entry, allEntries: [Entry]) -> some View {
+        let isSelected = selectedEntryIds.contains(entry.id)
+        let content = HStack(spacing: 8) {
+            if isMealEditing {
+                selectionIcon(isSelected: isSelected)
             }
+            entryRowContent(entry, isSubItem: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(isSelected ? Color.neonCyan.opacity(0.14) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isMealEditing {
+                toggleEntrySelection(entry, allEntries: allEntries)
+            } else {
+                beginEditEntry(entry)
+            }
+        }
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+
+        if isMealEditing {
+            content
+        } else {
+            SwipeToDeleteRow(actionTint: Color.neonPink) {
+                Task { await deleteEntry(entry.id) }
+            } content: {
+                content
+                    .contextMenu {
+                        Button { beginEditEntry(entry) } label: {
+                            Label("Edit Item", systemImage: "pencil")
+                        }
+                        Button {
+                            Task { await removeFromGroup(entryId: entry.id) }
+                        } label: {
+                            Label("Remove from Meal", systemImage: "arrow.up.right.square")
+                        }
+                        Button(role: .destructive) {
+                            Task { await deleteEntry(entry.id) }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+            }
+        }
     }
 
     private func entryRowContent(_ entry: Entry, isSubItem: Bool = false) -> some View {
@@ -2406,6 +2644,64 @@ struct MacrosView: View {
             await loadDashboard()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func performMealSelectionAction(_ operation: () async throws -> Void) async {
+        guard !isApplyingMealSelectionAction else { return }
+        isApplyingMealSelectionAction = true
+        isDragging = false
+        defer { isApplyingMealSelectionAction = false }
+
+        do {
+            try await operation()
+            clearMealSelection()
+            await loadDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func combineSelectedEntries(in entries: [Entry]) async {
+        let ids = selectedEntries(in: entries)
+            .filter { $0.mealGroup == nil }
+            .map(\.id)
+        guard ids.count >= 2 else { return }
+
+        await performMealSelectionAction {
+            try await api.combineEntries(entryIds: ids, mealName: "Meal")
+        }
+    }
+
+    private func removeSelectedEntriesFromMeal(in entries: [Entry]) async {
+        let selected = selectedEntries(in: entries)
+        let groups = Set(selected.compactMap(\.mealGroup))
+        guard !selected.isEmpty, groups.count == 1, selected.count == selectedEntryIds.count else { return }
+
+        await performMealSelectionAction {
+            for entry in selected {
+                try await api.removeFromGroup(entryId: entry.id)
+            }
+        }
+    }
+
+    private func deleteSelectedMeals(in entries: [Entry]) async {
+        let selectedMealIds = Set(selectedMealEntries(in: entries).map(\.id))
+        let ids = entries.compactMap { entry -> Int? in
+            if selectedEntryIds.contains(entry.id) {
+                return entry.id
+            }
+            if selectedMealIds.contains(entry.id) {
+                return entry.id
+            }
+            return nil
+        }
+        guard !ids.isEmpty else { return }
+
+        await performMealSelectionAction {
+            for id in ids {
+                try await api.deleteEntry(id: id)
+            }
         }
     }
 
