@@ -42,6 +42,7 @@ const state = {
     pattern: new Set()
   },
   visibleCoachSuggestions: {},
+  disabledCoachCategories: new Set(),
   expandedMealGroups: new Set(),
   selectedEntryIds: new Set(),
   selectedMealGroups: new Set(),
@@ -61,6 +62,7 @@ const state = {
 
 const BUILD_HASH_DIGITS = 7;
 const LOG_PAGE_SIZE = 30;
+const WEB_COACH_DISABLED_CATEGORIES_KEY = 'daily_macros_coach_disabled_categories';
 
 function formatBuildLabel(build) {
   const value = String(build || '').trim();
@@ -69,6 +71,8 @@ function formatBuildLabel(build) {
   }
   return value;
 }
+
+state.disabledCoachCategories = readDisabledCoachCategories();
 
 const mealTextEl = document.getElementById('meal-text');
 const consumedAtEl = document.getElementById('consumed-at');
@@ -1323,11 +1327,52 @@ function isCoachSuggestionDismissed(suggestion) {
   return Boolean(todayUntil && todayUntil > Date.now());
 }
 
+function coachCategoryControlDefinitions() {
+  return [
+    { id: 'trends', label: 'Trend coaching', categories: ['trend', 'steering', 'goal_tracking', 'plateau', 'cross_page', 'recovery'] },
+    { id: 'reminders', label: 'Logging reminders', categories: ['reminder'] },
+    { id: 'habitSuggestions', label: 'Habit quick adds', categories: ['quick_add'] },
+    { id: 'congratulations', label: 'Celebrations', categories: ['congratulations', 'maintenance'] },
+    { id: 'alcohol', label: 'Alcohol coaching', categories: ['alcohol'] },
+    { id: 'cleanup', label: 'Cleanup prompts', categories: ['cleanup'] }
+  ];
+}
+
+function readDisabledCoachCategories() {
+  try {
+    const raw = window.localStorage?.getItem(WEB_COACH_DISABLED_CATEGORIES_KEY) || '[]';
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeDisabledCoachCategories(disabledCategories) {
+  const next = new Set(disabledCategories || []);
+  state.disabledCoachCategories = next;
+  try {
+    window.localStorage?.setItem(WEB_COACH_DISABLED_CATEGORIES_KEY, JSON.stringify([...next].sort()));
+  } catch {
+    // Local coach controls should still work for the session if storage is unavailable.
+  }
+}
+
+function isCoachCategoryDisabled(suggestion) {
+  if (!suggestion || !state.disabledCoachCategories?.size) {
+    return false;
+  }
+  return coachCategoryControlDefinitions().some((control) => (
+    state.disabledCoachCategories.has(control.id) && control.categories.includes(suggestion.category)
+  ));
+}
+
 function buildCoachContext() {
   return {
     today: getLocalIsoDay(),
     now: new Date(),
     dashboardData: state.dashboardData || {},
+    savedItems: state.savedItems || [],
     macroDailyTotals: state.macroDailyTotals || [],
     workoutEntries: state.workoutEntries || [],
     weightEntries: state.weightEntries || [],
@@ -1354,6 +1399,7 @@ function renderCoachForPage(pageKey) {
   }
   const suggestion = buildCoachCandidates(pageKey)
     .filter((candidate) => candidate.confidence >= 0.85)
+    .filter((candidate) => !isCoachCategoryDisabled(candidate))
     .sort((a, b) => b.priority - a.priority)
     .find((candidate) => !isCoachSuggestionDismissed(candidate));
 
@@ -1368,13 +1414,13 @@ function renderCoachForPage(pageKey) {
     ? `<button type="button" class="coach-action-btn" data-coach-action="${escapeAttr(suggestion.action.type)}">${escapeHtml(suggestion.action.label)}</button>`
     : '';
   slot.innerHTML = `
-    <div class="coach-icon" role="img" aria-label="Compass AI suggestion">✦</div>
+    <div class="coach-icon" role="img" aria-label="Coach Tony P. AI suggestion">✦</div>
     <div class="coach-body">
       <div class="coach-title-row">
         <div>
           <h2 class="coach-title">${escapeHtml(suggestion.title)}</h2>
           <div class="coach-meta">
-            <span>Compass</span>
+            <span>Coach Tony P.</span>
             <span class="coach-pill">Local rules</span>
             <span class="coach-pill">High confidence</span>
           </div>
@@ -1451,6 +1497,8 @@ function showCoachWhyModal(suggestion) {
 function runCoachAction(actionType) {
   if (actionType === 'focus-meal') {
     mealTextEl?.focus();
+  } else if (actionType === 'focus-quick-add') {
+    quickSearchEl?.focus();
   } else if (actionType === 'focus-workout') {
     workoutTextEl?.focus();
   } else if (actionType === 'focus-weight') {
@@ -1645,6 +1693,15 @@ function showAccountPrivacyModal() {
   const sexualActivityCopy = state.features?.sexualActivity
     ? 'sexual activity entries, '
     : 'sexual activity entries only if an admin enables that view, ';
+  const coachCategoryControls = coachCategoryControlDefinitions().map((control) => {
+    const checked = state.disabledCoachCategories.has(control.id) ? '' : ' checked';
+    return `
+      <label class="account-coach-category-toggle">
+        <input type="checkbox" data-coach-category="${escapeAttr(control.id)}"${checked} />
+        <span>${escapeHtml(control.label)}</span>
+      </label>
+    `;
+  }).join('');
 
   overlay = document.createElement('div');
   overlay.id = 'entry-modal-overlay';
@@ -1655,9 +1712,15 @@ function showAccountPrivacyModal() {
       <div class="account-privacy-copy">
         <p><strong>Support</strong><span>Contact the person who invited you. Include any request reference shown in an error message and the build details below.</span></p>
         <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
-        <p><strong>AI processing</strong><span>Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them.</span></p>
+        <p><strong>AI processing</strong><span>Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them. Coach Tony P. uses local rule gates for eligible coach cards; on supported iOS versions, the on-device Apple model may rank or phrase those cards.</span></p>
         <p><strong>Controls</strong><span>You can export a JSON copy of your account data or permanently delete your account from here. <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span></p>
       </div>
+      <fieldset class="account-coach-category-controls">
+        <legend>Coach Tony P. Cards</legend>
+        <div class="account-coach-category-grid">
+          ${coachCategoryControls}
+        </div>
+      </fieldset>
       <div class="account-build-meta">
         <span>Web ${escapeHtml(packageVersion)}</span>
         <span>Build ${escapeHtml(build)}</span>
@@ -1674,6 +1737,22 @@ function showAccountPrivacyModal() {
 
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) overlay.remove();
+  });
+  overlay.querySelectorAll('[data-coach-category]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const category = input.dataset.coachCategory;
+      if (!category) return;
+      const disabled = new Set(state.disabledCoachCategories);
+      if (input.checked) {
+        disabled.delete(category);
+      } else {
+        disabled.add(category);
+      }
+      writeDisabledCoachCategories(disabled);
+      for (const pageKey of Object.keys(coachSlotEls)) {
+        renderCoachForPage(pageKey);
+      }
+    });
   });
   document.getElementById('account-close-btn').addEventListener('click', () => overlay.remove());
   document.getElementById('account-export-btn').addEventListener('click', async () => {

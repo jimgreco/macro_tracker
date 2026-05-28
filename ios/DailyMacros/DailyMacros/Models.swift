@@ -149,7 +149,7 @@ struct WorkoutsResponse: Codable {
     let pagination: Pagination?
 }
 
-struct SavedItem: Codable, Identifiable {
+struct SavedItem: Codable, Identifiable, Sendable {
     let id: Int
     let name: String
     let quantity: Double

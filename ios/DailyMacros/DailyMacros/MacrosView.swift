@@ -2127,7 +2127,12 @@ struct MacrosView: View {
         }
 
         let selectedDate = selectedDate
-        let suggestions = await CoachCandidateWorker.shared.macros(dashboard: dashboard, selectedDate: selectedDate)
+        let savedItems = savedItems
+        let suggestions = await CoachCandidateWorker.shared.macros(
+            dashboard: dashboard,
+            selectedDate: selectedDate,
+            savedItems: savedItems
+        )
         guard !Task.isCancelled else { return }
         coachSuggestions = suggestions
     }
@@ -2151,6 +2156,7 @@ struct MacrosView: View {
             savedItems = try await api.getSavedItems()
             hasLoadedSavedItems = true
             rebuildQuickTemplates()
+            await rebuildCoachSuggestions()
         } catch {
             if showErrors {
                 errorMessage = error.localizedDescription

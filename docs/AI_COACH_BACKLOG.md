@@ -5,23 +5,24 @@ Last updated: 2026-05-27
 ## Implementation Status
 
 - 2026-05-27: Started iOS implementation with a shared AI coach suggestion model, dismissals, coach card UI, and deterministic high-confidence candidate rules for Macros, Workouts, Weight, and Sleep.
-- 2026-05-27: Named the iOS coach `Compass`, changed the coach card to lead with the suggestion title before the author/source line, and added Settings controls to show/hide Compass cards and reset dismissed suggestions.
-- 2026-05-27: Improved Compass candidate quality with learned meal windows for missed breakfast/lunch prompts, distinct-day habitual quick-add detection with direct add payloads, weight goal-date pace coaching, repeated-evidence wake-up handling for sleep, and local diagnostics for shown/dismissed/acted-on suggestions.
-- 2026-05-27: Added iOS repeat-workout coaching that detects recurring workouts across distinct recent days and logs the reconstructed workout directly from the Compass card.
+- 2026-05-27: Named the iOS coach `Coach Tony P.`, changed the coach card to lead with the suggestion title before the author/source line, and added Settings controls to show/hide Coach Tony P. cards and reset dismissed suggestions.
+- 2026-05-27: Improved Coach Tony P. candidate quality with learned meal windows for missed breakfast/lunch prompts, distinct-day habitual quick-add detection with direct add payloads, weight goal-date pace coaching, repeated-evidence wake-up handling for sleep, and local diagnostics for shown/dismissed/acted-on suggestions.
+- 2026-05-27: Added iOS repeat-workout coaching that detects recurring workouts across distinct recent days and logs the reconstructed workout directly from the Coach Tony P. card.
 - 2026-05-27: Added iOS weight-maintenance congratulations that require repeated weigh-ins across at least 10 days, all within the goal band.
 - 2026-05-27: Added iOS sleep-streak congratulations for consecutive logged nights that meet the sleep target.
-- 2026-05-27: Split iOS Compass "Not useful" into a distinct local diagnostics event while still suppressing the specific pattern.
-- 2026-05-27: Added an iOS Compass "Why am I seeing this?" detail sheet with reason, evidence, confidence, source, category, and expiry.
+- 2026-05-27: Split iOS Coach Tony P. "Not useful" into a distinct local diagnostics event while still suppressing the specific pattern.
+- 2026-05-27: Added an iOS Coach Tony P. "Why am I seeing this?" detail sheet with reason, evidence, confidence, source, category, and expiry.
 - 2026-05-27: Added iOS end-of-day macro steering when protein is behind pace and calories remain available.
 - 2026-05-27: Added iOS weight plateau coaching that requires 8+ weigh-ins across 21+ days and a target that still needs movement.
 - 2026-05-27: Expanded iOS workout trend coaching to include workout-calorie shifts against the recent baseline.
-- 2026-05-27: Added iOS local AFM narration/ranking for Compass. Foundation Models only sees already-eligible rule candidates, may choose among the top candidates, and may rewrite only title/message while rule evidence, confidence, actions, expiry, and dismissal keys remain authoritative.
-- 2026-05-27: Replaced the simple iOS Compass on/off toggle with modes for On, Rules Only, Local AI Only, and Off, including runtime local-AI availability copy in Settings.
-- 2026-05-27: Added iOS cross-page Compass guardrails for Workouts plus Sleep recovery and Weight plus macro consistency.
-- 2026-05-27: Added backend synced Compass dismissals and wired iOS to pull/push local dismissals while preserving offline local behavior.
-- 2026-05-27: Added web Compass parity with deterministic high-confidence coach cards for Macros, Workouts, Weight, and Sleep, sharing synced today/pattern dismissals with iOS.
-- 2026-05-27: Extracted web Compass rules into `public/coach-rules.js` and added behavioral unit coverage for confidence gates, insufficient/borderline data, target-hit suppression, and today-vs-pattern dismissals.
-- 2026-05-27: Added web Compass "Why am I seeing this?" detail modal with evidence, confidence, source, surface, category, and dismissal pattern.
+- 2026-05-27: Added iOS local AFM narration/ranking for Coach Tony P. Foundation Models only sees already-eligible rule candidates, may choose among the top candidates, and may rewrite only title/message while rule evidence, confidence, actions, expiry, and dismissal keys remain authoritative.
+- 2026-05-27: Replaced the simple iOS Coach Tony P. on/off toggle with modes for On, Rules Only, Local AI Only, and Off, including runtime local-AI availability copy in Settings.
+- 2026-05-27: Added iOS cross-page Coach Tony P. guardrails for Workouts plus Sleep recovery and Weight plus macro consistency.
+- 2026-05-27: Added backend synced Coach Tony P. dismissals and wired iOS to pull/push local dismissals while preserving offline local behavior.
+- 2026-05-27: Added web Coach Tony P. parity with deterministic high-confidence coach cards for Macros, Workouts, Weight, and Sleep, sharing synced today/pattern dismissals with iOS.
+- 2026-05-27: Extracted web Coach Tony P. rules into `public/coach-rules.js` and added behavioral unit coverage for confidence gates, insufficient/borderline data, target-hit suppression, and today-vs-pattern dismissals.
+- 2026-05-27: Added web Coach Tony P. "Why am I seeing this?" detail modal with evidence, confidence, source, surface, category, and dismissal pattern.
+- 2026-05-27: Added Coach Tony P. polish for robust alcohol tagging, Quick Add cleanup cards, sleep-improvement congratulations, category-level disable controls, and local-AI privacy/App Store copy.
 
 ## Goal
 
@@ -109,7 +110,7 @@ Backlog tasks:
   - generating firm but friendly copy,
   - shortening copy to fit the card,
   - producing structured output that matches the suggestion contract.
-  - Started in iOS: Compass sends the top eligible candidates to AFM and validates the returned candidate id, title, and message before displaying a local-AI card.
+  - Started in iOS: Coach Tony P. sends the top eligible candidates to AFM and validates the returned candidate id, title, and message before displaying a local-AI card.
 - Do not use AFM for:
   - numeric calculations,
   - target comparisons,
@@ -125,8 +126,8 @@ Backlog tasks:
   - Local model with fallback templates.
 - Started in iOS: Settings now supports On, Rules Only, Local AI Only, and Off, plus reset for dismissed suggestions.
 - Add diagnostics that expose which source produced the suggestion: rule template, AFM local, or server fallback if server fallback is later enabled.
-  - Started in iOS: Compass records local diagnostics when suggestions are shown, dismissed, or acted on, including surface, category, confidence, source, and dismissal key.
-  - Started in iOS: Compass records local-AI narration success and local-AI/template fallback events.
+  - Started in iOS: Coach Tony P. records local diagnostics when suggestions are shown, dismissed, or acted on, including surface, category, confidence, source, and dismissal key.
+  - Started in iOS: Coach Tony P. records local-AI narration success and local-AI/template fallback events.
 
 ## Shared Data Requirements
 
@@ -166,6 +167,7 @@ Backlog items:
 - Alcohol coaching:
   - Add or reuse alcohol tagging so the coach can identify alcohol from parsed entries or saved items.
   - Only coach when alcohol appears repeatedly or meaningfully affects calories, not from a single social event.
+  - Started in iOS and web: Coach Tony P. uses more specific alcohol tags, excludes common non-alcohol false positives, and requires repeated days or meaningful logged calories.
 - Missed meal prompt:
   - Learn usual breakfast and lunch logging windows from historical logs.
   - If it is later than the user's normal window and no matching meal is logged, ask whether they still need to enter it.
@@ -174,7 +176,7 @@ Backlog items:
   - Detect repeated foods around the same time, such as yogurt and granola for breakfast.
   - Require at least 3 occurrences in 14 days with similar timing.
   - Offer one-tap quick add for the saved item or reconstructed meal group.
-  - Started in iOS: Compass detects repeated foods by distinct daypart days and can add the reconstructed item directly from the card.
+  - Started in iOS: Coach Tony P. detects repeated foods by distinct daypart days and can add the reconstructed item directly from the card.
 - Macro target congratulations:
   - Congratulate when the current day or previous complete day lands within a realistic band:
     - calories within 5 percent,
@@ -184,9 +186,10 @@ Backlog items:
 - End-of-day steering:
   - In late afternoon or evening, detect whether one macro is clearly lagging while calories remain available.
   - Suggest a concrete direction, for example "protein-first dinner" or "lighter snack."
-  - Started in iOS: Compass shows a protein-first dinner nudge after 4 PM only when calories remain and protein is materially behind calorie pace.
+  - Started in iOS: Coach Tony P. shows a protein-first dinner nudge after 4 PM only when calories remain and protein is materially behind calorie pace.
 - Saved-item cleanup prompt:
   - If the same food is manually entered often but not saved, suggest saving it as a quick add.
+  - Started in iOS and web: Coach Tony P. flags exact duplicate saved Quick Adds and noisy unused saved items when enough local evidence exists.
 
 Acceptance criteria:
 - No macro warning appears until enough complete-day data exists.
@@ -201,7 +204,7 @@ Backlog items:
 - Recent workout trend:
   - Compare the last 3 to 5 workouts against the user's prior baseline for duration, calories, and intensity.
   - Show changes only when the difference is meaningful, for example at least 15 percent from baseline.
-  - Started in iOS: Compass compares recent duration, workout calories, and intensity against the prior 5-workout baseline.
+  - Started in iOS: Coach Tony P. compares recent duration, workout calories, and intensity against the prior 5-workout baseline.
 - Falling-behind reminder:
   - Compare current week-to-date workout days against weekly target and usual workout cadence.
   - Show only when there is still time to act and the user is materially behind.
@@ -214,10 +217,10 @@ Backlog items:
   - If higher than usual and recent sleep is poor, suggest recovery-oriented phrasing.
 - Repeat workout quick action:
   - Detect common recurring workouts and offer a one-tap "Log usual workout" action.
-  - Started in iOS: Compass requires at least 3 matching workout days in the last 30 days and no matching workout today before showing a direct log action.
+  - Started in iOS: Coach Tony P. requires at least 3 matching workout days in the last 30 days and no matching workout today before showing a direct log action.
 - Rest/recovery guardrail:
   - If the user has several consecutive high-intensity days and poor sleep, suggest an easier session or rest day without making medical claims.
-  - Started in iOS: Workouts loads recent sleep totals and Compass shows a recovery guardrail only when sleep is under target across multiple recent logged nights and there are multiple recent high-intensity workout days.
+  - Started in iOS: Workouts loads recent sleep totals and Coach Tony P. shows a recovery guardrail only when sleep is under target across multiple recent logged nights and there are multiple recent high-intensity workout days.
 
 Acceptance criteria:
 - Workout coaching distinguishes workout days from total session count.
@@ -236,19 +239,19 @@ Backlog items:
   - Compare current rolling trend against target weight and target date when available.
   - Estimate whether the current trend is on track, ahead, or behind.
   - Keep language practical and non-alarming.
-  - Started in iOS: Compass compares recent rolling pace with the pace needed for a future target date when there are at least 6 recent weigh-ins.
-  - Started in iOS: Weight can load month macro totals and Compass can flag macro consistency as the lever only when weight is not moving toward target and there are enough complete macro days across a multi-week window.
+  - Started in iOS: Coach Tony P. compares recent rolling pace with the pace needed for a future target date when there are at least 6 recent weigh-ins.
+  - Started in iOS: Weight can load month macro totals and Coach Tony P. can flag macro consistency as the lever only when weight is not moving toward target and there are enough complete macro days across a multi-week window.
 - Goal congratulations:
   - Congratulate when the user reaches the target band.
   - Add a separate maintenance congratulations when the user remains within the target band for a defined period, such as 14 or 30 days.
-  - Started in iOS: Compass shows a separate maintenance card only after at least 5 recent weigh-ins across 10+ days are all within 1 lb of target.
+  - Started in iOS: Coach Tony P. shows a separate maintenance card only after at least 5 recent weigh-ins across 10+ days are all within 1 lb of target.
 - Weigh-in consistency:
   - If the user normally logs weight but has not logged recently, prompt for a check-in.
   - Do not prompt users who do not have an established weight logging habit.
 - Plateau coaching:
   - Detect a flat rolling trend over 3 or more weeks only when the goal requires movement.
   - Suggest reviewing recent macro adherence rather than making unsupported claims.
-  - Started in iOS: Compass detects a flat 28-day rolling trend only with enough weigh-ins, a multi-week span, and distance remaining to target.
+  - Started in iOS: Coach Tony P. detects a flat 28-day rolling trend only with enough weigh-ins, a multi-week span, and distance remaining to target.
 
 Acceptance criteria:
 - No weight suggestion is based on a single weigh-in.
@@ -269,10 +272,11 @@ Backlog items:
   - Started in iOS: wake-up language now requires repeated recent nights rather than one rough night.
 - Recovery tie-in:
   - If sleep is below target and workouts have been high intensity, suggest a lighter workout or earlier wind-down.
-  - Started in iOS Workouts: Compass uses recent sleep totals and high-intensity workout days to suggest an easier next session without medical claims.
+  - Started in iOS Workouts: Coach Tony P. uses recent sleep totals and high-intensity workout days to suggest an easier next session without medical claims.
 - Sleep congratulations:
   - Congratulate on meeting the target for several nights in a row or improving the weekly average.
-  - Started in iOS: Compass recognizes 3+ consecutive logged nights that meet the target before showing a streak card.
+  - Started in iOS: Coach Tony P. recognizes 3+ consecutive logged nights that meet the target before showing a streak card.
+  - Started in iOS and web: Coach Tony P. recognizes a meaningful recent sleep improvement before showing another below-target nudge.
 - Logging reminder:
   - If the user usually logs sleep and missed the prior night, ask whether they want to enter it.
 
@@ -285,14 +289,14 @@ Acceptance criteria:
 
 Backlog items:
 - Correlate sleep and workouts when both data sets are strong enough.
-  - Started in iOS Workouts: Compass combines recent sleep target adherence with recent high-intensity workout days for a recovery guardrail.
+  - Started in iOS Workouts: Coach Tony P. combines recent sleep target adherence with recent high-intensity workout days for a recovery guardrail.
 - Correlate macro adherence and weight trend only over multi-week windows.
-  - Started in iOS Weight: Compass requires 6+ recent weigh-ins across 14+ days, 10+ complete macro days, distance remaining to target, and a repeated calorie/protein pattern before showing a cross-page macro-consistency card.
+  - Started in iOS Weight: Coach Tony P. requires 6+ recent weigh-ins across 14+ days, 10+ complete macro days, distance remaining to target, and a repeated calorie/protein pattern before showing a cross-page macro-consistency card.
 - Detect "good streaks" across multiple surfaces, for example macro adherence plus workout target met.
 - Add a weekly coach recap once daily coach cards are reliable.
 - Add "Why am I seeing this?" detail for every suggestion.
-  - Started in iOS: every Compass card can open a detail sheet with the suggestion reason, evidence, confidence, source, category, and expiry.
-  - Started on web: every Compass card can open a detail modal with reason, evidence, confidence, source, surface, category, and dismissal pattern.
+  - Started in iOS: every Coach Tony P. card can open a detail sheet with the suggestion reason, evidence, confidence, source, category, and expiry.
+  - Started on web: every Coach Tony P. card can open a detail modal with reason, evidence, confidence, source, surface, category, and dismissal pattern.
 - Add "Not useful" feedback so repeated poor suggestions can be suppressed.
   - Started in iOS: the card records `not_useful` separately from dismissals and hides that specific suggestion pattern.
 
@@ -348,11 +352,12 @@ Example copy:
 
 - Add synced dismissals through the backend.
 - Add web coach card parity if the web app remains an active surface.
-  - Started on web: deterministic Compass cards render above Macros, Workouts, Weight, and Sleep content; they use local page data, high-confidence gates, and `/api/coach/dismissals` for today/pattern dismissal sync.
+  - Started on web: deterministic Coach Tony P. cards render above Macros, Workouts, Weight, and Sleep content; they use local page data, high-confidence gates, and `/api/coach/dismissals` for today/pattern dismissal sync.
 - Add quality feedback controls.
   - Started on web: "Not useful" hides the same synced pattern so repeated bad cards stop crossing surfaces.
 - Add weekly recap after daily cards prove reliable.
 - Add privacy copy and App Store notes for local AI coaching.
+  - Started: privacy policy, App Store privacy notes, iOS Settings, and web Account & Privacy now describe local Coach Tony P. behavior and OpenAI boundaries.
 
 ## Test Plan
 
@@ -362,11 +367,11 @@ Example copy:
   - Started on web: today dismissals expire by timestamp while pattern dismissals persist.
 - Snapshot-test coach card layout on small and large iPhones.
 - Verify VoiceOver labels for the sparkle/AI icon, dismiss menu, and evidence text.
-  - Started in iOS: Compass labels the AI icon, dismiss menu, and evidence text explicitly for accessibility, with regression coverage.
+  - Started in iOS: Coach Tony P. labels the AI icon, dismiss menu, and evidence text explicitly for accessibility, with regression coverage.
 - Verify AFM unavailable path uses deterministic templates.
   - Started in iOS: On mode falls back to deterministic templates when local narration is unavailable; Local AI Only suppresses template fallback.
 - Verify no network AI request is made for routine iOS coach generation when local mode is available.
-  - Started in tests: Compass regression coverage keeps `AICoach.swift` free of OpenAI and parser endpoint calls.
+  - Started in tests: Coach Tony P. regression coverage keeps `AICoach.swift` free of OpenAI and parser endpoint calls.
 - Verify suggestions expire at the expected local-day boundary.
 
 ## Open Questions
@@ -374,5 +379,6 @@ Example copy:
 - Should the first version be iOS-only, or should the web app get deterministic coach cards at the same time?
 - Should coach dismissals sync immediately, or is local-only dismissal acceptable for the first beta?
 - Should users be able to disable specific coach categories, such as alcohol coaching or weight coaching?
+  - Resolved for current scope: users can disable broad Coach Tony P. categories such as trends, reminders, habit quick adds, celebrations, alcohol coaching, and cleanup prompts.
 - Should weekly recap use AFM locally, server AI, or deterministic templates?
 - Do we want a visible "AI Coach" Settings section, or should the controls live under existing app preferences?

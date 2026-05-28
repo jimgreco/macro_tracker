@@ -5,12 +5,13 @@ import FoundationModels
 #endif
 
 enum CoachBrand {
-    static let name = "Compass"
+    static let name = "Coach Tony P."
 }
 
 enum CoachSettingKeys {
     static let enabled = "ai_coach_enabled"
     static let mode = "ai_coach_mode"
+    static let disabledCategories = "ai_coach_disabled_categories"
 }
 
 enum CoachMode: String, CaseIterable, Identifiable, Sendable {
@@ -43,7 +44,7 @@ enum CoachMode: String, CaseIterable, Identifiable, Sendable {
         case .localModelOnly:
             return "Show cards only when the on-device model can narrate an eligible rule."
         case .off:
-            return "Hide Compass cards."
+            return "Hide \(CoachBrand.name) cards."
         }
     }
 
@@ -68,6 +69,80 @@ enum CoachMode: String, CaseIterable, Identifiable, Sendable {
     static func resolved(rawValue: String, legacyEnabled: Bool) -> CoachMode {
         guard legacyEnabled else { return .off }
         return CoachMode(rawValue: rawValue) ?? .localModelWithTemplates
+    }
+}
+
+enum CoachCategoryPreference: String, CaseIterable, Identifiable, Sendable {
+    case trends
+    case reminders
+    case habitSuggestions
+    case congratulations
+    case alcohol
+    case cleanup
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .trends:
+            return "Trend coaching"
+        case .reminders:
+            return "Logging reminders"
+        case .habitSuggestions:
+            return "Habit quick adds"
+        case .congratulations:
+            return "Celebrations"
+        case .alcohol:
+            return "Alcohol coaching"
+        case .cleanup:
+            return "Cleanup prompts"
+        }
+    }
+
+    private var suggestionCategories: Set<String> {
+        switch self {
+        case .trends:
+            return ["trend", "steering", "goal_tracking", "plateau", "cross_page", "recovery"]
+        case .reminders:
+            return ["reminder"]
+        case .habitSuggestions:
+            return ["quick_add"]
+        case .congratulations:
+            return ["congratulations", "maintenance"]
+        case .alcohol:
+            return ["alcohol"]
+        case .cleanup:
+            return ["cleanup"]
+        }
+    }
+
+    func matches(_ suggestion: CoachSuggestion) -> Bool {
+        suggestionCategories.contains(suggestion.category)
+    }
+
+    static func disabledIDs(from rawValue: String) -> Set<String> {
+        guard let data = rawValue.data(using: .utf8),
+              let values = try? JSONDecoder().decode([String].self, from: data) else {
+            return Set(rawValue.split(separator: ",").map { String($0) })
+        }
+        return Set(values)
+    }
+
+    static func encoded(_ disabledIDs: Set<String>) -> String {
+        let values = disabledIDs.sorted()
+        guard let data = try? JSONEncoder().encode(values),
+              let rawValue = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return rawValue
+    }
+
+    static func isDisabled(_ suggestion: CoachSuggestion, rawValue: String) -> Bool {
+        let disabledIDs = disabledIDs(from: rawValue)
+        guard !disabledIDs.isEmpty else { return false }
+        return allCases.contains { preference in
+            disabledIDs.contains(preference.rawValue) && preference.matches(suggestion)
+        }
     }
 }
 
@@ -362,6 +437,7 @@ struct AICoachSlot: View {
     @ObservedObject var dismissals: CoachDismissalStore
     @AppStorage(CoachSettingKeys.enabled) private var legacyCoachEnabled = true
     @AppStorage(CoachSettingKeys.mode) private var coachModeRaw = CoachMode.localModelWithTemplates.rawValue
+    @AppStorage(CoachSettingKeys.disabledCategories) private var disabledCategoryIDsRaw = "[]"
     @State private var recordedShownSuggestionKeys: Set<String> = []
     @State private var narratedSuggestion: CoachSuggestion?
     @State private var narrationFailureKey: String?
@@ -374,6 +450,7 @@ struct AICoachSlot: View {
     var body: some View {
         let mode = CoachMode.resolved(rawValue: coachModeRaw, legacyEnabled: legacyCoachEnabled)
         let visibleCandidates = dismissals.visibleSuggestions(from: suggestions)
+            .filter { !CoachCategoryPreference.isDisabled($0, rawValue: disabledCategoryIDsRaw) }
         let displayedSuggestions = displayedSuggestions(from: visibleCandidates, mode: mode)
         let suggestion = selectedSuggestion(from: displayedSuggestions)
 
@@ -609,8 +686,8 @@ struct AICoachSlot: View {
 actor CoachCandidateWorker {
     static let shared = CoachCandidateWorker()
 
-    func macros(dashboard: DashboardResponse, selectedDate: Date) -> [CoachSuggestion] {
-        CoachCandidateEngine.macros(dashboard: dashboard, selectedDate: selectedDate)
+    func macros(dashboard: DashboardResponse, selectedDate: Date, savedItems: [SavedItem]) -> [CoachSuggestion] {
+        CoachCandidateEngine.macros(dashboard: dashboard, selectedDate: selectedDate, savedItems: savedItems)
     }
 
     func workouts(
@@ -717,7 +794,7 @@ private enum FoundationCoachNarrator {
         let session = LanguageModelSession(
             model: model,
             instructions: """
-            You are Compass, a firm but friendly coach inside DailyMacros.
+            You are Coach Tony P., a firm but friendly coach inside DailyMacros.
             You receive only rule-approved, high-confidence coaching candidates.
             Choose the clearest candidate for the user right now and rewrite only its title and message.
             Preserve the facts exactly. Do not add numbers, dates, health claims, diagnoses, guarantees, shame, or medical advice.
@@ -748,7 +825,7 @@ private enum FoundationCoachNarrator {
     static var availabilitySummary: String {
         switch SystemLanguageModel.default.availability {
         case .available:
-            return "Local AI is available for Compass narration."
+            return "Local AI is available for \(CoachBrand.name) narration."
         case .unavailable(.deviceNotEligible):
             return "Local AI is unavailable because this device is not eligible for Apple Intelligence."
         case .unavailable(.appleIntelligenceNotEnabled):
@@ -1129,7 +1206,12 @@ enum CoachCandidateEngine {
         let workout: CoachWorkoutPayload
     }
 
-    static func macros(dashboard: DashboardResponse, selectedDate: Date, now: Date = Date()) -> [CoachSuggestion] {
+    static func macros(
+        dashboard: DashboardResponse,
+        selectedDate: Date,
+        savedItems: [SavedItem] = [],
+        now: Date = Date()
+    ) -> [CoachSuggestion] {
         var candidates: [CoachSuggestion] = []
         let calendar = easternCalendar
         let selectedDay = dayString(selectedDate)
@@ -1217,6 +1299,10 @@ enum CoachCandidateEngine {
 
         if let alcohol = alcoholPrompt(entries: dashboard.entries, now: now) {
             candidates.append(alcohol)
+        }
+
+        if let cleanup = savedItemCleanupPrompt(savedItems: savedItems, now: now) {
+            candidates.append(cleanup)
         }
 
         return candidates
@@ -1645,15 +1731,23 @@ enum CoachCandidateEngine {
             ? " Wake-ups are also repeatedly elevated, so keep the plan simple."
             : ""
 
-        if let streak = sleepTargetStreakSuggestion(
+        let streak = sleepTargetStreakSuggestion(
             dailyTotals: recentTotals,
             targetHours: targetHours,
             now: now
-        ) {
+        )
+        if let streak {
             candidates.append(streak)
         }
 
-        if targetHours > 0, averageHours <= targetHours - 0.75 {
+        let improvement = streak == nil
+            ? sleepImprovementSuggestion(dailyTotals: recentTotals, targetHours: targetHours, now: now)
+            : nil
+        if let improvement {
+            candidates.append(improvement)
+        }
+
+        if targetHours > 0, averageHours <= targetHours - 0.75, improvement == nil {
             candidates.append(
                 suggestion(
                     id: "sleep-below-target-\(dayString(now))",
@@ -1730,6 +1824,52 @@ enum CoachCandidateEngine {
             ],
             action: nil,
             dismissalKey: "sleep:target_streak:v1:\(streakCount):\(Int(targetHours.rounded()))"
+        )
+    }
+
+    private static func sleepImprovementSuggestion(
+        dailyTotals: [SleepDailyTotals],
+        targetHours: Double,
+        now: Date
+    ) -> CoachSuggestion? {
+        guard targetHours > 0 else { return nil }
+
+        let sorted = dailyTotals
+            .filter { $0.totalHours > 0 }
+            .sorted { $0.day < $1.day }
+        guard sorted.count >= 6,
+              let latest = sorted.last else {
+            return nil
+        }
+
+        let latestDate = parseDay(latest.day)
+        guard daysBetween(latestDate, now) <= 2 else { return nil }
+
+        let recent = Array(sorted.suffix(3))
+        let baseline = Array(sorted.dropLast(3).suffix(3))
+        guard recent.count == 3, baseline.count == 3 else { return nil }
+
+        let recentAverage = average(recent.map(\.totalHours))
+        let baselineAverage = average(baseline.map(\.totalHours))
+        guard baselineAverage > 0 else { return nil }
+
+        let improvement = recentAverage - baselineAverage
+        guard improvement >= 0.5 || improvement / baselineAverage >= 0.10 else { return nil }
+
+        return suggestion(
+            id: "sleep-improving-\(dayString(now))",
+            surface: .sleep,
+            category: "congratulations",
+            priority: 86,
+            confidence: 0.89,
+            title: "Sleep is improving",
+            message: "The last three logged nights are up from your prior baseline. Keep the bedtime routine repeatable and protect the same start window tonight.",
+            evidence: [
+                "last 3 avg \(formatHours(recentAverage))",
+                "prior 3 avg \(formatHours(baselineAverage))"
+            ],
+            action: nil,
+            dismissalKey: "sleep:improving:v1:\(Int((improvement * 10).rounded())):\(dayString(latestDate))"
         )
     }
 
@@ -1994,28 +2134,91 @@ enum CoachCandidateEngine {
         )
     }
 
+    private static func savedItemCleanupPrompt(savedItems: [SavedItem], now: Date) -> CoachSuggestion? {
+        guard savedItems.count >= 4 else { return nil }
+
+        let duplicateGroups = Dictionary(grouping: savedItems, by: savedItemSignature)
+            .values
+            .filter { $0.count >= 2 }
+            .sorted {
+                if $0.count != $1.count { return $0.count > $1.count }
+                return ($0.first?.usageCount ?? 0) < ($1.first?.usageCount ?? 0)
+            }
+
+        if let duplicateGroup = duplicateGroups.first,
+           let first = duplicateGroup.first {
+            return suggestion(
+                id: "macro-saved-cleanup-duplicates-\(dayString(now))",
+                surface: .macros,
+                category: "cleanup",
+                priority: 74,
+                confidence: 0.89,
+                title: "Quick Adds need cleanup",
+                message: "You have repeated saved items for \(first.name). Clean those up so the fastest choices stay trustworthy.",
+                evidence: [
+                    "\(duplicateGroup.count) matching saved items",
+                    "\(savedItems.count) total Quick Adds"
+                ],
+                action: CoachAction(label: "Review Quick Adds", type: .openQuickAdd, searchText: first.name),
+                dismissalKey: "macro:saved_cleanup_duplicates:v1:\(savedItemSignature(first)):\(duplicateGroup.count)"
+            )
+        }
+
+        let unusedItems = savedItems.filter { $0.usageCount == 0 }
+        if savedItems.count >= 10, unusedItems.count >= max(5, savedItems.count / 3) {
+            return suggestion(
+                id: "macro-saved-cleanup-unused-\(dayString(now))",
+                surface: .macros,
+                category: "cleanup",
+                priority: 70,
+                confidence: 0.86,
+                title: "Quick Adds are getting noisy",
+                message: "Several saved foods have never been used. Trim the stale ones so your repeat meals are easier to find.",
+                evidence: [
+                    "\(unusedItems.count) unused saved items",
+                    "\(savedItems.count) total Quick Adds"
+                ],
+                action: CoachAction(label: "Review Quick Adds", type: .openQuickAdd),
+                dismissalKey: "macro:saved_cleanup_unused:v1:\(unusedItems.count):\(savedItems.count)"
+            )
+        }
+
+        return nil
+    }
+
     private static func alcoholPrompt(entries: [Entry], now: Date) -> CoachSuggestion? {
         let cutoff = addingDays(-7, to: now)
-        let alcoholEntries = entries
-            .filter { parseDate($0.consumedAt) >= cutoff }
-            .filter { hasAlcoholToken($0.itemName) }
+        let alcoholEntries: [(entry: Entry, tag: String)] = entries.compactMap { entry in
+            guard parseDate(entry.consumedAt) >= cutoff,
+                  let tag = alcoholTag(for: entry.itemName) else {
+                return nil
+            }
+            return (entry, tag)
+        }
 
         guard alcoholEntries.count >= 2 else { return nil }
 
-        let calories = alcoholEntries.reduce(0.0) { $0 + $1.calories }
+        let calories = alcoholEntries.reduce(0.0) { $0 + $1.entry.calories }
         guard calories >= 300 else { return nil }
+        let alcoholDays = Set(alcoholEntries.map { dayString(parseDate($0.entry.consumedAt)) })
+        guard alcoholDays.count >= 2 || calories >= 500 else { return nil }
+        let tags = Set(alcoholEntries.map(\.tag)).sorted()
 
         return suggestion(
             id: "macro-alcohol-\(dayString(now))",
             surface: .macros,
-            category: "trend",
+            category: "alcohol",
             priority: 78,
             confidence: 0.86,
             title: "Alcohol is affecting the week",
             message: "Alcohol has shown up more than once recently. Keep the next couple of choices cleaner if you want the calorie trend back on target.",
-            evidence: ["\(alcoholEntries.count) alcohol entries in 7 days", "\(Int(calories.rounded())) logged calories"],
+            evidence: [
+                "\(alcoholDays.count) alcohol days in 7 days",
+                "\(Int(calories.rounded())) logged calories",
+                "matched \(tags.prefix(3).joined(separator: ", "))"
+            ],
             action: CoachAction(label: "Log next meal", type: .openLogMeal),
-            dismissalKey: "macro:alcohol:v1:\(alcoholEntries.count):\(Int(calories.rounded() / 100))"
+            dismissalKey: "macro:alcohol:v2:\(alcoholDays.count):\(Int(calories.rounded() / 100))"
         )
     }
 
@@ -2301,16 +2504,93 @@ enum CoachCandidateEngine {
         )
     }
 
-    private static func hasAlcoholToken(_ name: String) -> Bool {
-        let tokens = name
-            .lowercased()
-            .split { !$0.isLetter }
-            .map(String.init)
-        let alcoholTokens: Set<String> = [
-            "beer", "wine", "cocktail", "vodka", "whiskey", "whisky", "tequila",
-            "bourbon", "rum", "gin", "seltzer", "cider", "margarita", "martini"
+    private static func savedItemSignature(_ item: SavedItem) -> String {
+        [
+            normalizedName(item.name),
+            normalizedName(item.unit ?? ""),
+            "\(Int((item.quantity * 10).rounded()))",
+            "\(Int(item.calories.rounded()))",
+            "\(Int((item.protein * 10).rounded()))",
+            "\(Int((item.carbs * 10).rounded()))",
+            "\(Int((item.fat * 10).rounded()))"
+        ].joined(separator: "|")
+    }
+
+    private static func alcoholTag(for name: String) -> String? {
+        let normalized = normalizedName(name)
+        guard !normalized.isEmpty else { return nil }
+
+        let exclusions = [
+            "non alcoholic", "non-alcoholic", "no alcohol", "alcohol free", "zero proof",
+            "0 proof", "na beer", "n/a beer", "mocktail", "virgin ", "root beer",
+            "ginger beer", "birch beer", "butterbeer", "apple cider vinegar", "sparkling cider"
         ]
-        return tokens.contains { alcoholTokens.contains($0) }
+        if exclusions.contains(where: { normalized.contains($0) }) {
+            return nil
+        }
+
+        let phraseTags: [(phrase: String, tag: String)] = [
+            ("hard seltzer", "hard seltzer"),
+            ("spiked seltzer", "hard seltzer"),
+            ("white claw", "hard seltzer"),
+            ("high noon", "hard seltzer"),
+            ("hard cider", "cider"),
+            ("red wine", "wine"),
+            ("white wine", "wine"),
+            ("sparkling wine", "wine"),
+            ("old fashioned", "cocktail"),
+            ("moscow mule", "cocktail"),
+            ("tequila soda", "cocktail"),
+            ("vodka soda", "cocktail"),
+            ("gin tonic", "cocktail")
+        ]
+        if let match = phraseTags.first(where: { normalized.contains($0.phrase) }) {
+            return match.tag
+        }
+
+        let tokens = Set(
+            normalized
+                .split { !$0.isLetter && !$0.isNumber }
+                .map(String.init)
+        )
+        let alcoholTokens: [String: String] = [
+            "beer": "beer",
+            "ale": "beer",
+            "lager": "beer",
+            "ipa": "beer",
+            "stout": "beer",
+            "porter": "beer",
+            "pilsner": "beer",
+            "wine": "wine",
+            "prosecco": "wine",
+            "champagne": "wine",
+            "cocktail": "cocktail",
+            "margarita": "cocktail",
+            "martini": "cocktail",
+            "mojito": "cocktail",
+            "daiquiri": "cocktail",
+            "negroni": "cocktail",
+            "mimosa": "cocktail",
+            "sangria": "cocktail",
+            "spritz": "cocktail",
+            "vodka": "spirits",
+            "gin": "spirits",
+            "rum": "spirits",
+            "tequila": "spirits",
+            "mezcal": "spirits",
+            "whiskey": "spirits",
+            "whisky": "spirits",
+            "bourbon": "spirits",
+            "scotch": "spirits",
+            "brandy": "spirits",
+            "cognac": "spirits",
+            "liqueur": "spirits",
+            "liquor": "spirits",
+            "schnapps": "spirits",
+            "sake": "spirits",
+            "soju": "spirits"
+        ]
+        return tokens.compactMap { alcoholTokens[$0] }.sorted().first
     }
 
     private static func normalizedName(_ name: String) -> String {

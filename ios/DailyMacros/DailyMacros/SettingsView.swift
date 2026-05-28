@@ -6,6 +6,7 @@ struct SettingsView: View {
     @AppStorage("onboarding_complete") private var onboardingComplete = true
     @AppStorage(CoachSettingKeys.enabled) private var legacyAICoachEnabled = true
     @AppStorage(CoachSettingKeys.mode) private var aiCoachModeRaw = CoachMode.localModelWithTemplates.rawValue
+    @AppStorage(CoachSettingKeys.disabledCategories) private var disabledCompassCategoriesRaw = "[]"
     @StateObject private var offlineQueue = OfflineMutationStore.shared
     @StateObject private var diagnostics = Diagnostics.shared
     @StateObject private var coachDismissals = CoachDismissalStore.shared
@@ -123,7 +124,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
-                Text("Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them.")
+                Text("Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them. \(CoachBrand.name) uses local rule gates and, when available, the on-device Apple model to rank or phrase eligible cards.")
                     .font(.subheadline)
             }
 
@@ -171,6 +172,10 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            ForEach(CoachCategoryPreference.allCases) { preference in
+                Toggle(preference.label, isOn: compassCategoryBinding(for: preference))
+            }
+
             Button("Reset Dismissed Suggestions") {
                 coachDismissals.resetDismissals()
                 Diagnostics.shared.record(category: "coach", message: "Reset \(CoachBrand.name) dismissals")
@@ -196,6 +201,34 @@ struct SettingsView: View {
 
     private var currentCompassMode: CoachMode {
         CoachMode.resolved(rawValue: aiCoachModeRaw, legacyEnabled: legacyAICoachEnabled)
+    }
+
+    private var disabledCompassCategoryIDs: Set<String> {
+        CoachCategoryPreference.disabledIDs(from: disabledCompassCategoriesRaw)
+    }
+
+    private func compassCategoryBinding(for preference: CoachCategoryPreference) -> Binding<Bool> {
+        Binding(
+            get: { !disabledCompassCategoryIDs.contains(preference.rawValue) },
+            set: { enabled in
+                setCompassCategory(preference, enabled: enabled)
+            }
+        )
+    }
+
+    private func setCompassCategory(_ preference: CoachCategoryPreference, enabled: Bool) {
+        var disabledIDs = disabledCompassCategoryIDs
+        if enabled {
+            disabledIDs.remove(preference.rawValue)
+        } else {
+            disabledIDs.insert(preference.rawValue)
+        }
+        disabledCompassCategoriesRaw = CoachCategoryPreference.encoded(disabledIDs)
+        Diagnostics.shared.record(
+            category: "coach",
+            message: "Set \(CoachBrand.name) category",
+            details: ["category": preference.rawValue, "enabled": "\(enabled)"]
+        )
     }
 
     private var compassModeBinding: Binding<String> {

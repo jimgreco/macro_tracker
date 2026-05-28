@@ -34,6 +34,7 @@ DailyMacros does not use third-party advertising SDKs, does not sell personal da
 ## Third-Party Processing To Disclose
 
 - OpenAI: meal/workout/report text and meal photos are sent only when the user asks the app to parse or analyze them.
+- Coach Tony P. coaching: routine coach cards are generated from local deterministic rules. On supported iOS versions, on-device Apple Foundation Models may rank or rephrase already-eligible cards without sending those cards to OpenAI.
 - Google and Apple: sign-in provider data is used for authentication.
 - Stripe: subscription checkout, customer portal, and webhook state when paid features are enabled.
 - Open Food Facts: barcode lookup sends the barcode needed to retrieve product nutrition.
@@ -46,5 +47,6 @@ HealthKit permissions are optional and controlled by the user. DailyMacros reads
 
 - Account export: web Account & Privacy and iOS Settings.
 - Account deletion: web Account & Privacy and iOS Settings.
+- Coach Tony P. controls: web Account & Privacy and iOS Settings support coach mode/category controls and dismissal reset.
 - Support path: contact the inviter with request references and build metadata.
 - Public policy route: `/privacy`.

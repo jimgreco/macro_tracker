@@ -46,6 +46,7 @@ function baseContext(overrides = {}) {
     weightChartEntries: [],
     weightTargetData: null,
     weightTarget: null,
+    savedItems: [],
     sleepChartRows: [],
     sleepTargetHours: 8,
     ...overrides
@@ -125,6 +126,42 @@ test('missed meal coach requires learned daypart history and late timing', () =>
   assert.equal(rules.buildCoachCandidates('macros', lateEnough).some((s) => s.category === 'missed-breakfast'), true);
 });
 
+test('alcohol coach uses specific tags and avoids non-alcohol false positives', () => {
+  assert.equal(rules.alcoholTag('root beer'), null);
+  assert.equal(rules.alcoholTag('non-alcoholic IPA'), null);
+  assert.equal(rules.alcoholTag('IPA'), 'beer');
+  assert.equal(rules.alcoholTag('hard seltzer'), 'hard seltzer');
+  assert.equal(rules.alcoholTag('margarita'), 'cocktail');
+
+  const context = baseContext({
+    dashboardData: {
+      ...baseContext().dashboardData,
+      entries: [
+        { itemName: 'IPA', calories: 180, consumedAt: `${day(-1)}T20:00:00` },
+        { itemName: 'hard seltzer', calories: 120, consumedAt: `${day(-2)}T20:00:00` },
+        { itemName: 'root beer', calories: 160, consumedAt: `${day(-3)}T20:00:00` }
+      ]
+    }
+  });
+  const suggestion = rules.buildCoachCandidates('macros', context).find((s) => s.category === 'alcohol');
+  assert.ok(suggestion);
+  assert.equal(suggestion.evidence[0].includes('2 alcohol days'), true);
+});
+
+test('macro coach suggests saved item cleanup only with strong local evidence', () => {
+  const context = baseContext({
+    savedItems: [
+      { name: 'Greek Yogurt Bowl', quantity: 1, unit: 'bowl', calories: 320, protein: 28, carbs: 34, fat: 8, usageCount: 4 },
+      { name: 'Greek Yogurt Bowl', quantity: 1, unit: 'bowl', calories: 320, protein: 28, carbs: 34, fat: 8, usageCount: 0 },
+      { name: 'Protein Bar', quantity: 1, unit: 'bar', calories: 230, protein: 14, carbs: 20, fat: 8, usageCount: 2 },
+      { name: 'Turkey Wrap', quantity: 1, unit: 'wrap', calories: 410, protein: 32, carbs: 38, fat: 14, usageCount: 1 }
+    ]
+  });
+  const suggestion = rules.buildCoachCandidates('macros', context).find((s) => s.category === 'cleanup');
+  assert.ok(suggestion);
+  assert.equal(suggestion.action.type, 'focus-quick-add');
+});
+
 test('workout target reminder does not fire after target is met', () => {
   const target = { ...baseContext().dashboardData.targets, workouts: 3 };
   const behind = baseContext({
@@ -188,6 +225,18 @@ test('sleep coach requires five nights and uses the target threshold', () => {
     }))
   });
   assert.equal(rules.buildCoachCandidates('sleep', enough).some((s) => s.category === 'sleep-below-target'), true);
+});
+
+test('sleep coach celebrates meaningful improvement before nudging below-target averages', () => {
+  const improving = baseContext({
+    sleepChartRows: [-6, -5, -4, -3, -2, -1].map((offset, index) => ({
+      time: new Date(`${day(offset)}T00:00:00`).getTime(),
+      value: [5.5, 5.75, 6, 6.5, 6.75, 7][index]
+    }))
+  });
+  const suggestions = rules.buildCoachCandidates('sleep', improving);
+  assert.equal(suggestions.some((s) => s.category === 'sleep-improving'), true);
+  assert.equal(suggestions.some((s) => s.category === 'sleep-below-target'), false);
 });
 
 test('coach dismissals distinguish today expiry from persistent pattern dismissal', () => {

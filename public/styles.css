@@ -2912,6 +2912,42 @@ button[disabled] {
   letter-spacing: 0.04em;
 }
 
+.account-coach-category-controls {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  margin: 0 0 0.9rem;
+  padding: 0.72rem;
+}
+
+.account-coach-category-controls legend {
+  color: #dce9ff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0 0.3rem;
+  text-transform: uppercase;
+}
+
+.account-coach-category-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 0.7rem;
+}
+
+.account-coach-category-toggle {
+  align-items: center;
+  color: var(--text);
+  display: flex;
+  font-size: 0.82rem;
+  gap: 0.44rem;
+  min-width: 0;
+}
+
+.account-coach-category-toggle input {
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+}
+
 .account-build-meta {
   display: flex;
   flex-wrap: wrap;

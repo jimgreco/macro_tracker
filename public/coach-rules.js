@@ -94,6 +94,151 @@
     return { count: seenDays.size, latestHour };
   }
 
+  function normalizeName(value) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  function alcoholTag(name) {
+    const normalized = normalizeName(name);
+    if (!normalized) return null;
+    const exclusions = [
+      'non alcoholic', 'non-alcoholic', 'no alcohol', 'alcohol free', 'zero proof',
+      '0 proof', 'na beer', 'n/a beer', 'mocktail', 'virgin ', 'root beer',
+      'ginger beer', 'birch beer', 'butterbeer', 'apple cider vinegar', 'sparkling cider'
+    ];
+    if (exclusions.some((phrase) => normalized.includes(phrase))) {
+      return null;
+    }
+
+    const phraseTags = [
+      ['hard seltzer', 'hard seltzer'],
+      ['spiked seltzer', 'hard seltzer'],
+      ['white claw', 'hard seltzer'],
+      ['high noon', 'hard seltzer'],
+      ['hard cider', 'cider'],
+      ['red wine', 'wine'],
+      ['white wine', 'wine'],
+      ['sparkling wine', 'wine'],
+      ['old fashioned', 'cocktail'],
+      ['moscow mule', 'cocktail'],
+      ['tequila soda', 'cocktail'],
+      ['vodka soda', 'cocktail'],
+      ['gin tonic', 'cocktail']
+    ];
+    for (const [phrase, tag] of phraseTags) {
+      if (normalized.includes(phrase)) return tag;
+    }
+
+    const alcoholTokens = new Map(Object.entries({
+      beer: 'beer',
+      ale: 'beer',
+      lager: 'beer',
+      ipa: 'beer',
+      stout: 'beer',
+      porter: 'beer',
+      pilsner: 'beer',
+      wine: 'wine',
+      prosecco: 'wine',
+      champagne: 'wine',
+      cocktail: 'cocktail',
+      margarita: 'cocktail',
+      martini: 'cocktail',
+      mojito: 'cocktail',
+      daiquiri: 'cocktail',
+      negroni: 'cocktail',
+      mimosa: 'cocktail',
+      sangria: 'cocktail',
+      spritz: 'cocktail',
+      vodka: 'spirits',
+      gin: 'spirits',
+      rum: 'spirits',
+      tequila: 'spirits',
+      mezcal: 'spirits',
+      whiskey: 'spirits',
+      whisky: 'spirits',
+      bourbon: 'spirits',
+      scotch: 'spirits',
+      brandy: 'spirits',
+      cognac: 'spirits',
+      liqueur: 'spirits',
+      liquor: 'spirits',
+      schnapps: 'spirits',
+      sake: 'spirits',
+      soju: 'spirits'
+    }));
+    const matches = normalized
+      .split(/[^a-z0-9]+/i)
+      .map((token) => alcoholTokens.get(token))
+      .filter(Boolean)
+      .sort();
+    return matches[0] || null;
+  }
+
+  function savedItemUsageCount(item) {
+    const count = Number(item?.usageCount ?? item?.usage_count ?? 0);
+    return Number.isFinite(count) ? count : 0;
+  }
+
+  function savedItemSignature(item) {
+    return [
+      normalizeName(item?.name),
+      normalizeName(item?.unit),
+      Math.round(Number(item?.quantity || 0) * 10),
+      Math.round(Number(item?.calories || 0)),
+      Math.round(Number(item?.protein || 0) * 10),
+      Math.round(Number(item?.carbs || 0) * 10),
+      Math.round(Number(item?.fat || 0) * 10)
+    ].join('|');
+  }
+
+  function savedItemCleanupSuggestion(context, savedItems) {
+    if (!Array.isArray(savedItems) || savedItems.length < 4) {
+      return null;
+    }
+
+    const groups = new Map();
+    for (const item of savedItems) {
+      const signature = savedItemSignature(item);
+      groups.set(signature, [...(groups.get(signature) || []), item]);
+    }
+
+    const duplicateGroups = [...groups.values()]
+      .filter((group) => group.length >= 2)
+      .sort((a, b) => b.length - a.length || savedItemUsageCount(a[0]) - savedItemUsageCount(b[0]));
+    if (duplicateGroups.length) {
+      const group = duplicateGroups[0];
+      const first = group[0] || {};
+      return buildCoachSuggestion(
+        context,
+        'macros',
+        'cleanup',
+        74,
+        'Quick Adds need cleanup',
+        `You have repeated saved items for ${first.name || 'one food'}. Clean those up so the fastest choices stay trustworthy.`,
+        [`${group.length} matching saved items`, `${savedItems.length} total Quick Adds`],
+        { type: 'focus-quick-add', label: 'Review Quick Adds' },
+        0.89
+      );
+    }
+
+    const unusedItems = savedItems.filter((item) => savedItemUsageCount(item) === 0);
+    if (savedItems.length >= 10 && unusedItems.length >= Math.max(5, Math.floor(savedItems.length / 3))) {
+      return buildCoachSuggestion(
+        context,
+        'macros',
+        'cleanup',
+        70,
+        'Quick Adds are getting noisy',
+        'Several saved foods have never been used. Trim the stale ones so your repeat meals are easier to find.',
+        [`${unusedItems.length} unused saved items`, `${savedItems.length} total Quick Adds`],
+        { type: 'focus-quick-add', label: 'Review Quick Adds' },
+        0.86
+      );
+    }
+
+    return null;
+  }
+
   function buildCoachSuggestion(context, page, category, priority, title, message, evidence, action = null, confidence = 0.9) {
     const today = context.today || getLocalIsoDay(context.now || new Date());
     return {
@@ -162,20 +307,22 @@
       }
     }
 
-    const alcoholTerms = /\b(beer|wine|cocktail|liquor|vodka|whiskey|bourbon|tequila|margarita|alcohol)\b/i;
-    const recentAlcoholDays = new Set(entries
+    const recentAlcoholEntries = entries
       .filter((entry) => entry.consumedAt && getLocalIsoDay(entry.consumedAt) >= shiftIsoDay(today, -7))
-      .filter((entry) => alcoholTerms.test(entry.itemName || ''))
-      .map((entry) => getLocalIsoDay(entry.consumedAt)));
-    if (recentAlcoholDays.size >= 2) {
+      .map((entry) => ({ entry, tag: alcoholTag(entry.itemName) }))
+      .filter((match) => match.tag);
+    const recentAlcoholDays = new Set(recentAlcoholEntries.map((match) => getLocalIsoDay(match.entry.consumedAt)));
+    const alcoholCalories = recentAlcoholEntries.reduce((sum, match) => sum + Number(match.entry.calories || 0), 0);
+    if (recentAlcoholEntries.length >= 2 && alcoholCalories >= 300 && (recentAlcoholDays.size >= 2 || alcoholCalories >= 500)) {
+      const tags = [...new Set(recentAlcoholEntries.map((match) => match.tag))].sort();
       suggestions.push(buildCoachSuggestion(
         context,
         'macros',
-        'alcohol-repeated',
+        'alcohol',
         88,
         'Alcohol is showing up repeatedly',
         'Alcohol has appeared on multiple recent days. If the goal is tighter macros, make the next few drinks intentional rather than automatic.',
-        `Detected alcohol-like entries on ${recentAlcoholDays.size} days in the last week.`,
+        [`${recentAlcoholDays.size} alcohol days in the last week`, `${Math.round(alcoholCalories)} logged calories`, `matched ${tags.slice(0, 3).join(', ')}`],
         null,
         0.86
       ));
@@ -219,6 +366,11 @@
           0.88
         ));
       }
+    }
+
+    const cleanupSuggestion = savedItemCleanupSuggestion(context, context.savedItems || []);
+    if (cleanupSuggestion) {
+      suggestions.push(cleanupSuggestion);
     }
 
     return suggestions;
@@ -356,21 +508,10 @@
     const recent = rows.slice(-7);
     if (target > 0 && recent.length >= 5) {
       const avg = recent.reduce((sum, row) => sum + Number(row.value || 0), 0) / recent.length;
-      if (avg <= target - 0.75) {
-        suggestions.push(buildCoachSuggestion(
-          context,
-          'sleep',
-          'sleep-below-target',
-          90,
-          'Sleep is below target',
-          `Recent sleep is averaging ${fmtNumber(avg)} hrs against a ${fmtNumber(target)} hr target. Protect tonight's start time first.`,
-          `Based on ${recent.length} logged nights in the current sleep window.`,
-          { type: 'focus-sleep', label: 'Log sleep' },
-          0.88
-        ));
-      }
       const streak = rows.slice(-3);
-      if (streak.length === 3 && streak.every((row) => Number(row.value || 0) >= target)) {
+      const hasTargetStreak = streak.length === 3 && streak.every((row) => Number(row.value || 0) >= target);
+      let sleepIsImproving = false;
+      if (hasTargetStreak) {
         suggestions.push(buildCoachSuggestion(
           context,
           'sleep',
@@ -381,6 +522,40 @@
           `Three consecutive logged nights at or above ${fmtNumber(target)} hrs.`,
           null,
           0.9
+        ));
+      } else if (rows.length >= 6) {
+        const recentThree = rows.slice(-3);
+        const priorThree = rows.slice(-6, -3);
+        const avgRows = (items) => items.reduce((sum, row) => sum + Number(row.value || 0), 0) / Math.max(items.length, 1);
+        const recentAvg = avgRows(recentThree);
+        const priorAvg = avgRows(priorThree);
+        const improvement = recentAvg - priorAvg;
+        if (priorThree.length === 3 && recentThree.length === 3 && priorAvg > 0 && (improvement >= 0.5 || improvement / priorAvg >= 0.1)) {
+          sleepIsImproving = true;
+          suggestions.push(buildCoachSuggestion(
+            context,
+            'sleep',
+            'sleep-improving',
+            84,
+            'Sleep is improving',
+            'The last three logged nights are up from your prior baseline. Keep the bedtime routine repeatable and protect the same start window tonight.',
+            [`Last 3 avg ${fmtNumber(recentAvg)} hrs`, `prior 3 avg ${fmtNumber(priorAvg)} hrs`],
+            null,
+            0.89
+          ));
+        }
+      }
+      if (avg <= target - 0.75 && !sleepIsImproving) {
+        suggestions.push(buildCoachSuggestion(
+          context,
+          'sleep',
+          'sleep-below-target',
+          90,
+          'Sleep is below target',
+          `Recent sleep is averaging ${fmtNumber(avg)} hrs against a ${fmtNumber(target)} hr target. Protect tonight's start time first.`,
+          `Based on ${recent.length} logged nights in the current sleep window.`,
+          { type: 'focus-sleep', label: 'Log sleep' },
+          0.88
         ));
       }
     }
@@ -408,6 +583,7 @@
   }
 
   return {
+    alcoholTag,
     buildCoachCandidates,
     buildMacroCoachSuggestions,
     buildWorkoutCoachSuggestions,

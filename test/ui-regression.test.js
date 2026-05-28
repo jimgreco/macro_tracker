@@ -654,11 +654,11 @@ test('iOS workouts annual occurrence graph renders 365 wrapped daily dots', () =
   assert.equal(workouts.includes('(0..<52)'), false);
 });
 
-test('iOS Compass coach exposes settings and title-first cards', () => {
+test('iOS Coach Tony P. exposes settings and title-first cards', () => {
   const coach = read('ios/DailyMacros/DailyMacros/AICoach.swift');
   const settings = read('ios/DailyMacros/DailyMacros/SettingsView.swift');
 
-  assert.ok(coach.includes('static let name = "Compass"'));
+  assert.ok(coach.includes('static let name = "Coach Tony P."'));
   assert.ok(coach.includes('static let enabled = "ai_coach_enabled"'));
   assert.ok(coach.includes('static let mode = "ai_coach_mode"'));
   assert.ok(coach.includes('enum CoachMode'));
@@ -707,8 +707,11 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(coach.indexOf('Text(suggestion.message)') > coach.indexOf('.accessibilityLabel("Dismiss \\(CoachBrand.name) suggestion")'));
   assert.ok(settings.includes('@AppStorage(CoachSettingKeys.enabled)'));
   assert.ok(settings.includes('@AppStorage(CoachSettingKeys.mode)'));
+  assert.ok(settings.includes('@AppStorage(CoachSettingKeys.disabledCategories)'));
   assert.ok(settings.includes('Picker("Mode", selection: compassModeBinding)'));
   assert.ok(settings.includes('ForEach(CoachMode.allCases)'));
+  assert.ok(settings.includes('ForEach(CoachCategoryPreference.allCases)'));
+  assert.ok(settings.includes('compassCategoryBinding(for: preference)'));
   assert.ok(settings.includes('CoachNarrator.availabilitySummary'));
   assert.ok(settings.includes('legacyAICoachEnabled = mode != .off'));
   assert.ok(settings.includes('api.resetSyncedCoachDismissals()'));
@@ -716,7 +719,7 @@ test('iOS Compass coach exposes settings and title-first cards', () => {
   assert.ok(settings.includes('coachDismissals.resetDismissals()'));
 });
 
-test('iOS Compass coach computes candidates off the render path', () => {
+test('iOS Coach Tony P. computes candidates off the render path', () => {
   const coach = read('ios/DailyMacros/DailyMacros/AICoach.swift');
   const macros = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
   const workouts = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
@@ -740,7 +743,7 @@ test('iOS Compass coach computes candidates off the render path', () => {
   }
 });
 
-test('web Compass coach renders local suggestions with synced dismissals', () => {
+test('web Coach Tony P. renders local suggestions with synced dismissals', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');
   const coachRules = read('public/coach-rules.js');
@@ -761,14 +764,17 @@ test('web Compass coach renders local suggestions with synced dismissals', () =>
   assert.ok(script.includes("api('/api/coach/dismissals'"));
   assert.ok(script.includes("api('/api/coach/dismissals',"));
   assert.ok(script.includes('WEB_COACH_LOCAL_DISMISSALS_KEY'));
+  assert.ok(script.includes('WEB_COACH_DISABLED_CATEGORIES_KEY'));
   assert.ok(script.includes('DailyMacrosCoachRules'));
+  assert.ok(script.includes('isCoachCategoryDisabled(candidate)'));
+  assert.ok(script.includes('account-coach-category-toggle'));
   assert.ok(coachRules.includes('coachEndOfTodayIso'));
   assert.ok(coachRules.includes('buildMacroCoachSuggestions'));
   assert.ok(coachRules.includes('buildWorkoutCoachSuggestions'));
   assert.ok(coachRules.includes('buildWeightCoachSuggestions'));
   assert.ok(coachRules.includes('buildSleepCoachSuggestions'));
   assert.ok(script.includes('confidence >= 0.85'));
-  assert.ok(script.includes('Compass'));
+  assert.ok(script.includes('Coach Tony P.'));
   assert.ok(script.includes('Local rules'));
   assert.ok(script.includes('High confidence'));
   assert.ok(script.includes('data-coach-why="1"'));
@@ -787,7 +793,7 @@ test('web Compass coach renders local suggestions with synced dismissals', () =>
   assert.equal(coachSection.includes('/api/parse'), false);
 });
 
-test('iOS Compass coach uses learned meal windows and action context', () => {
+test('iOS Coach Tony P. uses learned meal windows and action context', () => {
   const coach = read('ios/DailyMacros/DailyMacros/AICoach.swift');
   const macros = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
   const workouts = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
@@ -835,6 +841,12 @@ test('iOS Compass coach uses learned meal windows and action context', () => {
   assert.ok(coach.includes('sleepTargetStreakSuggestion('));
   assert.ok(coach.includes('streakCount >= 3'));
   assert.ok(coach.includes('consecutive target nights'));
+  assert.ok(coach.includes('sleepImprovementSuggestion('));
+  assert.ok(coach.includes('category: "alcohol"'));
+  assert.ok(coach.includes('alcoholTag(for:'));
+  assert.ok(coach.includes('savedItemCleanupPrompt(savedItems:'));
+  assert.ok(coach.includes('category: "cleanup"'));
+  assert.ok(macros.includes('savedItems: savedItems'));
   assert.ok(coach.includes('Wake-ups are also repeatedly elevated'));
   assert.ok(macros.includes('private func handleCoachAction(_ action: CoachAction)'));
   assert.ok(macros.includes('quickSearchText = action.type == .openQuickAdd ? (action.searchText ?? "") : ""'));

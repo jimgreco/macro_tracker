@@ -1,6 +1,6 @@
 # DailyMacros Privacy Policy
 
-Last updated: May 25, 2026
+Last updated: May 27, 2026
 
 DailyMacros is a private friends and family beta for nutrition, workout, weight, sleep, and wellness tracking. The public policy is served by the app at `/privacy`; this Markdown copy exists so privacy and App Store review details can be reviewed in the repo.
 
@@ -21,6 +21,8 @@ HealthKit permissions are optional. If a user grants access, DailyMacros may rea
 
 When a user asks DailyMacros to parse or analyze a meal, workout, meal photo, or report, that content may be sent to OpenAI to produce nutrition or workout estimates. DailyMacros does not send that content to OpenAI unless the user uses those AI features. OpenAI publishes API data controls at <https://platform.openai.com/docs/guides/your-data>.
 
+Coach Tony P. coaching uses local deterministic rules to decide whether a card is eligible. On supported iOS versions, on-device Apple Foundation Models may rank or rephrase already-eligible Coach Tony P. cards. Routine Coach Tony P. cards are not sent to OpenAI, and local AI cannot override the rule evidence, confidence gates, actions, or dismissal controls.
+
 ## Barcode Data
 
 Barcode lookups use Open Food Facts product data. DailyMacros sends the barcode value needed to look up the product and stores the nutrition entry only when the user saves it.
@@ -36,6 +38,8 @@ Production data is backed up for operational recovery. Account data remains in t
 ## User Controls
 
 Users can export a JSON copy of account data or permanently delete the account from Account & Privacy on the web or Settings on iOS. Users can revoke HealthKit access from iOS Settings and sign out from the app.
+
+Users can turn Coach Tony P. off, hide dismissed suggestion patterns, or disable specific Coach Tony P. card categories such as reminders, celebrations, alcohol coaching, and cleanup prompts.
 
 ## Support
 
