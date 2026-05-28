@@ -1087,26 +1087,11 @@ struct AICoachCard: View {
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(.primary)
 
-                    HStack(spacing: 6) {
-                        Text(CoachBrand.name)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text(suggestion.modelSource.label)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.white.opacity(0.08), in: Capsule())
-                        if isLocalAIProcessing {
-                            Label("Local AI", systemImage: "sparkles")
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(.cyan)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(.cyan.opacity(0.12), in: Capsule())
-                                .accessibilityLabel("\(CoachBrand.name) local AI is checking this suggestion")
-                        }
-                    }
+                    Text("\(CoachBrand.name) - \(suggestion.modelSource.label)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .accessibilityLabel("\(CoachBrand.name), \(suggestion.modelSource.label)")
                 }
 
                 Spacer(minLength: 8)

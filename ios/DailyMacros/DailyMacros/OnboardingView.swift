@@ -46,13 +46,48 @@ struct OnboardingView: View {
                 return "Set the targets DailyMacros uses for progress bars, weekly analysis, reminders, and weight goals."
             }
         }
+
+        var focusText: String {
+            switch self {
+            case .macros:
+                return "Tap the highlighted add button to log a meal with text, photo, barcode, or Quick Add."
+            case .workouts:
+                return "Use the highlighted controls to sync Health workouts or log a new workout."
+            case .weight:
+                return "Use the highlighted controls to sync Health weight or add a weigh-in."
+            case .sleep:
+                return "Use the highlighted controls to sync Health sleep or log sleep manually."
+            case .targets:
+                return ""
+            }
+        }
+
+        func spotlightRect(in size: CGSize, safeAreaInsets: EdgeInsets) -> CGRect {
+            let toolbarY = max(safeAreaInsets.top + 28, 58)
+            let trailingPadding: CGFloat = 14
+
+            switch self {
+            case .macros:
+                return CGRect(
+                    x: max(size.width - trailingPadding - 62, 16),
+                    y: toolbarY,
+                    width: 62,
+                    height: 54
+                )
+            case .workouts, .weight, .sleep:
+                return CGRect(
+                    x: max(size.width - trailingPadding - 112, 16),
+                    y: toolbarY,
+                    width: 112,
+                    height: 54
+                )
+            case .targets:
+                return .zero
+            }
+        }
     }
 
     @State private var setupStep: SetupStep = .macros
-    @State private var tutorialMealText = ""
-    @State private var tutorialMealStatus: String?
-    @State private var isLoggingTutorialMeal = false
-    @State private var didLogTutorialMeal = false
 
     @State private var calorieTarget = "2200"
     @State private var proteinTarget = "160"
@@ -105,28 +140,43 @@ struct OnboardingView: View {
     }
 
     private var tutorialOverlay: some View {
-        ZStack(alignment: .bottom) {
-            tutorialPageBackground
-                .id(setupStep)
-                .disabled(true)
-                .blur(radius: 0.7)
-                .overlay(Color.black.opacity(0.48))
-                .ignoresSafeArea()
+        GeometryReader { proxy in
+            let spotlightRect = setupStep.spotlightRect(in: proxy.size, safeAreaInsets: proxy.safeAreaInsets)
 
-            VStack(spacing: 0) {
-                HStack {
-                    Spacer()
-                    skipButton
-                        .buttonStyle(.bordered)
-                        .tint(.white)
-                        .background(.ultraThinMaterial, in: Capsule())
+            ZStack {
+                tutorialPageBackground
+                    .id(setupStep)
+                    .ignoresSafeArea()
+
+                TutorialSpotlightScrim(spotlightRect: spotlightRect)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(.cyan, lineWidth: 2)
+                    .shadow(color: .cyan.opacity(0.75), radius: 12)
+                    .frame(width: spotlightRect.width, height: spotlightRect.height)
+                    .position(x: spotlightRect.midX, y: spotlightRect.midY)
+                    .allowsHitTesting(false)
+
+                VStack(spacing: 0) {
+                    HStack {
+                        skipButton
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .tint(.white)
+                            .background(.ultraThinMaterial, in: Capsule())
+                        Spacer()
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, max(proxy.safeAreaInsets.top + 8, 18))
+
+                    Spacer(minLength: 0)
+
+                    tutorialCalloutCard
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, max(proxy.safeAreaInsets.bottom + 16, 16))
                 }
-                .padding(.horizontal)
-                .padding(.top, 12)
-
-                Spacer(minLength: 0)
-
-                tutorialGuideCard
             }
         }
     }
@@ -196,34 +246,8 @@ struct OnboardingView: View {
         }
     }
 
-    private var tutorialGuideCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            tutorialHeader
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    tutorialStepSections
-                }
-                .padding(.bottom, 2)
-            }
-            .frame(maxHeight: 330)
-            .scrollDismissesKeyboard(.interactively)
-
-            tutorialNavigation
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(.white.opacity(0.12), lineWidth: 1)
-        )
-        .padding(.horizontal, 14)
-        .padding(.bottom, 16)
-    }
-
-    private var tutorialHeader: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var tutorialCalloutCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 Image(systemName: setupStep.systemImage)
                     .font(.title2)
@@ -245,152 +269,39 @@ struct OnboardingView: View {
             Text(setupStep.leadText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+
+            Label(setupStep.focusText, systemImage: "hand.tap")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            tutorialNavigation
         }
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
-    private var tutorialStepSections: some View {
-        switch setupStep {
-        case .macros:
-            macrosTutorialSections
-        case .workouts:
-            workoutsTutorialSections
-        case .weight:
-            weightTutorialSections
-        case .sleep:
-            sleepTutorialSections
-        case .targets:
-            EmptyView()
-        }
-    }
-
-    @ViewBuilder
-    private var macrosTutorialSections: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Log a Meal")
-                .font(.subheadline.bold())
-            Text("Describe a meal in natural language and DailyMacros will turn it into calorie and macro entries.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            TextField("Example: chicken bowl with rice and avocado", text: $tutorialMealText, axis: .vertical)
-                .lineLimit(3...5)
-                .textInputAutocapitalization(.sentences)
-
-            Button {
-                Task { await logTutorialMeal() }
-            } label: {
-                HStack {
-                    Label(didLogTutorialMeal ? "Log Another Meal" : "Log Meal", systemImage: didLogTutorialMeal ? "plus.circle" : "checkmark.circle")
-                    Spacer()
-                    if isLoggingTutorialMeal {
-                        ProgressView()
-                    }
-                }
-            }
-            .disabled(isLoggingTutorialMeal || tutorialMealText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            if let tutorialMealStatus {
-                Label(tutorialMealStatus, systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-            }
-        }
-
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Quick Add")
-                .font(.subheadline.bold())
-            featureRow(
-                "Quick Add reuses saved or recent meals when you want to log something you eat often.",
-                systemImage: "clock.arrow.circlepath"
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var workoutsTutorialSections: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Workout Logging")
-                .font(.subheadline.bold())
-            featureRow(
-                "Describe a workout in natural language and DailyMacros can estimate duration, intensity, and calories burned.",
-                systemImage: "text.bubble"
-            )
-            featureRow(
-                "Sync workouts to Apple Health so DailyMacros and Health can stay aligned.",
-                systemImage: "heart.text.square"
-            )
-            featureRow(
-                "Import workouts from the Forge: Workout Planner app when you plan or log training there.",
-                systemImage: "square.and.arrow.down"
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var weightTutorialSections: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Weight Trends")
-                .font(.subheadline.bold())
-            featureRow(
-                "Log weigh-ins manually or pull recent body weight from Apple Health.",
-                systemImage: "scalemass"
-            )
-            featureRow(
-                "Bidirectional Apple Health sync can import Health weight entries and write DailyMacros weigh-ins back to Health.",
-                systemImage: "arrow.left.arrow.right"
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var sleepTutorialSections: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Sleep and Recovery")
-                .font(.subheadline.bold())
-            featureRow(
-                "Track sleep hours and wake-ups so recovery is visible beside meals, workouts, and weight.",
-                systemImage: "moon.zzz"
-            )
-            featureRow(
-                "Bidirectional Apple Health sync can import Health sleep sessions and write DailyMacros sleep entries back to Health.",
-                systemImage: "arrow.left.arrow.right"
-            )
-        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(.white.opacity(0.16), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.25), radius: 20, y: 8)
     }
 
     private var tutorialNavigation: some View {
         HStack(spacing: 12) {
-            if setupStep.rawValue > 0 {
-                Button("Back") {
-                    moveToPreviousStep()
-                }
-                .disabled(isLoggingTutorialMeal)
+            Button("Back") {
+                moveToPreviousStep()
             }
+            .disabled(setupStep.rawValue == 0)
+
+            Spacer()
 
             Button(setupStep == .sleep ? "Set Targets" : "Next") {
                 moveToNextStep()
             }
             .buttonStyle(.borderedProminent)
             .tint(.cyan)
-            .disabled(isLoggingTutorialMeal)
-            .frame(maxWidth: .infinity, alignment: .trailing)
         }
-    }
-
-    private func featureRow(_ text: String, systemImage: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.body)
-                .foregroundStyle(.cyan)
-                .frame(width: 22)
-
-            Text(text)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 2)
     }
 
     private func targetField(_ label: String, text: Binding<String>, usesDecimalKeyboard: Bool = false) -> some View {
@@ -413,60 +324,6 @@ struct OnboardingView: View {
     private func moveToPreviousStep() {
         guard let previousStep = SetupStep(rawValue: setupStep.rawValue - 1) else { return }
         setupStep = previousStep
-    }
-
-    private func logTutorialMeal() async {
-        let mealText = tutorialMealText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !mealText.isEmpty else { return }
-
-        isLoggingTutorialMeal = true
-        tutorialMealStatus = nil
-        defer { isLoggingTutorialMeal = false }
-
-        do {
-            let consumedAt = isoTimestamp(from: Date())
-            let response = try await api.parseMeal(text: mealText, consumedAt: consumedAt)
-            guard !response.items.isEmpty else {
-                throw APIError.serverError("DailyMacros could not find meal items in that description.")
-            }
-
-            try await api.saveMealEntries(
-                items: response.items.map(mealItemPayload),
-                consumedAt: consumedAt,
-                mealName: response.mealName,
-                mealQuantity: response.mealQuantity,
-                mealUnit: response.mealUnit
-            )
-
-            didLogTutorialMeal = true
-            tutorialMealText = ""
-            tutorialMealStatus = "Meal logged. You can edit it from the Macros page."
-            Diagnostics.shared.record(category: "onboarding", message: "Logged tutorial meal")
-        } catch {
-            Diagnostics.shared.record(level: "error", category: "onboarding", message: "Failed to log tutorial meal", details: ["error": error.localizedDescription])
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func mealItemPayload(_ item: ParsedMealItem) -> [String: Any] {
-        var payload: [String: Any] = [
-            "itemName": item.itemName,
-            "quantity": item.quantity,
-            "calories": item.calories,
-            "protein": item.protein,
-            "carbs": item.carbs,
-            "fat": item.fat
-        ]
-        if let unit = item.unit {
-            payload["unit"] = unit
-        }
-        return payload
-    }
-
-    private func isoTimestamp(from date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.timeZone = TimeZone(identifier: "America/New_York")
-        return formatter.string(from: date)
     }
 
     private func loadExistingTargets() async {
@@ -591,5 +448,28 @@ struct OnboardingView: View {
         }
 
         return ISO8601DateFormatter().date(from: trimmed)
+    }
+}
+
+private struct TutorialSpotlightScrim: View {
+    let spotlightRect: CGRect
+
+    var body: some View {
+        TutorialSpotlightScrimShape(spotlightRect: spotlightRect)
+            .fill(Color.black.opacity(0.58), style: FillStyle(eoFill: true))
+    }
+}
+
+private struct TutorialSpotlightScrimShape: Shape {
+    let spotlightRect: CGRect
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addRect(rect)
+        path.addRoundedRect(
+            in: spotlightRect.insetBy(dx: -6, dy: -6),
+            cornerSize: CGSize(width: 22, height: 22)
+        )
+        return path
     }
 }
