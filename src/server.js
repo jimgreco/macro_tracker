@@ -148,7 +148,7 @@ function parseCsvSet(value) {
 }
 
 const localAuthBypassEnabled = !isProduction && parseBooleanEnv('LOCAL_AUTH_BYPASS', false);
-const localDevUser = localAuthBypassEnabled
+const localDevUser = !isProduction
   ? {
       id: String(process.env.LOCAL_DEV_USER_ID || 'local-dev-user'),
       name: String(process.env.LOCAL_DEV_USER_NAME || 'Local Preview User'),
@@ -157,6 +157,7 @@ const localDevUser = localAuthBypassEnabled
       provider: 'local-dev'
     }
   : null;
+const localAuthBypassUser = localAuthBypassEnabled ? localDevUser : null;
 const adminEmails = parseCsvSet(process.env.ADMIN_EMAILS);
 const adminUserIds = parseCsvSet(process.env.ADMIN_USER_IDS);
 
@@ -505,11 +506,11 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 app.use((req, res, next) => {
-  if (!localDevUser || (req.user && req.user.id)) {
+  if (!localAuthBypassUser || (req.user && req.user.id)) {
     return next();
   }
 
-  req.user = { ...localDevUser };
+  req.user = { ...localAuthBypassUser };
   return next();
 });
 
@@ -652,7 +653,7 @@ function isAdminUser(user) {
   }
   const userId = String(user.id || '').trim().toLowerCase();
   const email = String(user.email || '').trim().toLowerCase();
-  if (!isProduction && localDevUser && userId === String(localDevUser.id).toLowerCase()) {
+  if (!isProduction && localAuthBypassUser && userId === String(localAuthBypassUser.id).toLowerCase()) {
     return true;
   }
   return (email && adminEmails.has(email)) || (userId && adminUserIds.has(userId));
@@ -1533,11 +1534,11 @@ app.get(['/favicon.svg', '/logo-mark.svg'], (req, res) => {
 app.use('/auth', createRateLimiter({ windowMs: 15 * 60 * 1000, maxRequests: 30 }));
 
 app.get('/auth/google', async (req, res, next) => {
-  if (localDevUser) {
-    // Mobile auth bypass: create a token for the dev user and redirect to app
+  if (localAuthBypassUser) {
+    // Web auth bypass can also satisfy the legacy mobile Google redirect path.
     if (req.query.mobile === '1') {
       try {
-        const persistedUser = await upsertUser(localDevUser);
+        const persistedUser = await upsertUser(localAuthBypassUser);
         if (persistedUser.isDisabled) {
           return res.redirect('dailymacros://auth/callback?error=account_disabled');
         }
@@ -1571,7 +1572,7 @@ app.get('/auth/google', async (req, res, next) => {
 app.get(
   '/auth/google/callback',
   (req, res, next) => {
-    if (localDevUser) {
+    if (localAuthBypassUser) {
       return res.redirect('/');
     }
 
@@ -1698,7 +1699,7 @@ app.post('/auth/google/mobile', express.json(), async (req, res) => {
 // ── Apple Sign-In (web flow) ──
 
 app.get('/auth/apple', (req, res) => {
-  if (localDevUser) {
+  if (localAuthBypassUser) {
     return res.redirect('/');
   }
 
@@ -1722,7 +1723,7 @@ app.get('/auth/apple', (req, res) => {
 
 // Apple posts form data to the callback (responseMode: form_post)
 app.post('/auth/apple/callback', express.urlencoded({ extended: false }), async (req, res) => {
-  if (localDevUser) {
+  if (localAuthBypassUser) {
     return res.redirect('/');
   }
 

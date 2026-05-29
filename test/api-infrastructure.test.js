@@ -425,6 +425,16 @@ test('server.js supports native iOS Apple sign-in without web Apple secrets', ()
   assert.ok(server.includes("createApiToken(persistedUser.id, 'DailyMacros iOS'"));
 });
 
+test('server.js lets local iOS debug builds use the dev user without web auth bypass', () => {
+  const server = read('src/server.js');
+  assert.ok(server.includes('const localDevUser = !isProduction'));
+  assert.ok(server.includes('const localAuthBypassUser = localAuthBypassEnabled ? localDevUser : null'));
+  assert.ok(server.includes('if (!localAuthBypassUser || (req.user && req.user.id))'));
+  assert.ok(server.includes('localAuthBypassUser && userId === String(localAuthBypassUser.id).toLowerCase()'));
+  assert.ok(server.includes("app.post('/auth/dev/mobile'"));
+  assert.ok(server.includes("createApiToken(persistedUser.id, 'DailyMacros iOS Dev'"));
+});
+
 test('server.js allows linked Google accounts to sync workouts', () => {
   const server = read('src/server.js');
   assert.ok(server.includes('function userHasProvider'));

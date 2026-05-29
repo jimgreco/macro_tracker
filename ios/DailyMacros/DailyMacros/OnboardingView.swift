@@ -1,5 +1,11 @@
 import SwiftUI
 
+private func normalizedTutorialTopInset(in size: CGSize, safeAreaInsets: EdgeInsets) -> CGFloat {
+    // NavigationStack tutorial backgrounds can report a toolbar-inflated top inset.
+    let maximumReasonableTopInset = min(size.height * 0.08, 64)
+    return min(max(safeAreaInsets.top, 0), maximumReasonableTopInset)
+}
+
 struct OnboardingView: View {
     @EnvironmentObject var api: APIClient
     @EnvironmentObject var auth: AuthManager
@@ -63,7 +69,7 @@ struct OnboardingView: View {
         }
 
         func spotlightRect(in size: CGSize, safeAreaInsets: EdgeInsets) -> CGRect {
-            let toolbarY = max(safeAreaInsets.top + 28, 58)
+            let toolbarY = normalizedTutorialTopInset(in: size, safeAreaInsets: safeAreaInsets) + 10
             let trailingPadding: CGFloat = 14
 
             switch self {
@@ -142,6 +148,7 @@ struct OnboardingView: View {
     private var tutorialOverlay: some View {
         GeometryReader { proxy in
             let spotlightRect = setupStep.spotlightRect(in: proxy.size, safeAreaInsets: proxy.safeAreaInsets)
+            let topInset = normalizedTutorialTopInset(in: proxy.size, safeAreaInsets: proxy.safeAreaInsets)
 
             ZStack {
                 tutorialPageBackground
@@ -169,7 +176,7 @@ struct OnboardingView: View {
                         Spacer()
                     }
                     .padding(.horizontal, 18)
-                    .padding(.top, max(proxy.safeAreaInsets.top + 8, 18))
+                    .padding(.top, max(topInset + 8, 18))
 
                     Spacer(minLength: 0)
 
