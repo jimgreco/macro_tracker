@@ -45,6 +45,13 @@ struct LoginView: View {
                 googleButton
                 LoginDivider()
                 appleButton
+
+                #if DEBUG
+                if auth.localDevBypassAvailable {
+                    LoginDivider()
+                    devBypassButton
+                }
+                #endif
             }
 
             if let errorMessage {
@@ -151,6 +158,38 @@ struct LoginView: View {
         .opacity(isSigningIn ? 0.72 : 1)
     }
 
+    #if DEBUG
+    private var devBypassButton: some View {
+        Button {
+            Task { await signInWithLocalDevUser() }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "hammer.circle.fill")
+                    .font(.system(size: 26, weight: .semibold))
+
+                Text("Continue as Local Dev User")
+                    .font(.system(size: 18, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .foregroundStyle(LoginPalette.green)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(LoginPalette.devButton)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(LoginPalette.devBorder, lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isSigningIn)
+        .opacity(isSigningIn ? 0.72 : 1)
+    }
+    #endif
+
     private var loginBuildLabel: String? {
         let build = Bundle.main.object(forInfoDictionaryKey: "AppBuild") as? String
         let hash = Bundle.main.object(forInfoDictionaryKey: "GitCommitHash") as? String
@@ -161,6 +200,16 @@ struct LoginView: View {
     }
 
     // MARK: - Actions
+
+    #if DEBUG
+    private func signInWithLocalDevUser() async {
+        errorMessage = nil
+        isSigningIn = true
+        defer { isSigningIn = false }
+
+        await auth.signInWithLocalDevUser()
+    }
+    #endif
 
     private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) async {
         errorMessage = nil
@@ -320,6 +369,8 @@ private enum LoginPalette {
     static let green = Color(red: 0.02, green: 1, blue: 0.63)
     static let googleButton = Color(red: 0.055, green: 0.16, blue: 0.22).opacity(0.9)
     static let googleBorder = Color(red: 0.56, green: 0.82, blue: 1).opacity(0.2)
+    static let devButton = Color(red: 0.03, green: 0.19, blue: 0.13).opacity(0.9)
+    static let devBorder = Color(red: 0.02, green: 1, blue: 0.63).opacity(0.22)
     static let error = Color(red: 1, green: 0.18, blue: 0.47)
 }
 

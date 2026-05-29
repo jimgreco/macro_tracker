@@ -54,12 +54,14 @@ class APIClient: ObservableObject {
     @Published var token: String? {
         didSet {
             if let token {
+                isLocalDevOfflineSession = false
                 KeychainHelper.save(key: "api_token", value: token)
             } else {
                 KeychainHelper.delete(key: "api_token")
             }
         }
     }
+    @Published private(set) var isLocalDevOfflineSession = false
 
     init() {
         self.token = KeychainHelper.load(key: "api_token")
@@ -70,13 +72,24 @@ class APIClient: ObservableObject {
     }
 
     private func authorizedRequest(_ url: URL, method: String = "GET", body: Data? = nil) throws -> URLRequest {
-        guard let token else { throw APIError.notAuthenticated }
+        guard let token = token ?? (isLocalDevOfflineSession ? "local-dev-offline" : nil) else {
+            throw APIError.notAuthenticated
+        }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         return request
+    }
+
+    func beginLocalDevOfflineSession() {
+        token = nil
+        isLocalDevOfflineSession = true
+    }
+
+    func endLocalDevOfflineSession() {
+        isLocalDevOfflineSession = false
     }
 
     private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {

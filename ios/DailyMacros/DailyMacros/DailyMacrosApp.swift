@@ -13,6 +13,15 @@ struct DailyMacrosApp: App {
         "\(auth.isAuthenticated)-\(auth.user?.sexualActivityEnabled == true)"
     }
 
+    private var shouldShowOnboarding: Bool {
+        #if DEBUG
+        if auth.isLocalDevUser {
+            return false
+        }
+        #endif
+        return !onboardingComplete
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
@@ -20,7 +29,7 @@ struct DailyMacrosApp: App {
                     ProgressView("Loading...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color(.systemBackground))
-                } else if auth.isAuthenticated, !onboardingComplete {
+                } else if auth.isAuthenticated, shouldShowOnboarding {
                     OnboardingView(isComplete: $onboardingComplete)
                         .environmentObject(auth)
                         .environmentObject(api)
@@ -47,10 +56,14 @@ struct DailyMacrosApp: App {
                 if !isAuthenticated {
                     healthKitAutoSync.stop()
                 } else {
+                    completeLocalDevOnboardingIfNeeded()
                     Diagnostics.shared.record(category: "auth", message: "Authenticated")
                     applySetupTutorialReset(auth.user?.setupTutorialResetAt)
                     Task { try? await api.flushPendingMutations() }
                 }
+            }
+            .onChange(of: auth.user?.provider) { _, _ in
+                completeLocalDevOnboardingIfNeeded()
             }
             .onChange(of: auth.user?.setupTutorialResetAt) { _, resetAt in
                 applySetupTutorialReset(resetAt)
@@ -70,6 +83,14 @@ struct DailyMacrosApp: App {
                 }
             }
         }
+    }
+
+    private func completeLocalDevOnboardingIfNeeded() {
+        #if DEBUG
+        guard auth.isLocalDevUser, !onboardingComplete else { return }
+        onboardingComplete = true
+        Diagnostics.shared.record(category: "onboarding", message: "Skipped setup for local dev user")
+        #endif
     }
 
     private func applySetupTutorialReset(_ resetAt: String?) {

@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
@@ -81,6 +82,18 @@ private struct QuickAddTemplate: Identifiable {
     }
 }
 
+private struct QuickMealQueueItem: Identifiable {
+    let id: UUID
+    let sourceTemplateId: String
+    var name: String
+    var quantity: Double
+    var unit: String
+    var calories: Double
+    var protein: Double
+    var carbs: Double
+    var fat: Double
+}
+
 struct MacrosView: View {
     @EnvironmentObject var api: APIClient
     @StateObject private var coachDismissals = CoachDismissalStore.shared
@@ -117,6 +130,9 @@ struct MacrosView: View {
     @State private var selectedEntryIds: Set<Int> = []
     @State private var selectedMealGroups: Set<String> = []
     @State private var isApplyingMealSelectionAction = false
+    @State private var showCombineMealNamePrompt = false
+    @State private var combineMealName = ""
+    @State private var pendingCombineEntryIds: [Int] = []
 
     // Entry editing state
     @State private var editingEntry: Entry?
@@ -163,9 +179,13 @@ struct MacrosView: View {
     // Quick add editing state
     @State private var quickMultiplier = "1"
     @State private var quickSearchText = ""
+    @State private var quickMealName = ""
+    @State private var showQuickMealNamePrompt = false
     @State private var isLoadingSavedItems = false
     @State private var hasLoadedSavedItems = false
+    @State private var quickMealQueue: [QuickMealQueueItem] = []
     @State private var editingQuickTemplate: QuickAddTemplate?
+    @State private var editingQuickMealQueueItem: QuickMealQueueItem?
     @State private var editQuickName = ""
     @State private var editQuickQuantity = ""
     @State private var editQuickUnit = ""
@@ -173,6 +193,18 @@ struct MacrosView: View {
     @State private var editQuickProtein = ""
     @State private var editQuickCarbs = ""
     @State private var editQuickFat = ""
+    @State private var editQueuedQuickName = ""
+    @State private var editQueuedQuickQuantity = ""
+    @State private var editQueuedQuickUnit = ""
+    @State private var editQueuedQuickCal = ""
+    @State private var editQueuedQuickProtein = ""
+    @State private var editQueuedQuickCarbs = ""
+    @State private var editQueuedQuickFat = ""
+    @State private var origQueuedQuickQuantity: Double = 0
+    @State private var origQueuedQuickCal: Double = 0
+    @State private var origQueuedQuickProtein: Double = 0
+    @State private var origQueuedQuickCarbs: Double = 0
+    @State private var origQueuedQuickFat: Double = 0
 
     // Drag state
     @State private var isDragging = false
@@ -312,6 +344,17 @@ struct MacrosView: View {
         return f.string(from: consumedAt)
     }
 
+    private var quickMealQueueTotals: (calories: Double, protein: Double, carbs: Double, fat: Double) {
+        quickMealQueue.reduce((calories: 0.0, protein: 0.0, carbs: 0.0, fat: 0.0)) { totals, item in
+            (
+                calories: totals.calories + item.calories,
+                protein: totals.protein + item.protein,
+                carbs: totals.carbs + item.carbs,
+                fat: totals.fat + item.fat
+            )
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
@@ -357,6 +400,8 @@ struct MacrosView: View {
                         mealText = ""
                         consumedAt = Date()
                         quickSearchText = ""
+                        quickMealName = ""
+                        quickMealQueue = []
                         clearMealImage()
                         if !hasLoadedSavedItems {
                             Task { await loadSavedItems() }
@@ -368,7 +413,12 @@ struct MacrosView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showAddSheet) {
+            .sheet(isPresented: $showAddSheet, onDismiss: {
+                quickMealQueue = []
+                quickMealName = ""
+                showQuickMealNamePrompt = false
+                editingQuickMealQueueItem = nil
+            }) {
                 addSheet
             }
             .sheet(isPresented: $showEditTargets) {
@@ -401,6 +451,21 @@ struct MacrosView: View {
                 Button("OK") { errorMessage = nil }
             } message: {
                 Text(errorMessage ?? "")
+            }
+            .alert("Name Meal", isPresented: $showCombineMealNamePrompt) {
+                TextField("Meal name", text: $combineMealName)
+                    .textInputAutocapitalization(.words)
+                    .disableAutocorrection(false)
+
+                Button("Cancel", role: .cancel) {
+                    clearPendingCombineMeal()
+                }
+                Button("Save") {
+                    Task { await combinePendingSelectedEntries() }
+                }
+                .disabled(combineMealName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isApplyingMealSelectionAction)
+            } message: {
+                Text("Give this meal a name before combining the selected items.")
             }
         }
     }
@@ -648,6 +713,7 @@ struct MacrosView: View {
     private func clearMealSelection() {
         selectedEntryIds.removeAll()
         selectedMealGroups.removeAll()
+        clearPendingCombineMeal()
     }
 
     private func toggleEntrySelection(_ entry: Entry, allEntries: [Entry]) {
@@ -1373,6 +1439,14 @@ struct MacrosView: View {
         "Protein \(Int(protein))g | Carbs \(Int(carbs))g | Fat \(Int(fat))g"
     }
 
+    private func compactNumberText(_ value: Double) -> String {
+        let rounded = value.rounded()
+        if abs(value - rounded) < 0.001 {
+            return "\(Int(rounded))"
+        }
+        return String(format: "%.1f", value)
+    }
+
     // MARK: - Trend Section
 
     private var trendSection: some View {
@@ -1680,6 +1754,9 @@ struct MacrosView: View {
                             } else {
                                 showAddSheet = false
                                 mealText = ""
+                                quickMealQueue = []
+                                quickMealName = ""
+                                showQuickMealNamePrompt = false
                             }
                         }
                     }
@@ -1687,8 +1764,25 @@ struct MacrosView: View {
                 .sheet(isPresented: $showEditParsedItem) {
                     editParsedItemSheet
                 }
+                .sheet(item: $editingQuickMealQueueItem) { item in
+                    editQuickMealQueueItemSheet(item)
+                }
                 .sheet(item: $editingQuickTemplate) { template in
                     editQuickAddSheet(template)
+                }
+                .alert("Name Meal", isPresented: $showQuickMealNamePrompt) {
+                    TextField("Meal name", text: $quickMealName)
+                        .textInputAutocapitalization(.words)
+                        .disableAutocorrection(false)
+
+                    Button("Cancel", role: .cancel) {}
+                    Button("Save") {
+                        let mealName = quickMealName
+                        Task { await saveQueuedQuickMeal(mealName: mealName) }
+                    }
+                    .disabled(quickMealName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                } message: {
+                    Text("Give this quick-add meal a name before saving.")
                 }
                 .sheet(isPresented: $showCamera) {
                     CameraPicker(image: $mealPreviewImage, imageDataUrl: $mealImageDataUrl) { message in
@@ -1867,6 +1961,12 @@ struct MacrosView: View {
             .padding(.horizontal)
             .padding(.vertical, 10)
 
+            if !quickMealQueue.isEmpty {
+                quickMealQueueSection
+                    .padding(.horizontal)
+                    .padding(.bottom, 10)
+            }
+
             if isLoadingSavedItems && visibleTemplates.isEmpty {
                 HStack(spacing: 10) {
                     ProgressView()
@@ -1914,7 +2014,7 @@ struct MacrosView: View {
     private func quickAddRow(_ template: QuickAddTemplate) -> some View {
         HStack(spacing: 10) {
             Button {
-                Task { await quickAddItem(template) }
+                addQuickTemplateToQueue(template)
             } label: {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -1947,6 +2047,7 @@ struct MacrosView: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Add \(template.name) to meal queue")
 
             Button {
                 beginEditQuickAdd(template)
@@ -1961,6 +2062,124 @@ struct MacrosView: View {
         .padding(.horizontal)
         .padding(.vertical, 8)
         .frame(minHeight: 54)
+    }
+
+    private var quickMealQueueSection: some View {
+        let totals = quickMealQueueTotals
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Label("\(quickMealQueue.count) queued", systemImage: "tray.full")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(Color.neonGreen)
+
+                Spacer()
+
+                Text("\(Int(totals.calories)) kcal")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(Color.neonYellow)
+            }
+
+            ForEach(quickMealQueue) { item in
+                quickMealQueueRow(item)
+
+                if item.id != quickMealQueue.last?.id {
+                    Divider()
+                        .overlay(Color.white.opacity(0.08))
+                }
+            }
+
+            Text(macroBreakdownText(protein: totals.protein, carbs: totals.carbs, fat: totals.fat))
+                .font(.caption2)
+                .foregroundStyle(Color.mutedText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+            HStack(spacing: 10) {
+                Button {
+                    cancelQueuedQuickMeal(dismiss: true)
+                } label: {
+                    Text("Cancel")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.neonPink)
+
+                Button {
+                    beginSaveQueuedQuickMeal()
+                } label: {
+                    if isSaving {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text("Save")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(canSaveQueuedQuickMeal ? Color.neonGreen : .gray)
+                .disabled(!canSaveQueuedQuickMeal)
+            }
+        }
+        .padding(12)
+        .background(Color.panelBg.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func quickMealQueueRow(_ item: QuickMealQueueItem) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Text("\(compactNumberText(item.quantity)) \(item.unit)")
+                    .font(.caption2)
+                    .foregroundStyle(Color.mutedText)
+                    .lineLimit(1)
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(Int(item.calories)) kcal")
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+
+                Text(macroBreakdownText(protein: item.protein, carbs: item.carbs, fat: item.fat))
+                    .font(.caption2)
+                    .foregroundStyle(Color.mutedText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+
+            Button {
+                beginEditQueuedQuickItem(item)
+            } label: {
+                Image(systemName: "pencil")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.neonYellow)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Edit \(item.name)")
+
+            Button(role: .destructive) {
+                deleteQueuedQuickItem(id: item.id)
+            } label: {
+                Image(systemName: "trash")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.neonPink)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(item.name) from meal queue")
+        }
+        .padding(.vertical, 4)
     }
 
     private var parsedResultsView: some View {
@@ -2179,6 +2398,141 @@ struct MacrosView: View {
         editingParsedIndex = nil
     }
 
+    // MARK: - Edit Queued Quick Meal Item Sheet
+
+    private func beginEditQueuedQuickItem(_ item: QuickMealQueueItem) {
+        editingQuickMealQueueItem = item
+        editQueuedQuickName = item.name
+        editQueuedQuickQuantity = "\(item.quantity)"
+        editQueuedQuickUnit = item.unit
+        editQueuedQuickCal = "\(Int(item.calories))"
+        editQueuedQuickProtein = "\(Int(item.protein))"
+        editQueuedQuickCarbs = "\(Int(item.carbs))"
+        editQueuedQuickFat = "\(Int(item.fat))"
+        origQueuedQuickQuantity = item.quantity
+        origQueuedQuickCal = item.calories
+        origQueuedQuickProtein = item.protein
+        origQueuedQuickCarbs = item.carbs
+        origQueuedQuickFat = item.fat
+    }
+
+    private func editQuickMealQueueItemSheet(_ item: QuickMealQueueItem) -> some View {
+        let canSave = canSaveQueuedQuickItem(item)
+
+        return NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    editEntryField("Item Name", text: $editQueuedQuickName, keyboard: .default)
+
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Quantity")
+                                .font(.caption)
+                                .foregroundStyle(Color.mutedText)
+                            TextField("Quantity", text: $editQueuedQuickQuantity)
+                                .textFieldStyle(.roundedBorder)
+                                .keyboardType(.decimalPad)
+                                .onChange(of: editQueuedQuickQuantity) { _, newValue in
+                                    scaleQueuedQuickMacros(newQuantityStr: newValue)
+                                }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        editEntryField("Unit", text: $editQueuedQuickUnit, keyboard: .default)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    macroFieldGrid(
+                        calories: $editQueuedQuickCal,
+                        protein: $editQueuedQuickProtein,
+                        carbs: $editQueuedQuickCarbs,
+                        fat: $editQueuedQuickFat,
+                        keyboard: .decimalPad
+                    )
+
+                    HStack(spacing: 12) {
+                        Button(role: .destructive) {
+                            deleteQueuedQuickItem(id: item.id)
+                        } label: {
+                            Text("Delete").font(.headline).frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+
+                        Button {
+                            saveQueuedQuickItem(item)
+                        } label: {
+                            Text("Save").font(.headline).frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(canSave ? Color.neonCyan : .gray)
+                        .disabled(!canSave)
+                    }
+                }
+                .padding()
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .background(Color.deepBg)
+            .navigationTitle("Edit Queued Item")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { editingQuickMealQueueItem = nil }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationContentInteraction(.scrolls)
+    }
+
+    private func canSaveQueuedQuickItem(_ item: QuickMealQueueItem) -> Bool {
+        guard quickMealQueue.contains(where: { $0.id == item.id }) else { return false }
+        let name = editQueuedQuickName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unit = normalizedUnit(editQueuedQuickUnit)
+
+        guard !name.isEmpty,
+              let quantity = Double(editQueuedQuickQuantity.trimmingCharacters(in: .whitespacesAndNewlines)), quantity > 0,
+              let calories = Double(editQueuedQuickCal.trimmingCharacters(in: .whitespacesAndNewlines)), calories >= 0,
+              let protein = Double(editQueuedQuickProtein.trimmingCharacters(in: .whitespacesAndNewlines)), protein >= 0,
+              let carbs = Double(editQueuedQuickCarbs.trimmingCharacters(in: .whitespacesAndNewlines)), carbs >= 0,
+              let fat = Double(editQueuedQuickFat.trimmingCharacters(in: .whitespacesAndNewlines)), fat >= 0 else {
+            return false
+        }
+
+        let nameChanged = name != item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let quantityChanged = abs(quantity - item.quantity) > 0.001
+        let unitChanged = unit != normalizedUnit(item.unit)
+        let caloriesChanged = abs(calories - editableWholeNumberBaseline(for: item.calories)) > 0.001
+        let proteinChanged = abs(protein - editableWholeNumberBaseline(for: item.protein)) > 0.001
+        let carbsChanged = abs(carbs - editableWholeNumberBaseline(for: item.carbs)) > 0.001
+        let fatChanged = abs(fat - editableWholeNumberBaseline(for: item.fat)) > 0.001
+
+        return nameChanged || quantityChanged || unitChanged || caloriesChanged || proteinChanged || carbsChanged || fatChanged
+    }
+
+    private func scaleQueuedQuickMacros(newQuantityStr: String) {
+        guard let newQty = Double(newQuantityStr), origQueuedQuickQuantity > 0 else { return }
+        let scale = newQty / origQueuedQuickQuantity
+        editQueuedQuickCal = "\(Int(origQueuedQuickCal * scale))"
+        editQueuedQuickProtein = "\(Int(origQueuedQuickProtein * scale))"
+        editQueuedQuickCarbs = "\(Int(origQueuedQuickCarbs * scale))"
+        editQueuedQuickFat = "\(Int(origQueuedQuickFat * scale))"
+    }
+
+    private func saveQueuedQuickItem(_ item: QuickMealQueueItem) {
+        guard canSaveQueuedQuickItem(item) else { return }
+        guard let index = quickMealQueue.firstIndex(where: { $0.id == item.id }) else { return }
+
+        quickMealQueue[index].name = editQueuedQuickName.trimmingCharacters(in: .whitespacesAndNewlines)
+        quickMealQueue[index].quantity = Double(editQueuedQuickQuantity) ?? quickMealQueue[index].quantity
+        quickMealQueue[index].unit = normalizedUnit(editQueuedQuickUnit)
+        quickMealQueue[index].calories = Double(editQueuedQuickCal) ?? quickMealQueue[index].calories
+        quickMealQueue[index].protein = Double(editQueuedQuickProtein) ?? quickMealQueue[index].protein
+        quickMealQueue[index].carbs = Double(editQueuedQuickCarbs) ?? quickMealQueue[index].carbs
+        quickMealQueue[index].fat = Double(editQueuedQuickFat) ?? quickMealQueue[index].fat
+        editingQuickMealQueueItem = nil
+    }
+
     // MARK: - Edit Quick Add Sheet
 
     private func beginEditQuickAdd(_ template: QuickAddTemplate) {
@@ -2305,6 +2659,8 @@ struct MacrosView: View {
             mealText = ""
             consumedAt = Date()
             quickSearchText = action.type == .openQuickAdd ? (action.searchText ?? "") : ""
+            quickMealName = ""
+            quickMealQueue = []
             clearMealImage()
             if !hasLoadedSavedItems {
                 Task { await loadSavedItems(showErrors: false) }
@@ -2488,24 +2844,125 @@ struct MacrosView: View {
         }
     }
 
-    private func quickAddItem(_ template: QuickAddTemplate) async {
-        do {
-            let multiplier = Double(quickMultiplier) ?? 1
-            if let savedItemId = template.savedItemId {
-                try await api.quickAdd(savedItemId: savedItemId, multiplier: multiplier, consumedAt: isoTimestamp)
-            } else {
-                let item: [String: Any] = [
-                    "itemName": template.name,
-                    "quantity": template.quantity * multiplier,
-                    "unit": template.unit,
-                    "calories": template.calories * multiplier,
-                    "protein": template.protein * multiplier,
-                    "carbs": template.carbs * multiplier,
-                    "fat": template.fat * multiplier,
-                    "consumedAt": isoTimestamp
-                ]
-                try await api.saveMealEntries(items: [item], consumedAt: isoTimestamp)
+    private var canSaveQueuedQuickMeal: Bool {
+        !isSaving && !quickMealQueue.isEmpty && quickMealQueue.allSatisfy { item in
+            !item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && item.quantity > 0
+                && item.calories >= 0
+                && item.protein >= 0
+                && item.carbs >= 0
+                && item.fat >= 0
+        }
+    }
+
+    private func addQuickTemplateToQueue(_ template: QuickAddTemplate) {
+        let multiplier = max(Double(quickMultiplier) ?? 1, 0.0001)
+        let addedQuantity = template.quantity * multiplier
+        let addedCalories = template.calories * multiplier
+        let addedProtein = template.protein * multiplier
+        let addedCarbs = template.carbs * multiplier
+        let addedFat = template.fat * multiplier
+
+        if let index = quickMealQueue.firstIndex(where: { $0.sourceTemplateId == template.id }) {
+            quickMealQueue[index].quantity += addedQuantity
+            quickMealQueue[index].calories += addedCalories
+            quickMealQueue[index].protein += addedProtein
+            quickMealQueue[index].carbs += addedCarbs
+            quickMealQueue[index].fat += addedFat
+            return
+        }
+
+        guard quickMealQueue.count < 50 else {
+            errorMessage = "A meal can include at most 50 items."
+            return
+        }
+
+        quickMealQueue.append(QuickMealQueueItem(
+            id: UUID(),
+            sourceTemplateId: template.id,
+            name: template.name,
+            quantity: addedQuantity,
+            unit: template.unit,
+            calories: addedCalories,
+            protein: addedProtein,
+            carbs: addedCarbs,
+            fat: addedFat
+        ))
+    }
+
+    private func cancelQueuedQuickMeal(dismiss: Bool = false) {
+        quickMealQueue = []
+        quickMealName = ""
+        showQuickMealNamePrompt = false
+        editingQuickMealQueueItem = nil
+        if dismiss {
+            showAddSheet = false
+        }
+    }
+
+    private func deleteQueuedQuickItem(id: UUID) {
+        quickMealQueue.removeAll { $0.id == id }
+        if editingQuickMealQueueItem?.id == id {
+            editingQuickMealQueueItem = nil
+        }
+        if quickMealQueue.isEmpty {
+            quickMealName = ""
+            showQuickMealNamePrompt = false
+        }
+    }
+
+    private func queuedQuickMealPayload() -> [[String: Any]] {
+        quickMealQueue.map { item in
+            [
+                "itemName": item.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                "quantity": item.quantity,
+                "unit": item.unit,
+                "calories": item.calories,
+                "protein": item.protein,
+                "carbs": item.carbs,
+                "fat": item.fat
+            ]
+        }
+    }
+
+    private func beginSaveQueuedQuickMeal() {
+        guard canSaveQueuedQuickMeal else { return }
+
+        if quickMealQueue.count > 1 {
+            if quickMealName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                quickMealName = "Quick Add Meal"
             }
+            showQuickMealNamePrompt = true
+            return
+        }
+
+        Task { await saveQueuedQuickMeal(mealName: nil) }
+    }
+
+    private func queuedQuickMealName(_ requestedName: String?) -> String? {
+        guard quickMealQueue.count > 1 else { return nil }
+        let name = requestedName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? "Quick Add Meal" : name
+    }
+
+    private func saveQueuedQuickMeal(mealName requestedMealName: String?) async {
+        guard canSaveQueuedQuickMeal else { return }
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            let items = queuedQuickMealPayload()
+            let mealName = queuedQuickMealName(requestedMealName)
+            try await api.saveMealEntries(
+                items: items,
+                consumedAt: isoTimestamp,
+                mealName: mealName,
+                mealQuantity: items.count > 1 ? 1.0 : nil,
+                mealUnit: items.count > 1 ? "meal" : nil
+            )
+            quickMealQueue = []
+            quickMealName = ""
+            showQuickMealNamePrompt = false
             showAddSheet = false
             await loadDashboard()
         } catch {
@@ -2662,15 +3119,34 @@ struct MacrosView: View {
         }
     }
 
+    private func clearPendingCombineMeal() {
+        pendingCombineEntryIds = []
+        combineMealName = ""
+        showCombineMealNamePrompt = false
+    }
+
     private func combineSelectedEntries(in entries: [Entry]) async {
         let ids = selectedEntries(in: entries)
             .filter { $0.mealGroup == nil }
             .map(\.id)
         guard ids.count >= 2 else { return }
 
+        pendingCombineEntryIds = ids
+        combineMealName = "Meal"
+        showCombineMealNamePrompt = true
+    }
+
+    private func combinePendingSelectedEntries() async {
+        let ids = pendingCombineEntryIds
+        let mealName = combineMealName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ids.count >= 2, !mealName.isEmpty else { return }
+
+        showCombineMealNamePrompt = false
         await performMealSelectionAction {
-            try await api.combineEntries(entryIds: ids, mealName: "Meal")
+            try await api.combineEntries(entryIds: ids, mealName: mealName)
         }
+        pendingCombineEntryIds = []
+        combineMealName = ""
     }
 
     private func removeSelectedEntriesFromMeal(in entries: [Entry]) async {

@@ -350,6 +350,44 @@ test('iOS quick items are searchable and preload saved items in the background',
   assert.equal(swift.includes('if !hasLoadedSavedItems'), true);
 });
 
+test('iOS quick add queues multiple items before saving a meal', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const queueSection = swift.slice(
+    swift.indexOf('private var quickMealQueueSection'),
+    swift.indexOf('private var parsedResultsView')
+  );
+  const queueActions = swift.slice(
+    swift.indexOf('private var canSaveQueuedQuickMeal'),
+    swift.indexOf('private func saveEditedEntry')
+  );
+
+  assert.equal(swift.includes('private struct QuickMealQueueItem'), true);
+  assert.equal(swift.includes('@State private var quickMealQueue: [QuickMealQueueItem] = []'), true);
+  assert.equal(swift.includes('.sheet(item: $editingQuickMealQueueItem)'), true);
+  assert.equal(swift.includes('addQuickTemplateToQueue(template)'), true);
+  assert.equal(swift.includes('try await api.quickAdd'), false);
+  assert.equal(queueSection.includes('Text("Save")'), true);
+  assert.equal(queueSection.includes('Text("Cancel")'), true);
+  assert.equal(queueSection.includes('TextField("Meal name"'), false);
+  assert.equal(queueSection.includes('deleteQueuedQuickItem(id: item.id)'), true);
+  assert.equal(swift.includes('let sourceTemplateId: String'), true);
+  assert.equal(queueActions.includes('firstIndex(where: { $0.sourceTemplateId == template.id })'), true);
+  assert.equal(queueActions.includes('quickMealQueue[index].quantity += addedQuantity'), true);
+  assert.equal(queueActions.includes('quickMealQueue.append(QuickMealQueueItem('), true);
+  assert.equal(queueActions.includes('sourceTemplateId: template.id'), true);
+  assert.equal(swift.includes('@State private var showQuickMealNamePrompt = false'), true);
+  assert.equal(swift.includes('.alert("Name Meal", isPresented: $showQuickMealNamePrompt)'), true);
+  assert.equal(swift.includes('TextField("Meal name", text: $quickMealName)'), true);
+  assert.equal(queueActions.includes('private func beginSaveQueuedQuickMeal()'), true);
+  assert.equal(queueActions.includes('if quickMealQueue.count > 1'), true);
+  assert.equal(queueActions.includes('showQuickMealNamePrompt = true'), true);
+  assert.equal(queueActions.includes('private func saveQueuedQuickMeal(mealName requestedMealName: String?) async'), true);
+  assert.equal(queueActions.includes('try await api.saveMealEntries('), true);
+  assert.equal(queueActions.includes('mealName: mealName'), true);
+  assert.equal(swift.includes('private func saveQueuedQuickItem'), true);
+  assert.equal(swift.includes('private func scaleQueuedQuickMacros'), true);
+});
+
 test('iOS macro add sheet defaults logged-at to the current moment', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
   const toolbar = swift.slice(
@@ -389,10 +427,17 @@ test('iOS macros logged entries expose meal multi-select actions', () => {
     swift.indexOf('private func entriesList'),
     swift.indexOf('// MARK: - Edit Entry Sheet')
   );
+  const selectionActions = swift.slice(
+    swift.indexOf('private func performMealSelectionAction'),
+    swift.indexOf('private func deleteEntry')
+  );
 
   assert.equal(swift.includes('@State private var isMealEditing = false'), true);
   assert.equal(swift.includes('@State private var selectedEntryIds: Set<Int> = []'), true);
   assert.equal(swift.includes('@State private var selectedMealGroups: Set<String> = []'), true);
+  assert.equal(swift.includes('@State private var showCombineMealNamePrompt = false'), true);
+  assert.equal(swift.includes('@State private var combineMealName = ""'), true);
+  assert.equal(swift.includes('@State private var pendingCombineEntryIds: [Int] = []'), true);
   assert.equal(entriesList.includes('Button(isMealEditing ? "done" : "edit meals")'), true);
   assert.equal(entriesList.includes('mealSelectionActionBar(entries: entries)'), true);
   assert.equal(entriesList.includes('selectionIcon(isSelected: isSelected)'), true);
@@ -401,8 +446,15 @@ test('iOS macros logged entries expose meal multi-select actions', () => {
   assert.equal(entriesList.includes('selected.allSatisfy { $0.mealGroup == nil }'), true);
   assert.equal(entriesList.includes('private func canRemoveSelectedEntriesFromMeal'), true);
   assert.equal(entriesList.includes('groups.count == 1'), true);
+  assert.equal(swift.includes('.alert("Name Meal", isPresented: $showCombineMealNamePrompt)'), true);
+  assert.equal(swift.includes('TextField("Meal name", text: $combineMealName)'), true);
   assert.equal(swift.includes('private func combineSelectedEntries(in entries: [Entry]) async'), true);
-  assert.equal(swift.includes('try await api.combineEntries(entryIds: ids, mealName: "Meal")'), true);
+  assert.equal(selectionActions.includes('pendingCombineEntryIds = ids'), true);
+  assert.equal(selectionActions.includes('combineMealName = "Meal"'), true);
+  assert.equal(selectionActions.includes('showCombineMealNamePrompt = true'), true);
+  assert.equal(selectionActions.includes('private func combinePendingSelectedEntries() async'), true);
+  assert.equal(selectionActions.includes('try await api.combineEntries(entryIds: ids, mealName: mealName)'), true);
+  assert.equal(selectionActions.includes('mealName: "Meal"'), false);
   assert.equal(swift.includes('private func removeSelectedEntriesFromMeal(in entries: [Entry]) async'), true);
   assert.equal(swift.includes('try await api.removeFromGroup(entryId: entry.id)'), true);
   assert.equal(swift.includes('private func deleteSelectedMeals(in entries: [Entry]) async'), true);
@@ -994,6 +1046,35 @@ test('iOS app includes onboarding reminders offline queue and diagnostics founda
   assert.ok(api.includes('queueMutation(path: "/entries/bulk"'));
   assert.ok(api.includes('func flushPendingMutations()'));
   assert.ok(diagnostics.includes('Logger(subsystem: "com.dailymacros.app"'));
+});
+
+test('iOS debug builds can launch as the local dev user', () => {
+  const app = read('ios/DailyMacros/DailyMacros/DailyMacrosApp.swift');
+  const auth = read('ios/DailyMacros/DailyMacros/AuthManager.swift');
+  const login = read('ios/DailyMacros/DailyMacros/LoginView.swift');
+  const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+
+  assert.ok(auth.includes('var localDevBypassAvailable: Bool'));
+  assert.ok(auth.includes('#if DEBUG'));
+  assert.ok(auth.includes('try await signInWithDevBypass()'));
+  assert.ok(auth.includes('func signInWithLocalDevUser() async'));
+  assert.ok(auth.includes('signInWithOfflineLocalDevUser(fallbackError: error)'));
+  assert.ok(auth.includes('Launched local dev user without backend'));
+  assert.ok(auth.includes('host.hasPrefix("192.168.")'));
+  assert.ok(auth.includes('(16...31).contains(parts[1])'));
+  assert.ok(auth.includes('var isLocalDevUser: Bool'));
+  assert.ok(app.includes('private var shouldShowOnboarding'));
+  assert.ok(app.includes('} else if auth.isAuthenticated, shouldShowOnboarding {'));
+  assert.ok(app.includes('completeLocalDevOnboardingIfNeeded()'));
+  assert.ok(app.includes('auth.isLocalDevUser'));
+  assert.ok(app.includes('Skipped setup for local dev user'));
+  assert.ok(login.includes('Continue as Local Dev User'));
+  assert.ok(login.includes('auth.localDevBypassAvailable'));
+  assert.ok(login.includes('signInWithLocalDevUser()'));
+  assert.ok(api.includes('auth/dev/mobile'));
+  assert.ok(api.includes('@Published private(set) var isLocalDevOfflineSession'));
+  assert.ok(api.includes('func beginLocalDevOfflineSession()'));
+  assert.ok(api.includes('isLocalDevOfflineSession ? "local-dev-offline" : nil'));
 });
 
 test('meal logging surfaces barcode lookup beside photo and camera', () => {

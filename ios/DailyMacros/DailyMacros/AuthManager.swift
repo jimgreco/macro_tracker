@@ -33,19 +33,24 @@ class AuthManager: ObservableObject {
         }
 
         #if DEBUG
-        guard shouldAttemptLocalDevBypass else { return }
+        guard localDevBypassAvailable else { return }
 
-        do {
-            try await signInWithDevBypass()
-        } catch {
-            Diagnostics.shared.record(level: "warning", category: "auth", message: "Local dev bypass failed", details: ["error": error.localizedDescription])
-            isAuthenticated = false
-            user = nil
-        }
+        await signInWithLocalDevUser()
         #endif
     }
 
     func refreshUser() async {
+        #if DEBUG
+        if api.isLocalDevOfflineSession, localDevBypassAvailable {
+            do {
+                try await signInWithDevBypass()
+            } catch {
+                Diagnostics.shared.record(level: "warning", category: "auth", message: "Local dev token refresh unavailable", details: ["error": error.localizedDescription])
+            }
+            return
+        }
+        #endif
+
         guard api.token != nil else { return }
         do {
             user = try await api.getMe()
@@ -87,6 +92,7 @@ class AuthManager: ObservableObject {
     func signInWithDevBypass() async throws {
         let result = try await api.signInWithDevBypass()
         api.token = result.token
+        api.endLocalDevOfflineSession()
         user = (try? await api.getMe()) ?? User(
             id: result.user.id,
             name: result.user.name,
@@ -97,6 +103,36 @@ class AuthManager: ObservableObject {
         isAuthenticated = true
         Diagnostics.shared.record(category: "auth", message: "Signed in with local dev bypass")
     }
+
+    #if DEBUG
+    func signInWithLocalDevUser() async {
+        guard localDevBypassAvailable else { return }
+
+        do {
+            try await signInWithDevBypass()
+        } catch {
+            signInWithOfflineLocalDevUser(fallbackError: error)
+        }
+    }
+
+    private func signInWithOfflineLocalDevUser(fallbackError: Error) {
+        api.beginLocalDevOfflineSession()
+        user = User(
+            id: "local-dev-user",
+            name: "Local Preview User",
+            email: "local-preview@example.com",
+            picture: nil,
+            provider: "local-dev"
+        )
+        isAuthenticated = true
+        Diagnostics.shared.record(
+            level: "warning",
+            category: "auth",
+            message: "Launched local dev user without backend",
+            details: ["error": fallbackError.localizedDescription]
+        )
+    }
+    #endif
 
     func signInWithGoogle(code: String, redirectURI: String, codeVerifier: String) async throws {
         let result = try await api.signInWithGoogle(code: code, redirectURI: redirectURI, codeVerifier: codeVerifier)
@@ -142,20 +178,40 @@ class AuthManager: ObservableObject {
 
     func signOut() {
         api.token = nil
+        api.endLocalDevOfflineSession()
         user = nil
         isAuthenticated = false
         Diagnostics.shared.record(category: "auth", message: "Signed out")
     }
 
     func signOutEverywhere() async throws {
-        try await api.deleteAllTokens()
+        if api.token != nil {
+            try await api.deleteAllTokens()
+        }
+        api.endLocalDevOfflineSession()
         user = nil
         isAuthenticated = false
         Diagnostics.shared.record(category: "auth", message: "Signed out everywhere")
     }
 
-    private var shouldAttemptLocalDevBypass: Bool {
+    var isLocalDevUser: Bool {
+        user?.provider == "local-dev"
+    }
+
+    var localDevBypassAvailable: Bool {
+        #if DEBUG
         guard let host = api.baseURL.host?.lowercased() else { return false }
-        return host == "localhost" || host == "127.0.0.1" || host == "::1"
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" || host.hasSuffix(".local") {
+            return true
+        }
+        if host.hasPrefix("10.") || host.hasPrefix("192.168.") {
+            return true
+        }
+
+        let parts = host.split(separator: ".").compactMap { Int($0) }
+        return parts.count == 4 && parts[0] == 172 && (16...31).contains(parts[1])
+        #else
+        return false
+        #endif
     }
 }
