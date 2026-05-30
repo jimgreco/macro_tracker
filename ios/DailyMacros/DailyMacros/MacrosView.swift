@@ -502,7 +502,7 @@ struct MacrosView: View {
     // MARK: - Date Picker
 
     private var datePicker: some View {
-        HStack {
+        return HStack {
             Button {
                 selectedDate = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate)!
                 clearMealSelection()
@@ -874,9 +874,14 @@ struct MacrosView: View {
                 if isMealEditing {
                     selectionIcon(isSelected: isSelected)
                 }
-                Text(items.first?.mealName ?? "Meal")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(Color.neonGreen)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(items.first?.mealName ?? "Meal")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(Color.neonGreen)
+                    Text("\(compactNumberText(items.first?.mealQuantity ?? 1)) \(items.first?.mealUnit ?? "serving")")
+                        .font(.caption2)
+                        .foregroundStyle(Color.mutedText)
+                }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("\(Int(totalCal)) kcal")
@@ -993,7 +998,14 @@ struct MacrosView: View {
     }
 
     private func entryRowContent(_ entry: Entry, isSubItem: Bool = false) -> some View {
-        HStack {
+        let unitScale = isSubItem ? max(entry.mealQuantity ?? 1, 0.0001) : 1
+        let displayQuantity = entry.quantity / unitScale
+        let displayCalories = entry.calories / unitScale
+        let displayProtein = entry.protein / unitScale
+        let displayCarbs = entry.carbs / unitScale
+        let displayFat = entry.fat / unitScale
+
+        return HStack {
             if isSubItem {
                 Circle()
                     .fill(Color.neonGreen.opacity(0.4))
@@ -1004,16 +1016,16 @@ struct MacrosView: View {
                 Text(entry.itemName)
                     .font(isSubItem ? .caption : .subheadline)
                     .foregroundStyle(isSubItem ? Color.white.opacity(0.75) : Color.white)
-                Text("\(Int(entry.quantity)) \(entry.unit ?? "serving")")
+                Text("\(compactNumberText(displayQuantity)) \(entry.unit ?? "serving")")
                     .font(.caption2)
                     .foregroundStyle(Color.mutedText)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text("\(Int(entry.calories)) kcal")
+                Text("\(Int(displayCalories)) kcal")
                     .font(isSubItem ? .caption : .subheadline)
                     .foregroundStyle(isSubItem ? Color.white.opacity(0.6) : Color.white)
-                Text(macroBreakdownText(protein: entry.protein, carbs: entry.carbs, fat: entry.fat))
+                Text(macroBreakdownText(protein: displayProtein, carbs: displayCarbs, fat: displayFat))
                     .font(.caption2)
                     .foregroundStyle(Color.mutedText)
                     .lineLimit(1)
@@ -2232,10 +2244,11 @@ struct MacrosView: View {
                 .padding(.vertical, 2)
             }
 
-            let totalCal = parsedItems.reduce(0) { $0 + $1.calories }
-            let totalP = parsedItems.reduce(0) { $0 + $1.protein }
-            let totalC = parsedItems.reduce(0) { $0 + $1.carbs }
-            let totalF = parsedItems.reduce(0) { $0 + $1.fat }
+            let parsedMealScale = parsedItems.count > 1 ? max(Double(parsedMealQuantity) ?? 1, 0.0001) : 1
+            let totalCal = parsedItems.reduce(0) { $0 + $1.calories } * parsedMealScale
+            let totalP = parsedItems.reduce(0) { $0 + $1.protein } * parsedMealScale
+            let totalC = parsedItems.reduce(0) { $0 + $1.carbs } * parsedMealScale
+            let totalF = parsedItems.reduce(0) { $0 + $1.fat } * parsedMealScale
 
             Divider()
             HStack {
@@ -2826,6 +2839,7 @@ struct MacrosView: View {
                 mealName: parsedMealName,
                 mealQuantity: Double(parsedMealQuantity),
                 mealUnit: parsedMealUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : parsedMealUnit,
+                itemsAreMealUnit: parsedItems.count > 1,
                 saveItems: saveItems
             )
             showAddSheet = false
@@ -3275,7 +3289,6 @@ struct MacrosView: View {
             ]]
         }
 
-        let mealQuantity = max(Double(parsedMealQuantity) ?? 1, 0.0001)
         let totals = parsedItems.reduce((calories: 0.0, protein: 0.0, carbs: 0.0, fat: 0.0)) { acc, item in
             (
                 calories: acc.calories + item.calories,
@@ -3288,10 +3301,10 @@ struct MacrosView: View {
             "name": (parsedMealName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? parsedMealName! : "Meal"),
             "quantity": 1,
             "unit": parsedMealUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "serving" : parsedMealUnit,
-            "calories": (totals.calories / mealQuantity).rounded(toPlaces: 2),
-            "protein": (totals.protein / mealQuantity).rounded(toPlaces: 2),
-            "carbs": (totals.carbs / mealQuantity).rounded(toPlaces: 2),
-            "fat": (totals.fat / mealQuantity).rounded(toPlaces: 2)
+            "calories": totals.calories.rounded(toPlaces: 2),
+            "protein": totals.protein.rounded(toPlaces: 2),
+            "carbs": totals.carbs.rounded(toPlaces: 2),
+            "fat": totals.fat.rounded(toPlaces: 2)
         ]]
     }
 

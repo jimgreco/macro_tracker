@@ -379,12 +379,14 @@ class APIClient: ObservableObject {
         mealName: String? = nil,
         mealQuantity: Double? = nil,
         mealUnit: String? = nil,
+        itemsAreMealUnit: Bool = false,
         saveItems: [[String: Any]] = []
     ) async throws {
         var payload: [String: Any] = ["items": items, "consumedAt": consumedAt]
         if let mealName { payload["mealName"] = mealName }
         if let mealQuantity { payload["mealQuantity"] = mealQuantity }
         if let mealUnit { payload["mealUnit"] = mealUnit }
+        if itemsAreMealUnit { payload["itemsAreMealUnit"] = true }
         if !saveItems.isEmpty { payload["saveItems"] = saveItems }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/entries/bulk"), method: "POST", body: body)

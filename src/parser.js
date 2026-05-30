@@ -1,5 +1,6 @@
 const OpenAI = require('openai');
 const { toFile } = require('openai/uploads');
+const { normalizeMealParse } = require('./meal-normalizer');
 
 function parseImageDataUrl(imageDataUrl) {
   const match = String(imageDataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/s);
@@ -69,7 +70,7 @@ async function parseMealText({ text, consumedAt, imageDataUrl }) {
         {
           role: 'system',
           content:
-            'You extract nutrition logs from user input that may include meal text, a meal photo, or both. Return strict JSON only. Break meals into itemized foods with estimated macros per consumed amount. Use grams for protein/carbs/fat and kcal for calories. Prefer practical food units from user language (egg, bottle, can, slice, cup, serving) over tiny base units like 1 ml or 1 g when a practical unit is implied. If the user says a fractional container (like half bottle), keep quantity fractional with that container unit (quantity 0.5, unit bottle). If uncertain, provide best estimate and confidence. If text and photo conflict, use the text as primary and photo as supporting context. When estimating macros, be conservative and err on the higher end — it is better to slightly overestimate calories and macros than to underestimate them. For cooked meals, assume they were prepared with a reasonable amount of oil or butter and include that in the macro estimates. For mealName, generate a short descriptive name for the overall meal (e.g. "Lentil Soup", "Chicken Caesar Salad", "Breakfast Burrito") — do not just echo the user\'s raw input; clean it up into a proper, concise meal title.'
+            'You extract nutrition logs from user input that may include meal text, a meal photo, or both. Return strict JSON only. Break meals into itemized foods with estimated macros per consumed amount. Use grams for protein/carbs/fat and kcal for calories. Prefer practical food units from user language (egg, bottle, can, slice, cup, serving) over tiny base units like 1 ml or 1 g when a practical unit is implied. If the user says a fractional container (like half bottle), keep quantity fractional with that container unit (quantity 0.5, unit bottle). For repeated multi-item meal sets, put the repetition on mealQuantity and make each component describe one meal unit: for "2 pancakes and 2 syrup", return mealQuantity 2, mealUnit "serving", one pancake item with quantity 1, and one syrup item with quantity 1, with item macros for one pancake and one syrup. If the user only lists one food, keep the count on the item. If uncertain, provide best estimate and confidence. If text and photo conflict, use the text as primary and photo as supporting context. When estimating macros, be conservative and err on the higher end -- it is better to slightly overestimate calories and macros than to underestimate them. For cooked meals, assume they were prepared with a reasonable amount of oil or butter and include that in the macro estimates. For mealName, generate a short descriptive name for the overall meal (e.g. "Lentil Soup", "Chicken Caesar Salad", "Breakfast Burrito") -- do not just echo the user\'s raw input; clean it up into a proper, concise meal title.'
         },
         {
           role: 'user',
@@ -84,10 +85,12 @@ async function parseMealText({ text, consumedAt, imageDataUrl }) {
           schema: {
             type: 'object',
             additionalProperties: false,
-            required: ['consumedAt', 'mealName', 'items', 'notes'],
+            required: ['consumedAt', 'mealName', 'mealQuantity', 'mealUnit', 'items', 'notes'],
             properties: {
               consumedAt: { type: 'string' },
               mealName: { type: 'string' },
+              mealQuantity: { type: 'number' },
+              mealUnit: { type: 'string' },
               notes: { type: 'string' },
               items: {
                 type: 'array',
@@ -127,7 +130,7 @@ async function parseMealText({ text, consumedAt, imageDataUrl }) {
     });
 
     const content = response.output_text || '{}';
-    const parsed = JSON.parse(content);
+    const parsed = normalizeMealParse(JSON.parse(content));
 
     if (!Array.isArray(parsed.items) || parsed.items.length === 0) {
       throw new Error('Unable to parse meal items from input.');
@@ -226,5 +229,6 @@ async function parseWorkoutText({ text }) {
 
 module.exports = {
   parseMealText,
-  parseWorkoutText
+  parseWorkoutText,
+  normalizeMealParse
 };

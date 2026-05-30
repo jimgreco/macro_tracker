@@ -78,6 +78,7 @@ const {
   consumeDailyUsage
 } = require('./db');
 const { parseMealText, parseWorkoutText } = require('./parser');
+const { scaleMealUnitRows } = require('./meal-normalizer');
 const packageJson = require('../package.json');
 
 const app = express();
@@ -2296,7 +2297,7 @@ apiRouter.post('/entries/bulk', async (req, res) => {
   try {
     const body = requirePlainObject(req.body || {}, 'bulk entries request');
     const consumedAt = normalizeIsoDateTime(body.consumedAt, 'consumedAt');
-    const rows = validateItems(body.items, consumedAt);
+    let rows = validateItems(body.items, consumedAt);
 
     if (!rows.length) {
       return sendError(req, res, 400, 'At least one item is required.');
@@ -2310,6 +2311,10 @@ apiRouter.post('/entries/bulk', async (req, res) => {
       fallback: 1
     });
     const mealUnit = normalizeString(body.mealUnit, 'mealUnit', { maxLength: 32, fallback: 'serving' });
+    const itemsAreMealUnit = body.itemsAreMealUnit === true;
+    if (mealGroup && itemsAreMealUnit) {
+      rows = scaleMealUnitRows(rows, mealQuantity);
+    }
     for (const row of rows) {
       row.mealGroup = mealGroup;
       row.mealName = mealName;

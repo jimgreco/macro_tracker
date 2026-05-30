@@ -1947,10 +1947,10 @@ function renderParsedItems(parsedMeal) {
     const mealQty = parsedMeal.mealQuantity || 1;
     const mealUnit = parsedMeal.mealUnit || 'serving';
     const totals = parsedMeal.items.reduce((acc, it) => {
-      acc.calories += Number(it.calories || 0);
-      acc.protein += Number(it.protein || 0);
-      acc.carbs += Number(it.carbs || 0);
-      acc.fat += Number(it.fat || 0);
+      acc.calories += Number(it.calories || 0) * mealQty;
+      acc.protein += Number(it.protein || 0) * mealQty;
+      acc.carbs += Number(it.carbs || 0) * mealQty;
+      acc.fat += Number(it.fat || 0) * mealQty;
       return acc;
     }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
@@ -1998,7 +1998,7 @@ function renderParsedItems(parsedMeal) {
     summary.className = 'parsed-item-summary';
     summary.innerHTML = `
       <span class="parsed-item-name">${escapeHtml(item.itemName)}</span>
-      <span class="parsed-item-macros">${fmtNumber(item.calories)} cal &middot; ${fmtNumber(item.protein)}g protein &middot; ${fmtNumber(item.carbs)}g carbs &middot; ${fmtNumber(item.fat)}g fat</span>
+      <span class="parsed-item-macros">${fmtNumber(item.quantity)} ${escapeHtml(item.unit || 'serving')} &middot; ${fmtNumber(item.calories)} cal &middot; ${fmtNumber(item.protein)}g protein &middot; ${fmtNumber(item.carbs)}g carbs &middot; ${fmtNumber(item.fat)}g fat</span>
     `;
 
     const editBtn = document.createElement('button');
@@ -2929,12 +2929,18 @@ function renderDashboard(data) {
         const childId = safeId(child.id);
         const groupId = escapeAttr(item.mealGroup);
         const childGroupId = escapeAttr(child.mealGroup);
+        const unitScale = mealQty > 0 ? mealQty : 1;
+        const childQuantity = Number(child.quantity || 0) / unitScale;
+        const childCalories = Number(child.calories || 0) / unitScale;
+        const childProtein = Number(child.protein || 0) / unitScale;
+        const childCarbs = Number(child.carbs || 0) / unitScale;
+        const childFat = Number(child.fat || 0) / unitScale;
         childrenHtml += `
           <div class="macro-card-child" data-entry-id="${childId}" data-meal-group="${groupId}">
             <div class="macro-card-check"><input type="checkbox" class="entry-checkbox" data-entry-id="${childId}" data-in-group="1" data-meal-group="${childGroupId}" ${childChecked} /></div>
             <div class="macro-card-child-body" data-edit-entry-id="${childId}">
               <span class="macro-card-child-name">${escapeHtml(child.itemName)}</span>
-              <span class="macro-card-child-detail">${fmtNumber(child.quantity)} ${escapeHtml(child.unit || '')} · ${fmtNumber(child.calories)} cal · ${fmtNumber(child.protein)}g protein · ${fmtNumber(child.carbs)}g carbs · ${fmtNumber(child.fat)}g fat</span>
+              <span class="macro-card-child-detail">${fmtNumber(childQuantity)} ${escapeHtml(child.unit || '')} · ${fmtNumber(childCalories)} cal · ${fmtNumber(childProtein)}g protein · ${fmtNumber(childCarbs)}g carbs · ${fmtNumber(childFat)}g fat</span>
             </div>
           </div>
         `;
@@ -3844,7 +3850,6 @@ saveParsedBtnEl.addEventListener('click', async () => {
         fat: perUnit(item.fat)
       });
     } else {
-      const mealQty = state.parsedMeal.mealQuantity || 1;
       const totals = editedItems.reduce((acc, item) => {
         acc.calories += Number(item.calories || 0);
         acc.protein += Number(item.protein || 0);
@@ -3852,15 +3857,14 @@ saveParsedBtnEl.addEventListener('click', async () => {
         acc.fat += Number(item.fat || 0);
         return acc;
       }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
-      const perUnit = (v) => Number((v / mealQty).toFixed(2));
       saveItems.push({
         name: state.parsedMeal.mealName || 'Meal',
         quantity: 1,
         unit: state.parsedMeal.mealUnit || 'serving',
-        calories: perUnit(totals.calories),
-        protein: perUnit(totals.protein),
-        carbs: perUnit(totals.carbs),
-        fat: perUnit(totals.fat)
+        calories: Number(totals.calories.toFixed(2)),
+        protein: Number(totals.protein.toFixed(2)),
+        carbs: Number(totals.carbs.toFixed(2)),
+        fat: Number(totals.fat.toFixed(2))
       });
     }
   }
@@ -3874,7 +3878,8 @@ saveParsedBtnEl.addEventListener('click', async () => {
         saveItems,
         mealName: state.parsedMeal.mealName || undefined,
         mealQuantity: state.parsedMeal.mealQuantity || undefined,
-        mealUnit: state.parsedMeal.mealUnit || undefined
+        mealUnit: state.parsedMeal.mealUnit || undefined,
+        itemsAreMealUnit: items.length > 1
       })
     });
 
