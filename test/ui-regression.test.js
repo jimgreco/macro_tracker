@@ -1004,8 +1004,11 @@ test('iOS app includes onboarding reminders offline queue and diagnostics founda
   assert.ok(onboarding.includes('WeightView()'));
   assert.ok(onboarding.includes('SleepView()'));
   assert.ok(onboarding.includes('TutorialSpotlightScrim(spotlightRect: spotlightRect)'));
-  assert.ok(onboarding.includes('spotlightRect(in: proxy.size, safeAreaInsets: proxy.safeAreaInsets)'));
-  assert.ok(onboarding.includes('normalizedTutorialTopInset(in: size, safeAreaInsets: safeAreaInsets) + 10'));
+  assert.ok(onboarding.includes('private func tutorialTopInset(in size: CGSize, safeAreaInsets: EdgeInsets, coordinateMinY: CGFloat)'));
+  assert.ok(onboarding.includes('normalizedTopInset - max(coordinateMinY, 0)'));
+  assert.ok(onboarding.includes('coordinateMinY: proxy.frame(in: .global).minY'));
+  assert.ok(onboarding.includes('spotlightRect(in: proxy.size, topInset: topInset)'));
+  assert.ok(onboarding.includes('let toolbarY = topInset + 10'));
   assert.ok(onboarding.includes('let maximumReasonableTopInset = min(size.height * 0.08, 64)'));
   assert.ok(onboarding.includes('.padding(.top, max(topInset + 8, 18))'));
   assert.ok(onboarding.includes('.fill(Color.black.opacity(0.58), style: FillStyle(eoFill: true))'));

@@ -6,6 +6,11 @@ private func normalizedTutorialTopInset(in size: CGSize, safeAreaInsets: EdgeIns
     return min(max(safeAreaInsets.top, 0), maximumReasonableTopInset)
 }
 
+private func tutorialTopInset(in size: CGSize, safeAreaInsets: EdgeInsets, coordinateMinY: CGFloat) -> CGFloat {
+    let normalizedTopInset = normalizedTutorialTopInset(in: size, safeAreaInsets: safeAreaInsets)
+    return max(normalizedTopInset - max(coordinateMinY, 0), 0)
+}
+
 struct OnboardingView: View {
     @EnvironmentObject var api: APIClient
     @EnvironmentObject var auth: AuthManager
@@ -68,8 +73,8 @@ struct OnboardingView: View {
             }
         }
 
-        func spotlightRect(in size: CGSize, safeAreaInsets: EdgeInsets) -> CGRect {
-            let toolbarY = normalizedTutorialTopInset(in: size, safeAreaInsets: safeAreaInsets) + 10
+        func spotlightRect(in size: CGSize, topInset: CGFloat) -> CGRect {
+            let toolbarY = topInset + 10
             let trailingPadding: CGFloat = 14
 
             switch self {
@@ -147,8 +152,12 @@ struct OnboardingView: View {
 
     private var tutorialOverlay: some View {
         GeometryReader { proxy in
-            let spotlightRect = setupStep.spotlightRect(in: proxy.size, safeAreaInsets: proxy.safeAreaInsets)
-            let topInset = normalizedTutorialTopInset(in: proxy.size, safeAreaInsets: proxy.safeAreaInsets)
+            let topInset = tutorialTopInset(
+                in: proxy.size,
+                safeAreaInsets: proxy.safeAreaInsets,
+                coordinateMinY: proxy.frame(in: .global).minY
+            )
+            let spotlightRect = setupStep.spotlightRect(in: proxy.size, topInset: topInset)
 
             ZStack {
                 tutorialPageBackground
