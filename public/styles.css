@@ -2912,14 +2912,16 @@ button[disabled] {
   letter-spacing: 0.04em;
 }
 
-.account-coach-category-controls {
+.account-coach-category-controls,
+.account-preference-controls {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
   margin: 0 0 0.9rem;
   padding: 0.72rem;
 }
 
-.account-coach-category-controls legend {
+.account-coach-category-controls legend,
+.account-preference-controls legend {
   color: #dce9ff;
   font-size: 0.78rem;
   font-weight: 700;
@@ -2934,7 +2936,8 @@ button[disabled] {
   gap: 0.55rem 0.7rem;
 }
 
-.account-coach-category-toggle {
+.account-coach-category-toggle,
+.account-preference-toggle {
   align-items: center;
   color: var(--text);
   display: flex;
@@ -2943,7 +2946,8 @@ button[disabled] {
   min-width: 0;
 }
 
-.account-coach-category-toggle input {
+.account-coach-category-toggle input,
+.account-preference-toggle input {
   accent-color: var(--accent);
   flex: 0 0 auto;
 }

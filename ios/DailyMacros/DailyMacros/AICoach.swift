@@ -70,6 +70,12 @@ enum CoachMode: String, CaseIterable, Identifiable, Sendable {
         guard legacyEnabled else { return .off }
         return CoachMode(rawValue: rawValue) ?? .localModelWithTemplates
     }
+
+    static func effective(rawValue: String, legacyEnabled: Bool, isAdmin: Bool) -> CoachMode {
+        let mode = resolved(rawValue: rawValue, legacyEnabled: legacyEnabled)
+        guard !isAdmin, mode != .off else { return mode }
+        return .localModelWithTemplates
+    }
 }
 
 enum CoachCategoryPreference: String, CaseIterable, Identifiable, Sendable {
@@ -434,6 +440,7 @@ final class CoachDismissalStore: ObservableObject {
 
 struct AICoachSlot: View {
     @EnvironmentObject private var api: APIClient
+    @EnvironmentObject private var auth: AuthManager
     @ObservedObject var dismissals: CoachDismissalStore
     @AppStorage(CoachSettingKeys.enabled) private var legacyCoachEnabled = true
     @AppStorage(CoachSettingKeys.mode) private var coachModeRaw = CoachMode.localModelWithTemplates.rawValue
@@ -449,7 +456,12 @@ struct AICoachSlot: View {
     let onPrimaryAction: (CoachAction) -> Void
 
     var body: some View {
-        let mode = CoachMode.resolved(rawValue: coachModeRaw, legacyEnabled: legacyCoachEnabled)
+        let showsSourceDetails = auth.user?.isAdmin == true
+        let mode = CoachMode.effective(
+            rawValue: coachModeRaw,
+            legacyEnabled: legacyCoachEnabled,
+            isAdmin: showsSourceDetails
+        )
         let visibleCandidates = dismissals.visibleSuggestions(from: suggestions)
             .filter { !CoachCategoryPreference.isDisabled($0, rawValue: disabledCategoryIDsRaw) }
         let narrationKey = narrationTaskID(for: visibleCandidates, mode: mode)
@@ -463,6 +475,7 @@ struct AICoachSlot: View {
                     AICoachCard(
                         suggestion: suggestion,
                         isLocalAIProcessing: isLocalAIProcessing,
+                        showsSourceDetails: showsSourceDetails,
                         onPrimaryAction: { action in
                             recordCoachEvent("acted_on", suggestion: suggestion, action: action)
                             onPrimaryAction(action)
@@ -1044,6 +1057,7 @@ struct AICoachCard: View {
 
     let suggestion: CoachSuggestion
     let isLocalAIProcessing: Bool
+    let showsSourceDetails: Bool
     let onPrimaryAction: (CoachAction) -> Void
     let onDismissForToday: () -> Void
     let onDismissAction: () -> Void
@@ -1065,7 +1079,7 @@ struct AICoachCard: View {
                             ),
                             in: RoundedRectangle(cornerRadius: 13)
                         )
-                        .accessibilityLabel("\(CoachBrand.name) AI suggestion")
+                        .accessibilityLabel("\(CoachBrand.name) suggestion")
 
                     if isLocalAIProcessing {
                         ProgressView()
@@ -1087,11 +1101,11 @@ struct AICoachCard: View {
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(.primary)
 
-                    Text("\(CoachBrand.name) - \(suggestion.modelSource.label)")
+                    Text(coachSubtitle)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                        .accessibilityLabel("\(CoachBrand.name), \(suggestion.modelSource.label)")
+                        .accessibilityLabel(coachSubtitle)
                 }
 
                 Spacer(minLength: 8)
@@ -1161,9 +1175,16 @@ struct AICoachCard: View {
                 .stroke(.white.opacity(0.12), lineWidth: 1)
         }
         .sheet(isPresented: $showingWhyDetails) {
-            AICoachWhySheet(suggestion: suggestion)
+            AICoachWhySheet(suggestion: suggestion, showsSourceDetails: showsSourceDetails)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private var coachSubtitle: String {
+        if showsSourceDetails {
+            return "\(CoachBrand.name) - \(suggestion.modelSource.label)"
+        }
+        return CoachBrand.name
     }
 
     private func actionIcon(for actionType: CoachActionType) -> String {
@@ -1186,6 +1207,7 @@ private struct AICoachWhySheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let suggestion: CoachSuggestion
+    let showsSourceDetails: Bool
 
     var body: some View {
         NavigationStack {
@@ -1204,7 +1226,9 @@ private struct AICoachWhySheet: View {
 
                 Section("Confidence") {
                     detailRow("Confidence", "\(Int((suggestion.confidence * 100).rounded()))%")
-                    detailRow("Source", suggestion.modelSource.label)
+                    if showsSourceDetails {
+                        detailRow("Source", suggestion.modelSource.label)
+                    }
                     detailRow("Category", readableCategory(suggestion.category))
                     detailRow("Expires", formatExpiration(suggestion.expiresAt))
                 }

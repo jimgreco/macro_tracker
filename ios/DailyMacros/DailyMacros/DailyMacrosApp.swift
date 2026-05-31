@@ -5,12 +5,17 @@ struct DailyMacrosApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("onboarding_complete") private var onboardingComplete = false
     @AppStorage("last_setup_tutorial_reset_at") private var lastSetupTutorialResetAt = ""
+    @AppStorage(FeaturePreferenceKeys.sexualActivityPageVisible) private var sexualActivityPageVisible = true
     @StateObject private var auth = AuthManager()
     @StateObject private var api = APIClient.shared
     @StateObject private var healthKitAutoSync = HealthKitAutoSync()
 
     private var autoSyncKey: String {
-        "\(auth.isAuthenticated)-\(auth.user?.sexualActivityEnabled == true)"
+        "\(auth.isAuthenticated)-\(shouldIncludeSexualActivity)"
+    }
+
+    private var shouldIncludeSexualActivity: Bool {
+        auth.user?.sexualActivityEnabled == true && sexualActivityPageVisible
     }
 
     private var shouldShowOnboarding: Bool {
@@ -43,7 +48,7 @@ struct DailyMacrosApp: App {
                         .task(id: autoSyncKey) {
                             await healthKitAutoSync.start(
                                 api: api,
-                                includeSexualActivity: auth.user?.sexualActivityEnabled == true
+                                includeSexualActivity: shouldIncludeSexualActivity
                             )
                         }
                 } else {
@@ -78,7 +83,7 @@ struct DailyMacrosApp: App {
                     try? await api.flushPendingMutations()
                     await healthKitAutoSync.start(
                         api: api,
-                        includeSexualActivity: auth.user?.sexualActivityEnabled == true
+                        includeSexualActivity: shouldIncludeSexualActivity
                     )
                 }
             }

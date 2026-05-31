@@ -52,6 +52,7 @@ const state = {
   features: {
     sexualActivity: false
   },
+  sexualActivityPageVisible: true,
   logPaging: {
     weight: { offset: 0, hasMore: true, loading: false },
     workout: { offset: 0, hasMore: true, loading: false },
@@ -63,6 +64,7 @@ const state = {
 const BUILD_HASH_DIGITS = 7;
 const LOG_PAGE_SIZE = 30;
 const WEB_COACH_DISABLED_CATEGORIES_KEY = 'daily_macros_coach_disabled_categories';
+const WEB_SEXUAL_ACTIVITY_PAGE_VISIBLE_KEY = 'daily_macros_sexual_activity_page_visible';
 
 function formatBuildLabel(build) {
   const value = String(build || '').trim();
@@ -73,6 +75,7 @@ function formatBuildLabel(build) {
 }
 
 state.disabledCoachCategories = readDisabledCoachCategories();
+state.sexualActivityPageVisible = readSexualActivityPageVisible();
 
 const mealTextEl = document.getElementById('meal-text');
 const consumedAtEl = document.getElementById('consumed-at');
@@ -1067,13 +1070,14 @@ function renderProfile(user) {
 
 function syncFeatureVisibility() {
   const sexualActivityEnabled = Boolean(state.features?.sexualActivity);
+  const sexualActivityVisible = sexualActivityEnabled && state.sexualActivityPageVisible !== false;
   for (const el of sexualActivityFeatureEls) {
-    el.hidden = !sexualActivityEnabled;
+    el.hidden = !sexualActivityVisible;
   }
-  if (!sexualActivityEnabled && state.selectedPage === 'sexual-activity') {
+  if (!sexualActivityVisible && state.selectedPage === 'sexual-activity') {
     renderActivePage('sleep');
   }
-  if (!sexualActivityEnabled) {
+  if (!sexualActivityVisible) {
     state.healthEntries = [];
     state.healthOccurrenceRows = [];
     resetLogPaging('health');
@@ -1088,6 +1092,27 @@ function syncFeatureVisibility() {
       ctx.clearRect(0, 0, healthCanvasEl.width, healthCanvasEl.height);
     }
   }
+}
+
+function readSexualActivityPageVisible() {
+  try {
+    return localStorage.getItem(WEB_SEXUAL_ACTIVITY_PAGE_VISIBLE_KEY) !== 'false';
+  } catch (_error) {
+    return true;
+  }
+}
+
+function writeSexualActivityPageVisible(visible) {
+  state.sexualActivityPageVisible = Boolean(visible);
+  try {
+    localStorage.setItem(WEB_SEXUAL_ACTIVITY_PAGE_VISIBLE_KEY, visible ? 'true' : 'false');
+  } catch (_error) {
+    // Local preference storage is best-effort; keep the in-session value.
+  }
+}
+
+function canViewCoachSourceDetails() {
+  return state.currentUser?.isAdmin === true;
 }
 
 function formatMacros(item) {
@@ -1188,6 +1213,7 @@ async function refreshProfile() {
   };
   syncFeatureVisibility();
   renderProfile(state.currentUser);
+  renderAllCoachSlots();
 }
 
 async function refreshAppVersion() {
@@ -1413,15 +1439,18 @@ function renderCoachForPage(pageKey) {
   const actionButton = suggestion.action
     ? `<button type="button" class="coach-action-btn" data-coach-action="${escapeAttr(suggestion.action.type)}">${escapeHtml(suggestion.action.label)}</button>`
     : '';
+  const sourcePill = canViewCoachSourceDetails()
+    ? `<span class="coach-pill">${escapeHtml(coachSourceLabel(suggestion.modelSource))}</span>`
+    : '';
   slot.innerHTML = `
-    <div class="coach-icon" role="img" aria-label="Coach Tony P. AI suggestion">✦</div>
+    <div class="coach-icon" role="img" aria-label="Coach Tony P. suggestion">✦</div>
     <div class="coach-body">
       <div class="coach-title-row">
         <div>
           <h2 class="coach-title">${escapeHtml(suggestion.title)}</h2>
           <div class="coach-meta">
             <span>Coach Tony P.</span>
-            <span class="coach-pill">Local rules</span>
+            ${sourcePill}
             <span class="coach-pill">High confidence</span>
           </div>
         </div>
@@ -1450,6 +1479,12 @@ function coachSourceLabel(source) {
   return source ? String(source) : 'Local rules';
 }
 
+function renderAllCoachSlots() {
+  for (const pageKey of Object.keys(coachSlotEls)) {
+    renderCoachForPage(pageKey);
+  }
+}
+
 function showCoachWhyModal(suggestion) {
   if (!suggestion) {
     return;
@@ -1461,6 +1496,9 @@ function showCoachWhyModal(suggestion) {
   const evidenceItems = (suggestion.evidence || [])
     .map((item) => `<li>${escapeHtml(item)}</li>`)
     .join('');
+  const sourceRow = canViewCoachSourceDetails()
+    ? `<p><strong>Source</strong><span>${escapeHtml(coachSourceLabel(suggestion.modelSource))}</span></p>`
+    : '';
   overlay = document.createElement('div');
   overlay.id = 'entry-modal-overlay';
   overlay.className = 'combine-modal-overlay';
@@ -1470,7 +1508,7 @@ function showCoachWhyModal(suggestion) {
       <p class="coach-why-reason">${escapeHtml(suggestion.message)}</p>
       <div class="coach-why-grid">
         <p><strong>Confidence</strong><span>${Math.round(confidence * 100)}%</span></p>
-        <p><strong>Source</strong><span>${escapeHtml(coachSourceLabel(suggestion.modelSource))}</span></p>
+        ${sourceRow}
         <p><strong>Surface</strong><span>${escapeHtml(suggestion.page || 'coach')}</span></p>
         <p><strong>Category</strong><span>${escapeHtml(suggestion.category || 'general')}</span></p>
       </div>
@@ -1693,6 +1731,20 @@ function showAccountPrivacyModal() {
   const sexualActivityCopy = state.features?.sexualActivity
     ? 'sexual activity entries, '
     : 'sexual activity entries only if an admin enables that view, ';
+  const aiProcessingCopy = canViewCoachSourceDetails()
+    ? 'Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them. Coach Tony P. uses local rule gates for eligible coach cards; on supported iOS versions, the on-device Apple model may rank or phrase those cards.'
+    : 'Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them. Coach Tony P. suggestions are generated from your app data for routine coaching, not sent to OpenAI.';
+  const sexualActivityPageControl = state.features?.sexualActivity
+    ? `
+      <fieldset class="account-preference-controls">
+        <legend>Sexual Activity</legend>
+        <label class="account-preference-toggle">
+          <input id="account-sexual-activity-page-toggle" type="checkbox"${state.sexualActivityPageVisible !== false ? ' checked' : ''} />
+          <span>Show page</span>
+        </label>
+      </fieldset>
+    `
+    : '';
   const coachCategoryControls = coachCategoryControlDefinitions().map((control) => {
     const checked = state.disabledCoachCategories.has(control.id) ? '' : ' checked';
     return `
@@ -1712,9 +1764,10 @@ function showAccountPrivacyModal() {
       <div class="account-privacy-copy">
         <p><strong>Support</strong><span>Contact the person who invited you. Include any request reference shown in an error message and the build details below.</span></p>
         <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
-        <p><strong>AI processing</strong><span>Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them. Coach Tony P. uses local rule gates for eligible coach cards; on supported iOS versions, the on-device Apple model may rank or phrase those cards.</span></p>
+        <p><strong>AI processing</strong><span>${escapeHtml(aiProcessingCopy)}</span></p>
         <p><strong>Controls</strong><span>You can export a JSON copy of your account data or permanently delete your account from here. <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span></p>
       </div>
+      ${sexualActivityPageControl}
       <fieldset class="account-coach-category-controls">
         <legend>Coach Tony P. Cards</legend>
         <div class="account-coach-category-grid">
@@ -1738,6 +1791,13 @@ function showAccountPrivacyModal() {
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) overlay.remove();
   });
+  const sexualActivityPageToggleEl = overlay.querySelector('#account-sexual-activity-page-toggle');
+  if (sexualActivityPageToggleEl) {
+    sexualActivityPageToggleEl.addEventListener('change', () => {
+      writeSexualActivityPageVisible(sexualActivityPageToggleEl.checked);
+      syncFeatureVisibility();
+    });
+  }
   overlay.querySelectorAll('[data-coach-category]').forEach((input) => {
     input.addEventListener('change', () => {
       const category = input.dataset.coachCategory;
@@ -4045,6 +4105,9 @@ entriesByDayEl.addEventListener('click', async (event) => {
 
 
 function renderActivePage(pageKey) {
+  if (pageKey === 'sexual-activity' && !(state.features?.sexualActivity && state.sexualActivityPageVisible !== false)) {
+    pageKey = 'sleep';
+  }
   state.selectedPage = pageKey;
   for (const [key, section] of Object.entries(appPages)) {
     if (!section) {
@@ -5588,6 +5651,10 @@ for (const item of pageMenuItems) {
       await refreshSleepData();
     }
     if (page === 'sexual-activity') {
+      if (!(state.features?.sexualActivity && state.sexualActivityPageVisible !== false)) {
+        renderActivePage('sleep');
+        return;
+      }
       await refreshHealthData();
     }
     if (page === 'analysis') {

@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage(CoachSettingKeys.enabled) private var legacyAICoachEnabled = true
     @AppStorage(CoachSettingKeys.mode) private var aiCoachModeRaw = CoachMode.localModelWithTemplates.rawValue
     @AppStorage(CoachSettingKeys.disabledCategories) private var disabledCompassCategoriesRaw = "[]"
+    @AppStorage(FeaturePreferenceKeys.sexualActivityPageVisible) private var sexualActivityPageVisible = true
     @StateObject private var offlineQueue = OfflineMutationStore.shared
     @StateObject private var diagnostics = Diagnostics.shared
     @StateObject private var coachDismissals = CoachDismissalStore.shared
@@ -26,6 +27,9 @@ struct SettingsView: View {
             List {
                 accountSection
                 supportPrivacySection
+                if auth.user?.sexualActivityEnabled == true {
+                    sexualActivitySection
+                }
                 compassSection
                 remindersSection
                 subscriptionSection
@@ -124,7 +128,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
-                Text("Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them. \(CoachBrand.name) uses local rule gates and, when available, the on-device Apple model to rank or phrase eligible cards.")
+                Text(aiProcessingCopy)
                     .font(.subheadline)
             }
 
@@ -154,20 +158,38 @@ struct SettingsView: View {
         }
     }
 
+    private var sexualActivitySection: some View {
+        Section {
+            Toggle("Show page", isOn: $sexualActivityPageVisible)
+        } header: {
+            Text("Sexual Activity")
+        } footer: {
+            Text("Shows or hides the Sexual Activity tab on this device.")
+        }
+    }
+
     private var compassSection: some View {
         Section {
-            Picker("Mode", selection: compassModeBinding) {
-                ForEach(CoachMode.allCases) { mode in
-                    Text(mode.label).tag(mode.rawValue)
+            if canViewCoachSourceDetails {
+                Picker("Mode", selection: compassModeBinding) {
+                    ForEach(CoachMode.allCases) { mode in
+                        Text(mode.label).tag(mode.rawValue)
+                    }
                 }
-            }
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text(currentCompassMode.detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(currentCompassMode.detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
 
-                Text(CoachNarrator.availabilitySummary)
+                    Text(CoachNarrator.availabilitySummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Toggle("Show cards", isOn: compassEnabledBinding)
+
+                Text("Choose whether \(CoachBrand.name) cards appear in the app.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -195,12 +217,16 @@ struct SettingsView: View {
         } header: {
             Text(CoachBrand.name)
         } footer: {
-            Text("\(CoachBrand.name) always uses local rule confidence gates first. Local AI can rank and phrase eligible cards, but it cannot invent facts or override the rule evidence.")
+            Text(coachSettingsFooterCopy)
         }
     }
 
     private var currentCompassMode: CoachMode {
-        CoachMode.resolved(rawValue: aiCoachModeRaw, legacyEnabled: legacyAICoachEnabled)
+        CoachMode.effective(
+            rawValue: aiCoachModeRaw,
+            legacyEnabled: legacyAICoachEnabled,
+            isAdmin: canViewCoachSourceDetails
+        )
     }
 
     private var disabledCompassCategoryIDs: Set<String> {
@@ -228,6 +254,40 @@ struct SettingsView: View {
             category: "coach",
             message: "Set \(CoachBrand.name) category",
             details: ["category": preference.rawValue, "enabled": "\(enabled)"]
+        )
+    }
+
+    private var canViewCoachSourceDetails: Bool {
+        auth.user?.isAdmin == true
+    }
+
+    private var aiProcessingCopy: String {
+        if canViewCoachSourceDetails {
+            return "Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them. \(CoachBrand.name) uses local rule gates and, when available, the on-device Apple model to rank or phrase eligible cards."
+        }
+        return "Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them. \(CoachBrand.name) suggestions are generated from your app data for routine coaching, not sent to OpenAI."
+    }
+
+    private var coachSettingsFooterCopy: String {
+        if canViewCoachSourceDetails {
+            return "\(CoachBrand.name) always uses local rule confidence gates first. Local AI can rank and phrase eligible cards, but it cannot invent facts or override the rule evidence."
+        }
+        return "Choose which types of \(CoachBrand.name) cards can appear. You can reset dismissed suggestions at any time."
+    }
+
+    private var compassEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { currentCompassMode != .off },
+            set: { enabled in
+                let mode: CoachMode = enabled ? .localModelWithTemplates : .off
+                aiCoachModeRaw = mode.rawValue
+                legacyAICoachEnabled = enabled
+                Diagnostics.shared.record(
+                    category: "coach",
+                    message: "Set \(CoachBrand.name) visibility",
+                    details: ["enabled": "\(enabled)"]
+                )
+            }
         )
     }
 
