@@ -1740,7 +1740,8 @@ function showAccountPrivacyModal() {
         <legend>Sexual Activity</legend>
         <label class="account-preference-toggle">
           <input id="account-sexual-activity-page-toggle" type="checkbox"${state.sexualActivityPageVisible !== false ? ' checked' : ''} />
-          <span>Show page</span>
+          <span class="account-setting-label">Show page</span>
+          <span class="account-setting-check" aria-hidden="true"></span>
         </label>
       </fieldset>
     `
@@ -1750,7 +1751,8 @@ function showAccountPrivacyModal() {
     return `
       <label class="account-coach-category-toggle">
         <input type="checkbox" data-coach-category="${escapeAttr(control.id)}"${checked} />
-        <span>${escapeHtml(control.label)}</span>
+        <span class="account-setting-label">${escapeHtml(control.label)}</span>
+        <span class="account-setting-check" aria-hidden="true"></span>
       </label>
     `;
   }).join('');
