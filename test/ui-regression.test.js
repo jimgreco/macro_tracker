@@ -228,6 +228,8 @@ test('iOS macro edit sheets use disabled saves and left-side destructive actions
   assert.equal(mealEdit.includes('let canSave = canSaveEditedMeal'), true);
   assert.equal(mealEdit.includes('.tint(canSave ? Color.neonGreen : .gray)'), true);
   assert.equal(mealEdit.includes('.disabled(!canSave)'), true);
+  assert.equal(mealEdit.includes('Label("Delete", systemImage: "trash")'), true);
+  assert.equal(mealEdit.indexOf('Label("Delete", systemImage: "trash")') < mealEdit.indexOf('Label("Split", systemImage: "rectangle.split.3x1")'), true);
 
   assert.equal(parsedEdit.includes('let canSave = canSaveParsedItem'), true);
   assert.equal(parsedEdit.includes('.tint(canSave ? Color.neonCyan : .gray)'), true);
@@ -459,6 +461,17 @@ test('iOS macros logged entries expose meal multi-select actions', () => {
   assert.equal(swift.includes('try await api.removeFromGroup(entryId: entry.id)'), true);
   assert.equal(swift.includes('private func deleteSelectedMeals(in entries: [Entry]) async'), true);
   assert.equal(swift.includes('try await api.deleteEntry(id: id)'), true);
+});
+
+test('web meal selection actions put delete before split', () => {
+  const script = read('public/script.js');
+  const selectionActions = script.slice(
+    script.indexOf('function renderSelectionActions'),
+    script.indexOf('function toggleEditEntries')
+  );
+
+  assert.equal(selectionActions.includes('data-sel-action="delete-meal"'), true);
+  assert.equal(selectionActions.indexOf('data-sel-action="delete-meal"') < selectionActions.indexOf('data-sel-action="split-meal"'), true);
 });
 
 test('iOS daily totals bars use the richer progress treatment', () => {

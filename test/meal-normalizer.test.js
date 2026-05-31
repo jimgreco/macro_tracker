@@ -63,6 +63,87 @@ test('keeps single-food counts on the item', () => {
   assert.equal(parsed.items[0].calories, 180);
 });
 
+test('moves explicit single-food meal quantity onto the item', () => {
+  const parsed = normalizeMealParse({
+    consumedAt: '2026-05-30T12:00:00.000Z',
+    mealName: 'Child Waffles',
+    mealQuantity: 2,
+    mealUnit: 'serving',
+    items: [
+      {
+        itemName: 'Child Waffle',
+        quantity: 1,
+        unit: 'waffle',
+        calories: 90,
+        protein: 3,
+        carbs: 14,
+        fat: 3,
+        confidence: 'medium'
+      }
+    ],
+    notes: ''
+  });
+
+  assert.equal(parsed.mealQuantity, 1);
+  assert.equal(parsed.items[0].quantity, 2);
+  assert.equal(parsed.items[0].calories, 180);
+  assert.equal(parsed.items[0].carbs, 28);
+});
+
+test('uses input text to repair single-food parsed quantities', () => {
+  const parsed = normalizeMealParse({
+    consumedAt: '2026-05-30T12:00:00.000Z',
+    mealName: 'Child Waffles',
+    mealQuantity: 1,
+    mealUnit: 'serving',
+    items: [
+      {
+        itemName: 'Child Waffle',
+        quantity: 1,
+        unit: 'waffle',
+        calories: 90,
+        protein: 3,
+        carbs: 14,
+        fat: 3,
+        confidence: 'medium'
+      }
+    ],
+    notes: ''
+  }, { text: '2 child waffles' });
+
+  assert.equal(parsed.mealQuantity, 1);
+  assert.equal(parsed.items[0].quantity, 2);
+  assert.equal(parsed.items[0].calories, 180);
+  assert.equal(parsed.items[0].carbs, 28);
+});
+
+test('uses fractional input text for single-food parsed quantities', () => {
+  const parsed = normalizeMealParse({
+    consumedAt: '2026-05-30T12:00:00.000Z',
+    mealName: 'Protein Shake',
+    mealQuantity: 1,
+    mealUnit: 'serving',
+    items: [
+      {
+        itemName: 'Protein Shake',
+        quantity: 1,
+        unit: 'bottle',
+        calories: 240,
+        protein: 30,
+        carbs: 12,
+        fat: 4,
+        confidence: 'medium'
+      }
+    ],
+    notes: ''
+  }, { text: '1/2 bottle protein shake' });
+
+  assert.equal(parsed.mealQuantity, 1);
+  assert.equal(parsed.items[0].quantity, 0.5);
+  assert.equal(parsed.items[0].calories, 120);
+  assert.equal(parsed.items[0].protein, 15);
+});
+
 test('scales meal-unit rows back to consumed totals before persistence', () => {
   const rows = scaleMealUnitRows([
     { itemName: 'Pancake', quantity: 1, calories: 90, protein: 3, carbs: 16, fat: 2 },

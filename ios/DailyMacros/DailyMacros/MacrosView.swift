@@ -1359,6 +1359,17 @@ struct MacrosView: View {
                         .tint(Color.neonGreen)
 
                     HStack(spacing: 12) {
+                        Button(role: .destructive) {
+                            Task { await deleteEditedMeal() }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Color.neonPink)
+                        .disabled(isSaving)
+
                         Button {
                             if let mg = editingMealGroup {
                                 Task {
@@ -1373,6 +1384,7 @@ struct MacrosView: View {
                         }
                         .buttonStyle(.bordered)
                         .tint(Color.neonYellow)
+                        .disabled(isSaving)
 
                         Button {
                             Task { await saveEditedMeal() }
@@ -3057,6 +3069,24 @@ struct MacrosView: View {
             )
             showEditMeal = false
             editingMealGroup = nil
+            await loadDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteEditedMeal() async {
+        let ids = editingMealItems.map(\.id)
+        guard !ids.isEmpty else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            for id in ids {
+                try await api.deleteEntry(id: id)
+            }
+            showEditMeal = false
+            editingMealGroup = nil
+            editingMealItems = []
             await loadDashboard()
         } catch {
             errorMessage = error.localizedDescription

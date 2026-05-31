@@ -3086,6 +3086,7 @@ function renderSelectionActions() {
 
   if (mode === 'meals') {
     html += `<span class="selection-count">${mealCount} meal${mealCount > 1 ? 's' : ''} selected</span>`;
+    html += '<button type="button" class="btn-danger table-action-btn" data-sel-action="delete-meal">Delete</button>';
     html += '<button type="button" class="btn-info table-action-btn" data-sel-action="split-meal">Split</button>';
   } else if (mode === 'sub-items') {
     html += `<span class="selection-count">${entryCount} item${entryCount > 1 ? 's' : ''} selected</span>`;

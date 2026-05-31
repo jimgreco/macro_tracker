@@ -130,7 +130,7 @@ async function parseMealText({ text, consumedAt, imageDataUrl }) {
     });
 
     const content = response.output_text || '{}';
-    const parsed = normalizeMealParse(JSON.parse(content));
+    const parsed = normalizeMealParse(JSON.parse(content), { text });
 
     if (!Array.isArray(parsed.items) || parsed.items.length === 0) {
       throw new Error('Unable to parse meal items from input.');
