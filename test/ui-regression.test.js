@@ -711,6 +711,24 @@ test('iOS sexual activity annual occurrence graph renders 365 wrapped daily bubb
   assert.equal(activityOccurrence.includes('Text("weekly")'), false);
 });
 
+test('sexual activity dot plots prioritize vaginal, oral, other, then masturbation', () => {
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+  const script = read('public/script.js');
+  const activityOccurrence = health.slice(
+    health.indexOf('private var activityOccurrenceSection'),
+    health.indexOf('private var activityLegend')
+  );
+  const webOccurrence = script.slice(
+    script.indexOf('function drawHealthOccurrenceChart'),
+    script.indexOf('async function refreshHealthData')
+  );
+
+  assert.equal(health.includes('private let activityDotPriorityTypes = ["vaginal sex", "oral sex", "other", "masturbation"]'), true);
+  assert.equal(activityOccurrence.includes('activityOccurrencePriorityType(for: point.types)'), true);
+  assert.equal(webOccurrence.includes("const typePriority = ['vaginal sex', 'oral sex', 'other', 'masturbation'];"), true);
+  assert.equal(webOccurrence.includes("['vaginal sex', 'oral sex', 'masturbation', 'other']"), false);
+});
+
 test('iOS health refresh ignores cancellation errors', () => {
   const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
 

@@ -5439,8 +5439,8 @@ function drawHealthOccurrenceChart(entries, period) {
   const inactiveStroke = 'rgba(255, 255, 255, 0.13)';
   const todayStroke = 'rgba(0, 207, 255, 0.45)';
 
-  // Priority order for which color to show when multiple types on same day
-  const typePriority = ['vaginal sex', 'oral sex', 'masturbation', 'other'];
+  // Priority order for which color to show when multiple types are in the same dot.
+  const typePriority = ['vaginal sex', 'oral sex', 'other', 'masturbation'];
 
   for (let i = 0; i < points.length; i += 1) {
     const p = points[i];

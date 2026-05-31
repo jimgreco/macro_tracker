@@ -84,6 +84,7 @@ struct HealthView: View {
     @State private var isSyncingHealthKit = false
 
     private let activityTypes = ["masturbation", "oral sex", "vaginal sex", "other"]
+    private let activityDotPriorityTypes = ["vaginal sex", "oral sex", "other", "masturbation"]
     private let sleepQualityValues = ["1", "2", "3", "4", "5"]
     private let scopes = ["week", "month", "year"]
     private let logPageSize = 30
@@ -337,8 +338,7 @@ struct HealthView: View {
     }
 
     private func activityOccurrenceColor(_ point: ActivityOccurrencePoint) -> Color {
-        let types = orderedActivityTypes(point.types)
-        return activityColor(types.first ?? "other")
+        return activityColor(activityOccurrencePriorityType(for: point.types))
     }
 
     private func drawActivityOccurrenceCanvas(_ points: [ActivityOccurrencePoint], context: GraphicsContext, size: CGSize) {
@@ -354,8 +354,7 @@ struct HealthView: View {
         for (index, point) in points.enumerated() {
             let x = padX + (points.count > 1 ? CGFloat(index) / CGFloat(points.count - 1) * plotWidth : plotWidth / 2)
             if point.active {
-                let types = orderedActivityTypes(point.types)
-                let type = types.first ?? "other"
+                let type = activityOccurrencePriorityType(for: point.types)
                 let rect = CGRect(x: x - dotRadius, y: dotY - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
                 var activeContext = context
                 activeContext.addFilter(.shadow(color: activityColor(type).opacity(0.45), radius: 5))
@@ -1585,6 +1584,11 @@ struct HealthView: View {
         let knownTypes = activityTypes.filter { normalizedTypes.contains($0) }
         let unknownTypes = normalizedTypes.subtracting(Set(activityTypes)).sorted()
         return knownTypes + unknownTypes
+    }
+
+    private func activityOccurrencePriorityType(for types: [String]) -> String {
+        let normalizedTypes = Set(types.map { $0.lowercased() })
+        return activityDotPriorityTypes.first { normalizedTypes.contains($0) } ?? normalizedTypes.sorted().first ?? "other"
     }
 
     private func formatTargetHours(_ hours: Double) -> String {
