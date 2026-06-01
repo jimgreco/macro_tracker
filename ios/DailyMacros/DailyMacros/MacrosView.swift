@@ -184,6 +184,7 @@ struct MacrosView: View {
     @State private var isLoadingSavedItems = false
     @State private var hasLoadedSavedItems = false
     @State private var quickMealQueue: [QuickMealQueueItem] = []
+    @State private var recentlyQueuedQuickTemplateId: String?
     @State private var editingQuickTemplate: QuickAddTemplate?
     @State private var editingQuickMealQueueItem: QuickMealQueueItem?
     @State private var editQuickName = ""
@@ -402,6 +403,7 @@ struct MacrosView: View {
                         quickSearchText = ""
                         quickMealName = ""
                         quickMealQueue = []
+                        recentlyQueuedQuickTemplateId = nil
                         clearMealImage()
                         if !hasLoadedSavedItems {
                             Task { await loadSavedItems() }
@@ -416,6 +418,7 @@ struct MacrosView: View {
             .sheet(isPresented: $showAddSheet, onDismiss: {
                 quickMealQueue = []
                 quickMealName = ""
+                recentlyQueuedQuickTemplateId = nil
                 showQuickMealNamePrompt = false
                 editingQuickMealQueueItem = nil
             }) {
@@ -1780,6 +1783,7 @@ struct MacrosView: View {
                                 mealText = ""
                                 quickMealQueue = []
                                 quickMealName = ""
+                                recentlyQueuedQuickTemplateId = nil
                                 showQuickMealNamePrompt = false
                             }
                         }
@@ -1985,12 +1989,6 @@ struct MacrosView: View {
             .padding(.horizontal)
             .padding(.vertical, 10)
 
-            if !quickMealQueue.isEmpty {
-                quickMealQueueSection
-                    .padding(.horizontal)
-                    .padding(.bottom, 10)
-            }
-
             if isLoadingSavedItems && visibleTemplates.isEmpty {
                 HStack(spacing: 10) {
                     ProgressView()
@@ -2031,12 +2029,23 @@ struct MacrosView: View {
                         .padding(.top, 8)
                 }
             }
+
+            if !quickMealQueue.isEmpty {
+                quickMealQueueSection
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    .padding(.bottom, 10)
+            }
         }
         .padding(.bottom, 12)
     }
 
     private func quickAddRow(_ template: QuickAddTemplate) -> some View {
-        HStack(spacing: 10) {
+        let queuedItem = queuedQuickItem(for: template)
+        let isQueued = queuedItem != nil
+        let isRecentlyQueued = recentlyQueuedQuickTemplateId == template.id
+
+        return HStack(spacing: 10) {
             Button {
                 addQuickTemplateToQueue(template)
             } label: {
@@ -2065,9 +2074,20 @@ struct MacrosView: View {
 
                     Spacer(minLength: 8)
 
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(Color.neonCyan)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Image(systemName: isQueued ? "checkmark.circle.fill" : "plus.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(isQueued ? Color.neonGreen : Color.neonCyan)
+                            .scaleEffect(isRecentlyQueued ? 1.18 : 1.0)
+                            .animation(.spring(response: 0.22, dampingFraction: 0.58), value: isRecentlyQueued)
+
+                        if isQueued {
+                            Text("Added")
+                                .font(.caption2.bold())
+                                .foregroundStyle(Color.neonGreen)
+                                .lineLimit(1)
+                        }
+                    }
                 }
             }
             .buttonStyle(.plain)
@@ -2686,6 +2706,7 @@ struct MacrosView: View {
             quickSearchText = action.type == .openQuickAdd ? (action.searchText ?? "") : ""
             quickMealName = ""
             quickMealQueue = []
+            recentlyQueuedQuickTemplateId = nil
             clearMealImage()
             if !hasLoadedSavedItems {
                 Task { await loadSavedItems(showErrors: false) }
@@ -2895,6 +2916,7 @@ struct MacrosView: View {
             quickMealQueue[index].protein += addedProtein
             quickMealQueue[index].carbs += addedCarbs
             quickMealQueue[index].fat += addedFat
+            showQuickTemplateQueuedFeedback(template.id)
             return
         }
 
@@ -2914,11 +2936,13 @@ struct MacrosView: View {
             carbs: addedCarbs,
             fat: addedFat
         ))
+        showQuickTemplateQueuedFeedback(template.id)
     }
 
     private func cancelQueuedQuickMeal(dismiss: Bool = false) {
         quickMealQueue = []
         quickMealName = ""
+        recentlyQueuedQuickTemplateId = nil
         showQuickMealNamePrompt = false
         editingQuickMealQueueItem = nil
         if dismiss {
@@ -2933,7 +2957,21 @@ struct MacrosView: View {
         }
         if quickMealQueue.isEmpty {
             quickMealName = ""
+            recentlyQueuedQuickTemplateId = nil
             showQuickMealNamePrompt = false
+        }
+    }
+
+    private func queuedQuickItem(for template: QuickAddTemplate) -> QuickMealQueueItem? {
+        quickMealQueue.first { $0.sourceTemplateId == template.id }
+    }
+
+    private func showQuickTemplateQueuedFeedback(_ templateId: String) {
+        recentlyQueuedQuickTemplateId = templateId
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) {
+            if recentlyQueuedQuickTemplateId == templateId {
+                recentlyQueuedQuickTemplateId = nil
+            }
         }
     }
 
@@ -2955,9 +2993,6 @@ struct MacrosView: View {
         guard canSaveQueuedQuickMeal else { return }
 
         if quickMealQueue.count > 1 {
-            if quickMealName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                quickMealName = "Quick Add Meal"
-            }
             showQuickMealNamePrompt = true
             return
         }
@@ -2968,7 +3003,7 @@ struct MacrosView: View {
     private func queuedQuickMealName(_ requestedName: String?) -> String? {
         guard quickMealQueue.count > 1 else { return nil }
         let name = requestedName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return name.isEmpty ? "Quick Add Meal" : name
+        return name.isEmpty ? nil : name
     }
 
     private func saveQueuedQuickMeal(mealName requestedMealName: String?) async {
