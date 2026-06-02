@@ -362,21 +362,34 @@ test('iOS quick add queues multiple items before saving a meal', () => {
     swift.indexOf('private var canSaveQueuedQuickMeal'),
     swift.indexOf('private func saveEditedEntry')
   );
+  const quickRow = swift.slice(
+    swift.indexOf('private func quickAddRow'),
+    swift.indexOf('private var quickMealQueueSection')
+  );
 
   assert.equal(swift.includes('private struct QuickMealQueueItem'), true);
   assert.equal(swift.includes('@State private var quickMealQueue: [QuickMealQueueItem] = []'), true);
   assert.equal(swift.includes('.sheet(item: $editingQuickMealQueueItem)'), true);
+  assert.equal(swift.includes('.safeAreaInset(edge: .top, spacing: 0)'), true);
+  assert.equal(swift.includes('private var quickMealQueueFloatingOverlay'), true);
+  assert.equal(swift.includes('if !showParsed && !quickMealQueue.isEmpty'), true);
   assert.equal(swift.includes('addQuickTemplateToQueue(template)'), true);
   assert.equal(swift.includes('try await api.quickAdd'), false);
   assert.equal(queueSection.includes('Text("Save")'), true);
   assert.equal(queueSection.includes('Text("Cancel")'), true);
   assert.equal(queueSection.includes('TextField("Meal name"'), false);
   assert.equal(queueSection.includes('deleteQueuedQuickItem(id: item.id)'), true);
+  assert.equal(queueSection.includes('.frame(maxHeight: 156)'), true);
+  assert.equal(quickRow.includes('Image(systemName: isRecentlyQueued ? "checkmark.circle.fill" : "plus.circle.fill")'), true);
+  assert.equal(quickRow.includes('if isRecentlyQueued'), true);
+  assert.equal(quickRow.includes('let isQueued'), false);
   assert.equal(swift.includes('let sourceTemplateId: String'), true);
+  assert.equal(swift.includes('@State private var quickQueuedFeedbackToken = UUID()'), true);
   assert.equal(queueActions.includes('firstIndex(where: { $0.sourceTemplateId == template.id })'), true);
   assert.equal(queueActions.includes('quickMealQueue[index].quantity += addedQuantity'), true);
   assert.equal(queueActions.includes('quickMealQueue.append(QuickMealQueueItem('), true);
   assert.equal(queueActions.includes('sourceTemplateId: template.id'), true);
+  assert.equal(queueActions.includes('quickQueuedFeedbackToken == token'), true);
   assert.equal(swift.includes('@State private var showQuickMealNamePrompt = false'), true);
   assert.equal(swift.includes('.alert("Name Meal", isPresented: $showQuickMealNamePrompt)'), true);
   assert.equal(swift.includes('TextField("Meal name", text: $quickMealName)'), true);

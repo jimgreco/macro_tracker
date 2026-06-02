@@ -185,6 +185,7 @@ struct MacrosView: View {
     @State private var hasLoadedSavedItems = false
     @State private var quickMealQueue: [QuickMealQueueItem] = []
     @State private var recentlyQueuedQuickTemplateId: String?
+    @State private var quickQueuedFeedbackToken = UUID()
     @State private var editingQuickTemplate: QuickAddTemplate?
     @State private var editingQuickMealQueueItem: QuickMealQueueItem?
     @State private var editQuickName = ""
@@ -1769,6 +1770,10 @@ struct MacrosView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .background(Color.deepBg)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    quickMealQueueFloatingOverlay
+                }
+                .animation(.spring(response: 0.28, dampingFraction: 0.82), value: quickMealQueue.isEmpty)
                 .navigationTitle(showParsed ? "Confirm Meal" : "Log Meal")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -1946,6 +1951,19 @@ struct MacrosView: View {
     }
 
     @ViewBuilder
+    private var quickMealQueueFloatingOverlay: some View {
+        if !showParsed && !quickMealQueue.isEmpty {
+            quickMealQueueSection
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+                .padding(.bottom, 8)
+                .background(Color.deepBg.opacity(0.96))
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(2)
+        }
+    }
+
+    @ViewBuilder
     private var quickItemsSection: some View {
         let display = quickTemplateDisplay()
         let visibleTemplates = display.items
@@ -2030,19 +2048,11 @@ struct MacrosView: View {
                 }
             }
 
-            if !quickMealQueue.isEmpty {
-                quickMealQueueSection
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-                    .padding(.bottom, 10)
-            }
         }
         .padding(.bottom, 12)
     }
 
     private func quickAddRow(_ template: QuickAddTemplate) -> some View {
-        let queuedItem = queuedQuickItem(for: template)
-        let isQueued = queuedItem != nil
         let isRecentlyQueued = recentlyQueuedQuickTemplateId == template.id
 
         return HStack(spacing: 10) {
@@ -2075,13 +2085,13 @@ struct MacrosView: View {
                     Spacer(minLength: 8)
 
                     VStack(alignment: .trailing, spacing: 2) {
-                        Image(systemName: isQueued ? "checkmark.circle.fill" : "plus.circle.fill")
+                        Image(systemName: isRecentlyQueued ? "checkmark.circle.fill" : "plus.circle.fill")
                             .font(.title3)
-                            .foregroundStyle(isQueued ? Color.neonGreen : Color.neonCyan)
+                            .foregroundStyle(isRecentlyQueued ? Color.neonGreen : Color.neonCyan)
                             .scaleEffect(isRecentlyQueued ? 1.18 : 1.0)
                             .animation(.spring(response: 0.22, dampingFraction: 0.58), value: isRecentlyQueued)
 
-                        if isQueued {
+                        if isRecentlyQueued {
                             Text("Added")
                                 .font(.caption2.bold())
                                 .foregroundStyle(Color.neonGreen)
@@ -2124,13 +2134,13 @@ struct MacrosView: View {
                     .foregroundStyle(Color.neonYellow)
             }
 
-            ForEach(quickMealQueue) { item in
-                quickMealQueueRow(item)
-
-                if item.id != quickMealQueue.last?.id {
-                    Divider()
-                        .overlay(Color.white.opacity(0.08))
+            if quickMealQueue.count > 3 {
+                ScrollView {
+                    quickMealQueueRows
                 }
+                .frame(maxHeight: 156)
+            } else {
+                quickMealQueueRows
             }
 
             Text(macroBreakdownText(protein: totals.protein, carbs: totals.carbs, fat: totals.fat))
@@ -2169,7 +2179,25 @@ struct MacrosView: View {
         }
         .padding(12)
         .background(Color.panelBg.opacity(0.92))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.neonGreen.opacity(0.24), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.32), radius: 18, y: 8)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var quickMealQueueRows: some View {
+        VStack(spacing: 0) {
+            ForEach(quickMealQueue) { item in
+                quickMealQueueRow(item)
+
+                if item.id != quickMealQueue.last?.id {
+                    Divider()
+                        .overlay(Color.white.opacity(0.08))
+                }
+            }
+        }
     }
 
     private func quickMealQueueRow(_ item: QuickMealQueueItem) -> some View {
@@ -2962,15 +2990,20 @@ struct MacrosView: View {
         }
     }
 
-    private func queuedQuickItem(for template: QuickAddTemplate) -> QuickMealQueueItem? {
-        quickMealQueue.first { $0.sourceTemplateId == template.id }
-    }
-
     private func showQuickTemplateQueuedFeedback(_ templateId: String) {
-        recentlyQueuedQuickTemplateId = templateId
+        let token = UUID()
+        quickQueuedFeedbackToken = token
+        recentlyQueuedQuickTemplateId = nil
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.58)) {
+                recentlyQueuedQuickTemplateId = templateId
+            }
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) {
-            if recentlyQueuedQuickTemplateId == templateId {
-                recentlyQueuedQuickTemplateId = nil
+            if recentlyQueuedQuickTemplateId == templateId && quickQueuedFeedbackToken == token {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    recentlyQueuedQuickTemplateId = nil
+                }
             }
         }
     }
