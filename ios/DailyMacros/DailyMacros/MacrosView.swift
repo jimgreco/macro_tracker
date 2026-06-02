@@ -1748,90 +1748,92 @@ struct MacrosView: View {
     // MARK: - Add Sheet (combined meal entry + quick add)
 
     private var addSheet: some View {
-        NavigationStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    Color.clear
-                        .frame(height: 1)
-                        .id(addSheetTopAnchor)
+        GeometryReader { geometry in
+            NavigationStack {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        Color.clear
+                            .frame(height: 1)
+                            .id(addSheetTopAnchor)
 
-                    Group {
-                        if showParsed {
-                            parsedResultsView
-                                .padding()
-                        } else {
-                            addInputView
+                        Group {
+                            if showParsed {
+                                parsedResultsView
+                                    .padding()
+                            } else {
+                                addInputView
+                            }
+                        }
+                        .background(Color.deepBg)
+                        .onChange(of: showParsed) { _, _ in
+                            resetAddSheetScroll(proxy)
                         }
                     }
+                    .scrollDismissesKeyboard(.interactively)
                     .background(Color.deepBg)
-                    .onChange(of: showParsed) { _, _ in
-                        resetAddSheetScroll(proxy)
-                    }
-                }
-                .scrollDismissesKeyboard(.interactively)
-                .background(Color.deepBg)
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    quickMealQueueFloatingOverlay
-                }
-                .animation(.spring(response: 0.28, dampingFraction: 0.82), value: quickMealQueue.isEmpty)
-                .navigationTitle(showParsed ? "Confirm Meal" : "Log Meal")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(showParsed ? "Back" : "Cancel") {
-                            if showParsed {
-                                showParsed = false
-                                parsedItems = []
-                                parsedMealName = nil
-                            } else {
-                                showAddSheet = false
-                                mealText = ""
-                                quickMealQueue = []
-                                quickMealName = ""
-                                recentlyQueuedQuickTemplateId = nil
-                                showQuickMealNamePrompt = false
+                    .navigationTitle(showParsed ? "Confirm Meal" : "Log Meal")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button(showParsed ? "Back" : "Cancel") {
+                                if showParsed {
+                                    showParsed = false
+                                    parsedItems = []
+                                    parsedMealName = nil
+                                } else {
+                                    showAddSheet = false
+                                    mealText = ""
+                                    quickMealQueue = []
+                                    quickMealName = ""
+                                    recentlyQueuedQuickTemplateId = nil
+                                    showQuickMealNamePrompt = false
+                                }
                             }
                         }
                     }
-                }
-                .sheet(isPresented: $showEditParsedItem) {
-                    editParsedItemSheet
-                }
-                .sheet(item: $editingQuickMealQueueItem) { item in
-                    editQuickMealQueueItemSheet(item)
-                }
-                .sheet(item: $editingQuickTemplate) { template in
-                    editQuickAddSheet(template)
-                }
-                .alert("Name Meal", isPresented: $showQuickMealNamePrompt) {
-                    TextField("Meal name", text: $quickMealName)
-                        .textInputAutocapitalization(.words)
-                        .disableAutocorrection(false)
+                    .sheet(isPresented: $showEditParsedItem) {
+                        editParsedItemSheet
+                    }
+                    .sheet(item: $editingQuickMealQueueItem) { item in
+                        editQuickMealQueueItemSheet(item)
+                    }
+                    .sheet(item: $editingQuickTemplate) { template in
+                        editQuickAddSheet(template)
+                    }
+                    .alert("Name Meal", isPresented: $showQuickMealNamePrompt) {
+                        TextField("Meal name", text: $quickMealName)
+                            .textInputAutocapitalization(.words)
+                            .disableAutocorrection(false)
 
-                    Button("Cancel", role: .cancel) {}
-                    Button("Save") {
-                        let mealName = quickMealName
-                        Task { await saveQueuedQuickMeal(mealName: mealName) }
+                        Button("Cancel", role: .cancel) {}
+                        Button("Save") {
+                            let mealName = quickMealName
+                            Task { await saveQueuedQuickMeal(mealName: mealName) }
+                        }
+                        .disabled(quickMealName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                    } message: {
+                        Text("Give this quick-add meal a name before saving.")
                     }
-                    .disabled(quickMealName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
-                } message: {
-                    Text("Give this quick-add meal a name before saving.")
-                }
-                .sheet(isPresented: $showCamera) {
-                    CameraPicker(image: $mealPreviewImage, imageDataUrl: $mealImageDataUrl) { message in
-                        errorMessage = message
+                    .sheet(isPresented: $showCamera) {
+                        CameraPicker(image: $mealPreviewImage, imageDataUrl: $mealImageDataUrl) { message in
+                            errorMessage = message
+                        }
                     }
-                }
-                .sheet(isPresented: $showBarcodeScanner) {
-                    BarcodeScannerView { code in
-                        Task { await lookupBarcode(code) }
-                    } onError: { message in
-                        showBarcodeScanner = false
-                        errorMessage = message
+                    .sheet(isPresented: $showBarcodeScanner) {
+                        BarcodeScannerView { code in
+                            Task { await lookupBarcode(code) }
+                        } onError: { message in
+                            showBarcodeScanner = false
+                            errorMessage = message
+                        }
+                        .ignoresSafeArea()
                     }
-                    .ignoresSafeArea()
                 }
             }
+            .overlay(alignment: .top) {
+                quickMealQueueFloatingOverlay(topPadding: geometry.safeAreaInsets.top)
+            }
+            .animation(.spring(response: 0.28, dampingFraction: 0.82), value: quickMealQueue.isEmpty)
         }
         .presentationDetents([.large])
         .presentationContentInteraction(.scrolls)
@@ -1951,12 +1953,13 @@ struct MacrosView: View {
     }
 
     @ViewBuilder
-    private var quickMealQueueFloatingOverlay: some View {
+    private func quickMealQueueFloatingOverlay(topPadding: CGFloat) -> some View {
         if !showParsed && !quickMealQueue.isEmpty {
             quickMealQueueSection
                 .padding(.horizontal, 12)
-                .padding(.top, 6)
+                .padding(.top, max(topPadding, 8))
                 .padding(.bottom, 8)
+                .frame(maxWidth: .infinity)
                 .background(Color.deepBg.opacity(0.96))
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(2)

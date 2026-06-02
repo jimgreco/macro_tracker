@@ -370,8 +370,11 @@ test('iOS quick add queues multiple items before saving a meal', () => {
   assert.equal(swift.includes('private struct QuickMealQueueItem'), true);
   assert.equal(swift.includes('@State private var quickMealQueue: [QuickMealQueueItem] = []'), true);
   assert.equal(swift.includes('.sheet(item: $editingQuickMealQueueItem)'), true);
-  assert.equal(swift.includes('.safeAreaInset(edge: .top, spacing: 0)'), true);
-  assert.equal(swift.includes('private var quickMealQueueFloatingOverlay'), true);
+  assert.equal(swift.includes('GeometryReader { geometry in'), true);
+  assert.equal(swift.includes('.overlay(alignment: .top)'), true);
+  assert.equal(swift.includes('quickMealQueueFloatingOverlay(topPadding: geometry.safeAreaInsets.top)'), true);
+  assert.equal(swift.includes('private func quickMealQueueFloatingOverlay(topPadding: CGFloat)'), true);
+  assert.equal(swift.includes('.padding(.top, max(topPadding, 8))'), true);
   assert.equal(swift.includes('if !showParsed && !quickMealQueue.isEmpty'), true);
   assert.equal(swift.includes('addQuickTemplateToQueue(template)'), true);
   assert.equal(swift.includes('try await api.quickAdd'), false);
