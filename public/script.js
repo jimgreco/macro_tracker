@@ -202,6 +202,7 @@ const sleepLoggedAtEl = document.getElementById('sleep-logged-at');
 const sleepHoursEl = document.getElementById('sleep-hours');
 const sleepWakeUpsEl = document.getElementById('sleep-wake-ups');
 const sleepQualityEl = document.getElementById('sleep-quality');
+const sleepNotesEl = document.getElementById('sleep-notes');
 const saveSleepBtnEl = document.getElementById('save-sleep-btn');
 const sleepLogListEl = document.getElementById('sleep-log-list');
 const sleepCanvasEl = document.getElementById('sleep-canvas');
@@ -5090,12 +5091,18 @@ function sleepQualityOptions(selectedValue) {
     .join('');
 }
 
+function normalizeSleepNotes(value) {
+  const notes = String(value ?? '').trim();
+  return notes ? notes : null;
+}
+
 function renderSleepCard(entry) {
   const loggedAt = new Date(entry.loggedAt);
   const dateText = loggedAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const hours = Number(entry.durationHours || 0);
   const wakeUps = Number(entry.wakeUps || 0);
   const quality = normalizeSleepQuality(entry.quality);
+  const notes = normalizeSleepNotes(entry.notes);
   const hoursLabel = hours === 1 ? '1 hour' : `${fmtNumber(hours)} hours`;
   const wakeUpsLabel = wakeUps > 0 ? ` · ${wakeUps} wake-up${wakeUps === 1 ? '' : 's'}` : '';
   const qualityLabel = quality ? ` · ${sleepQualityLabel(quality)} sleep` : '';
@@ -5106,6 +5113,7 @@ function renderSleepCard(entry) {
       <div class="entry-card-body">
         <div class="entry-card-title">${escapeHtml(hoursLabel + wakeUpsLabel + qualityLabel)}</div>
         <div class="entry-card-sub">${escapeHtml(dateText)}</div>
+        ${notes ? `<div class="entry-card-sub entry-card-notes">${escapeHtml(notes)}</div>` : ''}
       </div>
     </div>
   `;
@@ -5145,6 +5153,12 @@ function showSleepEditModal(entry) {
           </select>
         </div>
       </div>
+      <div class="entry-modal-row">
+        <div class="entry-modal-field">
+          <label for="sleep-modal-notes">Notes</label>
+          <textarea id="sleep-modal-notes" rows="3" maxlength="1000" placeholder="Notes (optional)">${escapeHtml(entry.notes || '')}</textarea>
+        </div>
+      </div>
       <div class="combine-modal-actions">
         <button id="sleep-modal-cancel-btn" class="btn-secondary">Cancel</button>
         <button id="sleep-modal-delete-btn" class="btn-danger">Delete</button>
@@ -5164,9 +5178,10 @@ function showSleepEditModal(entry) {
       const durationHours = Number(document.getElementById('sleep-modal-hours').value);
       const wakeUps = Number(document.getElementById('sleep-modal-wake-ups').value) || 0;
       const quality = normalizeSleepQuality(document.getElementById('sleep-modal-quality').value);
+      const notes = normalizeSleepNotes(document.getElementById('sleep-modal-notes').value);
       await api(`/api/sleep/${entry.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ durationHours, wakeUps, quality, loggedAt })
+        body: JSON.stringify({ durationHours, wakeUps, quality, notes, loggedAt })
       });
       overlay.remove();
       setActionBanner('Sleep entry updated.', 'success');
@@ -5740,18 +5755,21 @@ if (saveSleepBtnEl) {
       }
       const wakeUps = Number(sleepWakeUpsEl?.value) || 0;
       const quality = normalizeSleepQuality(sleepQualityEl?.value);
+      const notes = normalizeSleepNotes(sleepNotesEl?.value);
       await api('/api/sleep', {
         method: 'POST',
         body: JSON.stringify({
           loggedAt: asIso(sleepLoggedAtEl?.value || toDateTimeLocalValue()),
           durationHours,
           wakeUps,
-          quality
+          quality,
+          notes
         })
       });
       if (sleepHoursEl) sleepHoursEl.value = '';
       if (sleepWakeUpsEl) sleepWakeUpsEl.value = '';
       if (sleepQualityEl) sleepQualityEl.value = '3';
+      if (sleepNotesEl) sleepNotesEl.value = '';
       if (sleepLoggedAtEl) sleepLoggedAtEl.value = toDateTimeLocalValue();
       setActionBanner('Sleep logged.', 'success');
       await refreshSleepData();

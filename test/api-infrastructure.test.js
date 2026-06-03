@@ -188,19 +188,25 @@ test('health metric entries track external sync source ids', () => {
   assert.ok(db.includes("source = normalizeHealthEntrySource(payload.source, 'Sexual activity')"));
 });
 
-test('sleep entries support optional quality ratings', () => {
+test('sleep entries support optional quality ratings and notes', () => {
   const db = read('src/db.js');
   const server = read('src/server.js');
 
   assert.ok(db.includes('quality INTEGER CHECK (quality IS NULL OR (quality BETWEEN 1 AND 5))'));
+  assert.ok(db.includes('notes TEXT'));
   assert.ok(db.includes('ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS quality INTEGER'));
+  assert.ok(db.includes('ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS notes TEXT'));
   assert.ok(db.includes('sleep_entries_quality_range'));
   assert.ok(db.includes('function normalizeSleepQuality'));
+  assert.ok(db.includes('function normalizeSleepNotes'));
   assert.ok(db.includes('Sleep quality must be a whole number between 1 and 5.'));
-  assert.ok(db.includes('INSERT INTO sleep_entries (user_id, duration_hours, wake_ups, quality, logged_at, source, external_id)'));
+  assert.ok(db.includes('Sleep notes must be 1,000 characters or fewer.'));
+  assert.ok(db.includes('INSERT INTO sleep_entries (user_id, duration_hours, wake_ups, quality, notes, logged_at, source, external_id)'));
   assert.ok(db.includes('quality = CASE WHEN $8 THEN $9::integer ELSE quality END'));
+  assert.ok(db.includes('notes = CASE WHEN $10 THEN $11::text ELSE notes END'));
   assert.ok(db.includes('quality: row.quality == null ? null : Number(row.quality)'));
-  assert.ok(db.includes('SELECT id, duration_hours, wake_ups, quality, logged_at, source, external_id, created_at FROM sleep_entries'));
+  assert.ok(db.includes('notes: row.notes || null'));
+  assert.ok(db.includes('SELECT id, duration_hours, wake_ups, quality, notes, logged_at, source, external_id, created_at FROM sleep_entries'));
   assert.ok(server.includes('avgSleepQuality'));
 });
 

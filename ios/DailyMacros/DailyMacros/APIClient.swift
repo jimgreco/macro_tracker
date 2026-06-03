@@ -741,9 +741,10 @@ class APIClient: ObservableObject {
     }
 
     @discardableResult
-    func addSleepEntry(durationHours: Double, wakeUps: Int, quality: Int? = nil, loggedAt: String, source: String? = nil, externalId: String? = nil) async throws -> EntryMutationResponse {
+    func addSleepEntry(durationHours: Double, wakeUps: Int, quality: Int? = nil, notes: String? = nil, loggedAt: String, source: String? = nil, externalId: String? = nil) async throws -> EntryMutationResponse {
         var payload: [String: Any] = ["durationHours": durationHours, "wakeUps": wakeUps, "loggedAt": loggedAt]
         if let quality { payload["quality"] = quality }
+        if let notes { payload["notes"] = notes }
         if let source { payload["source"] = source }
         if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
@@ -759,9 +760,10 @@ class APIClient: ObservableObject {
         }
     }
 
-    func updateSleepEntry(id: Int, durationHours: Double, wakeUps: Int, quality: Int?, loggedAt: String) async throws {
+    func updateSleepEntry(id: Int, durationHours: Double, wakeUps: Int, quality: Int?, notes: String?, loggedAt: String) async throws {
         var payload: [String: Any] = ["durationHours": durationHours, "wakeUps": wakeUps, "loggedAt": loggedAt]
         payload["quality"] = quality.map { $0 as Any } ?? NSNull()
+        payload["notes"] = notes.map { $0 as Any } ?? NSNull()
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/sleep/\(id)"), method: "PUT", body: body)
         let _: OkResponse = try await perform(request)

@@ -204,6 +204,7 @@ async function initDb() {
       duration_hours DOUBLE PRECISION NOT NULL,
       wake_ups INTEGER NOT NULL DEFAULT 0,
       quality INTEGER CHECK (quality IS NULL OR (quality BETWEEN 1 AND 5)),
+      notes TEXT,
       logged_at TIMESTAMPTZ NOT NULL,
       source TEXT NOT NULL DEFAULT 'manual',
       external_id TEXT,
@@ -213,6 +214,7 @@ async function initDb() {
   `);
   await pool.query(`ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS wake_ups INTEGER NOT NULL DEFAULT 0;`);
   await pool.query(`ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS quality INTEGER;`);
+  await pool.query(`ALTER TABLE sleep_entries ADD COLUMN IF NOT EXISTS notes TEXT;`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS weight_targets (
@@ -1855,6 +1857,26 @@ function normalizeSleepQuality(payload = {}) {
   return quality;
 }
 
+function hasSleepNotesPayload(payload = {}) {
+  return Object.prototype.hasOwnProperty.call(payload, 'notes') ||
+    Object.prototype.hasOwnProperty.call(payload, 'sleepNotes');
+}
+
+function normalizeSleepNotes(payload = {}) {
+  const raw = payload.notes ?? payload.sleepNotes;
+  if (raw == null) {
+    return null;
+  }
+  const notes = String(raw).trim();
+  if (!notes) {
+    return null;
+  }
+  if (notes.length > 1000) {
+    throw new Error('Sleep notes must be 1,000 characters or fewer.');
+  }
+  return notes;
+}
+
 async function addSleepEntry(userId, payload) {
   const durationHours = Number(payload.durationHours);
   if (!Number.isFinite(durationHours) || durationHours <= 0 || durationHours > 24) {
@@ -1867,6 +1889,7 @@ async function addSleepEntry(userId, payload) {
 
   const wakeUps = Math.max(0, Math.min(99, Math.round(Number(payload.wakeUps) || 0)));
   const quality = normalizeSleepQuality(payload);
+  const notes = normalizeSleepNotes(payload);
   const source = normalizeHealthEntrySource(payload.source, 'Sleep');
   const externalId = normalizeExternalId(payload.externalId ?? payload.external_id, 'Sleep');
 
@@ -1884,10 +1907,10 @@ async function addSleepEntry(userId, payload) {
   }
 
   const result = await pool.query(
-    `INSERT INTO sleep_entries (user_id, duration_hours, wake_ups, quality, logged_at, source, external_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO sleep_entries (user_id, duration_hours, wake_ups, quality, notes, logged_at, source, external_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id`,
-    [userId, Number(durationHours.toFixed(2)), wakeUps, quality, loggedAt, source, externalId]
+    [userId, Number(durationHours.toFixed(2)), wakeUps, quality, notes, loggedAt, source, externalId]
   );
   return { id: Number(result.rows[0].id), created: true };
 }
@@ -1905,6 +1928,8 @@ async function updateSleepEntry(userId, id, payload) {
   const wakeUps = Math.max(0, Math.min(99, Math.round(Number(payload.wakeUps) || 0)));
   const hasQuality = hasSleepQualityPayload(payload);
   const quality = hasQuality ? normalizeSleepQuality(payload) : null;
+  const hasNotes = hasSleepNotesPayload(payload);
+  const notes = hasNotes ? normalizeSleepNotes(payload) : null;
   const source = payload.source == null ? null : normalizeHealthEntrySource(payload.source, 'Sleep');
   const externalId = payload.externalId == null && payload.external_id == null ? null : normalizeExternalId(payload.externalId ?? payload.external_id, 'Sleep');
 
@@ -1915,9 +1940,10 @@ async function updateSleepEntry(userId, id, payload) {
          logged_at = $5,
          source = COALESCE($6, source),
          external_id = COALESCE($7, external_id),
-         quality = CASE WHEN $8 THEN $9::integer ELSE quality END
+         quality = CASE WHEN $8 THEN $9::integer ELSE quality END,
+         notes = CASE WHEN $10 THEN $11::text ELSE notes END
      WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
-    [userId, id, Number(durationHours.toFixed(2)), wakeUps, loggedAt, source, externalId, hasQuality, quality]
+    [userId, id, Number(durationHours.toFixed(2)), wakeUps, loggedAt, source, externalId, hasQuality, quality, hasNotes, notes]
   );
 
   return result.rowCount;
@@ -1942,6 +1968,7 @@ async function listSleepEntries(userId, options = {}) {
             duration_hours AS "durationHours",
             wake_ups AS "wakeUps",
             quality,
+            notes,
             logged_at AS "loggedAt",
             source,
             external_id AS "externalId"
@@ -1970,6 +1997,7 @@ async function listSleepEntries(userId, options = {}) {
       durationHours: Number(row.durationHours),
       wakeUps: Number(row.wakeUps || 0),
       quality: row.quality == null ? null : Number(row.quality),
+      notes: row.notes || null,
       loggedAt: new Date(row.loggedAt).toISOString(),
       source: row.source || 'manual',
       externalId: row.externalId || null
@@ -2418,7 +2446,7 @@ async function exportUserData(userId) {
       pool.query('SELECT id, weight, logged_at, source, external_id, created_at FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       pool.query('SELECT id, description, intensity, duration_hours, calories_burned, logged_at, source, external_id, created_at FROM workout_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       pool.query('SELECT id, type, logged_at, source, external_id, created_at FROM sexual_activity_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
-      pool.query('SELECT id, duration_hours, wake_ups, quality, logged_at, source, external_id, created_at FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
+      pool.query('SELECT id, duration_hours, wake_ups, quality, notes, logged_at, source, external_id, created_at FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       getWeightTarget(userId),
       pool.query('SELECT id, period_days, report_json, created_at FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC', [userId]),
       pool.query('SELECT feature, usage_date, count, updated_at FROM daily_usage_counts WHERE user_id = $1 ORDER BY usage_date DESC, feature', [userId]),

@@ -1203,7 +1203,7 @@ test('mobile sleep target is editable and drives sleep chart', () => {
   assert.equal(db.includes('sleep_hours: 8'), true);
 });
 
-test('sleep entries capture quality on web and iOS', () => {
+test('sleep entries capture quality and notes on web and iOS', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');
   const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
@@ -1211,17 +1211,27 @@ test('sleep entries capture quality on web and iOS', () => {
   const models = read('ios/DailyMacros/DailyMacros/Models.swift');
 
   assert.equal(html.includes('id="sleep-quality"'), true);
+  assert.equal(html.includes('id="sleep-notes"'), true);
   assert.equal(html.includes('<option value="3" selected>Okay</option>'), true);
   assert.equal(script.includes('const sleepQualityEl'), true);
+  assert.equal(script.includes('const sleepNotesEl'), true);
   assert.equal(script.includes('SLEEP_QUALITY_LABELS'), true);
-  assert.equal(script.includes('body: JSON.stringify({ durationHours, wakeUps, quality, loggedAt })'), true);
+  assert.equal(script.includes('body: JSON.stringify({ durationHours, wakeUps, quality, notes, loggedAt })'), true);
   assert.equal(script.includes('qualityLabel = quality ? ` · ${sleepQualityLabel(quality)} sleep` : \'\''), true);
+  assert.equal(script.includes('entry-card-notes'), true);
   assert.equal(models.includes('let quality: Int?'), true);
+  assert.equal(models.includes('let notes: String?'), true);
   assert.equal(api.includes('func addSleepEntry(durationHours: Double, wakeUps: Int, quality: Int? = nil'), true);
+  assert.equal(api.includes('notes: String? = nil'), true);
   assert.equal(api.includes('payload["quality"] = quality.map { $0 as Any } ?? NSNull()'), true);
+  assert.equal(api.includes('payload["notes"] = notes.map { $0 as Any } ?? NSNull()'), true);
   assert.equal(health.includes('@State private var sleepQuality = "3"'), true);
+  assert.equal(health.includes('@State private var sleepNotes = ""'), true);
   assert.equal(health.includes('sleepQualityPicker(selection: $sleepQuality)'), true);
   assert.equal(health.includes('sleepQualityPicker(selection: $editSleepQuality)'), true);
+  assert.equal(health.includes('sleepNotesField(text: $sleepNotes)'), true);
+  assert.equal(health.includes('sleepNotesField(text: $editSleepNotes)'), true);
   assert.equal(health.includes('sleepQualityLabel(_ quality: Int?)'), true);
   assert.equal(health.includes('let qualityChanged = sleepQualityValue(from: editSleepQuality) != entry.quality'), true);
+  assert.equal(health.includes('let notesChanged = normalizedSleepNotes(from: editSleepNotes) != normalizedSleepNotes(from: entry.notes ?? "")'), true);
 });

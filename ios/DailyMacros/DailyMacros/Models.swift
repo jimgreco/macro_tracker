@@ -373,6 +373,7 @@ struct SleepEntry: Codable, Identifiable, Sendable {
     let durationHours: Double
     let wakeUps: Int
     let quality: Int?
+    let notes: String?
     let loggedAt: String
     let source: String?
     let externalId: String?
