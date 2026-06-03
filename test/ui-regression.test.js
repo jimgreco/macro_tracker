@@ -221,8 +221,12 @@ test('iOS macro edit sheets use disabled saves and left-side destructive actions
   assert.equal(entryEdit.includes('.tint(canSave ? Color.neonCyan : .gray)'), true);
   assert.equal(entryEdit.includes('.disabled(!canSave)'), true);
   assert.equal(entryEdit.indexOf('Text("Delete")') < entryEdit.indexOf('Text("Save")'), true);
-  assert.equal(entryEdit.includes('DatePicker("Logged At", selection: $editEntryDate)'), true);
-  assert.equal(swift.includes('let loggedAtChanged = !isSameDisplayedMinute(editEntryDate, parseISO(entry.consumedAt))'), true);
+  assert.equal(entryEdit.includes('DatePicker("Logged At", selection: editEntryDateBinding)'), true);
+  assert.equal(swift.includes('@State private var originalEditEntryDate = Date()'), true);
+  assert.equal(swift.includes('@State private var editEntryDateChanged = false'), true);
+  assert.equal(swift.includes('originalEditEntryDate = loggedAt'), true);
+  assert.equal(swift.includes('editEntryDateChanged = !isSameDisplayedMinute(newValue, originalEditEntryDate)'), true);
+  assert.equal(swift.includes('let loggedAtChanged = editEntryDateChanged || !isSameDisplayedMinute(editEntryDate, originalEditEntryDate)'), true);
   assert.equal(swift.includes('editableWholeNumberBaseline(for: entry.calories)'), true);
 
   assert.equal(mealEdit.includes('let canSave = canSaveEditedMeal'), true);
@@ -420,6 +424,20 @@ test('iOS macro add sheet defaults logged-at to the current moment', () => {
   assert.equal(toolbar.includes('consumedAt = Date()'), true);
   assert.equal(toolbar.includes('consumedAt = selectedDate'), false);
   assert.equal(addInput.indexOf('DatePicker("Logged At", selection: $consumedAt)') < addInput.indexOf('mealDescriptionField'), true);
+});
+
+test('iOS macro add sheet keeps logged-at editable after adding a photo', () => {
+  const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const addInput = swift.slice(
+    swift.indexOf('private var addInputView'),
+    swift.indexOf('private var mealDescriptionField')
+  );
+
+  assert.equal(swift.includes('focusMealDescriptionIfEmpty'), false);
+  assert.equal(swift.includes('.onChange(of: mealImageDataUrl)'), false);
+  assert.equal(addInput.includes('DatePicker("Logged At", selection: $consumedAt)'), true);
+  assert.equal(addInput.includes('TapGesture().onEnded'), true);
+  assert.equal(addInput.includes('isMealDescriptionFocused = false'), true);
 });
 
 test('iOS macros add button uses a grouped toolbar without a blank placeholder', () => {

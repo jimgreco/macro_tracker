@@ -144,6 +144,8 @@ struct MacrosView: View {
     @State private var editEntryCarbs = ""
     @State private var editEntryFat = ""
     @State private var editEntryDate = Date()
+    @State private var originalEditEntryDate = Date()
+    @State private var editEntryDateChanged = false
     @State private var saveEditedEntryAsQuickAdd = false
     // Store originals for scaling
     @State private var origQuantity: Double = 0
@@ -436,11 +438,6 @@ struct MacrosView: View {
             }
             .onChange(of: selectedPhotoItem) { _, newItem in
                 Task { await loadSelectedPhoto(newItem) }
-            }
-            .onChange(of: mealImageDataUrl) { oldValue, newValue in
-                if oldValue.isEmpty && !newValue.isEmpty {
-                    focusMealDescriptionIfEmpty()
-                }
             }
             .task {
                 Task { await loadSavedItems(showErrors: false) }
@@ -1049,7 +1046,10 @@ struct MacrosView: View {
         editEntryProtein = "\(Int(entry.protein))"
         editEntryCarbs = "\(Int(entry.carbs))"
         editEntryFat = "\(Int(entry.fat))"
-        editEntryDate = parseISO(entry.consumedAt)
+        let loggedAt = parseISO(entry.consumedAt)
+        editEntryDate = loggedAt
+        originalEditEntryDate = loggedAt
+        editEntryDateChanged = false
         saveEditedEntryAsQuickAdd = false
         origQuantity = entry.quantity
         origCal = entry.calories
@@ -1065,7 +1065,7 @@ struct MacrosView: View {
         return NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    DatePicker("Logged At", selection: $editEntryDate)
+                    DatePicker("Logged At", selection: editEntryDateBinding)
                         .datePickerStyle(.compact)
 
                     editEntryField("Item Name", text: $editItemName, keyboard: .default)
@@ -1187,9 +1187,19 @@ struct MacrosView: View {
         let proteinChanged = abs(protein - editableWholeNumberBaseline(for: entry.protein)) > 0.001
         let carbsChanged = abs(carbs - editableWholeNumberBaseline(for: entry.carbs)) > 0.001
         let fatChanged = abs(fat - editableWholeNumberBaseline(for: entry.fat)) > 0.001
-        let loggedAtChanged = !isSameDisplayedMinute(editEntryDate, parseISO(entry.consumedAt))
+        let loggedAtChanged = editEntryDateChanged || !isSameDisplayedMinute(editEntryDate, originalEditEntryDate)
 
         return nameChanged || quantityChanged || unitChanged || caloriesChanged || proteinChanged || carbsChanged || fatChanged || loggedAtChanged || saveEditedEntryAsQuickAdd
+    }
+
+    private var editEntryDateBinding: Binding<Date> {
+        Binding(
+            get: { editEntryDate },
+            set: { newValue in
+                editEntryDate = newValue
+                editEntryDateChanged = !isSameDisplayedMinute(newValue, originalEditEntryDate)
+            }
+        )
     }
 
     /// When quantity changes, auto-scale macros proportionally
@@ -1853,6 +1863,11 @@ struct MacrosView: View {
                 DatePicker("Logged At", selection: $consumedAt)
                     .datePickerStyle(.compact)
                     .foregroundStyle(.white)
+                    .simultaneousGesture(
+                        TapGesture().onEnded {
+                            isMealDescriptionFocused = false
+                        }
+                    )
 
                 if !hasMealImage {
                     mealDescriptionField
@@ -3499,13 +3514,6 @@ struct MacrosView: View {
         selectedPhotoItem = nil
         mealImageDataUrl = ""
         mealPreviewImage = nil
-    }
-
-    private func focusMealDescriptionIfEmpty() {
-        guard mealText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            isMealDescriptionFocused = true
-        }
     }
 
     private func inferredImageMimeType(from data: Data) -> String {
