@@ -7,9 +7,7 @@ const state = {
   quickEntriesError: '',
   quickSearchQuery: '',
   editingEntryId: null,
-  mealImageDataUrl: '',
-  mealImagePreviewUrl: '',
-  mealImageName: '',
+  mealImageAttachments: [],
   mealImageLoading: false,
   selectedEntriesDay: '',
   dashboardData: null,
@@ -63,6 +61,7 @@ const state = {
 
 const BUILD_HASH_DIGITS = 7;
 const LOG_PAGE_SIZE = 30;
+const MAX_MEAL_PARSE_IMAGES = 4;
 const WEB_COACH_DISABLED_CATEGORIES_KEY = 'daily_macros_coach_disabled_categories';
 const WEB_SEXUAL_ACTIVITY_PAGE_VISIBLE_KEY = 'daily_macros_sexual_activity_page_visible';
 
@@ -87,8 +86,6 @@ const barcodeLookupBtnEl = document.getElementById('barcode-lookup-btn');
 const mealPhotoInputEl = document.getElementById('meal-photo-input');
 const mealCameraInputEl = document.getElementById('meal-camera-input');
 const mealPhotoPreviewWrapEl = document.getElementById('meal-photo-preview-wrap');
-const mealPhotoPreviewImageEl = document.getElementById('meal-photo-preview-image');
-const removePhotoBtnEl = document.getElementById('remove-photo-btn');
 const parseNoteEl = document.getElementById('parse-note');
 const parsedItemsContainerEl = document.getElementById('parsed-items-container');
 const quickSearchEl = document.getElementById('quick-entry-search');
@@ -849,38 +846,53 @@ function isHeicLikeFile(file) {
 }
 
 async function handleMealImageSelect(event, sourceLabel) {
-  const file = event.target?.files?.[0];
-  if (!file) {
+  const files = Array.from(event.target?.files || []);
+  if (!files.length) {
     return;
   }
 
   state.mealImageLoading = true;
-  setActionBanner('Processing selected photo...', 'info');
+  setActionBanner(files.length > 1 ? 'Processing selected photos...' : 'Processing selected photo...', 'info');
   try {
-    const dataUrl = await readFileAsDataUrl(file);
-    if (state.mealImagePreviewUrl && state.mealImagePreviewUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(state.mealImagePreviewUrl);
+    const addedNames = [];
+    let heicSelected = false;
+    let skippedForLimit = 0;
+
+    for (const file of files) {
+      if (state.mealImageAttachments.length >= MAX_MEAL_PARSE_IMAGES) {
+        skippedForLimit += 1;
+        continue;
+      }
+
+      const dataUrl = await readFileAsDataUrl(file);
+      const name = file.name || sourceLabel + ' image';
+      state.mealImageAttachments.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        dataUrl,
+        name
+      });
+      addedNames.push(name);
+      heicSelected = heicSelected || isHeicLikeFile(file);
     }
-    try {
-      state.mealImagePreviewUrl = URL.createObjectURL(file);
-    } catch (_error) {
-      state.mealImagePreviewUrl = '';
-    }
-    let selectedMessage = sourceLabel + ' selected.';
-    if (isHeicLikeFile(file)) {
-      state.mealImageName = file.name || sourceLabel + ' image';
-      selectedMessage = sourceLabel + ' selected (HEIC/HEIF). It will be converted on the server.';
-    } else {
-      state.mealImageName = file.name || sourceLabel + ' image';
-      selectedMessage = sourceLabel + ' selected: ' + state.mealImageName + '.';
-    }
-    state.mealImageDataUrl = dataUrl;
+
     renderMealImagePreview();
-    setActionBanner(selectedMessage + ' You can add an optional description.', 'info');
+    if (addedNames.length) {
+      const countLabel = addedNames.length === 1 ? '1 image' : `${addedNames.length} images`;
+      const selectedMessage = heicSelected
+        ? `${countLabel} attached. HEIC/HEIF images will be converted on the server.`
+        : `${countLabel} attached.`;
+      setActionBanner(selectedMessage + ' You can add an optional description.', 'info');
+    }
+    if (skippedForLimit > 0) {
+      setActionBanner(`A meal parse can include at most ${MAX_MEAL_PARSE_IMAGES} photos or screenshots.`, addedNames.length ? 'info' : 'error');
+    }
   } catch (error) {
     setActionBanner(error.message, 'error');
   } finally {
     state.mealImageLoading = false;
+    if (event.target) {
+      event.target.value = '';
+    }
   }
 }
 
@@ -889,39 +901,53 @@ function applyMealInputMode() {
     return;
   }
   mealTextEl.disabled = false;
-  mealTextEl.placeholder = state.mealImageDataUrl
+  mealTextEl.placeholder = state.mealImageAttachments.length
     ? 'Optional: add a description, or parse from photo only.'
     : defaultMealTextPlaceholder;
 }
 
 function renderMealImagePreview() {
-  const hasImage = Boolean(state.mealImageDataUrl);
+  const hasImage = state.mealImageAttachments.length > 0;
   if (mealPhotoPreviewWrapEl) {
     mealPhotoPreviewWrapEl.hidden = !hasImage;
+    mealPhotoPreviewWrapEl.innerHTML = '';
   }
-  if (hasImage) {
-    if (mealPhotoPreviewImageEl) {
+
+  if (hasImage && mealPhotoPreviewWrapEl) {
+    state.mealImageAttachments.forEach((attachment, index) => {
+      const item = document.createElement('div');
+      item.className = 'meal-photo-preview-item';
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'meal-photo-remove';
+      removeBtn.setAttribute('aria-label', `Remove attached photo ${index + 1}`);
+      removeBtn.dataset.removeMealImageId = attachment.id;
+      removeBtn.textContent = '×';
+
+      const image = document.createElement('img');
+      image.alt = attachment.name ? `Attached meal photo preview: ${attachment.name}` : `Attached meal photo preview ${index + 1}`;
       try {
-        mealPhotoPreviewImageEl.src = state.mealImageDataUrl;
+        image.src = attachment.dataUrl;
       } catch (_error) {
-        mealPhotoPreviewImageEl.removeAttribute('src');
+        image.removeAttribute('src');
       }
-    }
-  } else {
-    if (mealPhotoPreviewImageEl) {
-      mealPhotoPreviewImageEl.removeAttribute('src');
-    }
+
+      item.appendChild(removeBtn);
+      item.appendChild(image);
+      mealPhotoPreviewWrapEl.appendChild(item);
+    });
   }
   applyMealInputMode();
 }
 
+function removeMealImageAttachment(id) {
+  state.mealImageAttachments = state.mealImageAttachments.filter((attachment) => attachment.id !== id);
+  renderMealImagePreview();
+}
+
 function clearMealImageSelection() {
-  if (state.mealImagePreviewUrl && state.mealImagePreviewUrl.startsWith('blob:')) {
-    URL.revokeObjectURL(state.mealImagePreviewUrl);
-  }
-  state.mealImageDataUrl = '';
-  state.mealImagePreviewUrl = '';
-  state.mealImageName = '';
+  state.mealImageAttachments = [];
   state.mealImageLoading = false;
   if (mealPhotoInputEl) {
     mealPhotoInputEl.value = '';
@@ -930,6 +956,39 @@ function clearMealImageSelection() {
     mealCameraInputEl.value = '';
   }
   renderMealImagePreview();
+}
+
+function scaleParsedMealItemsToConsumedTotals(parsedMeal) {
+  const items = Array.isArray(parsedMeal?.items) ? parsedMeal.items : [];
+  const scale = items.length > 1 ? Math.max(Number(parsedMeal.mealQuantity || 1), 0.0001) : 1;
+  return items.map((item) => ({
+    ...item,
+    quantity: Number(item.quantity || 0) * scale,
+    calories: Number(item.calories || 0) * scale,
+    protein: Number(item.protein || 0) * scale,
+    carbs: Number(item.carbs || 0) * scale,
+    fat: Number(item.fat || 0) * scale
+  }));
+}
+
+function appendBarcodeItemToParsedMeal(result, barcode) {
+  const item = result.item;
+  const productName = result.productName || item.itemName;
+  const existingItems = scaleParsedMealItemsToConsumedTotals(state.parsedMeal);
+  const nextItems = existingItems.concat([item]);
+  const existingName = String(state.parsedMeal?.mealName || '').trim();
+  const mealName = existingItems.length
+    ? (existingName && existingName !== productName ? existingName : 'Scanned Items')
+    : productName;
+
+  state.parsedMeal = {
+    mealName,
+    mealQuantity: 1,
+    mealUnit: nextItems.length > 1 ? 'meal' : 'serving',
+    notes: `Loaded ${productName} from barcode ${barcode}.`,
+    items: nextItems
+  };
+  renderParsedItems(state.parsedMeal);
 }
 
 async function lookupBarcode(codeInput) {
@@ -946,16 +1005,8 @@ async function lookupBarcode(codeInput) {
       throw new Error(result.message || 'Product was found, but nutrition data was incomplete.');
     }
 
-    const parsed = {
-      mealName: result.productName || result.item.itemName,
-      mealQuantity: 1,
-      mealUnit: 'serving',
-      notes: `Loaded ${result.productName || result.item.itemName} from barcode ${barcode}.`,
-      items: [result.item]
-    };
-    state.parsedMeal = parsed;
-    renderParsedItems(parsed);
-    setActionBanner(parsed.notes, 'success');
+    appendBarcodeItemToParsedMeal(result, barcode);
+    setActionBanner(state.parsedMeal.notes, 'success');
   } catch (error) {
     setActionBanner(error.message, 'error');
   }
@@ -994,9 +1045,13 @@ if (barcodeLookupBtnEl) {
   });
 }
 
-if (removePhotoBtnEl) {
-  removePhotoBtnEl.addEventListener('click', () => {
-    clearMealImageSelection();
+if (mealPhotoPreviewWrapEl) {
+  mealPhotoPreviewWrapEl.addEventListener('click', (event) => {
+    const removeBtn = event.target?.closest?.('[data-remove-meal-image-id]');
+    if (!removeBtn) {
+      return;
+    }
+    removeMealImageAttachment(removeBtn.dataset.removeMealImageId);
     setActionBanner('Attached photo removed.', 'info');
   });
 }
@@ -1125,14 +1180,16 @@ function isCompactMobileView() {
 }
 
 function formatSavedItemOption(item) {
+  const components = savedItemComponents(item);
+  const itemType = components.length ? ` · ${components.length} items` : '';
   if (!isCompactMobileView()) {
-    return `${item.name} (${formatMacros(item)})`;
+    return `${item.name}${itemType} (${formatMacros(item)})`;
   }
 
   const maxName = 22;
   const name = String(item.name || 'Item');
   const compactName = name.length > maxName ? `${name.slice(0, maxName - 1)}…` : name;
-  return `${compactName} (${fmtNumber(item.calories)}cal/${fmtNumber(item.protein)}P/${fmtNumber(item.carbs)}C/${fmtNumber(item.fat)}F)`;
+  return `${compactName}${components.length ? `/${components.length}i` : ''} (${fmtNumber(item.calories)}cal/${fmtNumber(item.protein)}P/${fmtNumber(item.carbs)}C/${fmtNumber(item.fat)}F)`;
 }
 
 function normalizeQuickSearch(value) {
@@ -1140,9 +1197,13 @@ function normalizeQuickSearch(value) {
 }
 
 function quickEntrySearchText(item) {
+  const componentText = savedItemComponents(item)
+    .map((component) => `${component.itemName || component.name || ''} ${component.unit || ''}`)
+    .join(' ');
   return normalizeQuickSearch([
     item.name,
     item.unit,
+    componentText,
     fmtNumber(item.calories),
     fmtNumber(item.protein),
     fmtNumber(item.carbs),
@@ -2143,6 +2204,59 @@ function collectParsedItemsFromUi() {
   }));
 }
 
+function roundSavedMacro(value) {
+  return Number(Number(value || 0).toFixed(2));
+}
+
+function savedItemComponents(item) {
+  return Array.isArray(item?.components) ? item.components : [];
+}
+
+function buildSavedMealQuickAddPayload({ name, quantity, unit, components }) {
+  const mealQuantity = Math.max(Number(quantity || 1), 0.0001);
+  const normalizedComponents = (components || []).map((component) => ({
+    itemName: String(component.itemName || component.name || 'Item').trim() || 'Item',
+    quantity: Math.max(Number(component.quantity || 0), 0.0001),
+    unit: String(component.unit || 'serving').trim() || 'serving',
+    calories: roundSavedMacro(component.calories),
+    protein: roundSavedMacro(component.protein),
+    carbs: roundSavedMacro(component.carbs),
+    fat: roundSavedMacro(component.fat)
+  }));
+  const perUnitTotals = normalizedComponents.reduce((acc, component) => {
+    acc.calories += Number(component.calories || 0);
+    acc.protein += Number(component.protein || 0);
+    acc.carbs += Number(component.carbs || 0);
+    acc.fat += Number(component.fat || 0);
+    return acc;
+  }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+  return {
+    name: String(name || 'Meal').trim() || 'Meal',
+    quantity: mealQuantity,
+    unit: String(unit || 'serving').trim() || 'serving',
+    calories: roundSavedMacro(perUnitTotals.calories * mealQuantity),
+    protein: roundSavedMacro(perUnitTotals.protein * mealQuantity),
+    carbs: roundSavedMacro(perUnitTotals.carbs * mealQuantity),
+    fat: roundSavedMacro(perUnitTotals.fat * mealQuantity),
+    components: normalizedComponents
+  };
+}
+
+function buildSavedMealQuickAddPayloadFromEntries(entries, { name, quantity, unit }) {
+  const sourceMealQuantity = Math.max(Number(entries?.[0]?.mealQuantity || 1), 0.0001);
+  const components = (entries || []).map((entry) => ({
+    itemName: entry.itemName,
+    quantity: Number(entry.quantity || 0) / sourceMealQuantity,
+    unit: entry.unit || 'serving',
+    calories: Number(entry.calories || 0) / sourceMealQuantity,
+    protein: Number(entry.protein || 0) / sourceMealQuantity,
+    carbs: Number(entry.carbs || 0) / sourceMealQuantity,
+    fat: Number(entry.fat || 0) / sourceMealQuantity
+  }));
+  return buildSavedMealQuickAddPayload({ name, quantity, unit, components });
+}
+
 function getSelectedSavedItem() {
   const raw = String(savedSelectEl.value || '');
   if (!raw.startsWith('saved:')) {
@@ -2170,6 +2284,7 @@ function getSelectedQuickTemplate() {
       protein: Number(item.protein || 0),
       carbs: Number(item.carbs || 0),
       fat: Number(item.fat || 0),
+      components: savedItemComponents(item),
       usageCount: Number(item.usageCount || 0),
       count: Number(item.usageCount || 0),
       lastUsedAt: ''
@@ -2223,6 +2338,30 @@ function quickAddById(savedItemId) {
 function quickAddByTemplate(template) {
   const multiplier = Number(quickMultiplierEl.value || 1);
   const consumedAt = asIso(consumedAtEl.value);
+  const components = savedItemComponents(template);
+  if (components.length) {
+    return api('/api/entries/bulk', {
+      method: 'POST',
+      body: JSON.stringify({
+        consumedAt,
+        items: components.map((component) => ({
+          itemName: component.itemName || component.name || 'Item',
+          quantity: Number(component.quantity || 0),
+          unit: component.unit || 'serving',
+          calories: Number(component.calories || 0),
+          protein: Number(component.protein || 0),
+          carbs: Number(component.carbs || 0),
+          fat: Number(component.fat || 0),
+          consumedAt
+        })),
+        mealName: template.name || 'Meal',
+        mealQuantity: Math.max(Number(template.quantity || 1) * multiplier, 0.0001),
+        mealUnit: template.unit || 'serving',
+        itemsAreMealUnit: true
+      })
+    });
+  }
+
   return api('/api/entries/bulk', {
     method: 'POST',
     body: JSON.stringify({
@@ -3478,24 +3617,14 @@ function showCombineModal(entryIds, options) {
         try {
           const entries = state.dashboardData?.entries || [];
           const subItems = entries.filter(e => e.mealGroup === options.mealGroup);
-          const totals = subItems.reduce((acc, e) => {
-            acc.calories += Number(e.calories) || 0;
-            acc.protein += Number(e.protein) || 0;
-            acc.carbs += Number(e.carbs) || 0;
-            acc.fat += Number(e.fat) || 0;
-            return acc;
-          }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+          const payload = buildSavedMealQuickAddPayloadFromEntries(subItems, {
+            name: mealName,
+            quantity,
+            unit
+          });
           await api('/api/saved-items', {
             method: 'POST',
-            body: JSON.stringify({
-              name: mealName,
-              quantity,
-              unit,
-              calories: totals.calories,
-              protein: totals.protein,
-              carbs: totals.carbs,
-              fat: totals.fat
-            })
+            body: JSON.stringify(payload)
           });
           setActionBanner('Quick add item saved.', 'success');
           loadQuickEntries({ force: true });
@@ -3863,7 +3992,9 @@ parseBtnEl.addEventListener('click', async () => {
       body: JSON.stringify({
         text: mealTextEl.value,
         consumedAt: asIso(consumedAtEl.value),
-        imageDataUrl: state.mealImageDataUrl || undefined
+        imageDataUrls: state.mealImageAttachments.length
+          ? state.mealImageAttachments.map((attachment) => attachment.dataUrl)
+          : undefined
       })
     });
 
@@ -3914,22 +4045,12 @@ saveParsedBtnEl.addEventListener('click', async () => {
         fat: perUnit(item.fat)
       });
     } else {
-      const totals = editedItems.reduce((acc, item) => {
-        acc.calories += Number(item.calories || 0);
-        acc.protein += Number(item.protein || 0);
-        acc.carbs += Number(item.carbs || 0);
-        acc.fat += Number(item.fat || 0);
-        return acc;
-      }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
-      saveItems.push({
+      saveItems.push(buildSavedMealQuickAddPayload({
         name: state.parsedMeal.mealName || 'Meal',
-        quantity: 1,
+        quantity: state.parsedMeal.mealQuantity || 1,
         unit: state.parsedMeal.mealUnit || 'serving',
-        calories: Number(totals.calories.toFixed(2)),
-        protein: Number(totals.protein.toFixed(2)),
-        carbs: Number(totals.carbs.toFixed(2)),
-        fat: Number(totals.fat.toFixed(2))
-      });
+        components: editedItems
+      }));
     }
   }
 
@@ -4031,7 +4152,8 @@ quickEditToggleBtnEl.addEventListener('click', () => {
           calories: values.calories,
           protein: values.protein,
           carbs: values.carbs,
-          fat: values.fat
+          fat: values.fat,
+          components: savedItemComponents(selectedTemplate)
         };
         try {
           if (selected) {

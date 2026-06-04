@@ -358,10 +358,12 @@ class APIClient: ObservableObject {
 
     // MARK: - Meal Parsing
 
-    func parseMeal(text: String, consumedAt: String? = nil, imageDataUrl: String? = nil) async throws -> ParseMealResponse {
+    func parseMeal(text: String, consumedAt: String? = nil, imageDataUrl: String? = nil, imageDataUrls: [String] = []) async throws -> ParseMealResponse {
         var payload: [String: Any] = ["text": text]
         if let consumedAt { payload["consumedAt"] = consumedAt }
-        if let imageDataUrl { payload["imageDataUrl"] = imageDataUrl }
+        var images = imageDataUrls
+        if let imageDataUrl { images.append(imageDataUrl) }
+        if !images.isEmpty { payload["imageDataUrls"] = images }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/parse-meal"), method: "POST", body: body)
         return try await perform(request)

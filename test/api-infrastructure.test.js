@@ -115,6 +115,22 @@ test('db.js creates api_tokens table', () => {
   assert.ok(db.includes('token_hash TEXT NOT NULL UNIQUE'));
 });
 
+test('saved quick-add meals preserve component rows', () => {
+  const db = read('src/db.js');
+  const server = read('src/server.js');
+
+  assert.ok(db.includes('components JSONB'));
+  assert.ok(db.includes('ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS components JSONB'));
+  assert.ok(db.includes('function normalizeSavedItemComponents'));
+  assert.ok(db.includes('INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat, components)'));
+  assert.ok(db.includes('SELECT id, name, quantity, unit, calories, protein, carbs, fat, components'));
+  assert.ok(db.includes('const mealGroup = components.length > 1 ? crypto.randomUUID() : null'));
+  assert.ok(db.includes('meal_group,\n             meal_name,\n             meal_quantity,\n             meal_unit'));
+  assert.ok(server.includes('function validateSavedItemComponents'));
+  assert.ok(server.includes('normalized.components = validateSavedItemComponents(payload.components)'));
+  assert.ok(server.includes('components can include at most 50 items.'));
+});
+
 test('db.js creates audit_log table', () => {
   const db = read('src/db.js');
   assert.ok(db.includes('CREATE TABLE IF NOT EXISTS audit_log'));
@@ -397,9 +413,17 @@ test('server.js enforces durable daily usage limits for AI endpoints', () => {
 
 test('server.js bounds parse payloads before invoking AI parsers', () => {
   const server = read('src/server.js');
+  const parser = read('src/parser.js');
+
   assert.ok(server.includes("normalizeString(body.text, 'text', { maxLength: 4000"));
   assert.ok(server.includes('A meal can include at most 50 items.'));
   assert.ok(server.includes('Image is too large. Please use an image under 6MB.'));
+  assert.ok(server.includes('MAX_MEAL_PARSE_IMAGES'));
+  assert.ok(server.includes('rawMealImageDataUrlsFromBody'));
+  assert.ok(server.includes('imageDataUrls'));
+  assert.ok(parser.includes('normalizedImageDataUrls'));
+  assert.ok(parser.includes('uploadedImageFileIds'));
+  assert.ok(parser.includes('meal-photo-${index + 1}.${extension}'));
 });
 
 test('server.js upserts user on OAuth callback', () => {
@@ -634,8 +658,9 @@ test('server.js imports Stripe and subscription functions', () => {
 test('server.js has Stripe webhook endpoint before express.json()', () => {
   const server = read('src/server.js');
   const webhookPos = server.indexOf("'/api/v1/webhooks/stripe'");
-  const jsonPos = server.indexOf("express.json({ limit: '10mb' })");
+  const jsonPos = server.indexOf('app.use(express.json({ limit:');
   assert.ok(webhookPos > 0, 'Webhook endpoint must exist');
+  assert.ok(jsonPos > 0, 'JSON parser middleware must exist');
   assert.ok(webhookPos < jsonPos, 'Webhook must be registered before express.json()');
   assert.ok(server.includes("express.raw({ type: 'application/json' })"), 'Webhook must use raw body parser');
   assert.ok(server.includes('stripe.webhooks.constructEvent'), 'Webhook must verify signature');

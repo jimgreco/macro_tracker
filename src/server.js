@@ -84,6 +84,8 @@ const packageJson = require('../package.json');
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 const BUILD_HASH_DIGITS = 7;
+const MAX_MEAL_PARSE_IMAGES = 4;
+const MAX_MEAL_PARSE_IMAGE_BYTES = 6 * 1024 * 1024;
 
 function formatBuildIdentifier(build) {
   const value = String(build || '').trim();
@@ -485,7 +487,7 @@ if (stripe && stripeWebhookSecret) {
   });
 }
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '40mb' }));
 app.use(
   session({
     name: isProduction ? '__Host-macro.sid' : 'macro.sid',
@@ -631,6 +633,67 @@ async function convertHeicDataUrlToJpegDataUrl(imageDataUrl) {
   });
   const outputBuffer = Buffer.isBuffer(output) ? output : Buffer.from(output);
   return 'data:image/jpeg;base64,' + outputBuffer.toString('base64');
+}
+
+function rawMealImageDataUrlsFromBody(body) {
+  const values = [];
+  if (Array.isArray(body.imageDataUrls)) {
+    values.push(...body.imageDataUrls);
+  } else if (body.imageDataUrls !== undefined) {
+    throw new Error('imageDataUrls must be an array.');
+  }
+
+  if (typeof body.imageDataUrl === 'string') {
+    values.push(body.imageDataUrl);
+  }
+
+  const imageDataUrls = values
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter(Boolean);
+
+  if (imageDataUrls.length > MAX_MEAL_PARSE_IMAGES) {
+    throw new Error(`A meal parse can include at most ${MAX_MEAL_PARSE_IMAGES} photos or screenshots.`);
+  }
+
+  return imageDataUrls;
+}
+
+async function normalizeMealImageDataUrl(rawImageDataUrl) {
+  const parsedImage = parseImageDataUrl(rawImageDataUrl);
+  if (!parsedImage) {
+    throw new Error('Invalid image format. Use an image file.');
+  }
+  const mimeType = normalizeOpenAiImageMimeType(parsedImage.mimeType);
+  const allowedMimeTypes = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'image/heic',
+    'image/heif',
+    'image/heic-sequence',
+    'image/heif-sequence'
+  ]);
+  if (!allowedMimeTypes.has(mimeType)) {
+    throw new Error('Unsupported image type. Use JPEG, PNG, WEBP, GIF, or HEIC.');
+  }
+
+  const estimatedBytes = Math.floor((parsedImage.base64Payload.length * 3) / 4);
+  if (estimatedBytes > MAX_MEAL_PARSE_IMAGE_BYTES) {
+    throw new Error('Image is too large. Please use an image under 6MB.');
+  }
+
+  const imageDataUrl = isHeicMimeType(mimeType)
+    ? await convertHeicDataUrlToJpegDataUrl(rawImageDataUrl)
+    : `data:${mimeType};base64,${parsedImage.base64Payload}`;
+
+  const normalizedImage = parseImageDataUrl(imageDataUrl);
+  const normalizedEstimatedBytes = Math.floor((String(normalizedImage?.base64Payload || '').length * 3) / 4);
+  if (!normalizedImage || normalizedEstimatedBytes > MAX_MEAL_PARSE_IMAGE_BYTES) {
+    throw new Error('Image is too large after processing. Please use a smaller photo.');
+  }
+
+  return imageDataUrl;
 }
 
 function userIdFromReq(req) {
@@ -2044,51 +2107,16 @@ apiRouter.post('/parse-meal', async (req, res) => {
     const body = requirePlainObject(req.body || {}, 'parse meal request');
     const consumedAt = normalizeIsoDateTime(body.consumedAt, 'consumedAt');
     const text = normalizeString(body.text, 'text', { maxLength: 4000, fallback: '' });
-    const rawImageDataUrl = typeof body.imageDataUrl === 'string' ? body.imageDataUrl : '';
-    hasImage = Boolean(rawImageDataUrl);
-    let imageDataUrl = rawImageDataUrl;
+    const rawImageDataUrls = rawMealImageDataUrlsFromBody(body);
+    hasImage = rawImageDataUrls.length > 0;
 
-    if (!text.trim() && !rawImageDataUrl) {
+    if (!text.trim() && !hasImage) {
       return sendError(req, res, 400, 'Add a description, a photo, or both.');
     }
 
-    if (rawImageDataUrl) {
-      const parsedImage = parseImageDataUrl(rawImageDataUrl);
-      if (!parsedImage) {
-        return sendError(req, res, 400, 'Invalid image format. Use an image file.');
-      }
-      const mimeType = normalizeOpenAiImageMimeType(parsedImage.mimeType);
-      const allowedMimeTypes = new Set([
-        'image/jpeg',
-        'image/png',
-        'image/webp',
-        'image/gif',
-        'image/heic',
-        'image/heif',
-        'image/heic-sequence',
-        'image/heif-sequence'
-      ]);
-      if (!allowedMimeTypes.has(mimeType)) {
-        return sendError(req, res, 400, 'Unsupported image type. Use JPEG, PNG, WEBP, GIF, or HEIC.');
-      }
-
-      const maxImageBytes = 6 * 1024 * 1024;
-      const estimatedBytes = Math.floor((parsedImage.base64Payload.length * 3) / 4);
-      if (estimatedBytes > maxImageBytes) {
-        return sendError(req, res, 400, 'Image is too large. Please use an image under 6MB.');
-      }
-
-      if (isHeicMimeType(mimeType)) {
-        imageDataUrl = await convertHeicDataUrlToJpegDataUrl(rawImageDataUrl);
-      } else {
-        imageDataUrl = `data:${mimeType};base64,${parsedImage.base64Payload}`;
-      }
-
-      const normalizedImage = parseImageDataUrl(imageDataUrl);
-      const normalizedEstimatedBytes = Math.floor((String(normalizedImage?.base64Payload || '').length * 3) / 4);
-      if (normalizedEstimatedBytes > maxImageBytes) {
-        return sendError(req, res, 400, 'Image is too large after processing. Please use a smaller photo.');
-      }
+    const imageDataUrls = [];
+    for (const rawImageDataUrl of rawImageDataUrls) {
+      imageDataUrls.push(await normalizeMealImageDataUrl(rawImageDataUrl));
     }
 
     const mealLimitResponse = await enforceDailyUsage(
@@ -2114,7 +2142,7 @@ apiRouter.post('/parse-meal', async (req, res) => {
     const parsed = await parseMealText({
       text,
       consumedAt,
-      imageDataUrl
+      imageDataUrls
     });
 
     res.json(parsed);

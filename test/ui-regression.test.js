@@ -350,6 +350,20 @@ test('quick entries are searchable and load outside dashboard refresh', () => {
   assert.equal(refreshSection.includes('/api/saved-items'), false);
 });
 
+test('web quick-add meals save and replay component payloads', () => {
+  const script = read('public/script.js');
+
+  assert.equal(script.includes('function buildSavedMealQuickAddPayload'), true);
+  assert.equal(script.includes('function buildSavedMealQuickAddPayloadFromEntries'), true);
+  assert.equal(script.includes('components: normalizedComponents'), true);
+  assert.equal(script.includes('saveItems.push(buildSavedMealQuickAddPayload({'), true);
+  assert.equal(script.includes('components: editedItems'), true);
+  assert.equal(script.includes('const payload = buildSavedMealQuickAddPayloadFromEntries(subItems'), true);
+  assert.equal(script.includes('const components = savedItemComponents(template);'), true);
+  assert.equal(script.includes('itemsAreMealUnit: true'), true);
+  assert.equal(script.includes('components: savedItemComponents(selectedTemplate)'), true);
+});
+
 test('iOS quick items are searchable and preload saved items in the background', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
 
@@ -420,20 +434,38 @@ test('iOS quick add queues multiple items before saving a meal', () => {
   assert.equal(swift.includes('private func scaleQueuedQuickMacros'), true);
 });
 
+test('iOS quick-add meals carry saved component rows', () => {
+  const models = read('ios/DailyMacros/DailyMacros/Models.swift');
+  const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+
+  assert.equal(models.includes('struct SavedItemComponent'), true);
+  assert.equal(models.includes('let components: [SavedItemComponent]?'), true);
+  assert.equal(api.includes('components: [[String: Any]] = []'), true);
+  assert.equal(api.includes('payload["components"] = components'), true);
+  assert.equal(swift.includes('let components: [SavedItemComponent]'), true);
+  assert.equal(swift.includes('components: item.components ?? []'), true);
+  assert.equal(swift.includes('if !template.components.isEmpty'), true);
+  assert.equal(swift.includes('for (index, component) in template.components.enumerated()'), true);
+  assert.equal(swift.includes('let components = parsedItems.map(savedComponentPayload)'), true);
+  assert.equal(swift.includes('"components": components'), true);
+  assert.equal(swift.includes('components: components.map(savedComponentPayload)'), true);
+});
+
 test('iOS macro add sheet defaults logged-at to the current moment', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
-  const toolbar = swift.slice(
-    swift.indexOf('.navigationTitle("Macros")'),
-    swift.indexOf('.sheet(isPresented: $showAddSheet)')
+  const addAction = swift.slice(
+    swift.indexOf('private func beginLogMeal()'),
+    swift.indexOf('// MARK: - Trash Drop Zone')
   );
   const addInput = swift.slice(
     swift.indexOf('private var addInputView'),
     swift.indexOf('private var mealDescriptionField')
   );
 
-  assert.equal(toolbar.includes('consumedAt = Date()'), true);
-  assert.equal(toolbar.includes('consumedAt = selectedDate'), false);
-  assert.equal(toolbar.indexOf('showAddSheet = true') < toolbar.indexOf('Task { await loadSavedItems() }'), true);
+  assert.equal(addAction.includes('consumedAt = Date()'), true);
+  assert.equal(addAction.includes('consumedAt = selectedDate'), false);
+  assert.equal(addAction.indexOf('showAddSheet = true') < addAction.indexOf('Task { await loadSavedItems() }'), true);
   assert.equal(addInput.indexOf('DatePicker("Logged At", selection: $consumedAt)') < addInput.indexOf('mealDescriptionField'), true);
 });
 
@@ -1197,12 +1229,23 @@ test('meal logging surfaces barcode lookup beside photo and camera', () => {
   const scanner = read('ios/DailyMacros/DailyMacros/BarcodeScannerView.swift');
 
   assert.equal(html.includes('id="barcode-lookup-btn"'), true);
+  assert.equal(html.includes('id="meal-photo-input" type="file" accept="image/*" multiple'), true);
   assert.equal(script.includes('const barcodeLookupBtnEl'), true);
   assert.equal(script.includes('/api/barcode/${encodeURIComponent(barcode)}'), true);
+  assert.equal(script.includes('mealImageAttachments'), true);
+  assert.equal(script.includes('appendBarcodeItemToParsedMeal'), true);
+  assert.equal(script.includes('imageDataUrls: state.mealImageAttachments'), true);
+  assert.equal(script.includes('data-remove-meal-image-id'), true);
   assert.equal(macros.includes('Label') && macros.includes('barcode.viewfinder'), true);
   assert.equal(macros.includes('BarcodeScannerView'), true);
   assert.equal(macros.includes('lookupBarcode(code)'), true);
+  assert.equal(macros.includes('@State private var selectedPhotoItems: [PhotosPickerItem]'), true);
+  assert.equal(macros.includes('@State private var mealImageAttachments: [MealImageAttachment]'), true);
+  assert.equal(macros.includes('PhotosPicker(selection: $selectedPhotoItems'), true);
+  assert.equal(macros.includes('ForEach(mealImageAttachments)'), true);
+  assert.equal(macros.includes('appendParsedBarcodeItem'), true);
   assert.equal(api.includes('func lookupBarcode'), true);
+  assert.equal(api.includes('imageDataUrls: [String]'), true);
   assert.equal(models.includes('struct BarcodeLookupResponse'), true);
   assert.equal(project.includes('BarcodeScannerView.swift in Sources'), true);
   assert.equal(scanner.includes('AVCaptureMetadataOutputObjectsDelegate'), true);

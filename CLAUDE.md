@@ -185,5 +185,5 @@ The server sets a strict CSP header. Key constraints for frontend development:
 - Period toggles (weekly/monthly/annual) controlled by `state.macroSnapshotPeriod`, `state.weightSnapshotPeriod`, `state.workoutSnapshotPeriod`. Switching period triggers a server request with `scope` param (e.g. `/api/daily-totals?scope=month`) to fetch the full date range.
 - Charts are drawn on `<canvas>` elements with device pixel ratio scaling. All charts support tooltips on hover/click/touch.
 - TDEE/energy balance feature was removed — no longer present in the codebase.
-- Meal photo preview: uses base64 data URL (`state.mealImageDataUrl`) for `<img src>` — not blob URLs (blocked by CSP)
+- Meal photo previews: use base64 data URLs from `state.mealImageAttachments` for `<img src>` — not blob URLs (blocked by CSP)
 - OpenAI API key is required; no fallback parsing exists

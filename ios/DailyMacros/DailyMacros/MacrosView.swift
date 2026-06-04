@@ -40,10 +40,12 @@ private struct QuickAddTemplate: Identifiable {
     let protein: Double
     let carbs: Double
     let fat: Double
+    let components: [SavedItemComponent]
     let lastUsedAt: String?
     let searchText: String
 
     var isSaved: Bool { savedItemId != nil }
+    var isMeal: Bool { !components.isEmpty }
 
     init(
         id: String,
@@ -55,6 +57,7 @@ private struct QuickAddTemplate: Identifiable {
         protein: Double,
         carbs: Double,
         fat: Double,
+        components: [SavedItemComponent] = [],
         lastUsedAt: String?
     ) {
         self.id = id
@@ -66,10 +69,12 @@ private struct QuickAddTemplate: Identifiable {
         self.protein = protein
         self.carbs = carbs
         self.fat = fat
+        self.components = components
         self.lastUsedAt = lastUsedAt
         self.searchText = [
             name,
             unit,
+            components.map(\.itemName).joined(separator: " "),
             "\(Int(calories))",
             "\(Int(protein))",
             "\(Int(carbs))",
@@ -94,6 +99,13 @@ private struct QuickMealQueueItem: Identifiable {
     var fat: Double
 }
 
+private struct MealImageAttachment: Identifiable {
+    let id = UUID()
+    var dataUrl: String
+    var previewImage: UIImage?
+    var label: String
+}
+
 struct MacrosView: View {
     @EnvironmentObject var api: APIClient
     @StateObject private var coachDismissals = CoachDismissalStore.shared
@@ -103,9 +115,8 @@ struct MacrosView: View {
     @State private var quickTemplates: [QuickAddTemplate] = []
     @State private var mealText = ""
     @State private var consumedAt = Date()
-    @State private var selectedPhotoItem: PhotosPickerItem?
-    @State private var mealImageDataUrl = ""
-    @State private var mealPreviewImage: UIImage?
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var mealImageAttachments: [MealImageAttachment] = []
     @State private var isLoadingImage = false
     @State private var showCamera = false
     @State private var showBarcodeScanner = false
@@ -229,9 +240,10 @@ struct MacrosView: View {
     private let macroOptions = ["calories", "protein", "carbs", "fat"]
     private let addSheetTopAnchor = "add-sheet-top"
     private let quickItemsVisibleLimit = 40
+    private let maxMealImageAttachments = 4
 
     private var hasMealImage: Bool {
-        !mealImageDataUrl.isEmpty
+        !mealImageAttachments.isEmpty
     }
 
     private var mealDescriptionPlaceholder: String {
@@ -250,6 +262,7 @@ struct MacrosView: View {
                 protein: item.protein,
                 carbs: item.carbs,
                 fat: item.fat,
+                components: item.components ?? [],
                 lastUsedAt: nil
             )
         }
@@ -266,7 +279,8 @@ struct MacrosView: View {
             calories: $0.calories,
             protein: $0.protein,
             carbs: $0.carbs,
-            fat: $0.fat
+            fat: $0.fat,
+            components: $0.components ?? []
         ) })
 
         let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
@@ -360,6 +374,10 @@ struct MacrosView: View {
     }
 
     var body: some View {
+        macroScreen
+    }
+
+    private var macroScreen: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
                 ScrollView {
@@ -399,29 +417,7 @@ struct MacrosView: View {
             }
             .navigationTitle("Macros")
             .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button {
-                        showParsed = false
-                        mealText = ""
-                        consumedAt = Date()
-                        quickSearchText = ""
-                        quickMealName = ""
-                        quickMealQueue = []
-                        recentlyQueuedQuickTemplateId = nil
-                        clearMealImage()
-                        showAddSheet = true
-                        if !hasLoadedSavedItems {
-                            Task { await loadSavedItems() }
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.headline)
-                            .foregroundStyle(Color.neonCyan)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("Log meal")
-                }
+                addMealToolbar
             }
             .sheet(isPresented: $showAddSheet, onDismiss: {
                 quickMealQueue = []
@@ -440,9 +436,6 @@ struct MacrosView: View {
             }
             .sheet(isPresented: $showEditMeal) {
                 editMealSheet
-            }
-            .onChange(of: selectedPhotoItem) { _, newItem in
-                Task { await loadSelectedPhoto(newItem) }
             }
             .task {
                 Task { await loadSavedItems(showErrors: false) }
@@ -473,6 +466,37 @@ struct MacrosView: View {
             } message: {
                 Text("Give this meal a name before combining the selected items.")
             }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var addMealToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                beginLogMeal()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.headline)
+                    .foregroundStyle(Color.neonCyan)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Log meal")
+        }
+    }
+
+    private func beginLogMeal() {
+        showParsed = false
+        mealText = ""
+        consumedAt = Date()
+        quickSearchText = ""
+        quickMealName = ""
+        quickMealQueue = []
+        recentlyQueuedQuickTemplateId = nil
+        clearMealImage()
+        showAddSheet = true
+        if !hasLoadedSavedItems {
+            Task { await loadSavedItems() }
         }
     }
 
@@ -1830,7 +1854,9 @@ struct MacrosView: View {
                         Text("Give this quick-add meal a name before saving.")
                     }
                     .sheet(isPresented: $showCamera) {
-                        CameraPicker(image: $mealPreviewImage, imageDataUrl: $mealImageDataUrl) { message in
+                        CameraPicker { image, imageDataUrl in
+                            addMealImageAttachment(imageDataUrl: imageDataUrl, previewImage: image, label: "Camera")
+                        } onError: { message in
                             errorMessage = message
                         }
                     }
@@ -1879,11 +1905,15 @@ struct MacrosView: View {
                 }
 
                 HStack(spacing: 10) {
-                    PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: max(1, maxMealImageAttachments - mealImageAttachments.count), matching: .images) {
                         mediaButtonLabel("Photo", systemImage: "photo")
                     }
                     .buttonStyle(.bordered)
                     .tint(Color.neonCyan)
+                    .disabled(isLoadingImage || mealImageAttachments.count >= maxMealImageAttachments)
+                    .onChange(of: selectedPhotoItems) { _, newItems in
+                        Task { await loadSelectedPhotos(newItems) }
+                    }
 
                     Button {
                         showCamera = true
@@ -1892,7 +1922,7 @@ struct MacrosView: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(Color.neonCyan)
-                    .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+                    .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera) || mealImageAttachments.count >= maxMealImageAttachments)
 
                     Button {
                         showBarcodeScanner = true
@@ -1908,24 +1938,8 @@ struct MacrosView: View {
                     ProgressView(isLookingUpBarcode ? "Looking up barcode..." : "Preparing photo...")
                         .font(.caption)
                         .foregroundStyle(Color.mutedText)
-                } else if let mealPreviewImage {
-                    ZStack(alignment: .topTrailing) {
-                        Image(uiImage: mealPreviewImage)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 160)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                        Button {
-                            clearMealImage()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.title3)
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, Color.neonPink)
-                        }
-                        .padding(8)
-                    }
+                } else if hasMealImage {
+                    mealImageAttachmentStrip
                 }
 
                 if hasMealImage {
@@ -1943,7 +1957,7 @@ struct MacrosView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Color.neonCyan)
-                .disabled((mealText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && mealImageDataUrl.isEmpty) || isParsing || isLoadingImage)
+                .disabled((mealText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasMealImage) || isParsing || isLoadingImage)
             }
             .padding()
 
@@ -1958,6 +1972,49 @@ struct MacrosView: View {
             .textFieldStyle(.roundedBorder)
             .lineLimit(3...6)
             .focused($isMealDescriptionFocused)
+    }
+
+    private var mealImageAttachmentStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(mealImageAttachments) { attachment in
+                    ZStack(alignment: .topTrailing) {
+                        Group {
+                            if let image = attachment.previewImage {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                            } else {
+                                Image(systemName: "photo")
+                                    .font(.title2)
+                                    .foregroundStyle(Color.neonCyan)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .background(Color.panelBg)
+                            }
+                        }
+                        .frame(width: 92, height: 92)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.neonCyan.opacity(0.24), lineWidth: 1)
+                        )
+
+                        Button {
+                            removeMealImageAttachment(id: attachment.id)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title3)
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, Color.neonPink)
+                        }
+                        .padding(5)
+                        .accessibilityLabel("Remove \(attachment.label)")
+                    }
+                    .frame(width: 92, height: 92)
+                }
+            }
+            .padding(.vertical, 2)
+        }
     }
 
     private func mediaButtonLabel(_ title: String, systemImage: String) -> some View {
@@ -2094,6 +2151,13 @@ struct MacrosView: View {
                                 Text("recent")
                                     .font(.caption2.bold())
                                     .foregroundStyle(Color.neonYellow)
+                                    .lineLimit(1)
+                            }
+
+                            if template.isMeal {
+                                Text("\(template.components.count) items")
+                                    .font(.caption2.bold())
+                                    .foregroundStyle(Color.neonGreen)
                                     .lineLimit(1)
                             }
                         }
@@ -2279,6 +2343,25 @@ struct MacrosView: View {
 
     private var parsedResultsView: some View {
         VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Button {
+                    showBarcodeScanner = true
+                } label: {
+                    mediaButtonLabel("Barcode", systemImage: "barcode.viewfinder")
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.neonGreen)
+                .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera) || isLookingUpBarcode)
+
+                Spacer(minLength: 0)
+            }
+
+            if isLookingUpBarcode {
+                ProgressView("Looking up barcode...")
+                    .font(.caption)
+                    .foregroundStyle(Color.mutedText)
+            }
+
             if parsedItems.count > 1 {
                 VStack(alignment: .leading, spacing: 10) {
                     TextField("Meal name", text: Binding(
@@ -2862,7 +2945,7 @@ struct MacrosView: View {
             let response = try await api.parseMeal(
                 text: mealText,
                 consumedAt: isoTimestamp,
-                imageDataUrl: mealImageDataUrl.isEmpty ? nil : mealImageDataUrl
+                imageDataUrls: mealImageAttachments.map(\.dataUrl)
             )
             parsedItems = response.items
             parsedMealName = response.mealName
@@ -2873,6 +2956,36 @@ struct MacrosView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func parsedItemsAsConsumedTotals() -> [ParsedMealItem] {
+        let scale = parsedItems.count > 1 ? max(Double(parsedMealQuantity) ?? 1, 0.0001) : 1
+        guard abs(scale - 1) > 0.001 else { return parsedItems }
+        return parsedItems.map { item in
+            ParsedMealItem(
+                itemName: item.itemName,
+                quantity: item.quantity * scale,
+                unit: item.unit,
+                calories: item.calories * scale,
+                protein: item.protein * scale,
+                carbs: item.carbs * scale,
+                fat: item.fat * scale
+            )
+        }
+    }
+
+    private func appendParsedBarcodeItem(_ item: ParsedMealItem, productName: String) {
+        let existingItems = parsedItemsAsConsumedTotals()
+        parsedItems = existingItems + [item]
+        let existingName = parsedMealName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if existingItems.isEmpty {
+            parsedMealName = productName
+            parsedMealUnit = "serving"
+        } else {
+            parsedMealName = (!existingName.isEmpty && existingName != productName) ? existingName : "Scanned Items"
+            parsedMealUnit = "meal"
+        }
+        parsedMealQuantity = "1"
     }
 
     private func lookupBarcode(_ code: String) async {
@@ -2887,12 +3000,8 @@ struct MacrosView: View {
                 return
             }
 
-            parsedItems = [item]
-            parsedMealName = response.productName ?? item.itemName
-            parsedMealQuantity = "1"
-            parsedMealUnit = "serving"
+            appendParsedBarcodeItem(item, productName: response.productName ?? item.itemName)
             saveParsedAsQuickAdd = false
-            clearMealImage()
             showParsed = true
         } catch {
             errorMessage = error.localizedDescription
@@ -2955,6 +3064,51 @@ struct MacrosView: View {
 
     private func addQuickTemplateToQueue(_ template: QuickAddTemplate) {
         let multiplier = max(Double(quickMultiplier) ?? 1, 0.0001)
+        if !template.components.isEmpty {
+            guard quickMealQueue.count + template.components.count <= 50 else {
+                errorMessage = "A meal can include at most 50 items."
+                return
+            }
+
+            if quickMealQueue.isEmpty && quickMealName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                quickMealName = template.name
+            }
+
+            for (index, component) in template.components.enumerated() {
+                let sourceTemplateId = "\(template.id):component:\(index)"
+                let componentScale = template.quantity * multiplier
+                let addedQuantity = component.quantity * componentScale
+                let addedCalories = component.calories * componentScale
+                let addedProtein = component.protein * componentScale
+                let addedCarbs = component.carbs * componentScale
+                let addedFat = component.fat * componentScale
+
+                if let queueIndex = quickMealQueue.firstIndex(where: { $0.sourceTemplateId == sourceTemplateId }) {
+                    quickMealQueue[queueIndex].quantity += addedQuantity
+                    quickMealQueue[queueIndex].calories += addedCalories
+                    quickMealQueue[queueIndex].protein += addedProtein
+                    quickMealQueue[queueIndex].carbs += addedCarbs
+                    quickMealQueue[queueIndex].fat += addedFat
+                    continue
+                }
+
+                quickMealQueue.append(QuickMealQueueItem(
+                    id: UUID(),
+                    sourceTemplateId: sourceTemplateId,
+                    name: component.itemName,
+                    quantity: addedQuantity,
+                    unit: component.unit ?? "serving",
+                    calories: addedCalories,
+                    protein: addedProtein,
+                    carbs: addedCarbs,
+                    fat: addedFat
+                ))
+            }
+
+            showQuickTemplateQueuedFeedback(template.id)
+            return
+        }
+
         let addedQuantity = template.quantity * multiplier
         let addedCalories = template.calories * multiplier
         let addedProtein = template.protein * multiplier
@@ -3132,8 +3286,19 @@ struct MacrosView: View {
         do {
             let newQty = Double(editMealQuantity) ?? origMealQuantity
             if saveEditedMealAsQuickAdd {
-                let scale = origMealQuantity > 0 ? newQty / origMealQuantity : 1
-                let totals = editingMealItems.reduce((calories: 0.0, protein: 0.0, carbs: 0.0, fat: 0.0)) { acc, item in
+                let sourceMealQuantity = max(origMealQuantity, 0.0001)
+                let components = editingMealItems.map { item in
+                    ParsedMealItem(
+                        itemName: item.itemName,
+                        quantity: item.quantity / sourceMealQuantity,
+                        unit: item.unit,
+                        calories: item.calories / sourceMealQuantity,
+                        protein: item.protein / sourceMealQuantity,
+                        carbs: item.carbs / sourceMealQuantity,
+                        fat: item.fat / sourceMealQuantity
+                    )
+                }
+                let totals = components.reduce((calories: 0.0, protein: 0.0, carbs: 0.0, fat: 0.0)) { acc, item in
                     (
                         calories: acc.calories + item.calories,
                         protein: acc.protein + item.protein,
@@ -3145,10 +3310,11 @@ struct MacrosView: View {
                     name: editMealName,
                     quantity: newQty,
                     unit: editMealUnit,
-                    calories: totals.calories * scale,
-                    protein: totals.protein * scale,
-                    carbs: totals.carbs * scale,
-                    fat: totals.fat * scale
+                    calories: (totals.calories * newQty).rounded(toPlaces: 2),
+                    protein: (totals.protein * newQty).rounded(toPlaces: 2),
+                    carbs: (totals.carbs * newQty).rounded(toPlaces: 2),
+                    fat: (totals.fat * newQty).rounded(toPlaces: 2),
+                    components: components.map(savedComponentPayload)
                 )
                 await loadSavedItems()
             }
@@ -3206,7 +3372,8 @@ struct MacrosView: View {
                     calories: calories,
                     protein: protein,
                     carbs: carbs,
-                    fat: fat
+                    fat: fat,
+                    components: template.components.isEmpty ? nil : savedComponentPayloads(template.components)
                 )
             } else {
                 _ = try await api.addSavedItem(
@@ -3216,7 +3383,8 @@ struct MacrosView: View {
                     calories: calories,
                     protein: protein,
                     carbs: carbs,
-                    fat: fat
+                    fat: fat,
+                    components: savedComponentPayloads(template.components)
                 )
             }
 
@@ -3418,15 +3586,46 @@ struct MacrosView: View {
                 fat: acc.fat + item.fat
             )
         }
+        let mealQuantity = max(Double(parsedMealQuantity) ?? 1, 0.0001)
+        let components = parsedItems.map(savedComponentPayload)
         return [[
             "name": (parsedMealName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? parsedMealName! : "Meal"),
-            "quantity": 1,
+            "quantity": mealQuantity,
             "unit": parsedMealUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "serving" : parsedMealUnit,
-            "calories": totals.calories.rounded(toPlaces: 2),
-            "protein": totals.protein.rounded(toPlaces: 2),
-            "carbs": totals.carbs.rounded(toPlaces: 2),
-            "fat": totals.fat.rounded(toPlaces: 2)
+            "calories": (totals.calories * mealQuantity).rounded(toPlaces: 2),
+            "protein": (totals.protein * mealQuantity).rounded(toPlaces: 2),
+            "carbs": (totals.carbs * mealQuantity).rounded(toPlaces: 2),
+            "fat": (totals.fat * mealQuantity).rounded(toPlaces: 2),
+            "components": components
         ]]
+    }
+
+    private func savedComponentPayload(_ item: ParsedMealItem) -> [String: Any] {
+        [
+            "itemName": item.itemName,
+            "quantity": item.quantity,
+            "unit": item.unit ?? "serving",
+            "calories": item.calories.rounded(toPlaces: 2),
+            "protein": item.protein.rounded(toPlaces: 2),
+            "carbs": item.carbs.rounded(toPlaces: 2),
+            "fat": item.fat.rounded(toPlaces: 2)
+        ]
+    }
+
+    private func savedComponentPayload(_ component: SavedItemComponent) -> [String: Any] {
+        [
+            "itemName": component.itemName,
+            "quantity": component.quantity,
+            "unit": component.unit ?? "serving",
+            "calories": component.calories,
+            "protein": component.protein,
+            "carbs": component.carbs,
+            "fat": component.fat
+        ]
+    }
+
+    private func savedComponentPayloads(_ components: [SavedItemComponent]) -> [[String: Any]] {
+        components.map(savedComponentPayload)
     }
 
     private func isoString(from date: Date) -> String {
@@ -3486,8 +3685,8 @@ struct MacrosView: View {
         Calendar.current.compare(lhs, to: rhs, toGranularity: .minute) == .orderedSame
     }
 
-    private func savedSignature(name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double) -> String {
-        [
+    private func savedSignature(name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double, components: [SavedItemComponent] = []) -> String {
+        var parts = [
             name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
             unit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
             String(format: "%.3f", quantity),
@@ -3495,30 +3694,71 @@ struct MacrosView: View {
             String(format: "%.3f", protein),
             String(format: "%.3f", carbs),
             String(format: "%.3f", fat)
-        ].joined(separator: "|")
+        ]
+        if !components.isEmpty {
+            parts.append(components.map { component in
+                [
+                    component.itemName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                    (component.unit ?? "serving").trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                    String(format: "%.3f", component.quantity),
+                    String(format: "%.3f", component.calories),
+                    String(format: "%.3f", component.protein),
+                    String(format: "%.3f", component.carbs),
+                    String(format: "%.3f", component.fat)
+                ].joined(separator: ":")
+            }.joined(separator: ";"))
+        }
+        return parts.joined(separator: "|")
     }
 
-    private func loadSelectedPhoto(_ item: PhotosPickerItem?) async {
-        guard let item else { return }
+    private func loadSelectedPhotos(_ items: [PhotosPickerItem]) async {
+        guard !items.isEmpty else { return }
         isLoadingImage = true
-        defer { isLoadingImage = false }
+        defer {
+            isLoadingImage = false
+            selectedPhotoItems = []
+        }
 
         do {
-            guard let data = try await item.loadTransferable(type: Data.self) else {
-                throw APIError.serverError("Unable to read selected image.")
+            for item in items {
+                guard mealImageAttachments.count < maxMealImageAttachments else {
+                    errorMessage = "A meal parse can include at most \(maxMealImageAttachments) photos or screenshots."
+                    break
+                }
+                guard let data = try await item.loadTransferable(type: Data.self) else {
+                    throw APIError.serverError("Unable to read selected image.")
+                }
+                let mimeType = item.supportedContentTypes.first?.preferredMIMEType ?? inferredImageMimeType(from: data)
+                addMealImageAttachment(
+                    imageDataUrl: "data:\(mimeType);base64,\(data.base64EncodedString())",
+                    previewImage: UIImage(data: data),
+                    label: "photo"
+                )
             }
-            let mimeType = item.supportedContentTypes.first?.preferredMIMEType ?? inferredImageMimeType(from: data)
-            mealImageDataUrl = "data:\(mimeType);base64,\(data.base64EncodedString())"
-            mealPreviewImage = UIImage(data: data)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
+    private func addMealImageAttachment(imageDataUrl: String, previewImage: UIImage?, label: String) {
+        guard mealImageAttachments.count < maxMealImageAttachments else {
+            errorMessage = "A meal parse can include at most \(maxMealImageAttachments) photos or screenshots."
+            return
+        }
+        mealImageAttachments.append(MealImageAttachment(
+            dataUrl: imageDataUrl,
+            previewImage: previewImage,
+            label: label
+        ))
+    }
+
+    private func removeMealImageAttachment(id: UUID) {
+        mealImageAttachments.removeAll { $0.id == id }
+    }
+
     private func clearMealImage() {
-        selectedPhotoItem = nil
-        mealImageDataUrl = ""
-        mealPreviewImage = nil
+        selectedPhotoItems = []
+        mealImageAttachments = []
     }
 
     private func inferredImageMimeType(from data: Data) -> String {
@@ -3579,8 +3819,7 @@ private extension Double {
 }
 
 private struct CameraPicker: UIViewControllerRepresentable {
-    @Binding var image: UIImage?
-    @Binding var imageDataUrl: String
+    var onImage: (UIImage, String) -> Void
     var onError: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -3619,8 +3858,7 @@ private struct CameraPicker: UIViewControllerRepresentable {
                 parent.onError("Unable to prepare captured photo.")
                 return
             }
-            parent.image = pickedImage
-            parent.imageDataUrl = "data:image/jpeg;base64,\(data.base64EncodedString())"
+            parent.onImage(pickedImage, "data:image/jpeg;base64,\(data.base64EncodedString())")
         }
     }
 }
