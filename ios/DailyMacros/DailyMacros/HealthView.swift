@@ -122,7 +122,11 @@ struct HealthView: View {
                         showLogSheetForMode()
                     } label: {
                         Image(systemName: "plus")
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
+                    .accessibilityLabel(mode == .sleep ? "Log sleep" : "Log sexual activity")
                     .disabled(mode == .sexualActivity && !sexualActivityEnabled)
                 }
             }

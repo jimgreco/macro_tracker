@@ -85,7 +85,11 @@ struct WorkoutsView: View {
                         showLogSheet = true
                     } label: {
                         Image(systemName: "plus")
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
+                    .accessibilityLabel("Log workout")
                 }
             }
             .sheet(isPresented: $showLogSheet) {

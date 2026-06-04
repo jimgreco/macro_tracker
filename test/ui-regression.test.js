@@ -7,6 +7,16 @@ function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
 }
 
+function assertToolbarPlusTarget(swift, accessibilityLabel) {
+  const plus = swift.indexOf('Image(systemName: "plus")');
+  const block = swift.slice(plus, plus + 320);
+
+  assert.equal(plus >= 0, true);
+  assert.equal(block.includes('.frame(width: 44, height: 44)'), true);
+  assert.equal(block.includes('.contentShape(Rectangle())'), true);
+  assert.equal(block.includes(accessibilityLabel), true);
+}
+
 test('mobile bottom navigation markup is removed', () => {
   const html = read('public/index.html');
 
@@ -423,6 +433,7 @@ test('iOS macro add sheet defaults logged-at to the current moment', () => {
 
   assert.equal(toolbar.includes('consumedAt = Date()'), true);
   assert.equal(toolbar.includes('consumedAt = selectedDate'), false);
+  assert.equal(toolbar.indexOf('showAddSheet = true') < toolbar.indexOf('Task { await loadSavedItems() }'), true);
   assert.equal(addInput.indexOf('DatePicker("Logged At", selection: $consumedAt)') < addInput.indexOf('mealDescriptionField'), true);
 });
 
@@ -445,8 +456,16 @@ test('iOS macros add button uses a grouped toolbar without a blank placeholder',
 
   assert.equal(swift.includes('ToolbarItemGroup(placement: .primaryAction)'), true);
   assert.equal(swift.includes('Image(systemName: "plus")'), true);
+  assertToolbarPlusTarget(swift, '.accessibilityLabel("Log meal")');
   assert.equal(swift.includes('Image(systemName: "arrow.triangle.2.circlepath")'), false);
   assert.equal(swift.includes('.hidden()'), false);
+});
+
+test('iOS toolbar add buttons use native-sized tap targets', () => {
+  assertToolbarPlusTarget(read('ios/DailyMacros/DailyMacros/MacrosView.swift'), '.accessibilityLabel("Log meal")');
+  assertToolbarPlusTarget(read('ios/DailyMacros/DailyMacros/WorkoutsView.swift'), '.accessibilityLabel("Log workout")');
+  assertToolbarPlusTarget(read('ios/DailyMacros/DailyMacros/WeightView.swift'), '.accessibilityLabel("Log weight")');
+  assertToolbarPlusTarget(read('ios/DailyMacros/DailyMacros/HealthView.swift'), '.accessibilityLabel(mode == .sleep ? "Log sleep" : "Log sexual activity")');
 });
 
 test('iOS macro entry rows do not show drag handle icons', () => {

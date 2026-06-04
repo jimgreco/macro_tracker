@@ -409,14 +409,18 @@ struct MacrosView: View {
                         quickMealQueue = []
                         recentlyQueuedQuickTemplateId = nil
                         clearMealImage()
+                        showAddSheet = true
                         if !hasLoadedSavedItems {
                             Task { await loadSavedItems() }
                         }
-                        showAddSheet = true
                     } label: {
                         Image(systemName: "plus")
+                            .font(.headline)
                             .foregroundStyle(Color.neonCyan)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
+                    .accessibilityLabel("Log meal")
                 }
             }
             .sheet(isPresented: $showAddSheet, onDismiss: {
@@ -2755,10 +2759,10 @@ struct MacrosView: View {
             quickMealQueue = []
             recentlyQueuedQuickTemplateId = nil
             clearMealImage()
+            showAddSheet = true
             if !hasLoadedSavedItems {
                 Task { await loadSavedItems(showErrors: false) }
             }
-            showAddSheet = true
         case .logMealItem:
             guard let mealItem = action.mealItem else { return }
             consumedAt = Date()
