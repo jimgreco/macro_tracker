@@ -388,6 +388,7 @@ struct MacrosView: View {
                         }
                     }
                     .padding()
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
                 .background(Color.deepBg)
 

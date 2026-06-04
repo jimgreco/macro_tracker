@@ -64,6 +64,7 @@ struct WorkoutsView: View {
                     workoutsList
                 }
                 .padding()
+                .frame(maxWidth: .infinity, alignment: .top)
             }
             .navigationTitle("Workouts")
             .toolbar {

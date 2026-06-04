@@ -512,11 +512,16 @@ struct AICoachSlot: View {
                         )
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .clipped()
                 .simultaneousGesture(swipeGesture(for: displayedSuggestions))
                 .animation(.snappy(duration: 0.22), value: pageID(for: suggestion))
                 .onAppear { recordShown(suggestion) }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
         .task {
             await syncDismissalsFromServerIfNeeded()
         }
@@ -1100,11 +1105,14 @@ struct AICoachCard: View {
                     Text(suggestion.title)
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Text(coachSubtitle)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                         .accessibilityLabel(coachSubtitle)
                 }
 
@@ -1148,6 +1156,8 @@ struct AICoachCard: View {
                 } label: {
                     Label(action.label, systemImage: actionIcon(for: action.type))
                         .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)

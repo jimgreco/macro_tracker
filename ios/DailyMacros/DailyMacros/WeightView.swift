@@ -47,6 +47,7 @@ struct WeightView: View {
                     entriesList
                 }
                 .padding()
+                .frame(maxWidth: .infinity, alignment: .top)
             }
             .navigationTitle("Weight")
             .toolbar {

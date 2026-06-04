@@ -102,6 +102,7 @@ struct HealthView: View {
                     modeContent
                 }
                 .padding()
+                .frame(maxWidth: .infinity, alignment: .top)
             }
             .navigationTitle(mode.navigationTitle)
             .toolbar {
