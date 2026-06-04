@@ -149,6 +149,16 @@ struct WorkoutsResponse: Codable {
     let pagination: Pagination?
 }
 
+struct SavedItemComponent: Codable, Sendable, Hashable {
+    let itemName: String
+    let quantity: Double
+    let unit: String?
+    let calories: Double
+    let protein: Double
+    let carbs: Double
+    let fat: Double
+}
+
 struct SavedItem: Codable, Identifiable, Sendable {
     let id: Int
     let name: String
@@ -158,6 +168,7 @@ struct SavedItem: Codable, Identifiable, Sendable {
     let protein: Double
     let carbs: Double
     let fat: Double
+    let components: [SavedItemComponent]?
     let usageCount: Int
 }
 

@@ -468,8 +468,8 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
-    func addSavedItem(name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double) async throws -> Int {
-        let payload: [String: Any] = [
+    func addSavedItem(name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double, components: [[String: Any]] = []) async throws -> Int {
+        var payload: [String: Any] = [
             "name": name,
             "quantity": quantity,
             "unit": unit,
@@ -478,14 +478,15 @@ class APIClient: ObservableObject {
             "carbs": carbs,
             "fat": fat
         ]
+        if !components.isEmpty { payload["components"] = components }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/saved-items"), method: "POST", body: body)
         let response: CreatedIdResponse = try await perform(request)
         return response.id
     }
 
-    func updateSavedItem(id: Int, name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double) async throws {
-        let payload: [String: Any] = [
+    func updateSavedItem(id: Int, name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double, components: [[String: Any]]? = nil) async throws {
+        var payload: [String: Any] = [
             "name": name,
             "quantity": quantity,
             "unit": unit,
@@ -494,6 +495,7 @@ class APIClient: ObservableObject {
             "carbs": carbs,
             "fat": fat
         ]
+        if let components { payload["components"] = components }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/saved-items/\(id)"), method: "PUT", body: body)
         let _: OkResponse = try await perform(request)

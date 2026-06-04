@@ -1353,7 +1353,7 @@ function validateSavedItemBody(body) {
   const payload = requirePlainObject(body || {}, 'saved item');
   const name = normalizeString(payload.name, 'name', { maxLength: 160, required: true });
 
-  return {
+  const normalized = {
     name,
     quantity: normalizeNumber(payload.quantity, 'quantity', { min: 0.001, max: 10000, fallback: 1 }),
     unit: normalizeString(payload.unit, 'unit', { maxLength: 32, fallback: 'serving' }),
@@ -1362,6 +1362,39 @@ function validateSavedItemBody(body) {
     carbs: normalizeNumber(payload.carbs, 'carbs', { min: 0, max: 5000 }),
     fat: normalizeNumber(payload.fat, 'fat', { min: 0, max: 5000 })
   };
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'components')) {
+    normalized.components = validateSavedItemComponents(payload.components);
+  }
+
+  return normalized;
+}
+
+function validateSavedItemComponents(rawComponents) {
+  if (rawComponents == null) {
+    return null;
+  }
+  if (!Array.isArray(rawComponents)) {
+    throw new Error('components must be an array.');
+  }
+  if (rawComponents.length > 50) {
+    throw new Error('components can include at most 50 items.');
+  }
+
+  const components = rawComponents.map((rawItem, index) => {
+    const item = requirePlainObject(rawItem, `components[${index}]`);
+    return {
+      itemName: normalizeString(item.itemName || item.name, `components[${index}].itemName`, { maxLength: 160, required: true }),
+      quantity: normalizeNumber(item.quantity, `components[${index}].quantity`, { min: 0.001, max: 10000, required: true }),
+      unit: normalizeString(item.unit, `components[${index}].unit`, { maxLength: 32, fallback: 'serving' }),
+      calories: normalizeNumber(item.calories, `components[${index}].calories`, { min: 0, max: 20000, required: true }),
+      protein: normalizeNumber(item.protein, `components[${index}].protein`, { min: 0, max: 5000, required: true }),
+      carbs: normalizeNumber(item.carbs, `components[${index}].carbs`, { min: 0, max: 5000, required: true }),
+      fat: normalizeNumber(item.fat, `components[${index}].fat`, { min: 0, max: 5000, required: true })
+    };
+  });
+
+  return components.length ? components : null;
 }
 
 const barcodeLookupCache = new Map();

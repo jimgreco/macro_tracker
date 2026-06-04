@@ -125,6 +125,7 @@ async function initDb() {
       calories DOUBLE PRECISION NOT NULL,
       protein DOUBLE PRECISION NOT NULL,
       carbs DOUBLE PRECISION NOT NULL,
+      components JSONB,
       fat DOUBLE PRECISION NOT NULL,
       usage_count INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -367,6 +368,7 @@ async function initDb() {
 
   // Soft-delete columns for existing databases
   await pool.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS components JSONB;`);
   await pool.query(`ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE weight_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE workout_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
@@ -999,10 +1001,33 @@ async function removeFromMealGroup(userId, entryId) {
   return 1;
 }
 
+function normalizeSavedItemComponents(components) {
+  if (!Array.isArray(components) || !components.length) {
+    return [];
+  }
+
+  return components
+    .map((component) => ({
+      itemName: String(component.itemName || component.name || '').trim(),
+      quantity: Number(component.quantity || 0),
+      unit: component.unit || 'serving',
+      calories: Number(component.calories || 0),
+      protein: Number(component.protein || 0),
+      carbs: Number(component.carbs || 0),
+      fat: Number(component.fat || 0)
+    }))
+    .filter((component) => component.itemName && component.quantity > 0);
+}
+
+function savedItemComponentsJson(item) {
+  const components = normalizeSavedItemComponents(item.components);
+  return components.length ? JSON.stringify(components) : null;
+}
+
 async function addSavedItem(userId, item) {
   const result = await pool.query(
-    `INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    `INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat, components)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
      RETURNING id`,
     [
       userId,
@@ -1012,7 +1037,8 @@ async function addSavedItem(userId, item) {
       Number(item.calories || 0),
       Number(item.protein || 0),
       Number(item.carbs || 0),
-      Number(item.fat || 0)
+      Number(item.fat || 0),
+      savedItemComponentsJson(item)
     ]
   );
 
@@ -1020,28 +1046,36 @@ async function addSavedItem(userId, item) {
 }
 
 async function updateSavedItem(userId, id, item) {
+  const values = [
+    item.name,
+    Number(item.quantity || 1),
+    item.unit || null,
+    Number(item.calories || 0),
+    Number(item.protein || 0),
+    Number(item.carbs || 0),
+    Number(item.fat || 0)
+  ];
+  const updates = [
+    'name = $1',
+    'quantity = $2',
+    'unit = $3',
+    'calories = $4',
+    'protein = $5',
+    'carbs = $6',
+    'fat = $7'
+  ];
+
+  if (Object.prototype.hasOwnProperty.call(item, 'components')) {
+    values.push(savedItemComponentsJson(item));
+    updates.push(`components = $${values.length}::jsonb`);
+  }
+
+  values.push(id, userId);
   const result = await pool.query(
     `UPDATE saved_items
-     SET
-       name = $1,
-       quantity = $2,
-       unit = $3,
-       calories = $4,
-       protein = $5,
-       carbs = $6,
-       fat = $7
-     WHERE id = $8 AND user_id = $9 AND deleted_at IS NULL`,
-    [
-      item.name,
-      Number(item.quantity || 1),
-      item.unit || null,
-      Number(item.calories || 0),
-      Number(item.protein || 0),
-      Number(item.carbs || 0),
-      Number(item.fat || 0),
-      id,
-      userId
-    ]
+     SET ${updates.join(', ')}
+     WHERE id = $${values.length - 1} AND user_id = $${values.length} AND deleted_at IS NULL`,
+    values
   );
 
   return result.rowCount || 0;
@@ -1057,7 +1091,7 @@ async function deleteSavedItem(userId, id) {
 
 async function listSavedItems(userId) {
   const result = await pool.query(
-    `SELECT id, name, quantity, unit, calories, protein, carbs, fat, usage_count AS "usageCount"
+    `SELECT id, name, quantity, unit, calories, protein, carbs, fat, components, usage_count AS "usageCount"
      FROM saved_items
      WHERE user_id = $1 AND deleted_at IS NULL
      ORDER BY lower(name) ASC`,
@@ -1072,6 +1106,7 @@ async function listSavedItems(userId) {
     protein: Number(row.protein || 0),
     carbs: Number(row.carbs || 0),
     fat: Number(row.fat || 0),
+    components: normalizeSavedItemComponents(row.components),
     usageCount: Number(row.usageCount || 0)
   }));
 }
@@ -1082,7 +1117,7 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
     await client.query('BEGIN');
 
     const savedResult = await client.query(
-      `SELECT id, name, quantity, unit, calories, protein, carbs, fat
+      `SELECT id, name, quantity, unit, calories, protein, carbs, fat, components
        FROM saved_items
        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
        FOR UPDATE`,
@@ -1103,6 +1138,76 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
     );
 
     const quantityMultiplier = Number(multiplier) || 1;
+    const components = normalizeSavedItemComponents(saved.components);
+    if (components.length) {
+      const mealQuantity = Number(saved.quantity) * quantityMultiplier;
+      const mealGroup = components.length > 1 ? crypto.randomUUID() : null;
+      const loggedComponents = [];
+
+      for (const component of components) {
+        const entry = {
+          itemName: component.itemName,
+          quantity: component.quantity * mealQuantity,
+          unit: component.unit,
+          calories: component.calories * mealQuantity,
+          protein: component.protein * mealQuantity,
+          carbs: component.carbs * mealQuantity,
+          fat: component.fat * mealQuantity,
+          consumedAt
+        };
+        loggedComponents.push(entry);
+        await client.query(
+          `INSERT INTO entries (
+             user_id,
+             item_name,
+             quantity,
+             unit,
+             calories,
+             protein,
+             carbs,
+             fat,
+             consumed_at,
+             meal_group,
+             meal_name,
+             meal_quantity,
+             meal_unit
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [
+            userId,
+            entry.itemName,
+            entry.quantity,
+            entry.unit || null,
+            entry.calories,
+            entry.protein,
+            entry.carbs,
+            entry.fat,
+            new Date(consumedAt),
+            mealGroup,
+            mealGroup ? saved.name : null,
+            mealGroup ? mealQuantity : 1,
+            mealGroup ? (saved.unit || 'serving') : 'serving'
+          ]
+        );
+      }
+
+      await client.query('COMMIT');
+      return {
+        itemName: saved.name,
+        quantity: mealQuantity,
+        unit: saved.unit,
+        calories: loggedComponents.reduce((sum, entry) => sum + entry.calories, 0),
+        protein: loggedComponents.reduce((sum, entry) => sum + entry.protein, 0),
+        carbs: loggedComponents.reduce((sum, entry) => sum + entry.carbs, 0),
+        fat: loggedComponents.reduce((sum, entry) => sum + entry.fat, 0),
+        consumedAt,
+        mealGroup,
+        mealName: mealGroup ? saved.name : null,
+        mealQuantity: mealGroup ? mealQuantity : 1,
+        mealUnit: mealGroup ? (saved.unit || 'serving') : 'serving',
+        components: loggedComponents
+      };
+    }
+
     const entry = {
       itemName: saved.name,
       quantity: Number(saved.quantity) * quantityMultiplier,
@@ -2441,7 +2546,7 @@ async function exportUserData(userId) {
       pool.query('SELECT id, email, name, provider, created_at, updated_at FROM users WHERE id = $1', [userId]),
       pool.query('SELECT provider, provider_user_id, created_at, updated_at FROM user_identities WHERE user_id = $1 ORDER BY provider', [userId]),
       pool.query('SELECT id, item_name, quantity, unit, calories, protein, carbs, fat, consumed_at, meal_group, meal_name, meal_quantity, meal_unit, created_at FROM entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY consumed_at DESC', [userId]),
-      pool.query('SELECT id, name, quantity, unit, calories, protein, carbs, fat, usage_count, created_at FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL ORDER BY name', [userId]),
+      pool.query('SELECT id, name, quantity, unit, calories, protein, carbs, fat, components, usage_count, created_at FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL ORDER BY name', [userId]),
       pool.query('SELECT macro, target, updated_at FROM macro_targets WHERE user_id = $1', [userId]),
       pool.query('SELECT id, weight, logged_at, source, external_id, created_at FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       pool.query('SELECT id, description, intensity, duration_hours, calories_burned, logged_at, source, external_id, created_at FROM workout_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
