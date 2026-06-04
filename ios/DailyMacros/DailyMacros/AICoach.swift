@@ -515,7 +515,7 @@ struct AICoachSlot: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .clipped()
-                .simultaneousGesture(swipeGesture(for: displayedSuggestions))
+                .highPriorityGesture(swipeGesture(for: displayedSuggestions))
                 .animation(.snappy(duration: 0.22), value: pageID(for: suggestion))
                 .onAppear { recordShown(suggestion) }
             }
