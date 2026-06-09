@@ -62,6 +62,7 @@ struct WeightView: View {
                         }
                     }
                     .disabled(isSyncing)
+                    .tutorialSpotlightAnchor(.weight)
 
                     Button {
                         newWeightDate = Date()
@@ -73,6 +74,7 @@ struct WeightView: View {
                             .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Log weight")
+                    .tutorialSpotlightAnchor(.weight)
                 }
             }
             .sheet(isPresented: $showAddSheet) {
@@ -208,6 +210,7 @@ struct WeightView: View {
 
     private var weightChartScale: (min: Double, max: Double, span: Double) {
         var values = entries.map(\.weight)
+        values.append(contentsOf: entries.compactMap(\.targetWeight).filter { $0 > 0 })
         if let targetWeight = target?.targetWeight {
             values.append(targetWeight)
         }
@@ -263,11 +266,31 @@ struct WeightView: View {
         axisPath.addLine(to: CGPoint(x: leftPadding + plotWidth, y: topPadding + plotHeight))
         context.stroke(axisPath, with: .color(.white.opacity(0.15)), lineWidth: 1)
 
-        if let targetWeight = target?.targetWeight {
-            let y = yPosition(targetWeight)
+        let fallbackTargetWeight = target?.targetWeight
+        let targetValues = chartEntries.compactMap { entry -> Double? in
+            let value = entry.targetWeight ?? fallbackTargetWeight
+            return (value ?? 0) > 0 ? value : nil
+        }
+        if !targetValues.isEmpty {
             var targetPath = Path()
-            targetPath.move(to: CGPoint(x: leftPadding, y: y))
-            targetPath.addLine(to: CGPoint(x: leftPadding + plotWidth, y: y))
+            if chartEntries.count == 1 {
+                let y = yPosition(targetValues[0])
+                targetPath.move(to: CGPoint(x: leftPadding, y: y))
+                targetPath.addLine(to: CGPoint(x: leftPadding + plotWidth, y: y))
+            } else {
+                var startedTargetPath = false
+                for (index, entry) in chartEntries.enumerated() {
+                    let value = entry.targetWeight ?? fallbackTargetWeight
+                    guard let value, value > 0 else { continue }
+                    let point = CGPoint(x: xPosition(index), y: yPosition(value))
+                    if !startedTargetPath {
+                        targetPath.move(to: point)
+                        startedTargetPath = true
+                    } else {
+                        targetPath.addLine(to: point)
+                    }
+                }
+            }
             context.stroke(targetPath, with: .color(.green.opacity(0.5)), style: StrokeStyle(lineWidth: 1, dash: [5, 5]))
         }
 

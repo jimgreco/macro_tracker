@@ -138,8 +138,9 @@ async function initDb() {
       user_id TEXT NOT NULL,
       macro TEXT NOT NULL,
       target DOUBLE PRECISION NOT NULL,
+      effective_date DATE NOT NULL DEFAULT DATE '1970-01-01',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (user_id, macro)
+      PRIMARY KEY (user_id, macro, effective_date)
     );
   `);
 
@@ -219,10 +220,12 @@ async function initDb() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS weight_targets (
-      user_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
       target_weight DOUBLE PRECISION NOT NULL,
       target_date DATE NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      effective_date DATE NOT NULL DEFAULT DATE '1970-01-01',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, effective_date)
     );
   `);
 
@@ -370,7 +373,85 @@ async function initDb() {
   await pool.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS components JSONB;`);
   await pool.query(`ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE macro_targets ADD COLUMN IF NOT EXISTS effective_date DATE;`);
+  await pool.query(`UPDATE macro_targets SET effective_date = DATE '1970-01-01' WHERE effective_date IS NULL;`);
+  await pool.query(`ALTER TABLE macro_targets ALTER COLUMN effective_date SET NOT NULL;`);
+  await pool.query(`
+    DO $$ DECLARE pk_name TEXT;
+    BEGIN
+      SELECT conname INTO pk_name
+      FROM pg_constraint
+      WHERE conrelid = 'macro_targets'::regclass AND contype = 'p'
+      LIMIT 1;
+
+      IF pk_name IS NOT NULL AND NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'macro_targets'
+          AND c.contype = 'p'
+          AND (
+            SELECT array_agg(a.attname ORDER BY a.attnum)
+            FROM unnest(c.conkey) AS ck(attnum)
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ck.attnum
+          ) = ARRAY['user_id', 'macro', 'effective_date']::name[]
+      ) THEN
+        EXECUTE format('ALTER TABLE macro_targets DROP CONSTRAINT %I', pk_name);
+      END IF;
+    END $$;
+  `);
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'macro_targets'::regclass AND contype = 'p'
+      ) THEN
+        ALTER TABLE macro_targets
+          ADD CONSTRAINT macro_targets_pkey PRIMARY KEY (user_id, macro, effective_date);
+      END IF;
+    END $$;
+  `);
   await pool.query(`ALTER TABLE weight_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE weight_targets ADD COLUMN IF NOT EXISTS effective_date DATE;`);
+  await pool.query(`UPDATE weight_targets SET effective_date = DATE '1970-01-01' WHERE effective_date IS NULL;`);
+  await pool.query(`ALTER TABLE weight_targets ALTER COLUMN effective_date SET NOT NULL;`);
+  await pool.query(`
+    DO $$ DECLARE pk_name TEXT;
+    BEGIN
+      SELECT conname INTO pk_name
+      FROM pg_constraint
+      WHERE conrelid = 'weight_targets'::regclass AND contype = 'p'
+      LIMIT 1;
+
+      IF pk_name IS NOT NULL AND NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'weight_targets'
+          AND c.contype = 'p'
+          AND (
+            SELECT array_agg(a.attname ORDER BY a.attnum)
+            FROM unnest(c.conkey) AS ck(attnum)
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ck.attnum
+          ) = ARRAY['user_id', 'effective_date']::name[]
+      ) THEN
+        EXECUTE format('ALTER TABLE weight_targets DROP CONSTRAINT %I', pk_name);
+      END IF;
+    END $$;
+  `);
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'weight_targets'::regclass AND contype = 'p'
+      ) THEN
+        ALTER TABLE weight_targets
+          ADD CONSTRAINT weight_targets_pkey PRIMARY KEY (user_id, effective_date);
+      END IF;
+    END $$;
+  `);
   await pool.query(`ALTER TABLE workout_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE analysis_reports ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE sexual_activity_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
@@ -380,7 +461,9 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_entries_user_consumed ON entries(user_id, consumed_at DESC);
     CREATE INDEX IF NOT EXISTS idx_saved_items_user_name ON saved_items(user_id, lower(name));
     CREATE INDEX IF NOT EXISTS idx_macro_targets_user ON macro_targets(user_id);
+    CREATE INDEX IF NOT EXISTS idx_macro_targets_user_macro_effective ON macro_targets(user_id, macro, effective_date DESC);
     CREATE INDEX IF NOT EXISTS idx_weight_entries_user_logged ON weight_entries(user_id, logged_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_weight_targets_user_effective ON weight_targets(user_id, effective_date DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_weight_entries_user_source_external
       ON weight_entries(user_id, source, external_id)
       WHERE external_id IS NOT NULL AND deleted_at IS NULL;
@@ -795,6 +878,51 @@ function normalizeMacroName(macro) {
     throw new Error('Invalid macro. Use calories, protein, carbs, fat, workouts, workout_calories, or sleep_hours.');
   }
   return value;
+}
+
+const DEFAULT_MACRO_TARGETS = Object.freeze({
+  calories: 0,
+  protein: 0,
+  carbs: 0,
+  fat: 0,
+  workouts: 5,
+  workout_calories: 0,
+  sleep_hours: 8
+});
+
+function defaultMacroTargets() {
+  return { ...DEFAULT_MACRO_TARGETS };
+}
+
+function todayIsoDateInTimezone(timezone = 'America/New_York') {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function normalizeIsoDateString(value, label = 'Date') {
+  const raw = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    throw new Error(`${label} must be in YYYY-MM-DD format.`);
+  }
+  const parsed = new Date(`${raw}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== raw) {
+    throw new Error(`${label} must be a valid date.`);
+  }
+  return raw;
+}
+
+function normalizeTargetEffectiveDate(value, timezone = 'America/New_York') {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return todayIsoDateInTimezone(timezone);
+  }
+  return normalizeIsoDateString(raw, 'Effective date');
 }
 
 async function addEntries(userId, entries) {
@@ -1258,23 +1386,20 @@ async function claimLegacyData() {
   return { claimedEntries: 0, claimedSavedItems: 0 };
 }
 
-async function getMacroTargets(userId) {
+async function getMacroTargets(userId, effectiveDateInput, options = {}) {
+  const effectiveDate = normalizeTargetEffectiveDate(effectiveDateInput, options.timezone || 'America/New_York');
   const result = await pool.query(
-    `SELECT macro, target
+    `SELECT DISTINCT ON (macro)
+       macro,
+       target,
+       effective_date::text AS "effectiveDate"
      FROM macro_targets
-     WHERE user_id = $1`,
-    [userId]
+     WHERE user_id = $1 AND effective_date <= $2::date
+     ORDER BY macro, effective_date DESC, updated_at DESC`,
+    [userId, effectiveDate]
   );
 
-  const defaults = {
-    calories: 0,
-    protein: 0,
-    carbs: 0,
-    fat: 0,
-    workouts: 5,
-    workout_calories: 0,
-    sleep_hours: 8
-  };
+  const defaults = defaultMacroTargets();
 
   for (const row of result.rows) {
     const macro = normalizeMacroName(row.macro);
@@ -1284,8 +1409,93 @@ async function getMacroTargets(userId) {
   return defaults;
 }
 
-async function setMacroTarget(userId, macro, target) {
+async function getMacroTargetHistory(userId, scope = 'week', timezone = 'America/New_York') {
+  const days = parseTargetHistoryDays(scope);
+  const result = await pool.query(
+    `SELECT
+       day::date::text AS day,
+       COALESCE((
+         SELECT target FROM macro_targets mt
+         WHERE mt.user_id = $1 AND mt.macro = 'calories' AND mt.effective_date <= day::date
+         ORDER BY mt.effective_date DESC, mt.updated_at DESC
+         LIMIT 1
+       ), $4) AS calories,
+       COALESCE((
+         SELECT target FROM macro_targets mt
+         WHERE mt.user_id = $1 AND mt.macro = 'protein' AND mt.effective_date <= day::date
+         ORDER BY mt.effective_date DESC, mt.updated_at DESC
+         LIMIT 1
+       ), $5) AS protein,
+       COALESCE((
+         SELECT target FROM macro_targets mt
+         WHERE mt.user_id = $1 AND mt.macro = 'carbs' AND mt.effective_date <= day::date
+         ORDER BY mt.effective_date DESC, mt.updated_at DESC
+         LIMIT 1
+       ), $6) AS carbs,
+       COALESCE((
+         SELECT target FROM macro_targets mt
+         WHERE mt.user_id = $1 AND mt.macro = 'fat' AND mt.effective_date <= day::date
+         ORDER BY mt.effective_date DESC, mt.updated_at DESC
+         LIMIT 1
+       ), $7) AS fat,
+       COALESCE((
+         SELECT target FROM macro_targets mt
+         WHERE mt.user_id = $1 AND mt.macro = 'workouts' AND mt.effective_date <= day::date
+         ORDER BY mt.effective_date DESC, mt.updated_at DESC
+         LIMIT 1
+       ), $8) AS workouts,
+       COALESCE((
+         SELECT target FROM macro_targets mt
+         WHERE mt.user_id = $1 AND mt.macro = 'workout_calories' AND mt.effective_date <= day::date
+         ORDER BY mt.effective_date DESC, mt.updated_at DESC
+         LIMIT 1
+       ), $9) AS workout_calories,
+       COALESCE((
+         SELECT target FROM macro_targets mt
+         WHERE mt.user_id = $1 AND mt.macro = 'sleep_hours' AND mt.effective_date <= day::date
+         ORDER BY mt.effective_date DESC, mt.updated_at DESC
+         LIMIT 1
+       ), $10) AS sleep_hours
+     FROM generate_series(
+       ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval),
+       (NOW() AT TIME ZONE $3)::date,
+       interval '1 day'
+     ) AS target_days(day)
+     ORDER BY day ASC`,
+    [
+      userId,
+      String(days),
+      timezone,
+      DEFAULT_MACRO_TARGETS.calories,
+      DEFAULT_MACRO_TARGETS.protein,
+      DEFAULT_MACRO_TARGETS.carbs,
+      DEFAULT_MACRO_TARGETS.fat,
+      DEFAULT_MACRO_TARGETS.workouts,
+      DEFAULT_MACRO_TARGETS.workout_calories,
+      DEFAULT_MACRO_TARGETS.sleep_hours
+    ]
+  );
+
+  return result.rows.map((row) => ({
+    day: row.day,
+    targets: {
+      calories: Number(row.calories || 0),
+      protein: Number(row.protein || 0),
+      carbs: Number(row.carbs || 0),
+      fat: Number(row.fat || 0),
+      workouts: Number(row.workouts || 0),
+      workout_calories: Number(row.workout_calories || 0),
+      sleep_hours: Number(row.sleep_hours || 0)
+    }
+  }));
+}
+
+async function setMacroTarget(userId, macro, target, options = {}) {
   const normalizedMacro = normalizeMacroName(macro);
+  const effectiveDate = normalizeTargetEffectiveDate(
+    options.effectiveDate,
+    options.timezone || 'America/New_York'
+  );
   let normalizedTarget = Number(target);
   if (!Number.isFinite(normalizedTarget) || normalizedTarget < 0) {
     throw new Error('Target must be a number greater than or equal to 0.');
@@ -1298,14 +1508,14 @@ async function setMacroTarget(userId, macro, target) {
   }
 
   await pool.query(
-    `INSERT INTO macro_targets (user_id, macro, target, updated_at)
-     VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (user_id, macro)
+    `INSERT INTO macro_targets (user_id, macro, target, effective_date, updated_at)
+     VALUES ($1, $2, $3, $4::date, NOW())
+     ON CONFLICT (user_id, macro, effective_date)
      DO UPDATE SET target = EXCLUDED.target, updated_at = NOW()`,
-    [userId, normalizedMacro, normalizedTarget]
+    [userId, normalizedMacro, normalizedTarget, effectiveDate]
   );
 
-  return { macro: normalizedMacro, target: normalizedTarget };
+  return { macro: normalizedMacro, target: normalizedTarget, effectiveDate };
 }
 
 function normalizeDate(inputDate) {
@@ -1430,7 +1640,7 @@ async function getDashboard(userId, dateInput, options = {}) {
     mealUnit: row.mealUnit || 'serving'
   }));
 
-  const targets = await getMacroTargets(userId);
+  const targets = await getMacroTargets(userId, baseDay, { timezone });
 
   return {
     currentDayTotals,
@@ -1446,27 +1656,32 @@ async function getDashboard(userId, dateInput, options = {}) {
 
 async function getDailyTotals(userId, scope = 'week', timezone = 'America/New_York') {
   const days = parseScopeDays(scope);
-  const result = await pool.query(
-    `SELECT
-       (consumed_at AT TIME ZONE $3)::date::text AS day,
-       ROUND(SUM(calories)::numeric, 1) AS calories,
-       ROUND(SUM(protein)::numeric, 1) AS protein,
-       ROUND(SUM(carbs)::numeric, 1) AS carbs,
-       ROUND(SUM(fat)::numeric, 1) AS fat
-     FROM entries
-     WHERE user_id = $1 AND deleted_at IS NULL
-       AND consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
-     GROUP BY day
-     ORDER BY day DESC`,
-    [userId, String(days), timezone]
-  );
+  const [result, targetHistory] = await Promise.all([
+    pool.query(
+      `SELECT
+         (consumed_at AT TIME ZONE $3)::date::text AS day,
+         ROUND(SUM(calories)::numeric, 1) AS calories,
+         ROUND(SUM(protein)::numeric, 1) AS protein,
+         ROUND(SUM(carbs)::numeric, 1) AS carbs,
+         ROUND(SUM(fat)::numeric, 1) AS fat
+       FROM entries
+       WHERE user_id = $1 AND deleted_at IS NULL
+         AND consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
+       GROUP BY day
+       ORDER BY day DESC`,
+      [userId, String(days), timezone]
+    ),
+    getMacroTargetHistory(userId, scope, timezone)
+  ]);
+  const targetsByDay = new Map(targetHistory.map((row) => [row.day, row.targets]));
 
   return result.rows.map((row) => ({
     day: row.day,
     calories: Number(row.calories || 0),
     protein: Number(row.protein || 0),
     carbs: Number(row.carbs || 0),
-    fat: Number(row.fat || 0)
+    fat: Number(row.fat || 0),
+    targets: targetsByDay.get(row.day) || defaultMacroTargets()
   }));
 }
 
@@ -1474,6 +1689,14 @@ function parseScopeDays(scope) {
   if (scope === 'year') return 365;
   if (scope === 'month') return 30;
   return 7;
+}
+
+function parseTargetHistoryDays(scopeOrDays) {
+  const numericDays = Number(scopeOrDays);
+  if (Number.isFinite(numericDays)) {
+    return Math.max(1, Math.min(730, Math.round(numericDays)));
+  }
+  return parseScopeDays(scopeOrDays);
 }
 
 function normalizeWorkoutIntensity(intensity) {
@@ -1601,6 +1824,7 @@ async function listWeightEntries(userId, options = {}) {
   let query = `SELECT id,
             weight,
             logged_at AS "loggedAt",
+            (logged_at AT TIME ZONE $3)::date::text AS day,
             source,
             external_id AS "externalId"
      FROM weight_entries
@@ -1613,12 +1837,19 @@ async function listWeightEntries(userId, options = {}) {
     query += '\n     LIMIT $4 OFFSET $5';
   }
 
-  const result = await pool.query(query, params);
+  const [result, targetHistory] = await Promise.all([
+    pool.query(query, params),
+    getWeightTargetHistory(userId, scope, timezone)
+  ]);
+  const targetsByDay = new Map(targetHistory.map((row) => [row.day, row]));
 
   const entries = result.rows.map((row) => ({
     id: Number(row.id),
     weight: Number(row.weight || 0),
     loggedAt: new Date(row.loggedAt).toISOString(),
+    day: row.day,
+    targetWeight: targetsByDay.get(row.day)?.targetWeight ?? null,
+    targetDate: targetsByDay.get(row.day)?.targetDate ?? null,
     source: row.source || 'manual',
     externalId: row.externalId || null
   }));
@@ -1629,12 +1860,17 @@ async function listWeightEntries(userId, options = {}) {
   };
 }
 
-async function getWeightTarget(userId) {
+async function getWeightTarget(userId, effectiveDateInput, options = {}) {
+  const effectiveDate = normalizeTargetEffectiveDate(effectiveDateInput, options.timezone || 'America/New_York');
   const result = await pool.query(
-    `SELECT target_weight AS "targetWeight", target_date::text AS "targetDate"
+    `SELECT target_weight AS "targetWeight",
+            target_date::text AS "targetDate",
+            effective_date::text AS "effectiveDate"
      FROM weight_targets
-     WHERE user_id = $1`,
-    [userId]
+     WHERE user_id = $1 AND effective_date <= $2::date
+     ORDER BY effective_date DESC, updated_at DESC
+     LIMIT 1`,
+    [userId, effectiveDate]
   );
 
   const row = result.rows[0];
@@ -1647,20 +1883,45 @@ async function getWeightTarget(userId) {
 
   return {
     targetWeight: Number(row.targetWeight || 0),
-    targetDate: String(row.targetDate || '')
+    targetDate: String(row.targetDate || ''),
+    effectiveDate: String(row.effectiveDate || '')
   };
 }
 
+async function getWeightTargetHistory(userId, scope = 'week', timezone = 'America/New_York') {
+  const days = parseTargetHistoryDays(scope);
+  const result = await pool.query(
+    `SELECT
+       target_days.day::date::text AS day,
+       target.target_weight AS "targetWeight",
+       target.target_date::text AS "targetDate",
+       target.effective_date::text AS "effectiveDate"
+     FROM generate_series(
+       ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval),
+       (NOW() AT TIME ZONE $3)::date,
+       interval '1 day'
+     ) AS target_days(day)
+     LEFT JOIN LATERAL (
+       SELECT target_weight, target_date, effective_date
+       FROM weight_targets wt
+       WHERE wt.user_id = $1 AND wt.effective_date <= target_days.day::date
+       ORDER BY wt.effective_date DESC, wt.updated_at DESC
+       LIMIT 1
+     ) AS target ON true
+     ORDER BY target_days.day ASC`,
+    [userId, String(days), timezone]
+  );
+
+  return result.rows.map((row) => ({
+    day: row.day,
+    targetWeight: row.targetWeight == null ? null : Number(row.targetWeight || 0),
+    targetDate: row.targetDate || null,
+    effectiveDate: row.effectiveDate || null
+  }));
+}
+
 function normalizeIsoDateInput(value) {
-  const raw = String(value || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    throw new Error('Target date must be in YYYY-MM-DD format.');
-  }
-  const parsed = new Date(`${raw}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error('Target date must be a valid date.');
-  }
-  return raw;
+  return normalizeIsoDateString(value, 'Target date');
 }
 
 async function setWeightTarget(userId, payload) {
@@ -1670,21 +1931,23 @@ async function setWeightTarget(userId, payload) {
   }
   const normalizedTargetWeight = Number(targetWeight.toFixed(1));
   const targetDate = normalizeIsoDateInput(payload?.targetDate);
+  const effectiveDate = normalizeTargetEffectiveDate(payload?.effectiveDate ?? payload?.effective_date, payload?.tz || 'America/New_York');
 
   await pool.query(
-    `INSERT INTO weight_targets (user_id, target_weight, target_date, updated_at)
-     VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (user_id)
+    `INSERT INTO weight_targets (user_id, target_weight, target_date, effective_date, updated_at)
+     VALUES ($1, $2, $3, $4::date, NOW())
+     ON CONFLICT (user_id, effective_date)
      DO UPDATE
        SET target_weight = EXCLUDED.target_weight,
            target_date = EXCLUDED.target_date,
            updated_at = NOW()`,
-    [userId, normalizedTargetWeight, targetDate]
+    [userId, normalizedTargetWeight, targetDate, effectiveDate]
   );
 
   return {
     targetWeight: normalizedTargetWeight,
-    targetDate
+    targetDate,
+    effectiveDate
   };
 }
 
@@ -1798,16 +2061,20 @@ async function listWorkoutEntries(userId, options = {}) {
   );
 
   const scopeDays = parseScopeDays(options.scope || 'week');
-  const dailyResult = await pool.query(
-    `SELECT (logged_at AT TIME ZONE $2)::date::text AS day,
-            ROUND(SUM(calories_burned)::numeric, 1) AS calories
-     FROM workout_entries
-     WHERE user_id = $1 AND deleted_at IS NULL
-       AND logged_at >= ((NOW() AT TIME ZONE $2)::date - ($3::text || ' days')::interval) AT TIME ZONE $2
-     GROUP BY day
-     ORDER BY day ASC`,
-    [userId, timezone, String(scopeDays)]
-  );
+  const [dailyResult, targetHistory] = await Promise.all([
+    pool.query(
+      `SELECT (logged_at AT TIME ZONE $2)::date::text AS day,
+              ROUND(SUM(calories_burned)::numeric, 1) AS calories
+       FROM workout_entries
+       WHERE user_id = $1 AND deleted_at IS NULL
+         AND logged_at >= ((NOW() AT TIME ZONE $2)::date - ($3::text || ' days')::interval) AT TIME ZONE $2
+       GROUP BY day
+       ORDER BY day ASC`,
+      [userId, timezone, String(scopeDays)]
+    ),
+    getMacroTargetHistory(userId, options.scope || 'week', timezone)
+  ]);
+  const targetsByDay = new Map(targetHistory.map((row) => [row.day, row.targets]));
 
   return {
     entries: rowsResult.rows.map((row) => ({
@@ -1822,7 +2089,9 @@ async function listWorkoutEntries(userId, options = {}) {
     })),
     dailyCalories: dailyResult.rows.map((row) => ({
       day: row.day,
-      calories: Number(row.calories || 0)
+      calories: Number(row.calories || 0),
+      targetCalories: Number(targetsByDay.get(row.day)?.workout_calories || 0),
+      targetWorkouts: Number(targetsByDay.get(row.day)?.workouts || 0)
     })),
     pagination: { limit, offset, returned: rowsResult.rows.length }
   };
@@ -2085,16 +2354,20 @@ async function listSleepEntries(userId, options = {}) {
   );
 
   const scopeDays = parseScopeDays(options.scope || 'week');
-  const dailyResult = await pool.query(
-    `SELECT (logged_at AT TIME ZONE $2)::date::text AS day,
-            ROUND(SUM(duration_hours)::numeric, 2) AS total_hours
-     FROM sleep_entries
-     WHERE user_id = $1 AND deleted_at IS NULL
-       AND logged_at >= ((NOW() AT TIME ZONE $2)::date - ($3::text || ' days')::interval) AT TIME ZONE $2
-     GROUP BY day
-     ORDER BY day ASC`,
-    [userId, timezone, String(scopeDays)]
-  );
+  const [dailyResult, targetHistory] = await Promise.all([
+    pool.query(
+      `SELECT (logged_at AT TIME ZONE $2)::date::text AS day,
+              ROUND(SUM(duration_hours)::numeric, 2) AS total_hours
+       FROM sleep_entries
+       WHERE user_id = $1 AND deleted_at IS NULL
+         AND logged_at >= ((NOW() AT TIME ZONE $2)::date - ($3::text || ' days')::interval) AT TIME ZONE $2
+       GROUP BY day
+       ORDER BY day ASC`,
+      [userId, timezone, String(scopeDays)]
+    ),
+    getMacroTargetHistory(userId, options.scope || 'week', timezone)
+  ]);
+  const targetsByDay = new Map(targetHistory.map((row) => [row.day, row.targets]));
 
   return {
     entries: rowsResult.rows.map((row) => ({
@@ -2109,7 +2382,8 @@ async function listSleepEntries(userId, options = {}) {
     })),
     dailyTotals: dailyResult.rows.map((row) => ({
       day: row.day,
-      totalHours: Number(row.total_hours)
+      totalHours: Number(row.total_hours),
+      targetHours: Number(targetsByDay.get(row.day)?.sleep_hours || DEFAULT_MACRO_TARGETS.sleep_hours)
     })),
     pagination: { limit, offset, returned: rowsResult.rows.length }
   };
@@ -2127,7 +2401,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
   const days = normalizeAnalysisDays(daysInput);
   const daysParam = String(days);
 
-  const [mealDailyResult, topMealsResult, mealTimingResult, workoutDailyResult, workoutTypesResult, weightsResult, sleepResult, targets, weightTarget, dataStartResult] =
+  const [mealDailyResult, topMealsResult, mealTimingResult, workoutDailyResult, workoutTypesResult, weightsResult, sleepResult, targets, targetHistory, weightTarget, weightTargetHistory, dataStartResult] =
     await Promise.all([
       pool.query(
         `SELECT
@@ -2193,7 +2467,9 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
         [userId, daysParam, timezone]
       ),
       pool.query(
-        `SELECT weight, logged_at AS "loggedAt"
+        `SELECT weight,
+                logged_at AS "loggedAt",
+                (logged_at AT TIME ZONE $3)::date::text AS day
          FROM weight_entries
          WHERE user_id = $1 AND deleted_at IS NULL
            AND logged_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
@@ -2211,8 +2487,10 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
          ORDER BY day ASC`,
         [userId, daysParam, timezone]
       ),
-      getMacroTargets(userId),
+      getMacroTargets(userId, undefined, { timezone }),
+      getMacroTargetHistory(userId, days, timezone),
       getWeightTarget(userId),
+      getWeightTargetHistory(userId, days, timezone),
       pool.query(
         `SELECT MIN(started_at) AS "startedAt"
          FROM (
@@ -2240,9 +2518,13 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
     : days;
   const effectivePeriodDays = Math.max(1, Math.min(days, elapsedDays));
 
+  const weightTargetsByDay = new Map(weightTargetHistory.map((row) => [row.day, row]));
   const weightEntries = weightsResult.rows.map((row) => ({
     weight: Number(row.weight || 0),
-    loggedAt: new Date(row.loggedAt).toISOString()
+    loggedAt: new Date(row.loggedAt).toISOString(),
+    day: row.day,
+    targetWeight: weightTargetsByDay.get(row.day)?.targetWeight ?? null,
+    targetDate: weightTargetsByDay.get(row.day)?.targetDate ?? null
   }));
 
   const firstWeight = weightEntries.length ? Number(weightEntries[0].weight || 0) : 0;
@@ -2260,12 +2542,14 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
       targetDaysRemaining = Math.ceil((targetDateTime - now) / (24 * 60 * 60 * 1000));
     }
   }
+  const targetsByDay = new Map(targetHistory.map((row) => [row.day, row.targets]));
 
   return {
     requestedPeriodDays: days,
     periodDays: effectivePeriodDays,
     trackingStartedAt: startedAt && Number.isFinite(startedAt.getTime()) ? startedAt.toISOString() : null,
     targets,
+    targetHistory,
     meals: {
       dailyTotals: mealDailyResult.rows.map((row) => ({
         day: row.day,
@@ -2273,7 +2557,8 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
         calories: Number(row.calories || 0),
         protein: Number(row.protein || 0),
         carbs: Number(row.carbs || 0),
-        fat: Number(row.fat || 0)
+        fat: Number(row.fat || 0),
+        targets: targetsByDay.get(row.day) || defaultMacroTargets()
       })),
       topItems: topMealsResult.rows.map((row) => ({
         itemName: row.item_name,
@@ -2290,7 +2575,9 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
         day: row.day,
         sessions: Number(row.sessions || 0),
         durationHours: Number(row.duration_hours || 0),
-        caloriesBurned: Number(row.calories_burned || 0)
+        caloriesBurned: Number(row.calories_burned || 0),
+        targetWorkouts: Number(targetsByDay.get(row.day)?.workouts || 0),
+        targetCalories: Number(targetsByDay.get(row.day)?.workout_calories || 0)
       })),
       topTypes: workoutTypesResult.rows.map((row) => ({
         description: row.description,
@@ -2304,6 +2591,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
       lastWeight,
       change: Number((lastWeight - firstWeight).toFixed(2)),
       entryCount: weightEntries.length,
+      targetHistory: weightTargetHistory,
       target: {
         weight: targetWeightValue,
         date: targetDate,
@@ -2314,6 +2602,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
       dailyTotals: sleepResult.rows.map((row) => ({
         day: row.day,
         totalHours: Number(row.total_hours || 0),
+        targetHours: Number(targetsByDay.get(row.day)?.sleep_hours || DEFAULT_MACRO_TARGETS.sleep_hours),
         avgQuality: row.avg_quality == null ? null : Number(row.avg_quality)
       })),
       daysLogged: sleepResult.rows.length,
@@ -2541,18 +2830,19 @@ async function deleteCoachDismissals(userId) {
 // ── GDPR ──
 
 async function exportUserData(userId) {
-  const [user, identities, entries, savedItems, macroTargets, weightEntries, workoutEntries, sexualActivityEntries, sleepEntries, weightTarget, analysisReports, usageCounts, coachDismissals] =
+  const [user, identities, entries, savedItems, macroTargets, weightEntries, workoutEntries, sexualActivityEntries, sleepEntries, weightTarget, weightTargets, analysisReports, usageCounts, coachDismissals] =
     await Promise.all([
       pool.query('SELECT id, email, name, provider, created_at, updated_at FROM users WHERE id = $1', [userId]),
       pool.query('SELECT provider, provider_user_id, created_at, updated_at FROM user_identities WHERE user_id = $1 ORDER BY provider', [userId]),
       pool.query('SELECT id, item_name, quantity, unit, calories, protein, carbs, fat, consumed_at, meal_group, meal_name, meal_quantity, meal_unit, created_at FROM entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY consumed_at DESC', [userId]),
       pool.query('SELECT id, name, quantity, unit, calories, protein, carbs, fat, components, usage_count, created_at FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL ORDER BY name', [userId]),
-      pool.query('SELECT macro, target, updated_at FROM macro_targets WHERE user_id = $1', [userId]),
+      pool.query('SELECT macro, target, effective_date, updated_at FROM macro_targets WHERE user_id = $1 ORDER BY effective_date DESC, macro', [userId]),
       pool.query('SELECT id, weight, logged_at, source, external_id, created_at FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       pool.query('SELECT id, description, intensity, duration_hours, calories_burned, logged_at, source, external_id, created_at FROM workout_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       pool.query('SELECT id, type, logged_at, source, external_id, created_at FROM sexual_activity_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       pool.query('SELECT id, duration_hours, wake_ups, quality, notes, logged_at, source, external_id, created_at FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       getWeightTarget(userId),
+      pool.query('SELECT target_weight, target_date, effective_date, updated_at FROM weight_targets WHERE user_id = $1 ORDER BY effective_date DESC', [userId]),
       pool.query('SELECT id, period_days, report_json, created_at FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC', [userId]),
       pool.query('SELECT feature, usage_date, count, updated_at FROM daily_usage_counts WHERE user_id = $1 ORDER BY usage_date DESC, feature', [userId]),
       pool.query('SELECT dismissal_type, dismissal_key, dismissed_until, created_at, updated_at FROM coach_dismissals WHERE user_id = $1 ORDER BY updated_at DESC', [userId])
@@ -2570,6 +2860,7 @@ async function exportUserData(userId) {
     sexualActivityEntries: sexualActivityEntries.rows,
     sleepEntries: sleepEntries.rows,
     weightTarget,
+    weightTargets: weightTargets.rows,
     analysisReports: analysisReports.rows,
     usageCounts: usageCounts.rows,
     coachDismissals: coachDismissals.rows
@@ -2770,12 +3061,14 @@ module.exports = {
   getDashboard,
   getDailyTotals,
   getMacroTargets,
+  getMacroTargetHistory,
   setMacroTarget,
   addWeightEntry,
   updateWeightEntry,
   deleteWeightEntry,
   listWeightEntries,
   getWeightTarget,
+  getWeightTargetHistory,
   setWeightTarget,
   addWorkoutEntry,
   updateWorkoutEntry,

@@ -1113,6 +1113,10 @@ test('iOS app includes onboarding reminders offline queue and diagnostics founda
   const auth = read('ios/DailyMacros/DailyMacros/AuthManager.swift');
   const models = read('ios/DailyMacros/DailyMacros/Models.swift');
   const onboarding = read('ios/DailyMacros/DailyMacros/OnboardingView.swift');
+  const macros = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const workouts = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
+  const weight = read('ios/DailyMacros/DailyMacros/WeightView.swift');
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
   const reminders = read('ios/DailyMacros/DailyMacros/ReminderScheduler.swift');
   const offline = read('ios/DailyMacros/DailyMacros/OfflineMutationStore.swift');
   const diagnostics = read('ios/DailyMacros/DailyMacros/Diagnostics.swift');
@@ -1143,10 +1147,14 @@ test('iOS app includes onboarding reminders offline queue and diagnostics founda
   assert.ok(onboarding.includes('WeightView()'));
   assert.ok(onboarding.includes('SleepView()'));
   assert.ok(onboarding.includes('TutorialSpotlightScrim(spotlightRect: spotlightRect)'));
+  assert.ok(onboarding.includes('TutorialSpotlightAnchorPreferenceKey'));
+  assert.ok(onboarding.includes('func tutorialSpotlightAnchor(_ target: TutorialSpotlightTarget)'));
+  assert.ok(onboarding.includes('measuredSpotlightRect('));
   assert.ok(onboarding.includes('private func tutorialTopInset(in size: CGSize, safeAreaInsets: EdgeInsets, coordinateMinY: CGFloat)'));
   assert.ok(onboarding.includes('normalizedTopInset - max(coordinateMinY, 0)'));
   assert.ok(onboarding.includes('coordinateMinY: proxy.frame(in: .global).minY'));
-  assert.ok(onboarding.includes('spotlightRect(in: proxy.size, topInset: topInset)'));
+  assert.ok(onboarding.includes('fallbackSpotlightRect = setupStep.spotlightRect(in: proxy.size, topInset: topInset)'));
+  assert.ok(onboarding.includes('?? fallbackSpotlightRect'));
   assert.ok(onboarding.includes('let toolbarY = topInset + 10'));
   assert.ok(onboarding.includes('let maximumReasonableTopInset = min(size.height * 0.08, 64)'));
   assert.ok(onboarding.includes('.padding(.top, max(topInset + 8, 18))'));
@@ -1163,6 +1171,10 @@ test('iOS app includes onboarding reminders offline queue and diagnostics founda
   assert.equal(onboarding.includes('api.saveMealEntries('), false);
   assert.equal(onboarding.includes('TextField("Example:'), false);
   assert.equal(onboarding.includes('Log Another Meal'), false);
+  assert.ok(macros.includes('.tutorialSpotlightAnchor(.macros)'));
+  assert.ok(workouts.includes('.tutorialSpotlightAnchor(.workouts)'));
+  assert.ok(weight.includes('.tutorialSpotlightAnchor(.weight)'));
+  assert.ok(health.includes('.tutorialSpotlightAnchor(.sleep)'));
   assert.ok(onboarding.includes('targetField("Calories", text: $calorieTarget)'));
   assert.ok(onboarding.includes('targetField("Carbs (g)", text: $carbsTarget)'));
   assert.ok(onboarding.includes('targetField("Fat (g)", text: $fatTarget)'));

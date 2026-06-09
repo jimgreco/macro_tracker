@@ -1,5 +1,30 @@
 import SwiftUI
 
+enum TutorialSpotlightTarget: Hashable {
+    case macros
+    case workouts
+    case weight
+    case sleep
+}
+
+struct TutorialSpotlightAnchorPreferenceKey: PreferenceKey {
+    static var defaultValue: [TutorialSpotlightTarget: [Anchor<CGRect>]] = [:]
+
+    static func reduce(value: inout [TutorialSpotlightTarget: [Anchor<CGRect>]], nextValue: () -> [TutorialSpotlightTarget: [Anchor<CGRect>]]) {
+        for (target, anchors) in nextValue() {
+            value[target, default: []].append(contentsOf: anchors)
+        }
+    }
+}
+
+extension View {
+    func tutorialSpotlightAnchor(_ target: TutorialSpotlightTarget) -> some View {
+        anchorPreference(key: TutorialSpotlightAnchorPreferenceKey.self, value: .bounds) { anchor in
+            [target: [anchor]]
+        }
+    }
+}
+
 private func normalizedTutorialTopInset(in size: CGSize, safeAreaInsets: EdgeInsets) -> CGFloat {
     // NavigationStack tutorial backgrounds can report a toolbar-inflated top inset.
     let maximumReasonableTopInset = min(size.height * 0.08, 64)
@@ -73,6 +98,16 @@ struct OnboardingView: View {
             }
         }
 
+        var spotlightTarget: TutorialSpotlightTarget? {
+            switch self {
+            case .macros: return .macros
+            case .workouts: return .workouts
+            case .weight: return .weight
+            case .sleep: return .sleep
+            case .targets: return nil
+            }
+        }
+
         func spotlightRect(in size: CGSize, topInset: CGFloat) -> CGRect {
             let toolbarY = topInset + 10
             let trailingPadding: CGFloat = 14
@@ -95,6 +130,35 @@ struct OnboardingView: View {
             case .targets:
                 return .zero
             }
+        }
+
+        func measuredSpotlightRect(
+            from anchorsByTarget: [TutorialSpotlightTarget: [Anchor<CGRect>]],
+            in proxy: GeometryProxy
+        ) -> CGRect? {
+            guard let spotlightTarget,
+                  let anchors = anchorsByTarget[spotlightTarget],
+                  !anchors.isEmpty else {
+                return nil
+            }
+
+            let resolvedRects = anchors.map { proxy[$0] }
+            guard var rect = resolvedRects.first else {
+                return nil
+            }
+            for item in resolvedRects.dropFirst() {
+                rect = rect.union(item)
+            }
+
+            let padded = rect.insetBy(dx: -9, dy: -5)
+            let minX = max(padded.minX, 12)
+            let maxX = min(padded.maxX, proxy.size.width - 12)
+            let minY = max(padded.minY, 6)
+            let maxY = min(padded.maxY, proxy.size.height - 6)
+            guard maxX > minX, maxY > minY else {
+                return nil
+            }
+            return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
         }
     }
 
@@ -157,43 +221,51 @@ struct OnboardingView: View {
                 safeAreaInsets: proxy.safeAreaInsets,
                 coordinateMinY: proxy.frame(in: .global).minY
             )
-            let spotlightRect = setupStep.spotlightRect(in: proxy.size, topInset: topInset)
+            let fallbackSpotlightRect = setupStep.spotlightRect(in: proxy.size, topInset: topInset)
 
-            ZStack {
-                tutorialPageBackground
-                    .id(setupStep)
-                    .ignoresSafeArea()
+            tutorialPageBackground
+                .id(setupStep)
+                .ignoresSafeArea()
+                .overlayPreferenceValue(TutorialSpotlightAnchorPreferenceKey.self) { anchorsByTarget in
+                    GeometryReader { spotlightProxy in
+                        let spotlightRect = setupStep.measuredSpotlightRect(
+                            from: anchorsByTarget,
+                            in: spotlightProxy
+                        ) ?? fallbackSpotlightRect
 
-                TutorialSpotlightScrim(spotlightRect: spotlightRect)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
+                        ZStack {
+                            TutorialSpotlightScrim(spotlightRect: spotlightRect)
+                                .ignoresSafeArea()
+                                .allowsHitTesting(false)
 
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(.cyan, lineWidth: 2)
-                    .shadow(color: .cyan.opacity(0.75), radius: 12)
-                    .frame(width: spotlightRect.width, height: spotlightRect.height)
-                    .position(x: spotlightRect.midX, y: spotlightRect.midY)
-                    .allowsHitTesting(false)
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(.cyan, lineWidth: 2)
+                                .shadow(color: .cyan.opacity(0.75), radius: 12)
+                                .frame(width: spotlightRect.width, height: spotlightRect.height)
+                                .position(x: spotlightRect.midX, y: spotlightRect.midY)
+                                .allowsHitTesting(false)
 
-                VStack(spacing: 0) {
-                    HStack {
-                        skipButton
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .tint(.white)
-                            .background(.ultraThinMaterial, in: Capsule())
-                        Spacer()
+                            VStack(spacing: 0) {
+                                HStack {
+                                    skipButton
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        .tint(.white)
+                                        .background(.ultraThinMaterial, in: Capsule())
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 18)
+                                .padding(.top, max(topInset + 8, 18))
+
+                                Spacer(minLength: 0)
+
+                                tutorialCalloutCard
+                                    .padding(.horizontal, 14)
+                                    .padding(.bottom, max(proxy.safeAreaInsets.bottom + 16, 16))
+                            }
+                        }
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.top, max(topInset + 8, 18))
-
-                    Spacer(minLength: 0)
-
-                    tutorialCalloutCard
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, max(proxy.safeAreaInsets.bottom + 16, 16))
                 }
-            }
         }
     }
 

@@ -226,6 +226,36 @@ test('sleep entries support optional quality ratings and notes', () => {
   assert.ok(server.includes('avgSleepQuality'));
 });
 
+test('macro targets are versioned by effective date', () => {
+  const db = read('src/db.js');
+  const server = read('src/server.js');
+  const script = read('public/script.js');
+
+  assert.ok(db.includes('effective_date DATE NOT NULL DEFAULT DATE'));
+  assert.ok(db.includes('PRIMARY KEY (user_id, macro, effective_date)'));
+  assert.ok(db.includes('ON CONFLICT (user_id, macro, effective_date)'));
+  assert.ok(db.includes('SELECT DISTINCT ON (macro)'));
+  assert.ok(db.includes('getMacroTargetHistory'));
+  assert.ok(server.includes('effectiveDate = req.body?.effectiveDate || req.body?.effective_date'));
+  assert.ok(server.includes('targetHistory'));
+  assert.ok(script.includes('effectiveDate: getLocalIsoDay()'));
+  assert.ok(script.includes('setMacroTargetHistory'));
+});
+
+test('weight targets are versioned by effective date', () => {
+  const db = read('src/db.js');
+  const server = read('src/server.js');
+  const script = read('public/script.js');
+
+  assert.ok(db.includes('PRIMARY KEY (user_id, effective_date)'));
+  assert.ok(db.includes('idx_weight_targets_user_effective'));
+  assert.ok(db.includes('getWeightTargetHistory'));
+  assert.ok(db.includes('ON CONFLICT (user_id, effective_date)'));
+  assert.ok(server.includes('setWeightTarget(userIdFromReq(req), { ...(req.body || {}), tz: timezone })'));
+  assert.ok(script.includes("targetKey: 'targetValue'"));
+  assert.ok(script.includes('effectiveDate: getLocalIsoDay()'));
+});
+
 test('GDPR deleteUserAccount performs hard delete across all tables', () => {
   const db = read('src/db.js');
   const tables = [

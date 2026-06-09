@@ -113,6 +113,9 @@ struct WeightEntry: Codable, Identifiable, Sendable {
     let id: Int
     let weight: Double
     let loggedAt: String
+    let day: String?
+    let targetWeight: Double?
+    let targetDate: String?
     let source: String?
     let externalId: String?
 }
@@ -125,6 +128,7 @@ struct WeightEntriesResponse: Codable {
 struct WeightTarget: Codable, Sendable {
     let targetWeight: Double?
     let targetDate: String?
+    let effectiveDate: String?
 }
 
 struct WorkoutEntry: Codable, Identifiable, Sendable {
@@ -141,6 +145,8 @@ struct WorkoutEntry: Codable, Identifiable, Sendable {
 struct WorkoutDailyCalories: Codable, Sendable {
     let day: String
     let calories: Double
+    let targetCalories: Double?
+    let targetWorkouts: Double?
 }
 
 struct WorkoutsResponse: Codable {
@@ -393,6 +399,7 @@ struct SleepEntry: Codable, Identifiable, Sendable {
 struct SleepDailyTotals: Codable, Sendable {
     let day: String
     let totalHours: Double
+    let targetHours: Double?
 }
 
 struct SleepEntriesResponse: Codable {

@@ -117,6 +117,7 @@ struct HealthView: View {
                         }
                     }
                     .disabled(isSyncingHealthKit || (mode == .sexualActivity && !sexualActivityEnabled))
+                    .tutorialSpotlightAnchor(.sleep)
 
                     Button {
                         showLogSheetForMode()
@@ -128,6 +129,7 @@ struct HealthView: View {
                     }
                     .accessibilityLabel(mode == .sleep ? "Log sleep" : "Log sexual activity")
                     .disabled(mode == .sexualActivity && !sexualActivityEnabled)
+                    .tutorialSpotlightAnchor(.sleep)
                 }
             }
             .sheet(isPresented: $showLogHealth) { logHealthSheet }
@@ -561,7 +563,8 @@ struct HealthView: View {
         let data = sleepDailyTotals.sorted { $0.day < $1.day }
         guard !data.isEmpty else { return }
 
-        let maxHours = max(data.map(\.totalHours).max() ?? 10, sleepTargetHours, 10)
+        let historicalTargets = data.compactMap(\.targetHours).filter { $0 > 0 }
+        let maxHours = max(data.map(\.totalHours).max() ?? 10, historicalTargets.max() ?? sleepTargetHours, sleepTargetHours, 10)
         let minHours: Double = 0
         let span = max(maxHours - minHours, 1)
         let topPadding: CGFloat = 10
@@ -608,10 +611,23 @@ struct HealthView: View {
         context.stroke(axisPath, with: .color(.white.opacity(0.15)), lineWidth: 1)
 
         // Target line
-        let targetY = yPos(sleepTargetHours)
         var targetPath = Path()
-        targetPath.move(to: CGPoint(x: leftPadding, y: targetY))
-        targetPath.addLine(to: CGPoint(x: leftPadding + chartW, y: targetY))
+        if data.count == 1 {
+            let targetHours = (data[0].targetHours ?? sleepTargetHours) > 0 ? (data[0].targetHours ?? sleepTargetHours) : sleepTargetHours
+            let targetY = yPos(targetHours)
+            targetPath.move(to: CGPoint(x: leftPadding, y: targetY))
+            targetPath.addLine(to: CGPoint(x: leftPadding + chartW, y: targetY))
+        } else {
+            for (i, d) in data.enumerated() {
+                let targetHours = (d.targetHours ?? sleepTargetHours) > 0 ? (d.targetHours ?? sleepTargetHours) : sleepTargetHours
+                let point = CGPoint(x: xPos(i), y: yPos(targetHours))
+                if i == 0 {
+                    targetPath.move(to: point)
+                } else {
+                    targetPath.addLine(to: point)
+                }
+            }
+        }
         context.stroke(targetPath, with: .color(.green.opacity(0.4)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
 
         // Average line

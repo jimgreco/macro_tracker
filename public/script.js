@@ -20,6 +20,8 @@ const state = {
   workoutCalChartRows: [],
   analysisReport: null,
   analysisAutoRan: false,
+  macroTargetHistory: [],
+  macroTargetHistoryByDay: new Map(),
   macroSnapshotPeriod: 'weekly',
   weightSnapshotPeriod: 'weekly',
   workoutSnapshotPeriod: 'weekly',
@@ -372,6 +374,53 @@ function macroUnit(macro) {
   return macro === 'calories' ? 'cal' : 'g';
 }
 
+function setMacroTargetHistory(rows) {
+  const normalizedRows = Array.isArray(rows) ? rows : [];
+  state.macroTargetHistory = normalizedRows;
+  state.macroTargetHistoryByDay = new Map(
+    normalizedRows
+      .filter((row) => row && row.day && row.targets)
+      .map((row) => [row.day, row.targets])
+  );
+}
+
+function targetsForDay(day, fallback = state.dashboardData?.targets || {}) {
+  return state.macroTargetHistoryByDay.get(day) || fallback || {};
+}
+
+function averageTargetsForRows(rows, fallback = state.dashboardData?.targets || {}) {
+  const sourceRows = (rows || []).filter((row) => row && row.day);
+  if (!sourceRows.length) {
+    return fallback || {};
+  }
+
+  const totals = {};
+  for (const macro of ['calories', 'protein', 'carbs', 'fat', 'workouts', 'workout_calories', 'sleep_hours']) {
+    let sum = 0;
+    let count = 0;
+    for (const row of sourceRows) {
+      const rowTargets = row.targets || targetsForDay(row.day, fallback);
+      const value = Number(rowTargets?.[macro] || 0);
+      if (Number.isFinite(value)) {
+        sum += value;
+        count += 1;
+      }
+    }
+    totals[macro] = count > 0 ? sum / count : Number(fallback?.[macro] || 0);
+  }
+  return totals;
+}
+
+function mergeTodayTargets(updates) {
+  const day = getLocalIsoDay();
+  const current = targetsForDay(day, state.dashboardData?.targets || {});
+  const nextTargets = { ...current, ...(updates || {}) };
+  setMacroTargetHistory([
+    ...state.macroTargetHistory.filter((row) => row?.day !== day),
+    { day, targets: nextTargets }
+  ]);
+}
+
 function getMacroTargetElements() {
   return {
     calories: todayCaloriesTargetEl,
@@ -516,12 +565,13 @@ function showEditTargetsModal() {
       for (const m of macros) {
         await api(`/api/macro-targets/${m}`, {
           method: 'PUT',
-          body: JSON.stringify({ target: updates[m] })
+          body: JSON.stringify({ target: updates[m], effectiveDate: getLocalIsoDay(), tz: getTimezone() })
         });
       }
       if (state.dashboardData) {
         state.dashboardData.targets = state.dashboardData.targets || {};
         Object.assign(state.dashboardData.targets, updates);
+        mergeTodayTargets(updates);
         renderDashboard(state.dashboardData);
       }
       setActionBanner('Macro targets updated.', 'success');
@@ -598,17 +648,18 @@ function showWorkoutTargetModal() {
       await Promise.all([
         api('/api/macro-targets/workouts', {
           method: 'PUT',
-          body: JSON.stringify({ target: roundedWorkouts })
+          body: JSON.stringify({ target: roundedWorkouts, effectiveDate: getLocalIsoDay(), tz: getTimezone() })
         }),
         api('/api/macro-targets/workout_calories', {
           method: 'PUT',
-          body: JSON.stringify({ target: roundedCals })
+          body: JSON.stringify({ target: roundedCals, effectiveDate: getLocalIsoDay(), tz: getTimezone() })
         })
       ]);
       if (state.dashboardData) {
         state.dashboardData.targets = state.dashboardData.targets || {};
         state.dashboardData.targets.workouts = roundedWorkouts;
         state.dashboardData.targets.workout_calories = roundedCals;
+        mergeTodayTargets({ workouts: roundedWorkouts, workout_calories: roundedCals });
       }
       renderWorkoutCalChart();
       setActionBanner('Workout targets updated.', 'success');
@@ -679,12 +730,13 @@ function showSleepTargetModal() {
     try {
       await api('/api/macro-targets/sleep_hours', {
         method: 'PUT',
-        body: JSON.stringify({ target: roundedTarget })
+        body: JSON.stringify({ target: roundedTarget, effectiveDate: getLocalIsoDay(), tz: getTimezone() })
       });
       state.sleepTargetHours = roundedTarget;
       state.dashboardData = state.dashboardData || {};
       state.dashboardData.targets = state.dashboardData.targets || {};
       state.dashboardData.targets.sleep_hours = roundedTarget;
+      mergeTodayTargets({ sleep_hours: roundedTarget });
       renderSleepChart();
       setActionBanner('Sleep target updated.', 'success');
     } catch (error) {
@@ -2642,6 +2694,11 @@ function buildTrendPoints(dailyTotals, period, baseIsoDay) {
   for (const dt of dailyTotals || []) {
     dayMap.set(dt.day, Number(dt[state.selectedTrendMacro] || 0));
   }
+  const macro = state.selectedTrendMacro;
+  const targetForDay = (day) => {
+    const target = Number(targetsForDay(day)?.[macro] || 0);
+    return Number.isFinite(target) && target > 0 ? target : 0;
+  };
 
   if (period === 'annual') {
     const points = [];
@@ -2650,18 +2707,21 @@ function buildTrendPoints(dailyTotals, period, baseIsoDay) {
       const weekStartDay = shiftIsoDay(weekEndDay, -6);
       let total = 0;
       let daysWithData = 0;
+      let targetTotal = 0;
       for (let d = 0; d <= 6; d += 1) {
         const day = shiftIsoDay(weekStartDay, d);
         if (dayMap.has(day)) {
           total += dayMap.get(day);
           daysWithData += 1;
         }
+        targetTotal += targetForDay(day);
       }
       const hasData = daysWithData > 0;
       const value = hasData ? total / daysWithData : 0;
+      const targetValue = targetTotal / 7;
       const startDate = fromIsoDayLocal(weekStartDay);
       const label = 'Week of ' + startDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
-      points.push({ day: weekStartDay, label, value, hasData });
+      points.push({ day: weekStartDay, label, value, targetValue, hasData });
     }
     return points;
   }
@@ -2670,7 +2730,7 @@ function buildTrendPoints(dailyTotals, period, baseIsoDay) {
   const points = [];
   for (let i = numDays - 1; i >= 0; i -= 1) {
     const day = shiftIsoDay(baseIsoDay, -i);
-    points.push({ day, value: dayMap.get(day) || 0, hasData: dayMap.has(day) });
+    points.push({ day, value: dayMap.get(day) || 0, targetValue: targetForDay(day), hasData: dayMap.has(day) });
   }
   return points;
 }
@@ -2696,9 +2756,8 @@ function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) 
 
   const points = buildTrendPoints(dailyTotals, period, baseIsoDay);
 
-  const selectedMacroTarget = Number(state.dashboardData?.targets?.[state.selectedTrendMacro] || 0);
-  const targetValue = selectedMacroTarget > 0 ? selectedMacroTarget : 0;
-  const max = Math.max(...points.map((p) => p.value), targetValue, 1);
+  const targetValues = points.map((p) => Number(p.targetValue || 0)).filter((value) => Number.isFinite(value) && value > 0);
+  const max = Math.max(...points.map((p) => p.value), ...targetValues, 1);
   const min = Math.min(...points.map((p) => p.value), 0);
   const range = Math.max(max - min, 1);
   const trendMacro = getTrendMacroConfig();
@@ -2719,13 +2778,25 @@ function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) 
   grad.addColorStop(0, 'rgba(0,207,255,0.28)');
   grad.addColorStop(1, 'rgba(0,207,255,0.02)');
 
-  if (targetValue > 0) {
-    const targetY = padY + ((max - targetValue) / range) * usableH;
+  if (targetValues.length) {
     ctx.save();
     ctx.beginPath();
     ctx.setLineDash([5, 4]);
-    ctx.moveTo(padX, targetY);
-    ctx.lineTo(w - padX, targetY);
+    let startedTargetLine = false;
+    for (let i = 0; i < coords.length; i += 1) {
+      const pointTarget = Number(coords[i].targetValue || 0);
+      if (!Number.isFinite(pointTarget) || pointTarget <= 0) {
+        startedTargetLine = false;
+        continue;
+      }
+      const targetY = padY + ((max - pointTarget) / range) * usableH;
+      if (!startedTargetLine) {
+        ctx.moveTo(coords[i].x, targetY);
+        startedTargetLine = true;
+      } else {
+        ctx.lineTo(coords[i].x, targetY);
+      }
+    }
     ctx.strokeStyle = targetLineColor;
     ctx.lineWidth = 1.6;
     ctx.stroke();
@@ -2785,7 +2856,10 @@ function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) 
     ctx.setLineDash([]);
     ctx.restore();
   }
-  updateTrendLegend(average, hasAverage, targetValue, targetValue > 0, trendMacro.unit);
+  const avgTargetValue = targetValues.length
+    ? targetValues.reduce((sum, value) => sum + value, 0) / targetValues.length
+    : 0;
+  updateTrendLegend(average, hasAverage, avgTargetValue, targetValues.length > 0, trendMacro.unit);
 
   const tickCount = 4;
   ctx.save();
@@ -2937,6 +3011,9 @@ async function refreshMacroSnapshotData() {
     if (data.targets) {
       state.dashboardData.targets = data.targets;
     }
+    if (data.targetHistory) {
+      setMacroTargetHistory(data.targetHistory);
+    }
     drawTrend(state.macroDailyTotals);
     renderSnapshotStats(state.macroDailyTotals, state.dashboardData.targets);
     renderCoachForPage('macros');
@@ -3032,9 +3109,10 @@ function renderSnapshotStats(dailyTotals, targets) {
   setText(avgProteinEl, `${fmtNumber(avgProtein)}g`);
   setText(avgCarbsEl, `${fmtNumber(avgCarbs)}g`);
   setText(avgFatEl, `${fmtNumber(avgFat)}g`);
+  const effectiveTargets = averageTargetsForRows(dailyTotals || [], targets || {});
   renderWeeklyTargets(
     { calories: avgCalories, protein: avgProtein, carbs: avgCarbs, fat: avgFat },
-    targets || {}
+    effectiveTargets
   );
   setText(
     weeklyAvgNoteEl,
@@ -4319,13 +4397,18 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   const maxValue = Math.max(...values, 1);
   const minValue = Math.min(...values);
   // Extract target early so the Y axis always encompasses it
+  const targetKey = options.targetKey || null;
+  const rowTargetValues = targetKey
+    ? rows.map((row) => Number(row[targetKey] || 0)).filter((value) => Number.isFinite(value) && value > 0)
+    : [];
   const targetValue = Number.isFinite(options.targetValue) && options.targetValue > 0
     ? options.targetValue : null;
   let yMin = baseline === 'range' ? minValue : 0;
   let yMax = baseline === 'range' ? maxValue : maxValue;
-  if (targetValue !== null) {
-    yMin = Math.min(yMin, targetValue);
-    yMax = Math.max(yMax, targetValue);
+  const yTargetValues = rowTargetValues.length ? rowTargetValues : (targetValue !== null ? [targetValue] : []);
+  if (yTargetValues.length) {
+    yMin = Math.min(yMin, ...yTargetValues);
+    yMax = Math.max(yMax, ...yTargetValues);
   }
   const hasFlatRange = baseline === 'range' && Math.abs(yMax - yMin) < 0.0001;
   const ySpan = hasFlatRange ? 1 : Math.max(yMax - yMin, 1);
@@ -4394,23 +4477,54 @@ function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
   }
   ctx.shadowBlur = 0;
 
-  // Optional amber target line (always in range because yMin/yMax were extended above)
-  if (targetValue !== null) {
-    const targetY = hasFlatRange
-      ? pad.top + plotH / 2
-      : pad.top + plotH - ((targetValue - yMin) / ySpan) * plotH;
+  // Optional amber target line/path (always in range because yMin/yMax were extended above)
+  if (rowTargetValues.length >= 2 && rows.length >= 2) {
     ctx.save();
     ctx.shadowBlur = 8;
     ctx.shadowColor = 'rgba(255, 202, 40, 0.8)';
     ctx.beginPath();
     ctx.setLineDash([5, 4]);
-    ctx.moveTo(pad.left, targetY);
-    ctx.lineTo(pad.left + plotW, targetY);
+    let startedTargetLine = false;
+    for (let i = 0; i < rows.length; i += 1) {
+      const pointTarget = Number(rows[i][targetKey] || 0);
+      if (!Number.isFinite(pointTarget) || pointTarget <= 0) {
+        startedTargetLine = false;
+        continue;
+      }
+      const targetY = hasFlatRange
+        ? pad.top + plotH / 2
+        : pad.top + plotH - ((pointTarget - yMin) / ySpan) * plotH;
+      if (!startedTargetLine) {
+        ctx.moveTo(xForIndex(i), targetY);
+        startedTargetLine = true;
+      } else {
+        ctx.lineTo(xForIndex(i), targetY);
+      }
+    }
     ctx.strokeStyle = 'rgba(255, 202, 40, 0.95)';
     ctx.lineWidth = 1.8;
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
+  } else {
+    const flatTargetValue = rowTargetValues.length ? rowTargetValues[rowTargetValues.length - 1] : targetValue;
+    if (flatTargetValue !== null && Number.isFinite(flatTargetValue) && flatTargetValue > 0) {
+      const targetY = hasFlatRange
+        ? pad.top + plotH / 2
+        : pad.top + plotH - ((flatTargetValue - yMin) / ySpan) * plotH;
+      ctx.save();
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = 'rgba(255, 202, 40, 0.8)';
+      ctx.beginPath();
+      ctx.setLineDash([5, 4]);
+      ctx.moveTo(pad.left, targetY);
+      ctx.lineTo(pad.left + plotW, targetY);
+      ctx.strokeStyle = 'rgba(255, 202, 40, 0.95)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
   }
 
   if (showTrendLine && rows.length >= 2) {
@@ -4627,6 +4741,7 @@ function renderWeightChart() {
     showTrendLine: true,
     trendLineMode: 'average',
     averageValueEl: weightAverageValueEl,
+    targetKey: 'targetValue',
     targetValue: state.weightTarget,
     tooltipEl: weightTooltipEl,
     tooltipUnit: 'lbs'
@@ -4805,8 +4920,6 @@ function drawWorkoutOccurrenceChart(entries, period) {
 function renderWorkoutCalChart() {
   const rows = state.workoutCalChartRows || [];
   const calTarget = Number(state.dashboardData?.targets?.workout_calories || 0);
-  // Convert weekly target to daily for the chart
-  const dailyTarget = calTarget > 0 ? Math.round(calTarget / 7) : 0;
   drawSimpleLineChart(workoutCalCanvasEl, rows, 'label', 'value', {
     baseline: 'zero',
     showYAxis: true,
@@ -4815,7 +4928,7 @@ function renderWorkoutCalChart() {
     showTrendLine: true,
     trendLineMode: 'average',
     averageValueEl: workoutCalAverageValueEl,
-    targetValue: dailyTarget > 0 ? dailyTarget : undefined,
+    targetKey: 'targetValue',
     tooltipEl: workoutCalTooltipEl,
     tooltipUnit: 'cal'
   });
@@ -4924,7 +5037,7 @@ async function refreshWeightData(options = {}) {
     const tz = getTimezone();
     const [response, target, chartResponse] = await Promise.all([
       api(buildLogPageUrl('/api/weights', { scope: weightScope, tz }, paging)),
-      reset ? api('/api/weight-target') : Promise.resolve(state.weightTargetData || {}),
+      reset ? api(`/api/weight-target?tz=${encodeURIComponent(tz)}`) : Promise.resolve(state.weightTargetData || {}),
       reset ? api(`/api/weights?scope=${encodeURIComponent(weightScope)}&tz=${encodeURIComponent(tz)}`) : Promise.resolve({ entries: state.weightChartEntries || [] })
     ]);
     const entries = Array.isArray(response.entries) ? response.entries : [];
@@ -4942,6 +5055,7 @@ async function refreshWeightData(options = {}) {
       state.weightChartRows = chartEntries.slice().reverse().map((entry) => ({
         label: new Date(entry.loggedAt).toLocaleDateString(),
         value: Number(entry.weight || 0),
+        targetValue: Number(entry.targetWeight || 0),
         time: new Date(entry.loggedAt).getTime()
       }));
       renderWeightChart();
@@ -5008,7 +5122,7 @@ function showWeightTargetModal() {
     try {
       const response = await api('/api/weight-target', {
         method: 'PUT',
-        body: JSON.stringify({ targetWeight, targetDate })
+        body: JSON.stringify({ targetWeight, targetDate, effectiveDate: getLocalIsoDay(), tz: getTimezone() })
       });
       state.weightTargetData = response;
       setActionBanner('Weight target updated.', 'success');
@@ -5354,6 +5468,9 @@ async function refreshSleepData(options = {}) {
     ]);
     if (reset && targetData?.targets) {
       setSleepTargetFromTargets(targetData.targets);
+      if (targetData.targetHistory) {
+        setMacroTargetHistory(targetData.targetHistory);
+      }
       state.dashboardData = state.dashboardData || {};
       state.dashboardData.targets = {
         ...(state.dashboardData.targets || {}),
@@ -5370,6 +5487,7 @@ async function refreshSleepData(options = {}) {
       state.sleepChartRows = dailyTotals.map((d) => ({
         label: new Date(d.day + 'T00:00:00').toLocaleDateString(),
         value: Number(d.totalHours || 0),
+        targetValue: Number(d.targetHours || 0),
         time: new Date(d.day + 'T00:00:00').getTime()
       }));
       renderSleepChart();
@@ -5402,6 +5520,7 @@ function renderSleepChart() {
     tooltipEl: sleepTooltipEl,
     tooltipUnit: 'hrs',
     timeKey: 'time',
+    targetKey: 'targetValue',
     targetValue: getSleepTargetHours()
   });
 }
@@ -5754,7 +5873,8 @@ async function refreshWorkoutData(options = {}) {
       state.workoutOccurrenceRows = dailyCalories;
       state.workoutCalChartRows = dailyCalories.map((d) => ({
         label: new Date(d.day + 'T00:00:00').toLocaleDateString(),
-        value: Number(d.calories || 0)
+        value: Number(d.calories || 0),
+        targetValue: Number(d.targetCalories || 0) > 0 ? Number(d.targetCalories || 0) / 7 : 0
       }));
       renderWorkoutStats(dailyCalories);
       renderWorkoutChart();

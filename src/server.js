@@ -38,6 +38,7 @@ const {
   getDashboard,
   getDailyTotals,
   getMacroTargets,
+  getMacroTargetHistory,
   setMacroTarget,
   addWeightEntry,
   updateWeightEntry,
@@ -2611,7 +2612,9 @@ apiRouter.put('/macro-targets/:macro', async (req, res) => {
   try {
     const macro = String(req.params.macro || '').toLowerCase();
     const target = Number(req.body?.target);
-    const updated = await setMacroTarget(userIdFromReq(req), macro, target);
+    const effectiveDate = req.body?.effectiveDate || req.body?.effective_date;
+    const timezone = normalizeTimezone(req.body?.tz || req.query.tz);
+    const updated = await setMacroTarget(userIdFromReq(req), macro, target, { effectiveDate, timezone });
     return res.json({ ok: true, ...updated });
   } catch (error) {
     return res.status(400).json({ error: error.message });
@@ -2635,7 +2638,8 @@ apiRouter.get('/weights', async (req, res) => {
 
 apiRouter.get('/weight-target', async (req, res) => {
   try {
-    const target = await getWeightTarget(userIdFromReq(req));
+    const tz = normalizeTimezone(req.query.tz);
+    const target = await getWeightTarget(userIdFromReq(req), undefined, { timezone: tz });
     res.json(target);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -2644,7 +2648,8 @@ apiRouter.get('/weight-target', async (req, res) => {
 
 apiRouter.put('/weight-target', async (req, res) => {
   try {
-    const target = await setWeightTarget(userIdFromReq(req), req.body || {});
+    const timezone = normalizeTimezone(req.body?.tz || req.query.tz);
+    const target = await setWeightTarget(userIdFromReq(req), { ...(req.body || {}), tz: timezone });
     res.json({ ok: true, ...target });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -3018,8 +3023,9 @@ apiRouter.get('/daily-totals', async (req, res) => {
     const scope = normalizeScope(req.query.scope);
     const tz = normalizeTimezone(req.query.tz);
     const totals = await getDailyTotals(userIdFromReq(req), scope, tz);
-    const targets = await getMacroTargets(userIdFromReq(req));
-    res.json({ dailyTotals: totals, targets });
+    const targets = await getMacroTargets(userIdFromReq(req), undefined, { timezone: tz });
+    const targetHistory = await getMacroTargetHistory(userIdFromReq(req), scope, tz);
+    res.json({ dailyTotals: totals, targets, targetHistory });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

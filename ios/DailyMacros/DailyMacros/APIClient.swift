@@ -537,7 +537,15 @@ class APIClient: ObservableObject {
     // MARK: - Macro Targets
 
     func setMacroTarget(macro: String, target: Double) async throws {
-        let payload: [String: Any] = ["target": target]
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        let payload: [String: Any] = [
+            "target": target,
+            "effectiveDate": formatter.string(from: Date())
+        ]
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/macro-targets/\(macro)"), method: "PUT", body: body)
         let _: OkResponse = try await perform(request)
@@ -594,6 +602,12 @@ class APIClient: ObservableObject {
         var payload: [String: Any] = [:]
         if let targetWeight { payload["targetWeight"] = targetWeight }
         if let targetDate { payload["targetDate"] = targetDate }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        payload["effectiveDate"] = formatter.string(from: Date())
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/weight-target"), method: "PUT", body: body)
         let _: OkResponse = try await perform(request)
