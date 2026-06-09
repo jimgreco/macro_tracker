@@ -86,13 +86,13 @@ struct OnboardingView: View {
         var focusText: String {
             switch self {
             case .macros:
-                return "Tap the highlighted add button to log a meal with text, photo, barcode, or Quick Add."
+                return "Tap the arrow-marked add button to log a meal with text, photo, barcode, or Quick Add."
             case .workouts:
-                return "Use the highlighted controls to sync Health workouts or log a new workout."
+                return "Use the arrow-marked controls to sync Health workouts or log a new workout."
             case .weight:
-                return "Use the highlighted controls to sync Health weight or add a weigh-in."
+                return "Use the arrow-marked controls to sync Health weight or add a weigh-in."
             case .sleep:
-                return "Use the highlighted controls to sync Health sleep or log sleep manually."
+                return "Use the arrow-marked controls to sync Health sleep or log sleep manually."
             case .targets:
                 return ""
             }
@@ -234,16 +234,11 @@ struct OnboardingView: View {
                         ) ?? fallbackSpotlightRect
 
                         ZStack {
-                            TutorialSpotlightScrim(spotlightRect: spotlightRect)
+                            Color.black.opacity(0.58)
                                 .ignoresSafeArea()
                                 .allowsHitTesting(false)
 
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(.cyan, lineWidth: 2)
-                                .shadow(color: .cyan.opacity(0.75), radius: 12)
-                                .frame(width: spotlightRect.width, height: spotlightRect.height)
-                                .position(x: spotlightRect.midX, y: spotlightRect.midY)
-                                .allowsHitTesting(false)
+                            tutorialPointerArrow(targetRect: spotlightRect, containerSize: spotlightProxy.size)
 
                             VStack(spacing: 0) {
                                 HStack {
@@ -267,6 +262,20 @@ struct OnboardingView: View {
                     }
                 }
         }
+    }
+
+    private func tutorialPointerArrow(targetRect: CGRect, containerSize: CGSize) -> some View {
+        let arrowX = min(max(targetRect.minX - 28, 30), containerSize.width - 30)
+        let arrowY = min(max(targetRect.maxY + 30, 72), containerSize.height - 220)
+
+        return Image(systemName: "arrow.up.right")
+            .font(.system(size: 38, weight: .black))
+            .foregroundStyle(.cyan)
+            .shadow(color: .cyan.opacity(0.9), radius: 10)
+            .shadow(color: .black.opacity(0.65), radius: 8, y: 3)
+            .position(x: arrowX, y: arrowY)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -536,28 +545,5 @@ struct OnboardingView: View {
         }
 
         return ISO8601DateFormatter().date(from: trimmed)
-    }
-}
-
-private struct TutorialSpotlightScrim: View {
-    let spotlightRect: CGRect
-
-    var body: some View {
-        TutorialSpotlightScrimShape(spotlightRect: spotlightRect)
-            .fill(Color.black.opacity(0.58), style: FillStyle(eoFill: true))
-    }
-}
-
-private struct TutorialSpotlightScrimShape: Shape {
-    let spotlightRect: CGRect
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.addRect(rect)
-        path.addRoundedRect(
-            in: spotlightRect.insetBy(dx: -6, dy: -6),
-            cornerSize: CGSize(width: 22, height: 22)
-        )
-        return path
     }
 }
