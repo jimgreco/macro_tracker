@@ -265,10 +265,10 @@ struct OnboardingView: View {
     }
 
     private func tutorialPointerArrow(targetRect: CGRect, containerSize: CGSize) -> some View {
-        let arrowX = min(max(targetRect.minX - 28, 30), containerSize.width - 30)
+        let arrowX = min(max(targetRect.midX, 30), containerSize.width - 30)
         let arrowY = min(max(targetRect.maxY + 30, 72), containerSize.height - 220)
 
-        return Image(systemName: "arrow.up.right")
+        return Image(systemName: "arrow.up")
             .font(.system(size: 38, weight: .black))
             .foregroundStyle(.cyan)
             .shadow(color: .cyan.opacity(0.9), radius: 10)

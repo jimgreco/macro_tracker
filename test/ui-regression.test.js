@@ -1150,7 +1150,7 @@ test('iOS app includes onboarding reminders offline queue and diagnostics founda
   assert.ok(onboarding.includes('func tutorialSpotlightAnchor(_ target: TutorialSpotlightTarget)'));
   assert.ok(onboarding.includes('measuredSpotlightRect('));
   assert.ok(onboarding.includes('tutorialPointerArrow(targetRect: spotlightRect, containerSize: spotlightProxy.size)'));
-  assert.ok(onboarding.includes('Image(systemName: "arrow.up.right")'));
+  assert.ok(onboarding.includes('Image(systemName: "arrow.up")'));
   assert.ok(onboarding.includes('private func tutorialTopInset(in size: CGSize, safeAreaInsets: EdgeInsets, coordinateMinY: CGFloat)'));
   assert.ok(onboarding.includes('normalizedTopInset - max(coordinateMinY, 0)'));
   assert.ok(onboarding.includes('coordinateMinY: proxy.frame(in: .global).minY'));
