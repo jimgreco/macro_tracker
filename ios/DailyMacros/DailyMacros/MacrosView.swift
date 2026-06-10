@@ -482,7 +482,6 @@ struct MacrosView: View {
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("Log meal")
-            .tutorialSpotlightAnchor(.macros)
         }
     }
 

@@ -117,7 +117,6 @@ struct HealthView: View {
                         }
                     }
                     .disabled(isSyncingHealthKit || (mode == .sexualActivity && !sexualActivityEnabled))
-                    .tutorialSpotlightAnchor(.sleep)
 
                     Button {
                         showLogSheetForMode()
@@ -129,7 +128,6 @@ struct HealthView: View {
                     }
                     .accessibilityLabel(mode == .sleep ? "Log sleep" : "Log sexual activity")
                     .disabled(mode == .sexualActivity && !sexualActivityEnabled)
-                    .tutorialSpotlightAnchor(.sleep)
                 }
             }
             .sheet(isPresented: $showLogHealth) { logHealthSheet }

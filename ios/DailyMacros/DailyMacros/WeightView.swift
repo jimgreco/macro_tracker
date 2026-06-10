@@ -62,7 +62,6 @@ struct WeightView: View {
                         }
                     }
                     .disabled(isSyncing)
-                    .tutorialSpotlightAnchor(.weight)
 
                     Button {
                         newWeightDate = Date()
@@ -74,7 +73,6 @@ struct WeightView: View {
                             .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Log weight")
-                    .tutorialSpotlightAnchor(.weight)
                 }
             }
             .sheet(isPresented: $showAddSheet) {

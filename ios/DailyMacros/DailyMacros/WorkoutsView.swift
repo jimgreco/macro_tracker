@@ -79,7 +79,6 @@ struct WorkoutsView: View {
                         }
                     }
                     .disabled(isSyncing)
-                    .tutorialSpotlightAnchor(.workouts)
 
                     Button {
                         workoutLogDate = Date()
@@ -91,7 +90,6 @@ struct WorkoutsView: View {
                             .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Log workout")
-                    .tutorialSpotlightAnchor(.workouts)
                 }
             }
             .sheet(isPresented: $showLogSheet) {
