@@ -89,6 +89,17 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     assert.ok(copied);
     assert.equal(copied.sourceDetail, 'copied_from:2026-06-11');
 
+    const singleCopyResult = await db.copyEntriesToLocalDay(userId, {
+      entryId: logged.id,
+      targetDay: '2026-06-13',
+      timezone: 'America/New_York'
+    });
+    assert.equal(singleCopyResult.copiedCount, 1);
+    const singleCopiedDashboard = await db.getDashboard(userId, '2026-06-13', { timezone: 'America/New_York' });
+    const singleCopied = singleCopiedDashboard.entries.find((entry) => entry.sourceDetail === `copied_from_entry:${logged.id}`);
+    assert.ok(singleCopied);
+    assert.equal(singleCopied.mealGroup, null);
+
     const starterFirst = await db.addStarterQuickAdds(userId);
     const starterSecond = await db.addStarterQuickAdds(userId);
     assert.equal(starterFirst.addedCount, 5);

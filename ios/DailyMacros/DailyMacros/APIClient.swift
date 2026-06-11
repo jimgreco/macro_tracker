@@ -264,6 +264,14 @@ class APIClient: ObservableObject {
         return response.user
     }
 
+    func updateAccountPreferences(timezone: String) async throws -> User? {
+        let payload: [String: Any] = ["timezone": timezone]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/account/preferences"), method: "PATCH", body: body)
+        let response: AccountPreferencesResponse = try await perform(request)
+        return response.user
+    }
+
     func getVersion() async throws -> VersionResponse {
         let request = try authorizedRequest(apiURL("/version"))
         return try await perform(request)
@@ -434,6 +442,13 @@ class APIClient: ObservableObject {
         let _: OkResponse = try await perform(request)
     }
 
+    func copyEntryToToday(entryId: Int) async throws -> CopyEntriesResponse {
+        let payload: [String: Any] = ["entryId": entryId]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/entries/copy-to-today"), method: "POST", body: body)
+        return try await perform(request)
+    }
+
     // MARK: - Meal Groups
 
     func combineEntries(entryIds: [Int], mealName: String = "Meal") async throws {
@@ -459,6 +474,13 @@ class APIClient: ObservableObject {
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/meal-group/\(mealGroup)/scale"), method: "PUT", body: body)
         let _: OkResponse = try await perform(request)
+    }
+
+    func copyMealToToday(mealGroup: String) async throws -> CopyEntriesResponse {
+        let payload: [String: Any] = ["mealGroup": mealGroup]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/entries/copy-to-today"), method: "POST", body: body)
+        return try await perform(request)
     }
 
     // MARK: - Saved Items
@@ -504,6 +526,11 @@ class APIClient: ObservableObject {
     func deleteSavedItem(id: Int) async throws {
         let request = try authorizedRequest(apiURL("/saved-items/\(id)"), method: "DELETE")
         let _: OkResponse = try await perform(request)
+    }
+
+    func addStarterQuickAdds() async throws -> StarterQuickAddsResponse {
+        let request = try authorizedRequest(apiURL("/starter-quick-adds"), method: "POST")
+        return try await perform(request)
     }
 
     func quickAdd(savedItemId: Int, multiplier: Double = 1, consumedAt: String) async throws {

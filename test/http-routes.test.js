@@ -95,6 +95,10 @@ const fakeDb = {
     record('copyEntriesForLocalDay', { userId, sourceDay, targetDay, timezone });
     return { copiedCount: 3 };
   },
+  copyEntriesToLocalDay: async (userId, payload) => {
+    record('copyEntriesToLocalDay', { userId, ...payload });
+    return { copiedCount: payload.mealGroup ? 2 : 1 };
+  },
   updateEntry: async () => 1,
   deleteEntry: async () => 1,
   scaleMealGroup: async () => 1,
@@ -300,6 +304,30 @@ test('copy-day and starter quick-add routes call backend primitives', routeTestO
   assert.equal(starter.res.status, 200);
   assert.equal(starter.body.addedCount, 5);
   assert.ok(latestCall('addStarterQuickAdds'));
+});
+
+test('copy-to-today route copies either an entry or a meal group', routeTestOptions, async () => {
+  resetCalls();
+  const entryCopy = await request('/api/entries/copy-to-today', {
+    method: 'POST',
+    body: JSON.stringify({ entryId: 42, targetDay: '2026-06-11' })
+  });
+  const mealCopy = await request('/api/entries/copy-to-today', {
+    method: 'POST',
+    body: JSON.stringify({ mealGroup: 'meal-group-id', targetDay: '2026-06-11' })
+  });
+  const invalid = await request('/api/entries/copy-to-today', {
+    method: 'POST',
+    body: JSON.stringify({ entryId: 42, mealGroup: 'meal-group-id' })
+  });
+
+  assert.equal(entryCopy.res.status, 200);
+  assert.equal(entryCopy.body.copiedCount, 1);
+  assert.equal(mealCopy.res.status, 200);
+  assert.equal(mealCopy.body.copiedCount, 2);
+  assert.equal(invalid.res.status, 400);
+  assert.equal(latestCall('copyEntriesToLocalDay').payload.mealGroup, 'meal-group-id');
+  assert.equal(latestCall('copyEntriesToLocalDay').payload.timezone, 'America/Los_Angeles');
 });
 
 test('weekly recap and diagnostics routes are wired through real middleware', routeTestOptions, async () => {

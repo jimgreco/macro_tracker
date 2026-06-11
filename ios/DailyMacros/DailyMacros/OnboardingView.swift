@@ -82,6 +82,7 @@ struct OnboardingView: View {
     @State private var targetDate = Calendar.current.date(byAdding: .month, value: 3, to: Date()) ?? Date()
     @State private var remindersEnabled = false
     @State private var reminderDate = ReminderScheduler.shared.reminderDate
+    @State private var addStarterQuickAddsDuringSetup = true
     @State private var isLoadingTargets = false
     @State private var didLoadExistingTargets = false
     @State private var isSaving = false
@@ -623,6 +624,12 @@ struct OnboardingView: View {
             }
 
             Section {
+                Toggle("Add Starter Quick Adds", isOn: $addStarterQuickAddsDuringSetup)
+            } footer: {
+                Text("Creates a small starter set in Quick Add. You can add them later from Settings if you skip this.")
+            }
+
+            Section {
                 Button {
                     Task { await saveSetup() }
                 } label: {
@@ -800,12 +807,33 @@ struct OnboardingView: View {
             if remindersEnabled {
                 try await ReminderScheduler.shared.setEnabled(true, at: reminderDate)
             }
+            if addStarterQuickAddsDuringSetup {
+                await addStarterQuickAddsFromSetup()
+            }
 
             Diagnostics.shared.record(category: "onboarding", message: "Completed setup")
             isComplete = true
         } catch {
             Diagnostics.shared.record(level: "error", category: "onboarding", message: error.localizedDescription)
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func addStarterQuickAddsFromSetup() async {
+        do {
+            let starterResult = try await api.addStarterQuickAdds()
+            Diagnostics.shared.record(
+                category: "onboarding",
+                message: "Added starter quick adds during setup",
+                details: ["addedCount": "\(starterResult.addedCount)"]
+            )
+        } catch {
+            Diagnostics.shared.record(
+                level: "warning",
+                category: "onboarding",
+                message: "Failed to add starter quick adds during setup",
+                details: ["error": error.localizedDescription]
+            )
         }
     }
 

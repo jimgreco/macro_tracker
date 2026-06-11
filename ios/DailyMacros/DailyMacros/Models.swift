@@ -8,6 +8,7 @@ struct User: Codable {
     let email: String?
     let picture: String?
     let provider: String?
+    let timezone: String?
     let isAdmin: Bool?
     let setupTutorialResetAt: String?
     let features: UserFeatures?
@@ -18,6 +19,7 @@ struct User: Codable {
         email: String?,
         picture: String?,
         provider: String?,
+        timezone: String? = nil,
         isAdmin: Bool? = nil,
         setupTutorialResetAt: String? = nil,
         features: UserFeatures? = nil
@@ -27,6 +29,7 @@ struct User: Codable {
         self.email = email
         self.picture = picture
         self.provider = provider
+        self.timezone = timezone
         self.isAdmin = isAdmin
         self.setupTutorialResetAt = setupTutorialResetAt
         self.features = features
@@ -42,6 +45,11 @@ struct UserFeatures: Codable {
 }
 
 struct MeResponse: Codable {
+    let user: User?
+}
+
+struct AccountPreferencesResponse: Codable {
+    let ok: Bool
     let user: User?
 }
 
@@ -256,6 +264,17 @@ struct ApiTokenListResponse: Codable {
 
 struct OkResponse: Codable {
     let ok: Bool
+}
+
+struct StarterQuickAddsResponse: Codable {
+    let ok: Bool
+    let addedCount: Int
+    let addedIds: [Int]?
+}
+
+struct CopyEntriesResponse: Codable {
+    let ok: Bool
+    let copiedCount: Int
 }
 
 struct WorkoutMutationResponse: Codable {

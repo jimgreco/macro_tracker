@@ -1417,6 +1417,96 @@ async function copyEntriesForLocalDay(userId, sourceDay, targetDay, timezone = '
   return { copiedCount: rows.length };
 }
 
+async function copyEntriesToLocalDay(userId, { entryId = null, mealGroup = null, targetDay = null, timezone = 'America/New_York' } = {}) {
+  const normalizedTargetDay = normalizeIsoDateString(targetDay || todayIsoDateInTimezone(timezone), 'targetDay');
+  const copyingMeal = Boolean(mealGroup);
+  const params = copyingMeal
+    ? [userId, mealGroup, timezone]
+    : [userId, Number(entryId || 0), timezone];
+  const whereClause = copyingMeal
+    ? 'user_id = $1 AND meal_group = $2 AND deleted_at IS NULL'
+    : 'user_id = $1 AND id = $2 AND deleted_at IS NULL';
+
+  if (!copyingMeal && (!Number.isInteger(Number(entryId)) || Number(entryId) <= 0)) {
+    throw new Error('entryId is required.');
+  }
+  if (copyingMeal && !String(mealGroup || '').trim()) {
+    throw new Error('mealGroup is required.');
+  }
+
+  const result = await pool.query(
+    `SELECT id,
+            item_name AS "itemName",
+            quantity,
+            unit,
+            calories,
+            protein,
+            carbs,
+            fat,
+            consumed_at AS "consumedAt",
+            to_char((consumed_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS "localDay",
+            to_char((consumed_at AT TIME ZONE $3)::time, 'HH24:MI:SS.US') AS "localTime",
+            meal_group AS "mealGroup",
+            meal_name AS "mealName",
+            meal_quantity AS "mealQuantity",
+            meal_unit AS "mealUnit"
+     FROM entries
+     WHERE ${whereClause}
+     ORDER BY consumed_at ASC, id ASC`,
+    params
+  );
+
+  if (!result.rows.length) {
+    return { copiedCount: 0 };
+  }
+
+  if (result.rows.some((row) => String(row.localDay || '') >= normalizedTargetDay)) {
+    throw new Error('Only entries from previous days can be copied to today.');
+  }
+
+  const copiedMealGroup = copyingMeal ? crypto.randomUUID() : null;
+  const rows = result.rows.map((row) => ({
+    itemName: row.itemName,
+    quantity: Number(row.quantity || 0),
+    unit: row.unit || 'serving',
+    calories: Number(row.calories || 0),
+    protein: Number(row.protein || 0),
+    carbs: Number(row.carbs || 0),
+    fat: Number(row.fat || 0),
+    consumedAt: null,
+    mealGroup: copyingMeal ? copiedMealGroup : null,
+    mealName: copyingMeal ? (row.mealName || null) : null,
+    mealQuantity: copyingMeal ? Number(row.mealQuantity || 1) : 1,
+    mealUnit: copyingMeal ? (row.mealUnit || 'serving') : 'serving',
+    source: 'copy_day',
+    sourceDetail: copyingMeal ? `copied_from_meal:${mealGroup}` : `copied_from_entry:${row.id}`,
+    confidence: 1,
+    needsReview: false
+  }));
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (let i = 0; i < rows.length; i += 1) {
+      const localTime = String(result.rows[i].localTime || '12:00:00');
+      const consumedAtResult = await client.query(
+        `SELECT (($1::date + $2::time) AT TIME ZONE $3) AS "consumedAt"`,
+        [normalizedTargetDay, localTime, timezone]
+      );
+      rows[i].consumedAt = consumedAtResult.rows[0].consumedAt;
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  await addEntries(userId, rows);
+  return { copiedCount: rows.length };
+}
+
 async function updateEntry(userId, id, entry) {
   const correctionKey = nutritionCorrectionKey(entry.itemName);
   const result = await pool.query(
@@ -3572,6 +3662,7 @@ module.exports = {
   listClientDiagnostics,
   addEntries,
   copyEntriesForLocalDay,
+  copyEntriesToLocalDay,
   updateEntry,
   deleteEntry,
   scaleMealGroup,

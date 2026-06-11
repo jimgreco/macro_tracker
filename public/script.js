@@ -6,6 +6,10 @@ const state = {
   quickEntriesLoaded: false,
   quickEntriesError: '',
   quickSearchQuery: '',
+  quickSelectedKey: '',
+  quickPickerOpen: false,
+  quickPickerShowAll: false,
+  quickPickerActiveIndex: -1,
   editingEntryId: null,
   mealImageAttachments: [],
   mealImageLoading: false,
@@ -91,13 +95,14 @@ const mealCameraInputEl = document.getElementById('meal-camera-input');
 const mealPhotoPreviewWrapEl = document.getElementById('meal-photo-preview-wrap');
 const parseNoteEl = document.getElementById('parse-note');
 const parsedItemsContainerEl = document.getElementById('parsed-items-container');
+const quickComboboxEl = document.getElementById('quick-entry-combobox');
 const quickSearchEl = document.getElementById('quick-entry-search');
-const savedSelectEl = document.getElementById('saved-item-select');
+const quickEntryListboxEl = document.getElementById('quick-entry-listbox');
+const quickEntryToggleBtnEl = document.getElementById('quick-entry-toggle-btn');
 const quickMultiplierEl = document.getElementById('quick-multiplier');
 const quickAddBtnEl = document.getElementById('quick-add-btn');
 const quickEditToggleBtnEl = document.getElementById('quick-edit-toggle-btn');
 const copyYesterdayBtnEl = document.getElementById('copy-yesterday-btn');
-const starterQuickAddsBtnEl = document.getElementById('starter-quick-adds-btn');
 const todayCaloriesEl = document.getElementById('today-calories');
 const todayProteinEl = document.getElementById('today-protein');
 const todayCarbsEl = document.getElementById('today-carbs');
@@ -322,6 +327,70 @@ function detectBrowserTimezone() {
 
 function getTimezone() {
   return state.currentUser?.timezone || detectBrowserTimezone();
+}
+
+const FALLBACK_TIMEZONES = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Phoenix',
+  'America/Los_Angeles',
+  'America/Anchorage',
+  'Pacific/Honolulu',
+  'America/Toronto',
+  'America/Vancouver',
+  'America/Mexico_City',
+  'America/Bogota',
+  'America/Lima',
+  'America/Santiago',
+  'America/Sao_Paulo',
+  'Europe/London',
+  'Europe/Dublin',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Europe/Madrid',
+  'Europe/Rome',
+  'Europe/Amsterdam',
+  'Europe/Stockholm',
+  'Europe/Athens',
+  'Europe/Istanbul',
+  'Africa/Cairo',
+  'Africa/Johannesburg',
+  'Asia/Jerusalem',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Bangkok',
+  'Asia/Singapore',
+  'Asia/Shanghai',
+  'Asia/Tokyo',
+  'Asia/Seoul',
+  'Australia/Perth',
+  'Australia/Adelaide',
+  'Australia/Sydney',
+  'Pacific/Auckland'
+];
+
+function supportedTimezones() {
+  let zones = [];
+  try {
+    if (typeof Intl.supportedValuesOf === 'function') {
+      zones = Intl.supportedValuesOf('timeZone');
+    }
+  } catch (_error) {
+    zones = [];
+  }
+  return zones.length ? zones : FALLBACK_TIMEZONES;
+}
+
+function renderTimezoneOptions(selectedTimezone, browserTimezone) {
+  const zones = new Set(supportedTimezones());
+  if (selectedTimezone) zones.add(selectedTimezone);
+  if (browserTimezone) zones.add(browserTimezone);
+  return Array.from(zones)
+    .sort((a, b) => a.localeCompare(b))
+    .map((zone) => `<option value="${escapeAttr(zone)}"${zone === selectedTimezone ? ' selected' : ''}>${escapeHtml(zone)}</option>`)
+    .join('');
 }
 
 function fromIsoDayLocal(isoDay) {
@@ -1918,6 +1987,56 @@ async function copyYesterdayEntries() {
   return result;
 }
 
+function canCopyEntryToToday(entry) {
+  return Boolean(entry?.consumedAt) && getLocalIsoDay(entry.consumedAt) < getLocalIsoDay();
+}
+
+async function copyEntryOrMealToToday(payload) {
+  const body = {
+    targetDay: getLocalIsoDay(),
+    tz: getTimezone()
+  };
+  if (payload?.mealGroup) {
+    body.mealGroup = payload.mealGroup;
+  } else {
+    body.entryId = payload?.entryId;
+  }
+  const result = await api('/api/entries/copy-to-today', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  });
+  await refreshDashboard();
+  return result;
+}
+
+function buildCopyEntryToTodayHandler(entry) {
+  if (!entry || !canCopyEntryToToday(entry)) {
+    return null;
+  }
+  return async () => {
+    try {
+      const result = await copyEntryOrMealToToday({ entryId: entry.id });
+      setActionBanner(result.copiedCount > 0 ? 'Copied item to today.' : 'No item copied.', result.copiedCount > 0 ? 'success' : 'info');
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  };
+}
+
+function buildCopyMealToTodayHandler(mealGroup, mealEntry) {
+  if (!mealGroup || !mealEntry || !canCopyEntryToToday(mealEntry)) {
+    return null;
+  }
+  return async () => {
+    try {
+      const result = await copyEntryOrMealToToday({ mealGroup });
+      setActionBanner(result.copiedCount > 0 ? 'Copied meal to today.' : 'No meal copied.', result.copiedCount > 0 ? 'success' : 'info');
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  };
+}
+
 function showAccountPrivacyModal() {
   let overlay = document.getElementById('entry-modal-overlay');
   if (overlay) overlay.remove();
@@ -1945,6 +2064,7 @@ function showAccountPrivacyModal() {
     : '';
   const currentTimezone = state.currentUser?.timezone || getTimezone();
   const browserTimezone = detectBrowserTimezone();
+  const timezoneOptions = renderTimezoneOptions(currentTimezone, browserTimezone);
   const coachCategoryControls = coachCategoryControlDefinitions().map((control) => {
     const checked = state.disabledCoachCategories.has(control.id) ? '' : ' checked';
     return `
@@ -1972,8 +2092,10 @@ function showAccountPrivacyModal() {
       <fieldset class="account-preference-controls">
         <legend>Preferences</legend>
         <div class="account-preference-row">
-          <label for="account-timezone-input">Timezone</label>
-          <input id="account-timezone-input" type="text" value="${escapeAttr(currentTimezone)}" autocomplete="off" />
+          <label for="account-timezone-select">Timezone</label>
+          <select id="account-timezone-select">
+            ${timezoneOptions}
+          </select>
         </div>
         <div class="account-preference-actions">
           <button type="button" class="btn-secondary table-action-btn" id="account-use-browser-timezone-btn">Use ${escapeHtml(browserTimezone)}</button>
@@ -2033,14 +2155,14 @@ function showAccountPrivacyModal() {
     });
   });
   document.getElementById('account-close-btn').addEventListener('click', () => overlay.remove());
-  const timezoneInputEl = document.getElementById('account-timezone-input');
+  const timezoneSelectEl = document.getElementById('account-timezone-select');
   document.getElementById('account-use-browser-timezone-btn')?.addEventListener('click', () => {
-    if (timezoneInputEl) {
-      timezoneInputEl.value = detectBrowserTimezone();
+    if (timezoneSelectEl) {
+      timezoneSelectEl.value = detectBrowserTimezone();
     }
   });
   document.getElementById('account-save-timezone-btn')?.addEventListener('click', async () => {
-    const timezone = String(timezoneInputEl?.value || '').trim();
+    const timezone = String(timezoneSelectEl?.value || '').trim();
     try {
       const response = await api('/api/account/preferences', {
         method: 'PATCH',
@@ -2490,7 +2612,7 @@ function buildSavedMealQuickAddPayloadFromEntries(entries, { name, quantity, uni
 }
 
 function getSelectedSavedItem() {
-  const raw = String(savedSelectEl.value || '');
+  const raw = String(state.quickSelectedKey || '');
   if (!raw.startsWith('saved:')) {
     return null;
   }
@@ -2499,7 +2621,7 @@ function getSelectedSavedItem() {
 }
 
 function getSelectedQuickTemplate() {
-  const raw = String(savedSelectEl.value || '');
+  const raw = String(state.quickSelectedKey || '');
   if (raw.startsWith('saved:')) {
     const item = getSelectedSavedItem();
     if (!item) {
@@ -2553,6 +2675,137 @@ function getSelectedQuickTemplate() {
     }) || null;
   }
   return null;
+}
+
+function quickPickerOptionGroups(query) {
+  const normalizedQuery = normalizeQuickSearch(query);
+  const savedMatches = state.savedItems.filter((item) => matchesQuickSearch(item, normalizedQuery));
+  const historyMatches = state.historyQuickItems.filter((item) => matchesQuickSearch(item, normalizedQuery));
+  const groups = [];
+  if (savedMatches.length) {
+    groups.push({
+      label: 'Saved quick entries',
+      items: savedMatches.map((item) => ({
+        key: 'saved:' + String(item.id),
+        label: formatSavedItemOption(item)
+      }))
+    });
+  }
+  if (historyMatches.length) {
+    groups.push({
+      label: 'Recent from previous days',
+      items: historyMatches.map((item) => ({
+        key: item.key,
+        label: formatSavedItemOption(item)
+      }))
+    });
+  }
+  return groups;
+}
+
+function flattenQuickPickerGroups(groups) {
+  return groups.flatMap((group) => group.items);
+}
+
+function findQuickPickerOption(key) {
+  return flattenQuickPickerGroups(quickPickerOptionGroups('')).find((option) => option.key === key) || null;
+}
+
+function setQuickPickerOpen(open) {
+  state.quickPickerOpen = Boolean(open);
+  if (quickSearchEl) {
+    quickSearchEl.setAttribute('aria-expanded', String(state.quickPickerOpen));
+  }
+  if (quickEntryToggleBtnEl) {
+    quickEntryToggleBtnEl.setAttribute('aria-expanded', String(state.quickPickerOpen));
+  }
+  if (quickEntryListboxEl) {
+    quickEntryListboxEl.hidden = !state.quickPickerOpen;
+  }
+}
+
+function selectQuickEntry(key, { updateInput = true } = {}) {
+  const option = findQuickPickerOption(key);
+  state.quickSelectedKey = option ? option.key : '';
+  state.quickSearchQuery = '';
+  state.quickPickerShowAll = false;
+  state.quickPickerActiveIndex = -1;
+  if (updateInput && quickSearchEl) {
+    quickSearchEl.value = option ? option.label : '';
+  }
+  setQuickPickerOpen(false);
+  const selectedTemplate = getSelectedQuickTemplate();
+  quickAddBtnEl.disabled = !selectedTemplate;
+  quickEditToggleBtnEl.disabled = !selectedTemplate;
+}
+
+function renderQuickEntryList() {
+  if (!quickEntryListboxEl) {
+    return;
+  }
+
+  const hasKnownEntries = Boolean(state.savedItems.length || state.historyQuickItems.length);
+  const query = state.quickPickerShowAll ? '' : (quickSearchEl?.value || state.quickSearchQuery || '');
+  const groups = quickPickerOptionGroups(query);
+  const options = flattenQuickPickerGroups(groups);
+
+  quickEntryListboxEl.innerHTML = '';
+
+  if (state.quickEntriesLoading && !hasKnownEntries) {
+    quickEntryListboxEl.innerHTML = '<div class="quick-entry-empty">Loading quick entries...</div>';
+    state.quickPickerActiveIndex = -1;
+    return;
+  }
+  if (state.quickEntriesError && !hasKnownEntries) {
+    quickEntryListboxEl.innerHTML = '<div class="quick-entry-empty">Quick entries unavailable</div>';
+    state.quickPickerActiveIndex = -1;
+    return;
+  }
+  if (!hasKnownEntries) {
+    quickEntryListboxEl.innerHTML = '<div class="quick-entry-empty">No quick add history yet</div>';
+    state.quickPickerActiveIndex = -1;
+    return;
+  }
+  if (!options.length) {
+    quickEntryListboxEl.innerHTML = `<div class="quick-entry-empty">${query ? 'No matching quick entries' : 'No quick entries'}</div>`;
+    state.quickPickerActiveIndex = -1;
+    return;
+  }
+
+  if (state.quickPickerActiveIndex < 0 || state.quickPickerActiveIndex >= options.length) {
+    state.quickPickerActiveIndex = 0;
+  }
+
+  let optionIndex = 0;
+  for (const group of groups) {
+    const groupEl = document.createElement('div');
+    groupEl.className = 'quick-entry-group';
+    groupEl.innerHTML = `<div class="quick-entry-group-label">${escapeHtml(group.label)}</div>`;
+    for (const option of group.items) {
+      const optionEl = document.createElement('button');
+      const selected = option.key === state.quickSelectedKey;
+      const active = optionIndex === state.quickPickerActiveIndex;
+      optionEl.type = 'button';
+      optionEl.className = 'quick-entry-option' + (selected ? ' is-selected' : '') + (active ? ' is-active' : '');
+      optionEl.id = `quick-entry-option-${optionIndex}`;
+      optionEl.dataset.quickEntryKey = option.key;
+      optionEl.setAttribute('role', 'option');
+      optionEl.setAttribute('aria-selected', selected ? 'true' : 'false');
+      optionEl.textContent = option.label;
+      optionEl.addEventListener('mousedown', (event) => event.preventDefault());
+      optionEl.addEventListener('click', () => {
+        selectQuickEntry(option.key);
+        quickSearchEl?.focus();
+      });
+      groupEl.appendChild(optionEl);
+      optionIndex += 1;
+    }
+    quickEntryListboxEl.appendChild(groupEl);
+  }
+
+  if (quickSearchEl) {
+    quickSearchEl.setAttribute('aria-activedescendant', `quick-entry-option-${state.quickPickerActiveIndex}`);
+  }
 }
 
 
@@ -2683,10 +2936,7 @@ function buildHistoryQuickItems(entries, savedItems) {
 
 
 function renderSavedItems() {
-  const selectedBefore = savedSelectEl.value;
-  savedSelectEl.innerHTML = '';
-  state.quickSearchQuery = quickSearchEl ? quickSearchEl.value : state.quickSearchQuery;
-  const query = normalizeQuickSearch(state.quickSearchQuery);
+  const selectedBefore = state.quickSelectedKey;
   const hasKnownEntries = Boolean(state.savedItems.length || state.historyQuickItems.length);
 
   if (quickSearchEl) {
@@ -2695,83 +2945,45 @@ function renderSavedItems() {
       ? 'Loading quick entries...'
       : 'Search quick entries';
   }
+  if (quickEntryToggleBtnEl) {
+    quickEntryToggleBtnEl.disabled = !hasKnownEntries && state.quickEntriesLoading;
+  }
 
   if (state.quickEntriesLoading && !hasKnownEntries) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'Loading quick entries...';
-    savedSelectEl.appendChild(option);
-    savedSelectEl.disabled = true;
+    state.quickSelectedKey = '';
     quickAddBtnEl.disabled = true;
     quickEditToggleBtnEl.disabled = true;
+    renderQuickEntryList();
     return;
   }
 
   if (state.quickEntriesError && !hasKnownEntries) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'Quick entries unavailable';
-    savedSelectEl.appendChild(option);
-    savedSelectEl.disabled = true;
+    state.quickSelectedKey = '';
     quickAddBtnEl.disabled = true;
     quickEditToggleBtnEl.disabled = true;
+    renderQuickEntryList();
     return;
   }
 
   if (!state.savedItems.length && !state.historyQuickItems.length) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'No quick add history yet';
-    savedSelectEl.appendChild(option);
-    savedSelectEl.disabled = true;
+    state.quickSelectedKey = '';
     quickAddBtnEl.disabled = true;
     quickEditToggleBtnEl.disabled = true;
+    if (quickSearchEl) {
+      quickSearchEl.value = '';
+    }
+    renderQuickEntryList();
     return;
   }
 
-  const savedMatches = state.savedItems.filter((item) => matchesQuickSearch(item, query));
-  const historyMatches = state.historyQuickItems.filter((item) => matchesQuickSearch(item, query));
-
-  if (!savedMatches.length && !historyMatches.length) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = query ? 'No matching quick entries' : 'No quick entries';
-    savedSelectEl.appendChild(option);
-    savedSelectEl.disabled = true;
-    quickAddBtnEl.disabled = true;
-    quickEditToggleBtnEl.disabled = true;
-    return;
+  const allOptions = flattenQuickPickerGroups(quickPickerOptionGroups(''));
+  const selectedOption = allOptions.find((option) => option.key === selectedBefore) || allOptions[0] || null;
+  state.quickSelectedKey = selectedOption ? selectedOption.key : '';
+  if (quickSearchEl && !state.quickPickerOpen) {
+    quickSearchEl.value = selectedOption ? selectedOption.label : '';
   }
 
-  const appendGroup = (label, items, valueForItem) => {
-    if (!items.length) {
-      return;
-    }
-    const group = document.createElement('optgroup');
-    group.label = label;
-    for (const item of items) {
-      const option = document.createElement('option');
-      option.value = valueForItem(item);
-      option.textContent = formatSavedItemOption(item);
-      group.appendChild(option);
-    }
-    savedSelectEl.appendChild(group);
-  };
-
-  appendGroup('Saved quick entries', savedMatches, (item) => 'saved:' + String(item.id));
-  if (historyMatches.length) {
-    appendGroup('Recent from previous days', historyMatches, (item) => item.key);
-  }
-
-  const validValues = new Set([
-    ...savedMatches.map((item) => 'saved:' + String(item.id)),
-    ...historyMatches.map((item) => item.key)
-  ]);
-  if (validValues.has(selectedBefore)) {
-    savedSelectEl.value = selectedBefore;
-  }
-
-  savedSelectEl.disabled = false;
+  renderQuickEntryList();
   const selectedTemplate = getSelectedQuickTemplate();
   quickAddBtnEl.disabled = !selectedTemplate;
   quickEditToggleBtnEl.disabled = !selectedTemplate;
@@ -3608,7 +3820,8 @@ entriesByDayEl.addEventListener('click', (event) => {
         } catch (error) {
           setActionBanner(error.message, 'error');
         }
-      }
+      },
+      onCopyToToday: buildCopyEntryToTodayHandler(entry)
     });
     return;
   }
@@ -3626,6 +3839,7 @@ entriesByDayEl.addEventListener('click', (event) => {
       quantity: mealEntry.mealQuantity || 1,
       unit: mealEntry.mealUnit || 'serving',
       mealGroup: groupId,
+      onCopyToToday: buildCopyMealToTodayHandler(groupId, mealEntry),
       onSave: async (name, quantity, unit) => {
         try {
           await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
@@ -3773,7 +3987,8 @@ entriesByDayEl.addEventListener('click', async (event) => {
         } catch (error) {
           setActionBanner(error.message, 'error');
         }
-      }
+      },
+      onCopyToToday: buildCopyEntryToTodayHandler(entry)
     });
     return;
   }
@@ -3787,6 +4002,7 @@ entriesByDayEl.addEventListener('click', async (event) => {
       quantity: mealEntry?.mealQuantity || 1,
       unit: mealEntry?.mealUnit || 'serving',
       mealGroup: groupId,
+      onCopyToToday: buildCopyMealToTodayHandler(groupId, mealEntry),
       onSave: async (name, quantity, unit) => {
         try {
           await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
@@ -3885,6 +4101,7 @@ function showCombineModal(entryIds, options) {
   const defaultName = (options && options.name) || 'Meal';
   const defaultQty = (options && options.quantity) || 1;
   const defaultUnit = (options && options.unit) || 'serving';
+  const canCopyToToday = Boolean(isEdit && options?.onCopyToToday);
 
   let overlay = document.getElementById('combine-modal-overlay');
   if (overlay) overlay.remove();
@@ -3903,6 +4120,7 @@ function showCombineModal(entryIds, options) {
       <input id="combine-unit" type="text" value="${escapeAttr(defaultUnit)}" />
       ${isEdit ? '<label class="inline-check entry-modal-quickadd"><input type="checkbox" id="combine-save-quickadd" /><span>Save as quick add</span></label>' : ''}
       <div class="combine-modal-actions">
+        ${canCopyToToday ? '<button type="button" class="btn-info table-action-btn" id="combine-copy-today-btn">Copy to Today</button><span style="flex:1"></span>' : ''}
         <button type="button" class="btn-muted table-action-btn" id="combine-cancel-btn">Cancel</button>
         <button type="button" class="btn-success table-action-btn" id="combine-confirm-btn">${btnLabel}</button>
       </div>
@@ -3919,6 +4137,14 @@ function showCombineModal(entryIds, options) {
   });
 
   document.getElementById('combine-cancel-btn').addEventListener('click', () => overlay.remove());
+
+  if (canCopyToToday) {
+    document.getElementById('combine-copy-today-btn').addEventListener('click', async (event) => {
+      event.currentTarget.disabled = true;
+      overlay.remove();
+      await options.onCopyToToday();
+    });
+  }
 
   document.getElementById('combine-confirm-btn').addEventListener('click', async () => {
     const mealName = nameInput.value.trim() || 'Meal';
@@ -3975,11 +4201,12 @@ function showCombineModal(entryIds, options) {
   });
 }
 
-function showEntryModal(entry, { onSave, onDelete, title } = {}) {
+function showEntryModal(entry, { onSave, onDelete, onCopyToToday, title } = {}) {
   let overlay = document.getElementById('entry-modal-overlay');
   if (overlay) overlay.remove();
 
   const consumedAtValue = entry.consumedAt ? isoToLocalInputValue(entry.consumedAt) : '';
+  const canCopyToToday = Boolean(onCopyToToday);
 
   overlay = document.createElement('div');
   overlay.id = 'entry-modal-overlay';
@@ -4023,6 +4250,7 @@ function showEntryModal(entry, { onSave, onDelete, title } = {}) {
       <label class="inline-check entry-modal-quickadd"><input type="checkbox" id="entry-modal-save-quickadd" /><span>Save as quick add</span></label>
       <div class="combine-modal-actions">
         ${onDelete ? '<button type="button" class="btn-danger table-action-btn" id="entry-modal-delete-btn">Delete</button>' : ''}
+        ${canCopyToToday ? '<button type="button" class="btn-info table-action-btn" id="entry-modal-copy-today-btn">Copy to Today</button>' : ''}
         <span style="flex:1"></span>
         <button type="button" class="btn-muted table-action-btn" id="entry-modal-cancel-btn">Cancel</button>
         <button type="button" class="btn-success table-action-btn" id="entry-modal-save-btn">Save</button>
@@ -4043,6 +4271,14 @@ function showEntryModal(entry, { onSave, onDelete, title } = {}) {
     document.getElementById('entry-modal-delete-btn').addEventListener('click', () => {
       overlay.remove();
       onDelete();
+    });
+  }
+
+  if (canCopyToToday) {
+    document.getElementById('entry-modal-copy-today-btn').addEventListener('click', async (event) => {
+      event.currentTarget.disabled = true;
+      overlay.remove();
+      await onCopyToToday();
     });
   }
 
@@ -4446,34 +4682,97 @@ if (copyYesterdayBtnEl) {
   });
 }
 
-if (starterQuickAddsBtnEl) {
-  starterQuickAddsBtnEl.addEventListener('click', async () => {
-    starterQuickAddsBtnEl.disabled = true;
-    try {
-      const result = await addStarterQuickAdds();
-      setActionBanner(
-        result.addedCount > 0 ? `Added ${result.addedCount} starter quick add${result.addedCount === 1 ? '' : 's'}.` : 'Starter quick adds already exist.',
-        result.addedCount > 0 ? 'success' : 'info'
-      );
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    } finally {
-      starterQuickAddsBtnEl.disabled = false;
+if (quickSearchEl) {
+  quickSearchEl.addEventListener('input', () => {
+    state.quickSearchQuery = quickSearchEl.value;
+    state.quickSelectedKey = '';
+    state.quickPickerShowAll = false;
+    state.quickPickerActiveIndex = 0;
+    quickAddBtnEl.disabled = true;
+    quickEditToggleBtnEl.disabled = true;
+    setQuickPickerOpen(true);
+    renderQuickEntryList();
+  });
+
+  quickSearchEl.addEventListener('focus', () => {
+    if (!state.savedItems.length && !state.historyQuickItems.length && !state.quickEntriesLoading) {
+      return;
+    }
+    if (!state.quickPickerOpen) {
+      state.quickPickerShowAll = false;
+    }
+    setQuickPickerOpen(true);
+    renderQuickEntryList();
+    quickSearchEl.select();
+  });
+
+  quickSearchEl.addEventListener('keydown', (event) => {
+    if (!['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) {
+      return;
+    }
+
+    const query = state.quickPickerShowAll ? '' : quickSearchEl.value;
+    const options = flattenQuickPickerGroups(quickPickerOptionGroups(query));
+
+    if (event.key === 'Escape') {
+      setQuickPickerOpen(false);
+      state.quickPickerShowAll = false;
+      quickSearchEl.removeAttribute('aria-activedescendant');
+      return;
+    }
+
+    if (!options.length) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (!state.quickPickerOpen) {
+      setQuickPickerOpen(true);
+    }
+
+    if (event.key === 'ArrowDown') {
+      state.quickPickerActiveIndex = Math.min(options.length - 1, Math.max(0, state.quickPickerActiveIndex + 1));
+      renderQuickEntryList();
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      state.quickPickerActiveIndex = Math.max(0, state.quickPickerActiveIndex - 1);
+      renderQuickEntryList();
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      const active = options[Math.max(0, state.quickPickerActiveIndex)];
+      if (active) {
+        selectQuickEntry(active.key);
+      }
     }
   });
 }
 
-savedSelectEl.addEventListener('change', () => {
-  const selectedTemplate = getSelectedQuickTemplate();
-  quickEditToggleBtnEl.disabled = !selectedTemplate;
-});
-
-if (quickSearchEl) {
-  quickSearchEl.addEventListener('input', () => {
-    state.quickSearchQuery = quickSearchEl.value;
-    renderSavedItems();
+if (quickEntryToggleBtnEl) {
+  quickEntryToggleBtnEl.addEventListener('click', () => {
+    const nextOpen = !state.quickPickerOpen;
+    state.quickPickerShowAll = nextOpen;
+    state.quickPickerActiveIndex = 0;
+    setQuickPickerOpen(nextOpen);
+    renderQuickEntryList();
+    if (nextOpen) {
+      quickSearchEl?.focus();
+    }
   });
 }
+
+document.addEventListener('mousedown', (event) => {
+  if (!quickComboboxEl || quickComboboxEl.contains(event.target)) {
+    return;
+  }
+  setQuickPickerOpen(false);
+  state.quickPickerShowAll = false;
+  quickSearchEl?.removeAttribute('aria-activedescendant');
+});
 
 quickEditToggleBtnEl.addEventListener('click', () => {
   const selectedTemplate = getSelectedQuickTemplate();
@@ -4556,6 +4855,7 @@ entriesByDayEl.addEventListener('click', async (event) => {
       quantity: mealEntry?.mealQuantity || 1,
       unit: mealEntry?.mealUnit || 'serving',
       mealGroup: groupId,
+      onCopyToToday: buildCopyMealToTodayHandler(groupId, mealEntry),
       onSave: async (name, quantity, unit) => {
         try {
           await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {

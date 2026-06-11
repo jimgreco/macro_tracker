@@ -210,6 +210,8 @@ test('iOS target sheets disable unchanged saves', () => {
 
 test('iOS macro edit sheets use disabled saves and left-side destructive actions', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  const models = read('ios/DailyMacros/DailyMacros/Models.swift');
   const entryEdit = swift.slice(
     swift.indexOf('private var editEntrySheet'),
     swift.indexOf('/// When quantity changes')
@@ -238,12 +240,16 @@ test('iOS macro edit sheets use disabled saves and left-side destructive actions
   assert.equal(swift.includes('editEntryDateChanged = !isSameDisplayedMinute(newValue, originalEditEntryDate)'), true);
   assert.equal(swift.includes('let loggedAtChanged = editEntryDateChanged || !isSameDisplayedMinute(editEntryDate, originalEditEntryDate)'), true);
   assert.equal(swift.includes('editableWholeNumberBaseline(for: entry.calories)'), true);
+  assert.equal(entryEdit.includes('Label("Copy to Today", systemImage: "doc.on.doc")'), true);
+  assert.equal(entryEdit.includes('if let entry = editingEntry, canCopyToToday(entry)'), true);
 
   assert.equal(mealEdit.includes('let canSave = canSaveEditedMeal'), true);
   assert.equal(mealEdit.includes('.tint(canSave ? Color.neonGreen : .gray)'), true);
   assert.equal(mealEdit.includes('.disabled(!canSave)'), true);
   assert.equal(mealEdit.includes('Label("Delete", systemImage: "trash")'), true);
   assert.equal(mealEdit.indexOf('Label("Delete", systemImage: "trash")') < mealEdit.indexOf('Label("Split", systemImage: "rectangle.split.3x1")'), true);
+  assert.equal(mealEdit.includes('Label("Copy to Today", systemImage: "doc.on.doc")'), true);
+  assert.equal(mealEdit.includes('if let first = editingMealItems.first, canCopyToToday(first)'), true);
 
   assert.equal(parsedEdit.includes('let canSave = canSaveParsedItem'), true);
   assert.equal(parsedEdit.includes('.tint(canSave ? Color.neonCyan : .gray)'), true);
@@ -253,6 +259,13 @@ test('iOS macro edit sheets use disabled saves and left-side destructive actions
   assert.equal(quickEdit.includes('.tint(.red)'), true);
   assert.equal(quickEdit.indexOf('Text("Delete")') < quickEdit.indexOf('Text("Save")'), true);
   assert.equal(quickEdit.includes('.disabled(!canSave)'), true);
+  assert.equal(swift.includes('private func canCopyToToday(_ entry: Entry) -> Bool'), true);
+  assert.equal(swift.includes('private func copyEditedEntryToToday() async'), true);
+  assert.equal(swift.includes('private func copyEditedMealToToday() async'), true);
+  assert.equal(api.includes('func copyEntryToToday(entryId: Int) async throws -> CopyEntriesResponse'), true);
+  assert.equal(api.includes('func copyMealToToday(mealGroup: String) async throws -> CopyEntriesResponse'), true);
+  assert.equal(api.includes('apiURL("/entries/copy-to-today")'), true);
+  assert.equal(models.includes('struct CopyEntriesResponse'), true);
 });
 
 test('iOS log sheets put Logged At first and reset timestamps on open', () => {
@@ -339,10 +352,22 @@ test('web logged entry lists request paginated pages', () => {
 test('quick entries are searchable and load outside dashboard refresh', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');
+  const styles = read('public/styles.css');
 
   assert.equal(html.includes('id="quick-entry-search"'), true);
+  assert.equal(html.includes('id="quick-entry-combobox"'), true);
+  assert.equal(html.includes('id="quick-entry-listbox"'), true);
+  assert.equal(html.includes('id="quick-entry-toggle-btn"'), true);
+  assert.equal(html.includes('id="saved-item-select"'), false);
+  assert.equal(script.includes('quickSelectedKey'), true);
+  assert.equal(script.includes('function quickPickerOptionGroups(query)'), true);
+  assert.equal(script.includes('function renderQuickEntryList()'), true);
+  assert.equal(script.includes('const quickEntryListboxEl'), true);
   assert.equal(script.includes('quickSearchEl.addEventListener'), true);
   assert.equal(script.includes('loadQuickEntries({ force: true })'), true);
+  assert.equal(script.includes('savedSelectEl'), false);
+  assert.equal(styles.includes('.quick-entry-combobox'), true);
+  assert.equal(styles.includes('.quick-entry-listbox'), true);
 
   const start = script.indexOf('async function refreshDashboard()');
   const end = script.indexOf("parseBtnEl.addEventListener", start);
@@ -573,6 +598,48 @@ test('web item selection actions expose delete and single-item edit', () => {
   assert.equal(selectionActions.indexOf('data-sel-action="delete-item"') < selectionActions.indexOf('data-sel-action="combine"'), true);
 });
 
+test('web entry details expose copy to today for previous-day meals and items', () => {
+  const script = read('public/script.js');
+  const entryModal = script.slice(
+    script.indexOf('function showEntryModal'),
+    script.indexOf('function showWeightEditModal')
+  );
+  const mealModal = script.slice(
+    script.indexOf('function showCombineModal'),
+    script.indexOf('function showEntryModal')
+  );
+
+  assert.equal(script.includes("api('/api/entries/copy-to-today'"), true);
+  assert.equal(script.includes('function canCopyEntryToToday(entry)'), true);
+  assert.equal(script.includes('getLocalIsoDay(entry.consumedAt) < getLocalIsoDay()'), true);
+  assert.equal(script.includes('buildCopyEntryToTodayHandler(entry)'), true);
+  assert.equal(script.includes('buildCopyMealToTodayHandler(groupId, mealEntry)'), true);
+  assert.equal(entryModal.includes('id="entry-modal-copy-today-btn"'), true);
+  assert.equal(entryModal.includes('Copy to Today'), true);
+  assert.equal(entryModal.includes('await onCopyToToday()'), true);
+  assert.equal(mealModal.includes('id="combine-copy-today-btn"'), true);
+  assert.equal(mealModal.includes('await options.onCopyToToday()'), true);
+});
+
+test('starter quick adds live in setup/settings, not the web quick add panel', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+  const quickSection = html.slice(
+    html.indexOf('<section id="quick-section"'),
+    html.indexOf('</section>', html.indexOf('<section id="quick-section"'))
+  );
+  const accountSettings = script.slice(
+    script.indexOf('function showAccountPrivacyModal'),
+    script.indexOf('function formatDateTimeLabel')
+  );
+
+  assert.equal(quickSection.includes('starter-quick-adds-btn'), false);
+  assert.equal(quickSection.includes('Starter Quick Adds'), false);
+  assert.equal(script.includes("document.getElementById('starter-quick-adds-btn')"), false);
+  assert.equal(accountSettings.includes('account-starter-quick-adds-btn'), true);
+  assert.equal(accountSettings.includes('Add Starter Quick Adds'), true);
+});
+
 test('iOS daily totals bars use the richer progress treatment', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
   const progressStart = swift.indexOf('private func macroProgressBar');
@@ -648,7 +715,34 @@ test('web account menu surfaces privacy support export delete and build info', (
   assert.equal(script.includes('/api/version'), true);
   assert.equal(script.includes('meal photos may be sent to OpenAI'), true);
   assert.equal(script.includes('href="/privacy"'), true);
+  assert.equal(script.includes('function supportedTimezones()'), true);
+  assert.equal(script.includes("Intl.supportedValuesOf('timeZone')"), true);
+  assert.equal(script.includes('function renderTimezoneOptions(selectedTimezone, browserTimezone)'), true);
+  assert.equal(script.includes('id="account-timezone-select"'), true);
+  assert.equal(script.includes('account-timezone-input'), false);
   assert.equal(styles.includes('.account-privacy-modal'), true);
+  assert.equal(styles.includes('.account-preference-row select'), true);
+});
+
+test('iOS settings expose account timezone picker', () => {
+  const settings = read('ios/DailyMacros/DailyMacros/SettingsView.swift');
+  const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  const models = read('ios/DailyMacros/DailyMacros/Models.swift');
+
+  assert.equal(models.includes('let timezone: String?'), true);
+  assert.equal(models.includes('struct AccountPreferencesResponse'), true);
+  assert.equal(api.includes('func updateAccountPreferences(timezone: String) async throws -> User?'), true);
+  assert.equal(api.includes('apiURL("/account/preferences"), method: "PATCH"'), true);
+  assert.equal(settings.includes('@State private var selectedTimezone = SettingsTimezoneOptions.deviceTimezone'), true);
+  assert.equal(settings.includes('Picker("Timezone", selection: $selectedTimezone)'), true);
+  assert.equal(settings.includes('.pickerStyle(.menu)'), true);
+  assert.equal(settings.includes('Text("Use Current Timezone")'), true);
+  assert.equal(settings.includes('Text("Save Timezone")'), true);
+  assert.equal(settings.includes('api.updateAccountPreferences(timezone: timezone)'), true);
+  assert.equal(settings.includes('auth.user = user'), true);
+  assert.equal(settings.includes('private enum SettingsTimezoneOptions'), true);
+  assert.equal(settings.includes('"America/Los_Angeles"'), true);
+  assert.equal(settings.includes('TextField("Timezone"'), false);
 });
 
 test('web build labels use short git hashes', () => {
@@ -1204,11 +1298,20 @@ test('iOS app includes onboarding reminders offline queue and diagnostics founda
   assert.equal(onboarding.includes('addWeight(weight, loggedAt:'), false);
   assert.ok(onboarding.includes('setWeightTarget(targetWeight: weight'));
   assert.ok(onboarding.includes('ReminderScheduler.shared.setEnabled'));
+  assert.ok(onboarding.includes('@State private var addStarterQuickAddsDuringSetup = true'));
+  assert.ok(onboarding.includes('Toggle("Add Starter Quick Adds", isOn: $addStarterQuickAddsDuringSetup)'));
+  assert.ok(onboarding.includes('try await api.addStarterQuickAdds()'));
+  assert.ok(onboarding.includes('Failed to add starter quick adds during setup'));
+  assert.ok(models.includes('struct StarterQuickAddsResponse'));
+  assert.ok(api.includes('func addStarterQuickAdds() async throws -> StarterQuickAddsResponse'));
   assert.ok(reminders.includes('UNUserNotificationCenter'));
   assert.ok(settings.includes('Daily Reminder'));
   assert.ok(settings.includes('@AppStorage("onboarding_complete")'));
   assert.ok(settings.includes('Reset Setup Tutorial'));
   assert.ok(settings.includes('onboardingComplete = false'));
+  assert.ok(settings.includes('Text("Add Starter Quick Adds")'));
+  assert.ok(settings.includes('Task { await addStarterQuickAdds() }'));
+  assert.ok(settings.includes('Starter Quick Adds already exist.'));
   assert.ok(settings.includes('Offline Queue'));
   assert.ok(settings.includes('Export Diagnostics'));
   assert.ok(offline.includes('struct PendingMutation'));

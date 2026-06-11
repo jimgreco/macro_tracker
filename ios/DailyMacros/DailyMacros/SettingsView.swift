@@ -17,9 +17,13 @@ struct SettingsView: View {
     @State private var isExporting = false
     @State private var isExportingDiagnostics = false
     @State private var isFlushingPending = false
+    @State private var isAddingStarterQuickAdds = false
+    @State private var isSavingTimezone = false
+    @State private var selectedTimezone = SettingsTimezoneOptions.deviceTimezone
     @State private var remindersEnabled = ReminderScheduler.shared.isEnabled
     @State private var reminderDate = ReminderScheduler.shared.reminderDate
     @State private var errorMessage: String?
+    @State private var settingsMessage: String?
     @State private var showAccountDetails = false
 
     var body: some View {
@@ -27,6 +31,7 @@ struct SettingsView: View {
             List {
                 accountSection
                 supportPrivacySection
+                preferencesSection
                 if auth.user?.sexualActivityEnabled == true {
                     sexualActivitySection
                 }
@@ -41,7 +46,13 @@ struct SettingsView: View {
                 dangerSection
             }
             .navigationTitle("Settings")
-            .task { await loadSettings() }
+            .task {
+                selectedTimezone = currentAccountTimezone
+                await loadSettings()
+            }
+            .onChange(of: auth.user?.timezone) { _, _ in
+                selectedTimezone = currentAccountTimezone
+            }
             .onChange(of: reminderDate) { _, newValue in
                 Task { await updateReminderTime(newValue) }
             }
@@ -49,6 +60,11 @@ struct SettingsView: View {
                 Button("OK") { errorMessage = nil }
             } message: {
                 Text(errorMessage ?? "")
+            }
+            .alert("Settings", isPresented: Binding(get: { settingsMessage != nil }, set: { if !$0 { settingsMessage = nil } })) {
+                Button("OK") { settingsMessage = nil }
+            } message: {
+                Text(settingsMessage ?? "")
             }
             .alert("Delete Account", isPresented: $showDeleteConfirm) {
                 Button("Cancel", role: .cancel) { }
@@ -141,6 +157,84 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    private var preferencesSection: some View {
+        Section {
+            Picker("Timezone", selection: $selectedTimezone) {
+                ForEach(timezoneOptions, id: \.self) { timezone in
+                    Text(timezone).tag(timezone)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Button {
+                selectedTimezone = SettingsTimezoneOptions.deviceTimezone
+            } label: {
+                HStack {
+                    Text("Use Current Timezone")
+                    Spacer()
+                    Text(SettingsTimezoneOptions.deviceTimezone)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Button {
+                Task { await saveTimezone() }
+            } label: {
+                HStack {
+                    Text("Save Timezone")
+                    Spacer()
+                    if isSavingTimezone {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "checkmark.circle")
+                    }
+                }
+            }
+            .disabled(isSavingTimezone || selectedTimezone == currentAccountTimezone)
+        } header: {
+            Text("Preferences")
+        } footer: {
+            Text("Daily totals, meal history, and copy-to-today actions use this timezone.")
+        }
+    }
+
+    private var currentAccountTimezone: String {
+        SettingsTimezoneOptions.normalized(auth.user?.timezone)
+    }
+
+    private var timezoneOptions: [String] {
+        SettingsTimezoneOptions.options(
+            selected: selectedTimezone,
+            saved: currentAccountTimezone,
+            device: SettingsTimezoneOptions.deviceTimezone
+        )
+    }
+
+    private func saveTimezone() async {
+        let timezone = SettingsTimezoneOptions.normalized(selectedTimezone)
+        guard timezone != currentAccountTimezone else { return }
+
+        isSavingTimezone = true
+        defer { isSavingTimezone = false }
+
+        do {
+            if let user = try await api.updateAccountPreferences(timezone: timezone) {
+                auth.user = user
+            } else {
+                await auth.refreshUser()
+            }
+            selectedTimezone = timezone
+            Diagnostics.shared.record(
+                category: "settings",
+                message: "Updated timezone",
+                details: ["timezone": timezone]
+            )
+            settingsMessage = "Timezone saved."
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -382,10 +476,44 @@ struct SettingsView: View {
                     Image(systemName: "arrow.counterclockwise")
                 }
             }
+
+            Button {
+                Task { await addStarterQuickAdds() }
+            } label: {
+                HStack {
+                    Text("Add Starter Quick Adds")
+                    Spacer()
+                    if isAddingStarterQuickAdds {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "plus.circle")
+                    }
+                }
+            }
+            .disabled(isAddingStarterQuickAdds)
         } header: {
             Text("Setup Tutorial")
         } footer: {
-            Text("Shows the first-run setup again so you can revisit goals, reminders, and starting preferences.")
+            Text("Shows the first-run setup again so you can revisit goals, reminders, and starting preferences. Starter Quick Adds create a small reusable food set if they are not already present.")
+        }
+    }
+
+    private func addStarterQuickAdds() async {
+        isAddingStarterQuickAdds = true
+        defer { isAddingStarterQuickAdds = false }
+
+        do {
+            let response = try await api.addStarterQuickAdds()
+            Diagnostics.shared.record(
+                category: "settings",
+                message: "Added starter quick adds",
+                details: ["addedCount": "\(response.addedCount)"]
+            )
+            settingsMessage = response.addedCount > 0
+                ? "Added \(response.addedCount) starter Quick Add\(response.addedCount == 1 ? "" : "s")."
+                : "Starter Quick Adds already exist."
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -966,6 +1094,68 @@ private struct AccountAvatarView: View {
             .prefix(2)
         let letters = parts.compactMap { $0.first }.map(String.init).joined()
         return letters.isEmpty ? "DM" : letters.uppercased()
+    }
+}
+
+private enum SettingsTimezoneOptions {
+    static let fallbackTimezone = "America/New_York"
+
+    private static let fallbackTimezones = [
+        "UTC",
+        "America/New_York",
+        "America/Chicago",
+        "America/Denver",
+        "America/Phoenix",
+        "America/Los_Angeles",
+        "America/Anchorage",
+        "Pacific/Honolulu",
+        "America/Toronto",
+        "America/Vancouver",
+        "America/Mexico_City",
+        "America/Bogota",
+        "America/Lima",
+        "America/Santiago",
+        "America/Sao_Paulo",
+        "Europe/London",
+        "Europe/Dublin",
+        "Europe/Paris",
+        "Europe/Berlin",
+        "Europe/Madrid",
+        "Europe/Rome",
+        "Europe/Amsterdam",
+        "Europe/Stockholm",
+        "Europe/Athens",
+        "Europe/Istanbul",
+        "Africa/Cairo",
+        "Africa/Johannesburg",
+        "Asia/Jerusalem",
+        "Asia/Dubai",
+        "Asia/Kolkata",
+        "Asia/Bangkok",
+        "Asia/Singapore",
+        "Asia/Shanghai",
+        "Asia/Tokyo",
+        "Asia/Seoul",
+        "Australia/Perth",
+        "Australia/Adelaide",
+        "Australia/Sydney",
+        "Pacific/Auckland"
+    ]
+
+    static var deviceTimezone: String {
+        normalized(TimeZone.current.identifier)
+    }
+
+    static func normalized(_ value: String?) -> String {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return fallbackTimezone }
+        if trimmed == "GMT" { return "UTC" }
+        return TimeZone(identifier: trimmed) == nil ? fallbackTimezone : trimmed
+    }
+
+    static func options(selected: String, saved: String, device: String) -> [String] {
+        Array(Set(fallbackTimezones + [selected, saved, device].map(normalized)))
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 }
 

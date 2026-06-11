@@ -1129,6 +1129,19 @@ struct MacrosView: View {
                         .font(.subheadline)
                         .tint(Color.neonGreen)
 
+                    if let entry = editingEntry, canCopyToToday(entry) {
+                        Button {
+                            Task { await copyEditedEntryToToday() }
+                        } label: {
+                            Label("Copy to Today", systemImage: "doc.on.doc")
+                                .font(.subheadline)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Color.neonCyan)
+                        .disabled(isSaving)
+                    }
+
                     if editingEntry?.mealGroup != nil {
                         Button {
                             if let entry = editingEntry {
@@ -1401,6 +1414,19 @@ struct MacrosView: View {
                         .font(.subheadline)
                         .tint(Color.neonGreen)
 
+                    if let first = editingMealItems.first, canCopyToToday(first) {
+                        Button {
+                            Task { await copyEditedMealToToday() }
+                        } label: {
+                            Label("Copy to Today", systemImage: "doc.on.doc")
+                                .font(.subheadline)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Color.neonCyan)
+                        .disabled(isSaving)
+                    }
+
                     HStack(spacing: 12) {
                         Button(role: .destructive) {
                             Task { await deleteEditedMeal() }
@@ -1496,6 +1522,13 @@ struct MacrosView: View {
     private func normalizedUnit(_ unit: String) -> String {
         let trimmed = unit.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "serving" : trimmed
+    }
+
+    private func canCopyToToday(_ entry: Entry) -> Bool {
+        let calendar = Calendar.current
+        let loggedDay = calendar.startOfDay(for: parseISO(entry.consumedAt))
+        let today = calendar.startOfDay(for: Date())
+        return loggedDay < today
     }
 
     private func editableWholeNumberBaseline(for value: Double) -> Double {
@@ -3341,6 +3374,37 @@ struct MacrosView: View {
             for id in ids {
                 try await api.deleteEntry(id: id)
             }
+            showEditMeal = false
+            editingMealGroup = nil
+            editingMealItems = []
+            await loadDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func copyEditedEntryToToday() async {
+        guard let entry = editingEntry, canCopyToToday(entry) else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            _ = try await api.copyEntryToToday(entryId: entry.id)
+            showEditEntry = false
+            editingEntry = nil
+            await loadDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func copyEditedMealToToday() async {
+        guard let mealGroup = editingMealGroup,
+              let first = editingMealItems.first,
+              canCopyToToday(first) else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            _ = try await api.copyMealToToday(mealGroup: mealGroup)
             showEditMeal = false
             editingMealGroup = nil
             editingMealItems = []

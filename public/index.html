@@ -110,14 +110,28 @@
           <section id="quick-section" aria-labelledby="quick-add-heading" class="panel glass">
             <h2 id="quick-add-heading">Quick Add</h2>
             <div class="row no-wrap quick-top-row">
-              <label for="quick-entry-search" class="sr-only">Search quick entries</label>
-              <input
-                id="quick-entry-search"
-                type="search"
-                autocomplete="off"
-                placeholder="Search quick entries"
-              />
-              <select id="saved-item-select" aria-label="Saved item"></select>
+              <div class="quick-entry-combobox" id="quick-entry-combobox">
+                <label for="quick-entry-search" class="sr-only">Search quick entries</label>
+                <input
+                  id="quick-entry-search"
+                  type="search"
+                  autocomplete="off"
+                  placeholder="Search quick entries"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded="false"
+                  aria-controls="quick-entry-listbox"
+                />
+                <button
+                  id="quick-entry-toggle-btn"
+                  type="button"
+                  class="quick-entry-toggle"
+                  aria-label="Show quick entries"
+                  aria-controls="quick-entry-listbox"
+                  aria-expanded="false"
+                ></button>
+                <div id="quick-entry-listbox" class="quick-entry-listbox" role="listbox" hidden></div>
+              </div>
               <div class="quick-inline-controls">
                 <label for="quick-multiplier" class="sr-only">Multiplier</label>
                 <input id="quick-multiplier" type="number" min="0.1" step="0.1" value="1" />
@@ -127,7 +141,6 @@
             </div>
             <div class="quick-shortcut-row" aria-label="Quick logging shortcuts">
               <button id="copy-yesterday-btn" type="button" class="btn-secondary">Copy Yesterday</button>
-              <button id="starter-quick-adds-btn" type="button" class="btn-secondary">Starter Quick Adds</button>
             </div>
           </section>
         </div>

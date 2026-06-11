@@ -27,6 +27,7 @@ const {
   listClientDiagnostics,
   addEntries,
   copyEntriesForLocalDay,
+  copyEntriesToLocalDay,
   updateEntry,
   deleteEntry,
   scaleMealGroup,
@@ -2809,6 +2810,41 @@ apiRouter.post('/entries/copy-day', async (req, res) => {
     return res.json({ ok: true, ...result });
   } catch (error) {
     return sendError(req, res, 400, error.message || 'Unable to copy entries.');
+  }
+});
+
+apiRouter.post('/entries/copy-to-today', async (req, res) => {
+  try {
+    const body = requirePlainObject(req.body || {}, 'copy entry request');
+    const timezone = requestTimezone(req);
+    const hasEntryId = body.entryId != null && body.entryId !== '';
+    const entryId = hasEntryId ? Number(body.entryId) : null;
+    const mealGroup = normalizeString(body.mealGroup, 'mealGroup', { maxLength: 160, fallback: '' }) || null;
+    const targetDay = normalizeString(body.targetDay, 'targetDay', { maxLength: 10, fallback: '' }) || undefined;
+
+    if (hasEntryId && mealGroup) {
+      return sendError(req, res, 400, 'Choose either entryId or mealGroup, not both.');
+    }
+    if (!hasEntryId && !mealGroup) {
+      return sendError(req, res, 400, 'entryId or mealGroup is required.');
+    }
+    if (hasEntryId && (!Number.isInteger(entryId) || entryId <= 0)) {
+      return sendError(req, res, 400, 'Invalid entry id.');
+    }
+
+    const result = await copyEntriesToLocalDay(userIdFromReq(req), {
+      entryId,
+      mealGroup,
+      targetDay,
+      timezone
+    });
+    logAudit(userIdFromReq(req), 'copy', mealGroup ? 'meal_group' : 'entry', mealGroup || String(entryId), {
+      targetDay: targetDay || null,
+      copiedCount: result.copiedCount
+    });
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to copy entry to today.');
   }
 });
 
