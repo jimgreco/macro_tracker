@@ -3540,9 +3540,14 @@ function renderSelectionActions() {
     html += '<button type="button" class="btn-info table-action-btn" data-sel-action="split-meal">Split</button>';
   } else if (mode === 'sub-items') {
     html += `<span class="selection-count">${entryCount} item${entryCount > 1 ? 's' : ''} selected</span>`;
+    html += '<button type="button" class="btn-danger table-action-btn" data-sel-action="delete-item">Delete</button>';
     html += '<button type="button" class="btn-info table-action-btn" data-sel-action="remove-from-meal">Remove</button>';
   } else {
     html += `<span class="selection-count">${entryCount} item${entryCount > 1 ? 's' : ''} selected</span>`;
+    html += '<button type="button" class="btn-danger table-action-btn" data-sel-action="delete-item">Delete</button>';
+    if (entryCount === 1) {
+      html += '<button type="button" class="btn-info table-action-btn" data-sel-action="edit-item">Edit</button>';
+    }
     if (entryCount >= 2) {
       html += '<button type="button" class="btn-success table-action-btn" data-sel-action="combine">Combine</button>';
     }

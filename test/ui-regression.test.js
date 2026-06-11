@@ -559,6 +559,20 @@ test('web meal selection actions put delete before split', () => {
   assert.equal(selectionActions.indexOf('data-sel-action="delete-meal"') < selectionActions.indexOf('data-sel-action="split-meal"'), true);
 });
 
+test('web item selection actions expose delete and single-item edit', () => {
+  const script = read('public/script.js');
+  const selectionActions = script.slice(
+    script.indexOf('function renderSelectionActions'),
+    script.indexOf('function toggleEditEntries')
+  );
+
+  assert.equal(selectionActions.includes('data-sel-action="delete-item"'), true);
+  assert.equal(selectionActions.includes('data-sel-action="edit-item"'), true);
+  assert.equal(selectionActions.includes('if (entryCount === 1)'), true);
+  assert.equal(selectionActions.includes('if (entryCount >= 2)'), true);
+  assert.equal(selectionActions.indexOf('data-sel-action="delete-item"') < selectionActions.indexOf('data-sel-action="combine"'), true);
+});
+
 test('iOS daily totals bars use the richer progress treatment', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
   const progressStart = swift.indexOf('private func macroProgressBar');
