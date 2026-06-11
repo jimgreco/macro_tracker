@@ -1,0 +1,9 @@
+.git
+node_modules
+npm-debug.log
+
+# Legacy Elastic Beanstalk artifacts can accumulate large zip files on the EC2
+# deploy host. They are not needed by the Docker Compose production path.
+.elasticbeanstalk
+.elasticbeanstalk/**
+*.zip

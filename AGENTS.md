@@ -166,6 +166,7 @@ Coach Tony P. category controls are local user preferences layered after confide
 
 - Active platform: EC2 host running Docker Compose from `~/deploy`.
 - Production database: shared Docker Postgres container in the remote Compose stack (`shared_db`).
+- Docker build context comes from the synced `~/macros` tree. Keep `.dockerignore` in the deploy workflow trigger and exclude legacy `.elasticbeanstalk` artifacts; stale EB app-version zip files on the EC2 host can otherwise break Docker builds with `no space left on device`.
 - Nightly logical database backup: `dailymacros-db-backup.timer` runs `scripts/production-db-backup.sh` before the AWS DLM daily EBS snapshot window; DLM policy `policy-06a5ef1af3cbbc321` retains 7 daily off-host snapshots.
 - Deploy workflow: `.github/workflows/deploy.yml`.
 - Release runbook: `docs/ec2-release-runbook.md`.
