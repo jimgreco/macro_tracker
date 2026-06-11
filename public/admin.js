@@ -108,6 +108,7 @@ function latestIso(values) {
 function accountStats(account) {
   return [
     ['Last login', formatDateTime(account.lastLoginAt)],
+    ['Timezone', account.timezone || 'America/New_York'],
     ['Tutorial reset', formatDateTime(account.setupTutorialResetAt)],
     ['Logins', formatCount(account.loginCount)],
     ['Items', formatCount(account.itemCount)],
@@ -119,6 +120,8 @@ function accountStats(account) {
     ['Reports', formatCount(account.analysisReportCount)],
     ['API tokens', formatCount(account.apiTokenCount)],
     ['AI usage 7d', formatCount(account.dailyUsageCount7d)],
+    ['Diagnostics 7d', formatCount(account.diagnosticCount7d)],
+    ['Last client error', formatDateTime(account.lastClientErrorAt)],
     ['Latest activity', formatDateTime(latestIso([
       account.lastItemAt,
       account.lastWorkoutAt,
@@ -193,9 +196,62 @@ function renderAccount(account) {
           class="btn-secondary admin-reset-tutorial-btn"
           data-admin-action="resetSetupTutorial"
         >Reset setup tutorial</button>
+        <button
+          type="button"
+          class="btn-secondary admin-reset-tutorial-btn"
+          data-admin-action="viewDiagnostics"
+        >Diagnostics</button>
       </div>
     </article>
   `;
+}
+
+function renderDiagnosticRow(item) {
+  return `
+    <div class="admin-diagnostic-row">
+      <div>
+        <strong>${escapeHtml(item.level || 'info')} · ${escapeHtml(item.category || 'client')}</strong>
+        <span>${escapeHtml(formatDateTime(item.createdAt))}</span>
+      </div>
+      <p>${escapeHtml(item.message || '')}</p>
+      ${item.requestId ? `<code>${escapeHtml(item.requestId)}</code>` : ''}
+    </div>
+  `;
+}
+
+async function showDiagnosticsModal(accountId) {
+  let overlay = document.getElementById('entry-modal-overlay');
+  if (overlay) overlay.remove();
+
+  overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay';
+  overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `
+    <div class="combine-modal entry-modal admin-diagnostics-modal">
+      <h3>Client Diagnostics</h3>
+      <div id="admin-diagnostics-list"><p class="empty-note">Loading diagnostics...</p></div>
+      <div class="combine-modal-actions">
+        <span style="flex:1"></span>
+        <button type="button" class="btn-muted table-action-btn" id="admin-diagnostics-close-btn">Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.getElementById('admin-diagnostics-close-btn')?.addEventListener('click', () => overlay.remove());
+
+  const listEl = document.getElementById('admin-diagnostics-list');
+  try {
+    const data = await adminApi(`/api/admin/accounts/${encodeURIComponent(accountId)}/diagnostics?limit=25`);
+    const diagnostics = Array.isArray(data.diagnostics) ? data.diagnostics : [];
+    listEl.innerHTML = diagnostics.length
+      ? diagnostics.map(renderDiagnosticRow).join('')
+      : '<p class="empty-note">No client diagnostics recorded.</p>';
+  } catch (error) {
+    listEl.innerHTML = `<p class="empty-note">${escapeHtml(error.message)}</p>`;
+  }
 }
 
 function renderAccounts() {
@@ -360,17 +416,22 @@ if (adminAccountListEl) {
 
   adminAccountListEl.addEventListener('click', async (event) => {
     const button = event.target instanceof HTMLElement
-      ? event.target.closest('[data-admin-action="resetSetupTutorial"]')
+      ? event.target.closest('[data-admin-action]')
       : null;
     if (!(button instanceof HTMLButtonElement)) {
       return;
     }
+    const action = button.dataset.adminAction;
     const accountRow = button.closest('[data-account-id]');
     const accountId = accountRow?.dataset.accountId;
     if (!accountId) {
       return;
     }
-    await resetSetupTutorial(accountId, button);
+    if (action === 'resetSetupTutorial') {
+      await resetSetupTutorial(accountId, button);
+    } else if (action === 'viewDiagnostics') {
+      await showDiagnosticsModal(accountId);
+    }
   });
 }
 

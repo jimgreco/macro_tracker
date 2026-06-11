@@ -681,6 +681,22 @@ body {
   color: var(--accent);
 }
 
+.entry-card-chip--source {
+  background: rgba(0, 207, 255, 0.08);
+  color: #dce9ff;
+}
+
+.entry-card-chip--review {
+  background: rgba(255, 202, 40, 0.92);
+  color: #140d00;
+}
+
+.parsed-quality-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
 /* ── Macro Cards ── */
 
 .macro-cards-header {
@@ -1156,6 +1172,19 @@ button[disabled] {
   min-height: 34px;
   font-size: 0.78rem;
   line-height: 1;
+}
+
+.quick-shortcut-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.72rem;
+}
+
+.quick-shortcut-row button {
+  min-height: 34px;
+  padding: 0.4rem 0.68rem;
+  font-size: 0.78rem;
 }
 
 #quick-save-btn,
@@ -2961,6 +2990,30 @@ button[disabled] {
   gap: 0.48rem;
 }
 
+.account-preference-row {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+}
+
+.account-preference-row label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.account-preference-row input {
+  width: 100%;
+}
+
+.account-preference-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
 .account-privacy-modal .account-coach-category-toggle,
 .account-privacy-modal .account-preference-toggle {
   align-items: center;
@@ -3290,6 +3343,44 @@ button[disabled] {
   padding: 0.44rem 0.65rem;
   font-size: 0.82rem;
   font-weight: 700;
+}
+
+.admin-diagnostics-modal {
+  max-width: min(92vw, 640px);
+}
+
+.admin-diagnostic-row {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.admin-diagnostic-row div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.admin-diagnostic-row strong {
+  color: #f2f7ff;
+  font-size: 0.82rem;
+  text-transform: capitalize;
+}
+
+.admin-diagnostic-row span,
+.admin-diagnostic-row code {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.admin-diagnostic-row p {
+  margin: 0.42rem 0 0;
+  color: #dce9ff;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
 }
 
 .admin-pagination {

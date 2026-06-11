@@ -125,6 +125,10 @@
                 <button id="quick-edit-toggle-btn" type="button" class="btn-warning">Edit</button>
               </div>
             </div>
+            <div class="quick-shortcut-row" aria-label="Quick logging shortcuts">
+              <button id="copy-yesterday-btn" type="button" class="btn-secondary">Copy Yesterday</button>
+              <button id="starter-quick-adds-btn" type="button" class="btn-secondary">Starter Quick Adds</button>
+            </div>
           </section>
         </div>
 
@@ -517,6 +521,26 @@
             </div>
           </div>
           <p id="analysis-note" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="panel glass">
+          <h2>Weekly Recap</h2>
+          <p id="weekly-recap-meta" class="empty-note">No recap yet.</p>
+          <p id="weekly-recap-summary"></p>
+          <div class="analysis-lists analysis-lists-guidance">
+            <div>
+              <h3>Wins</h3>
+              <ul id="weekly-recap-wins" class="analysis-list"></ul>
+            </div>
+            <div>
+              <h3>Focus</h3>
+              <ul id="weekly-recap-focus" class="analysis-list"></ul>
+            </div>
+            <div>
+              <h3>Next Actions</h3>
+              <ul id="weekly-recap-actions" class="analysis-list"></ul>
+            </div>
+          </div>
         </section>
 
         <section class="panel glass">

@@ -19,6 +19,7 @@ const state = {
   workoutChartRows: [],
   workoutCalChartRows: [],
   analysisReport: null,
+  weeklyRecap: null,
   analysisAutoRan: false,
   macroTargetHistory: [],
   macroTargetHistoryByDay: new Map(),
@@ -95,6 +96,8 @@ const savedSelectEl = document.getElementById('saved-item-select');
 const quickMultiplierEl = document.getElementById('quick-multiplier');
 const quickAddBtnEl = document.getElementById('quick-add-btn');
 const quickEditToggleBtnEl = document.getElementById('quick-edit-toggle-btn');
+const copyYesterdayBtnEl = document.getElementById('copy-yesterday-btn');
+const starterQuickAddsBtnEl = document.getElementById('starter-quick-adds-btn');
 const todayCaloriesEl = document.getElementById('today-calories');
 const todayProteinEl = document.getElementById('today-protein');
 const todayCarbsEl = document.getElementById('today-carbs');
@@ -233,6 +236,11 @@ const analysisConfidenceListEl = document.getElementById('analysis-confidence-li
 const analysisProgressListEl = document.getElementById('analysis-progress-list');
 const analysisNeedsListEl = document.getElementById('analysis-needs-list');
 const analysisNextWeekListEl = document.getElementById('analysis-nextweek-list');
+const weeklyRecapMetaEl = document.getElementById('weekly-recap-meta');
+const weeklyRecapSummaryEl = document.getElementById('weekly-recap-summary');
+const weeklyRecapWinsListEl = document.getElementById('weekly-recap-wins');
+const weeklyRecapFocusListEl = document.getElementById('weekly-recap-focus');
+const weeklyRecapActionsListEl = document.getElementById('weekly-recap-actions');
 const defaultMealTextPlaceholder = mealTextEl ? mealTextEl.placeholder : '';
 
 function toDateTimeLocalValue(date = new Date()) {
@@ -304,12 +312,16 @@ function getLocalIsoDay(dateLike = new Date()) {
   return year + '-' + month + '-' + day;
 }
 
-function getTimezone() {
+function detectBrowserTimezone() {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York';
   } catch (_e) {
     return 'America/New_York';
   }
+}
+
+function getTimezone() {
+  return state.currentUser?.timezone || detectBrowserTimezone();
 }
 
 function fromIsoDayLocal(isoDay) {
@@ -1338,6 +1350,33 @@ async function refreshAppVersion() {
   }
 }
 
+const diagnosticRecentKeys = new Map();
+
+function sendClientDiagnostic(level, category, message, details = {}) {
+  const key = `${level}:${category}:${String(message || '').slice(0, 160)}`;
+  const now = Date.now();
+  const lastSentAt = diagnosticRecentKeys.get(key) || 0;
+  if (now - lastSentAt < 60_000) {
+    return;
+  }
+  diagnosticRecentKeys.set(key, now);
+  const payload = {
+    level,
+    category,
+    message: String(message || 'Client diagnostic').slice(0, 1000),
+    details,
+    userAgent: window.navigator.userAgent,
+    appPlatform: 'web',
+    appVersion: state.appVersion?.appBuild || 'web'
+  };
+  fetch('/api/diagnostics/client', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    keepalive: true
+  }).catch(() => {});
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -1359,10 +1398,32 @@ async function api(path, options = {}) {
     const requestId = body.requestId || res.headers.get('x-request-id') || '';
     const err = new Error((body.error || fallback) + (requestId ? ` Reference: ${requestId}` : ''));
     err.requestId = requestId;
+    if (!String(path).includes('/diagnostics/client')) {
+      sendClientDiagnostic('error', 'api', body.error || fallback, {
+        path: String(path).slice(0, 300),
+        status: res.status,
+        requestId
+      });
+    }
     throw err;
   }
   return body;
 }
+
+window.addEventListener('error', (event) => {
+  sendClientDiagnostic('error', 'window_error', event.message || 'Unhandled browser error', {
+    source: event.filename || '',
+    line: event.lineno || 0,
+    column: event.colno || 0
+  });
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  sendClientDiagnostic('error', 'unhandled_rejection', reason?.message || String(reason || 'Unhandled promise rejection'), {
+    stack: String(reason?.stack || '').slice(0, 1000)
+  });
+});
 
 const WEB_COACH_LOCAL_DISMISSALS_KEY = 'dailyMacrosCompassDismissals:v1';
 
@@ -1835,6 +1896,28 @@ async function deleteAccount() {
   window.location.href = '/login';
 }
 
+async function addStarterQuickAdds() {
+  const result = await api('/api/starter-quick-adds', { method: 'POST' });
+  await loadQuickEntries({ force: true });
+  renderSavedItems();
+  return result;
+}
+
+async function copyYesterdayEntries() {
+  const targetDay = getLocalIsoDay();
+  const sourceDay = shiftIsoDay(targetDay, -1);
+  const result = await api('/api/entries/copy-day', {
+    method: 'POST',
+    body: JSON.stringify({
+      sourceDay,
+      targetDay,
+      tz: getTimezone()
+    })
+  });
+  await refreshDashboard();
+  return result;
+}
+
 function showAccountPrivacyModal() {
   let overlay = document.getElementById('entry-modal-overlay');
   if (overlay) overlay.remove();
@@ -1860,6 +1943,8 @@ function showAccountPrivacyModal() {
       </fieldset>
     `
     : '';
+  const currentTimezone = state.currentUser?.timezone || getTimezone();
+  const browserTimezone = detectBrowserTimezone();
   const coachCategoryControls = coachCategoryControlDefinitions().map((control) => {
     const checked = state.disabledCoachCategories.has(control.id) ? '' : ' checked';
     return `
@@ -1884,6 +1969,23 @@ function showAccountPrivacyModal() {
         <p><strong>Controls</strong><span>You can export a JSON copy of your account data or permanently delete your account from here. <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span></p>
       </div>
       ${sexualActivityPageControl}
+      <fieldset class="account-preference-controls">
+        <legend>Preferences</legend>
+        <div class="account-preference-row">
+          <label for="account-timezone-input">Timezone</label>
+          <input id="account-timezone-input" type="text" value="${escapeAttr(currentTimezone)}" autocomplete="off" />
+        </div>
+        <div class="account-preference-actions">
+          <button type="button" class="btn-secondary table-action-btn" id="account-use-browser-timezone-btn">Use ${escapeHtml(browserTimezone)}</button>
+          <button type="button" class="btn-success table-action-btn" id="account-save-timezone-btn">Save Timezone</button>
+        </div>
+      </fieldset>
+      <fieldset class="account-preference-controls">
+        <legend>Setup Shortcuts</legend>
+        <div class="account-preference-actions">
+          <button type="button" class="btn-secondary table-action-btn" id="account-starter-quick-adds-btn">Add Starter Quick Adds</button>
+        </div>
+      </fieldset>
       <fieldset class="account-coach-category-controls">
         <legend>Coach Tony P. Cards</legend>
         <div class="account-coach-category-grid">
@@ -1931,6 +2033,37 @@ function showAccountPrivacyModal() {
     });
   });
   document.getElementById('account-close-btn').addEventListener('click', () => overlay.remove());
+  const timezoneInputEl = document.getElementById('account-timezone-input');
+  document.getElementById('account-use-browser-timezone-btn')?.addEventListener('click', () => {
+    if (timezoneInputEl) {
+      timezoneInputEl.value = detectBrowserTimezone();
+    }
+  });
+  document.getElementById('account-save-timezone-btn')?.addEventListener('click', async () => {
+    const timezone = String(timezoneInputEl?.value || '').trim();
+    try {
+      const response = await api('/api/account/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({ timezone })
+      });
+      state.currentUser = response.user || state.currentUser;
+      setActionBanner('Timezone saved.', 'success');
+      await refreshDashboard();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+  document.getElementById('account-starter-quick-adds-btn')?.addEventListener('click', async () => {
+    try {
+      const result = await addStarterQuickAdds();
+      setActionBanner(
+        result.addedCount > 0 ? `Added ${result.addedCount} starter quick add${result.addedCount === 1 ? '' : 's'}.` : 'Starter quick adds already exist.',
+        'success'
+      );
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
   document.getElementById('account-export-btn').addEventListener('click', async () => {
     try {
       await exportAccountData();
@@ -2077,6 +2210,46 @@ async function refreshAnalysisData() {
   renderAnalysisReport(response.report || null);
 }
 
+function renderWeeklyRecap(recap) {
+  state.weeklyRecap = recap || null;
+  if (!weeklyRecapMetaEl) {
+    return;
+  }
+  if (!recap) {
+    weeklyRecapMetaEl.textContent = 'No recap yet.';
+    if (weeklyRecapSummaryEl) weeklyRecapSummaryEl.textContent = '';
+    fillAnalysisList(weeklyRecapWinsListEl, []);
+    fillAnalysisList(weeklyRecapFocusListEl, []);
+    fillAnalysisList(weeklyRecapActionsListEl, []);
+    return;
+  }
+  const generatedAt = formatDateTimeLabel(recap.generatedAt);
+  weeklyRecapMetaEl.textContent = `Generated ${generatedAt} (${recap.confidence || 'low'} confidence).`;
+  if (weeklyRecapSummaryEl) {
+    weeklyRecapSummaryEl.textContent = String(recap.summary || '');
+  }
+  fillAnalysisList(weeklyRecapWinsListEl, recap.wins);
+  fillAnalysisList(weeklyRecapFocusListEl, recap.focus);
+  fillAnalysisList(weeklyRecapActionsListEl, recap.nextActions);
+}
+
+async function refreshWeeklyRecap() {
+  if (!weeklyRecapMetaEl) {
+    return;
+  }
+  try {
+    const response = await api(`/api/coach/weekly-recap?tz=${encodeURIComponent(getTimezone())}`);
+    renderWeeklyRecap(response.recap || null);
+  } catch (error) {
+    state.weeklyRecap = null;
+    weeklyRecapMetaEl.textContent = error.message;
+    if (weeklyRecapSummaryEl) weeklyRecapSummaryEl.textContent = '';
+    fillAnalysisList(weeklyRecapWinsListEl, []);
+    fillAnalysisList(weeklyRecapFocusListEl, []);
+    fillAnalysisList(weeklyRecapActionsListEl, []);
+  }
+}
+
 async function generateAnalysis() {
   if (!analysisGenerateBtnEl) {
     return;
@@ -2172,9 +2345,11 @@ function renderParsedItems(parsedMeal) {
 
     const summary = document.createElement('div');
     summary.className = 'parsed-item-summary';
+    const quality = renderNutritionQualityChips(item);
     summary.innerHTML = `
       <span class="parsed-item-name">${escapeHtml(item.itemName)}</span>
       <span class="parsed-item-macros">${fmtNumber(item.quantity)} ${escapeHtml(item.unit || 'serving')} &middot; ${fmtNumber(item.calories)} cal &middot; ${fmtNumber(item.protein)}g protein &middot; ${fmtNumber(item.carbs)}g carbs &middot; ${fmtNumber(item.fat)}g fat</span>
+      ${quality ? `<span class="parsed-quality-row">${quality}</span>` : ''}
     `;
 
     const editBtn = document.createElement('button');
@@ -2252,7 +2427,10 @@ function collectParsedItemsFromUi() {
     protein: Number(item.protein || 0),
     carbs: Number(item.carbs || 0),
     fat: Number(item.fat || 0),
-    confidence: item.confidence
+    confidence: item.confidence,
+    source: item.source,
+    sourceDetail: item.sourceDetail,
+    needsReview: item.needsReview
   }));
 }
 
@@ -2264,7 +2442,7 @@ function savedItemComponents(item) {
   return Array.isArray(item?.components) ? item.components : [];
 }
 
-function buildSavedMealQuickAddPayload({ name, quantity, unit, components }) {
+function buildSavedMealQuickAddPayload({ name, quantity, unit, components, source, sourceDetail }) {
   const mealQuantity = Math.max(Number(quantity || 1), 0.0001);
   const normalizedComponents = (components || []).map((component) => ({
     itemName: String(component.itemName || component.name || 'Item').trim() || 'Item',
@@ -2291,7 +2469,9 @@ function buildSavedMealQuickAddPayload({ name, quantity, unit, components }) {
     protein: roundSavedMacro(perUnitTotals.protein * mealQuantity),
     carbs: roundSavedMacro(perUnitTotals.carbs * mealQuantity),
     fat: roundSavedMacro(perUnitTotals.fat * mealQuantity),
-    components: normalizedComponents
+    components: normalizedComponents,
+    source: source || undefined,
+    sourceDetail: sourceDetail || undefined
   };
 }
 
@@ -2404,12 +2584,16 @@ function quickAddByTemplate(template) {
           protein: Number(component.protein || 0),
           carbs: Number(component.carbs || 0),
           fat: Number(component.fat || 0),
-          consumedAt
+          consumedAt,
+          source: 'quick_add',
+          sourceDetail: template.savedItemId ? `saved_item:${template.savedItemId}` : 'recent_history'
         })),
         mealName: template.name || 'Meal',
         mealQuantity: Math.max(Number(template.quantity || 1) * multiplier, 0.0001),
         mealUnit: template.unit || 'serving',
-        itemsAreMealUnit: true
+        itemsAreMealUnit: true,
+        source: 'quick_add',
+        sourceDetail: template.savedItemId ? `saved_item:${template.savedItemId}` : 'recent_history'
       })
     });
   }
@@ -2427,7 +2611,9 @@ function quickAddByTemplate(template) {
           protein: Number(template.protein || 0) * multiplier,
           carbs: Number(template.carbs || 0) * multiplier,
           fat: Number(template.fat || 0) * multiplier,
-          consumedAt
+          consumedAt,
+          source: 'quick_add',
+          sourceDetail: template.savedItemId ? `saved_item:${template.savedItemId}` : 'recent_history'
         }
       ]
     })
@@ -2597,6 +2783,7 @@ function renderMacroCard(entry) {
   const timeStr = new Date(entry.consumedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const entryId = safeId(entry.id);
   const mealGroup = escapeAttr(entry.mealGroup || '');
+  const qualityChips = renderNutritionQualityChips(entry);
   return `
     <div class="macro-card" data-entry-id="${entryId}">
       <div class="macro-card-check"><input type="checkbox" class="entry-checkbox" data-entry-id="${entryId}" ${inGroup ? `data-in-group="1" data-meal-group="${mealGroup}"` : ''} ${checked} /></div>
@@ -2608,11 +2795,54 @@ function renderMacroCard(entry) {
           <span class="entry-card-chip">${fmtNumber(entry.protein)}g protein</span>
           <span class="entry-card-chip">${fmtNumber(entry.carbs)}g carbs</span>
           <span class="entry-card-chip">${fmtNumber(entry.fat)}g fat</span>
+          ${qualityChips}
         </div>
       </div>
       <div class="macro-card-time">${timeStr}</div>
     </div>
   `;
+}
+
+function nutritionSourceLabel(source) {
+  const labels = {
+    manual: 'Manual',
+    ai_text: 'AI parse',
+    ai_photo: 'Photo parse',
+    barcode: 'Barcode',
+    quick_add: 'Quick Add',
+    copy_day: 'Copied',
+    starter_template: 'Starter',
+    manual_correction: 'Corrected',
+    food_correction: 'Remembered'
+  };
+  return labels[source] || 'Manual';
+}
+
+function renderNutritionQualityChips(entry) {
+  const source = String(entry?.source || 'manual');
+  const chips = [];
+  if (source && source !== 'manual') {
+    chips.push(`<span class="entry-card-chip entry-card-chip--source">${escapeHtml(nutritionSourceLabel(source))}</span>`);
+  }
+  if (entry?.needsReview) {
+    chips.push('<span class="entry-card-chip entry-card-chip--review">Review</span>');
+  }
+  return chips.join('');
+}
+
+function renderMealQualityChips(entries) {
+  const rows = Array.isArray(entries) ? entries : [];
+  if (!rows.length) {
+    return '';
+  }
+  if (rows.some((entry) => entry?.needsReview)) {
+    return '<span class="entry-card-chip entry-card-chip--review">Review</span>';
+  }
+  const source = rows.find((entry) => entry?.source && entry.source !== 'manual')?.source;
+  if (!source) {
+    return '';
+  }
+  return `<span class="entry-card-chip entry-card-chip--source">${escapeHtml(nutritionSourceLabel(source))}</span>`;
 }
 
 function renderEditRowMobile(entry) {
@@ -3201,6 +3431,7 @@ function renderDashboard(data) {
       const mealQty = item.mealQuantity || 1;
       const mealUnit = item.mealUnit || 'serving';
       const mealGroupChecked = state.selectedMealGroups.has(item.mealGroup) ? 'checked' : '';
+      const mealQualityChips = renderMealQualityChips(groupItems);
 
       let childrenHtml = '';
       for (const child of groupItems) {
@@ -3242,6 +3473,7 @@ function renderDashboard(data) {
               <span class="entry-card-chip">${fmtNumber(totals.protein)}g protein</span>
               <span class="entry-card-chip">${fmtNumber(totals.carbs)}g carbs</span>
               <span class="entry-card-chip">${fmtNumber(totals.fat)}g fat</span>
+              ${mealQualityChips}
             </div>
           </div>
           <div class="macro-card-time">${timeStr}</div>
@@ -4094,6 +4326,8 @@ saveParsedBtnEl.addEventListener('click', async () => {
 
   const consumedAt = asIso(consumedAtEl.value);
   const editedItems = collectParsedItemsFromUi();
+  const parseSource = state.parsedMeal?.review?.source || (state.mealImageAttachments.length ? 'ai_photo' : 'ai_text');
+  const parseSourceDetail = state.mealImageAttachments.length ? 'OpenAI meal photo parse' : 'OpenAI meal text parse';
 
   const items = editedItems.map((item) => ({
     itemName: item.itemName,
@@ -4103,7 +4337,11 @@ saveParsedBtnEl.addEventListener('click', async () => {
     protein: item.protein,
     carbs: item.carbs,
     fat: item.fat,
-    consumedAt
+    consumedAt,
+    source: item.source || parseSource,
+    sourceDetail: item.sourceDetail || parseSourceDetail,
+    confidence: item.confidence,
+    needsReview: item.needsReview !== false
   }));
 
   const saveQuickAdd = document.getElementById('parsed-meal-save-quickadd');
@@ -4120,14 +4358,18 @@ saveParsedBtnEl.addEventListener('click', async () => {
         calories: perUnit(item.calories),
         protein: perUnit(item.protein),
         carbs: perUnit(item.carbs),
-        fat: perUnit(item.fat)
+        fat: perUnit(item.fat),
+        source: parseSource,
+        sourceDetail: 'Saved from parsed meal'
       });
     } else {
       saveItems.push(buildSavedMealQuickAddPayload({
         name: state.parsedMeal.mealName || 'Meal',
         quantity: state.parsedMeal.mealQuantity || 1,
         unit: state.parsedMeal.mealUnit || 'serving',
-        components: editedItems
+        components: editedItems,
+        source: parseSource,
+        sourceDetail: 'Saved from parsed meal'
       }));
     }
   }
@@ -4142,7 +4384,9 @@ saveParsedBtnEl.addEventListener('click', async () => {
         mealName: state.parsedMeal.mealName || undefined,
         mealQuantity: state.parsedMeal.mealQuantity || undefined,
         mealUnit: state.parsedMeal.mealUnit || undefined,
-        itemsAreMealUnit: items.length > 1
+        itemsAreMealUnit: items.length > 1,
+        source: parseSource,
+        sourceDetail: parseSourceDetail
       })
     });
 
@@ -4179,6 +4423,40 @@ quickAddBtnEl.addEventListener('click', async () => {
     setActionBanner(error.message, 'error');
   }
 });
+
+if (copyYesterdayBtnEl) {
+  copyYesterdayBtnEl.addEventListener('click', async () => {
+    copyYesterdayBtnEl.disabled = true;
+    try {
+      const result = await copyYesterdayEntries();
+      setActionBanner(
+        result.copiedCount > 0 ? `Copied ${result.copiedCount} item${result.copiedCount === 1 ? '' : 's'} from yesterday.` : 'No entries found for yesterday.',
+        result.copiedCount > 0 ? 'success' : 'info'
+      );
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    } finally {
+      copyYesterdayBtnEl.disabled = false;
+    }
+  });
+}
+
+if (starterQuickAddsBtnEl) {
+  starterQuickAddsBtnEl.addEventListener('click', async () => {
+    starterQuickAddsBtnEl.disabled = true;
+    try {
+      const result = await addStarterQuickAdds();
+      setActionBanner(
+        result.addedCount > 0 ? `Added ${result.addedCount} starter quick add${result.addedCount === 1 ? '' : 's'}.` : 'Starter quick adds already exist.',
+        result.addedCount > 0 ? 'success' : 'info'
+      );
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    } finally {
+      starterQuickAddsBtnEl.disabled = false;
+    }
+  });
+}
 
 savedSelectEl.addEventListener('change', () => {
   const selectedTemplate = getSelectedQuickTemplate();
@@ -5918,7 +6196,7 @@ for (const item of pageMenuItems) {
       await refreshHealthData();
     }
     if (page === 'analysis') {
-      await refreshAnalysisData();
+      await Promise.all([refreshAnalysisData(), refreshWeeklyRecap()]);
       if (!state.analysisAutoRan && isAnalysisDueWeekly(state.analysisReport)) {
         state.analysisAutoRan = true;
         await generateAnalysis();
@@ -6286,17 +6564,23 @@ renderActivePage('macros');
 bindPageChartsResize();
 bindCoachSlots();
 
-loadQuickEntries({ force: true });
-
-refreshProfile().catch((error) => {
-  console.error('Failed to refresh profile:', error);
-});
-
 refreshAppVersion();
 
-refreshDashboard().catch((error) => {
-  setActionBanner(error.message, 'error');
-});
+loadQuickEntries({ force: true });
+
+(async function initApp() {
+  try {
+    await refreshProfile();
+  } catch (error) {
+    console.error('Failed to refresh profile:', error);
+  }
+
+  try {
+    await refreshDashboard();
+  } catch (error) {
+    setActionBanner(error.message, 'error');
+  }
+})();
 
 if (profileChipEl) {
   profileChipEl.addEventListener('click', (event) => {

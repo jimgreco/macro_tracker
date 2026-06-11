@@ -38,6 +38,8 @@ Debug iOS builds auto-request `/auth/dev/mobile` when pointed at localhost; that
 | `npm run db:up` / `db:down` | Start/stop PostgreSQL |
 | `npm run db:seed:local` | Seed local preview data |
 
+If Docker is unavailable locally but Homebrew Postgres binaries exist, a throwaway smoke DB can be created with `initdb`, started on a high port with `pg_ctl -o "-p 55433 -k /tmp"`, and used via `DATABASE_URL=postgres://postgres@127.0.0.1:55433/postgres`. Stop it with `pg_ctl -D <dir> stop` after the smoke.
+
 ## Key Files
 
 | File | Purpose |
@@ -88,11 +90,14 @@ See `.env.example` for full list.
 Uses Node's built-in `node:test` module.
 
 - `test/api-infrastructure.test.js` — API infra: soft deletes, pagination, auth, billing, GDPR, release workflow smoke checks
+- `test/http-routes.test.js` — Real Express route coverage with stubbed DB/parser dependencies for timezone prefs, provenance/corrections, templates, weekly recap, and diagnostics
+- `test/db-integration.test.js` — Opt-in PostgreSQL integration test for feature-foundation persistence; runs only when `TEST_DATABASE_URL` is set
 - `test/ios-safari-regression.test.js` — Mobile nav regression
 - `test/ui-regression.test.js` — UI component tests
 - `test/workout-parse.test.js` — Workout parsing logic
 
 Run `npm run test:check` for fast syntax + test pass (no database required).
+Run `TEST_DATABASE_URL=postgres://... npm run test:check` before pushing DB/schema-heavy work to include the opt-in integration path.
 
 ## Architecture Notes
 
@@ -107,13 +112,16 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 - **GDPR**: `GET /api/v1/account/export` (full data dump), `DELETE /api/v1/account` (hard delete all data).
 - **Pagination**: `getDashboard()` and `listWorkoutEntries()` accept `{ limit, offset }`, responses include `pagination` object.
 - **Stripe billing**: Webhook registered BEFORE `express.json()` for raw body access. Handles `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. Plan gating infrastructure exists but is currently disabled (no upgrade restrictions).
-- **Database**: Schema auto-created on startup. Tables include `users`, `user_identities`, `entries`, `saved_items`, `macro_targets`, `weight_entries`, `workout_entries`, `sexual_activity_entries`, `sleep_entries`, `weight_targets`, `analysis_reports`, `api_tokens`, `audit_log`, `subscriptions`, `billing_events`, and `daily_usage_counts`.
+- **Database**: Schema auto-created on startup. `schema_migrations` records feature/schema markers while legacy startup repair SQL remains in `initDb()`. Tables include `users`, `user_identities`, `entries`, `saved_items`, `food_corrections`, `macro_targets`, `weight_entries`, `workout_entries`, `sexual_activity_entries`, `sleep_entries`, `weight_targets`, `analysis_reports`, `api_tokens`, `audit_log`, `client_diagnostics`, `subscriptions`, `billing_events`, `coach_dismissals`, and `daily_usage_counts`.
 - **API**: REST endpoints under `/api/v1/`. Rate-limited parse endpoints (15 req/min). See `src/server.js` for full route list.
 - **Frontend**: Single HTML page (`public/index.html`) with all state in `public/script.js`.
 - **Modal-based editing**: All editing (entries, meals, quick adds, weight, workouts) uses modal popups (`showEntryModal`, `showCombineModal`, `showWeightEditModal`, `showWorkoutEditModal`). Target editing also uses modals: `showEditTargetsModal` (macro targets), `showWeightTargetModal` (weight target + date), `showWorkoutTargetModal` (workouts/week + calories/week). Each is accessed via "(edit targets)" or "(edit target)" links in the Logged Entries heading of each tab. No inline edit rows remain.
 - **Macro targets**: Stored historically in `macro_targets` by `(user_id, macro, effective_date)`. New edits are effective for the current local date going forward until another target row is set; old dates should compare against the targets effective on those dates. Valid macros: `calories`, `protein`, `carbs`, `fat`, `workouts`, `workout_calories`, `sleep_hours`. Defaults via `getMacroTargets()`.
 - **Weight targets**: Stored historically in `weight_targets` by `(user_id, effective_date)`. `target_date` remains the goal deadline; `effective_date` is when that target started applying to logged weight history.
-- **Timezone**: All database date grouping uses `AT TIME ZONE 'America/New_York'` (Eastern time) so daily boundaries align with the user's local day.
+- **Timezone**: Users have a persisted `users.timezone`. Request timezone resolution is explicit `tz`, then saved user timezone, then `America/New_York`. All date grouping should use the resolved timezone with `AT TIME ZONE`.
+- **Nutrition quality loop**: Meal entries carry `source`, `source_detail`, `confidence`, `needs_review`, and `correction_key`. User edits mark entries as `manual_correction` and upsert `food_corrections`; parse/bulk save paths apply remembered corrections before persistence.
+- **Templates and retention**: Starter Quick Adds are created by `POST /api/starter-quick-adds`; day copying is `POST /api/entries/copy-day` and preserves local times/meal groups. Weekly recap is deterministic via `GET /api/coach/weekly-recap` and is separate from OpenAI analysis generation.
+- **Client diagnostics**: Browser/API client diagnostics post to `POST /api/diagnostics/client`; admins can inspect recent diagnostics with `GET /api/admin/accounts/:userId/diagnostics`.
 - **Chart tooltips**: All charts (macros trend, weight, workout calories) support hover/click/touch tooltips via `bindSimpleChartTooltip()`. Tooltip threshold is 40px for hover, 42px for click/touch.
 - **Weight chart**: `drawSimpleLineChart` on `#weight-canvas` shows weight trend with average and target lines. Weight page has period toggles (week/month/year).
 - **Workout stats**: Workout page shows stats chips (workouts/week, cal burned/week) with target values and a data source note. Workout graphs (occurrence + calories) have been removed.

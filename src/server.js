@@ -20,9 +20,13 @@ const {
   getUserAccountControls,
   listAdminAccounts,
   updateAdminAccountControls,
+  updateUserPreferences,
   getProviderUserId,
   logAudit,
+  logClientDiagnostic,
+  listClientDiagnostics,
   addEntries,
+  copyEntriesForLocalDay,
   updateEntry,
   deleteEntry,
   scaleMealGroup,
@@ -33,7 +37,9 @@ const {
   updateSavedItem,
   deleteSavedItem,
   listSavedItems,
+  addStarterQuickAdds,
   quickAddFromSaved,
+  applyFoodCorrections,
   claimLegacyData,
   getDashboard,
   getDailyTotals,
@@ -292,7 +298,7 @@ function securityHeaders(req, res, next) {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
   if (isProduction) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
@@ -524,7 +530,10 @@ async function hydrateAuthenticatedUser(req, res, next) {
   }
 
   try {
-    const controls = await getUserAccountControls(userIdFromReq(req));
+    let controls = await getUserAccountControls(userIdFromReq(req));
+    if (!controls && localAuthBypassUser && userIdFromReq(req) === String(localAuthBypassUser.id)) {
+      controls = await upsertUser(localAuthBypassUser);
+    }
     if (controls) {
       req.user = {
         ...req.user,
@@ -734,6 +743,7 @@ function clientUserPayload(user) {
     name: user.name || null,
     picture: user.picture || null,
     provider: user.provider || 'google',
+    timezone: user.timezone || 'America/New_York',
     isAdmin: isAdminUser(user),
     setupTutorialResetAt: user.setupTutorialResetAt || null,
     features: {
@@ -885,10 +895,20 @@ function normalizeScope(scopeInput) {
 }
 
 function normalizeTimezone(tzInput) {
-  return normalizeString(tzInput || 'America/New_York', 'tz', {
+  const timezone = normalizeString(tzInput || 'America/New_York', 'tz', {
     maxLength: 64,
     fallback: 'America/New_York'
   });
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
+    return timezone;
+  } catch (_error) {
+    throw new Error('tz must be a valid IANA timezone.');
+  }
+}
+
+function requestTimezone(req) {
+  return normalizeTimezone(req?.query?.tz || req?.body?.tz || req?.user?.timezone || 'America/New_York');
 }
 
 function normalizeLimit(value, fallback = undefined) {
@@ -1153,6 +1173,106 @@ function buildFallbackAnalysis(snapshot, context) {
   };
 }
 
+function buildWeeklyRecap(snapshot) {
+  const metrics = buildAnalysisMetrics(snapshot, normalizeAnalysisContext(snapshot));
+  const meals = Array.isArray(snapshot?.meals?.dailyTotals) ? snapshot.meals.dailyTotals : [];
+  const workouts = Array.isArray(snapshot?.workouts?.dailyTotals) ? snapshot.workouts.dailyTotals : [];
+  const sleep = Array.isArray(snapshot?.sleep?.dailyTotals) ? snapshot.sleep.dailyTotals : [];
+  const last7Meals = meals.slice(-7);
+  const prev7Meals = meals.slice(-14, -7);
+  const last7Workouts = workouts.slice(-7);
+  const prev7Workouts = workouts.slice(-14, -7);
+  const last7Sleep = sleep.slice(-7);
+  const avgCalories = avg(last7Meals.map((row) => toFinite(row.calories)));
+  const avgProtein = avg(last7Meals.map((row) => toFinite(row.protein)));
+  const avgSleep = avg(last7Sleep.map((row) => toFinite(row.totalHours)));
+  const workoutDays = last7Workouts.length;
+  const prevWorkoutDays = prev7Workouts.length;
+  const proteinTarget = toFinite(snapshot?.targets?.protein);
+  const calorieTarget = toFinite(snapshot?.targets?.calories);
+  const sleepTarget = toFinite(snapshot?.targets?.sleep_hours, 8);
+  const workoutTarget = Math.max(0, Math.round(toFinite(snapshot?.targets?.workouts, 5)));
+
+  const wins = [];
+  const focus = [];
+  const nextActions = [];
+
+  if (last7Meals.length >= 5) {
+    wins.push(`Logged meals on ${last7Meals.length} of the last 7 days.`);
+  } else {
+    focus.push(`Meal coverage was ${last7Meals.length}/7 days.`);
+    nextActions.push('Log at least one meal on 6 of the next 7 days.');
+  }
+
+  if (proteinTarget > 0) {
+    const proteinDelta = avgProtein - proteinTarget;
+    if (avgProtein >= proteinTarget * 0.95) {
+      wins.push(`Average protein was ${fmtSignedNumber(proteinDelta, 0)}g vs target.`);
+    } else {
+      focus.push(`Average protein was ${Math.round(Math.abs(proteinDelta))}g below target.`);
+      nextActions.push('Plan one protein-first meal before dinner each day.');
+    }
+  }
+
+  if (calorieTarget > 0 && last7Meals.length >= 4) {
+    const calorieDeltaPct = ((avgCalories - calorieTarget) / calorieTarget) * 100;
+    if (Math.abs(calorieDeltaPct) <= 8) {
+      wins.push('Average calories stayed near target.');
+    } else {
+      focus.push(`Average calories were ${Math.abs(Math.round(calorieDeltaPct))}% ${calorieDeltaPct > 0 ? 'above' : 'below'} target.`);
+      nextActions.push('Pre-log one anchor meal on high-variance days.');
+    }
+  }
+
+  if (workoutTarget > 0) {
+    if (workoutDays >= workoutTarget) {
+      wins.push(`Hit ${workoutDays}/${workoutTarget} workout days.`);
+    } else {
+      focus.push(`Workout days were ${workoutDays}/${workoutTarget}.`);
+      nextActions.push(`Schedule ${Math.max(1, workoutTarget - workoutDays)} more workout day${workoutTarget - workoutDays === 1 ? '' : 's'} next week.`);
+    }
+  } else if (workoutDays > prevWorkoutDays) {
+    wins.push(`Workout days increased from ${prevWorkoutDays} to ${workoutDays}.`);
+  }
+
+  if (last7Sleep.length >= 3 && sleepTarget > 0) {
+    if (avgSleep >= sleepTarget * 0.95) {
+      wins.push(`Average sleep was ${avgSleep.toFixed(1)} hours.`);
+    } else {
+      focus.push(`Average sleep was ${avgSleep.toFixed(1)} hours vs ${sleepTarget.toFixed(1)} target.`);
+      nextActions.push('Pick two nights for an earlier wind-down.');
+    }
+  }
+
+  if (!nextActions.length) {
+    nextActions.push('Keep the current logging rhythm and review targets again next week.');
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    periodDays: 7,
+    confidence: metrics.dataConfidence.score >= 75 ? 'high' : metrics.dataConfidence.score >= 50 ? 'medium' : 'low',
+    summary: `Last 7 days: ${last7Meals.length}/7 meal days, ${workoutDays} workout days, ${avgProtein ? `${Math.round(avgProtein)}g avg protein` : 'limited protein data'}.`,
+    wins: wins.slice(0, 4),
+    focus: focus.slice(0, 4),
+    nextActions: nextActions.slice(0, 4),
+    metrics: {
+      mealDays: last7Meals.length,
+      avgCalories: Number(avgCalories.toFixed(1)),
+      avgProtein: Number(avgProtein.toFixed(1)),
+      workoutDays,
+      avgSleepHours: Number(avgSleep.toFixed(2)),
+      dataConfidenceScore: metrics.dataConfidence.score
+    }
+  };
+}
+
+function fmtSignedNumber(value, places = 1) {
+  const number = toFinite(value);
+  const fixed = number.toFixed(places).replace(/\.0$/, '');
+  return `${number >= 0 ? '+' : ''}${fixed}`;
+}
+
 async function generateAiAnalysis(snapshot, context) {
   if (!hasOpenAiApiKey()) {
     return buildFallbackAnalysis(snapshot, context);
@@ -1329,7 +1449,11 @@ function validateItems(items, consumedAt) {
       protein: normalizeNumber(item.protein, `items[${index}].protein`, { min: 0, max: 5000, required: true }),
       carbs: normalizeNumber(item.carbs, `items[${index}].carbs`, { min: 0, max: 5000, required: true }),
       fat: normalizeNumber(item.fat, `items[${index}].fat`, { min: 0, max: 5000, required: true }),
-      consumedAt: normalizeIsoDateTime(item.consumedAt || consumedAt, `items[${index}].consumedAt`)
+      consumedAt: normalizeIsoDateTime(item.consumedAt || consumedAt, `items[${index}].consumedAt`),
+      source: normalizeString(item.source, `items[${index}].source`, { maxLength: 40, fallback: '' }) || undefined,
+      sourceDetail: normalizeString(item.sourceDetail || item.source_detail, `items[${index}].sourceDetail`, { maxLength: 255, fallback: '' }) || undefined,
+      confidence: item.confidence == null ? undefined : normalizeNumber(item.confidence, `items[${index}].confidence`, { min: 0, max: 1 }),
+      needsReview: item.needsReview == null && item.needs_review == null ? undefined : Boolean(item.needsReview ?? item.needs_review)
     };
   });
 }
@@ -1363,6 +1487,13 @@ function validateSavedItemBody(body) {
     carbs: normalizeNumber(payload.carbs, 'carbs', { min: 0, max: 5000 }),
     fat: normalizeNumber(payload.fat, 'fat', { min: 0, max: 5000 })
   };
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'source')) {
+    normalized.source = normalizeString(payload.source, 'source', { maxLength: 40, fallback: 'manual' });
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'sourceDetail') || Object.prototype.hasOwnProperty.call(payload, 'source_detail')) {
+    normalized.sourceDetail = normalizeString(payload.sourceDetail || payload.source_detail, 'sourceDetail', { maxLength: 255, fallback: '' });
+  }
 
   if (Object.prototype.hasOwnProperty.call(payload, 'components')) {
     normalized.components = validateSavedItemComponents(payload.components);
@@ -2077,6 +2208,26 @@ apiRouter.get('/me', (req, res) => {
   res.json({ user: clientUserPayload(req.user) });
 });
 
+apiRouter.patch('/account/preferences', async (req, res) => {
+  try {
+    const body = requirePlainObject(req.body || {}, 'account preferences');
+    const preferences = {};
+    if (Object.prototype.hasOwnProperty.call(body, 'timezone')) {
+      preferences.timezone = normalizeTimezone(body.timezone);
+    }
+
+    const user = await updateUserPreferences(userIdFromReq(req), preferences);
+    req.user = {
+      ...req.user,
+      ...user
+    };
+    logAudit(userIdFromReq(req), 'update', 'account_preferences', null, preferences);
+    return res.json({ ok: true, user: clientUserPayload(req.user) });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to update account preferences.');
+  }
+});
+
 apiRouter.get('/version', (req, res) => {
   res.json(getVersionPayload());
 });
@@ -2135,6 +2286,17 @@ apiRouter.patch('/admin/accounts/:userId', requireAdmin, async (req, res) => {
   }
 });
 
+apiRouter.get('/admin/accounts/:userId/diagnostics', requireAdmin, async (req, res) => {
+  try {
+    const targetUserId = normalizeString(req.params.userId, 'userId', { maxLength: 255, required: true });
+    const limit = Math.min(normalizeLimit(req.query.limit, 25), 100);
+    const diagnostics = await listClientDiagnostics(targetUserId, { limit });
+    return res.json({ diagnostics });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to load diagnostics.');
+  }
+});
+
 apiRouter.post('/parse-meal', async (req, res) => {
   let hasImage = false;
   try {
@@ -2178,6 +2340,22 @@ apiRouter.post('/parse-meal', async (req, res) => {
       consumedAt,
       imageDataUrls
     });
+    if (Array.isArray(parsed.items) && parsed.items.length) {
+      const source = hasImage ? 'ai_photo' : 'ai_text';
+      parsed.items = await applyFoodCorrections(
+        userIdFromReq(req),
+        parsed.items.map((item) => ({
+          ...item,
+          source,
+          sourceDetail: hasImage ? 'OpenAI meal photo parse' : 'OpenAI meal text parse',
+          needsReview: true
+        }))
+      );
+      parsed.review = {
+        needed: parsed.items.some((item) => item.needsReview !== false),
+        source
+      };
+    }
 
     res.json(parsed);
   } catch (error) {
@@ -2360,10 +2538,20 @@ apiRouter.post('/entries/bulk', async (req, res) => {
     const body = requirePlainObject(req.body || {}, 'bulk entries request');
     const consumedAt = normalizeIsoDateTime(body.consumedAt, 'consumedAt');
     let rows = validateItems(body.items, consumedAt);
+    const defaultSource = normalizeString(body.source, 'source', { maxLength: 40, fallback: '' }) || null;
 
     if (!rows.length) {
       return sendError(req, res, 400, 'At least one item is required.');
     }
+
+    if (defaultSource) {
+      rows = rows.map((row) => ({
+        ...row,
+        source: row.source || defaultSource,
+        sourceDetail: row.sourceDetail || body.sourceDetail || body.source_detail || null
+      }));
+    }
+    rows = await applyFoodCorrections(userIdFromReq(req), rows);
 
     const mealName = normalizeString(body.mealName, 'mealName', { maxLength: 160, fallback: '' }) || null;
     const mealGroup = rows.length > 1 && mealName ? crypto.randomUUID() : null;
@@ -2599,6 +2787,31 @@ apiRouter.post('/quick-add', async (req, res) => {
   }
 });
 
+apiRouter.post('/starter-quick-adds', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    const result = await addStarterQuickAdds(userId);
+    logAudit(userId, 'create', 'starter_quick_adds', null, { addedCount: result.addedCount });
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to add starter quick adds.');
+  }
+});
+
+apiRouter.post('/entries/copy-day', async (req, res) => {
+  try {
+    const body = requirePlainObject(req.body || {}, 'copy day request');
+    const sourceDay = normalizeString(body.sourceDay, 'sourceDay', { maxLength: 10, required: true });
+    const targetDay = normalizeString(body.targetDay, 'targetDay', { maxLength: 10, required: true });
+    const timezone = requestTimezone(req);
+    const result = await copyEntriesForLocalDay(userIdFromReq(req), sourceDay, targetDay, timezone);
+    logAudit(userIdFromReq(req), 'copy', 'entries', null, { sourceDay, targetDay, copiedCount: result.copiedCount });
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to copy entries.');
+  }
+});
+
 apiRouter.post('/claim-legacy-data', async (req, res) => {
   try {
     const result = await claimLegacyData(userIdFromReq(req));
@@ -2613,7 +2826,7 @@ apiRouter.put('/macro-targets/:macro', async (req, res) => {
     const macro = String(req.params.macro || '').toLowerCase();
     const target = Number(req.body?.target);
     const effectiveDate = req.body?.effectiveDate || req.body?.effective_date;
-    const timezone = normalizeTimezone(req.body?.tz || req.query.tz);
+    const timezone = requestTimezone(req);
     const updated = await setMacroTarget(userIdFromReq(req), macro, target, { effectiveDate, timezone });
     return res.json({ ok: true, ...updated });
   } catch (error) {
@@ -2628,7 +2841,7 @@ apiRouter.get('/weights', async (req, res) => {
     const limit = normalizeLimit(req.query.limit);
     const offset = normalizeOffset(req.query.offset);
     const scope = normalizeScope(req.query.scope);
-    const tz = normalizeTimezone(req.query.tz);
+    const tz = requestTimezone(req);
     const data = await listWeightEntries(userIdFromReq(req), { limit, offset, scope, timezone: tz });
     res.json(data);
   } catch (error) {
@@ -2638,7 +2851,7 @@ apiRouter.get('/weights', async (req, res) => {
 
 apiRouter.get('/weight-target', async (req, res) => {
   try {
-    const tz = normalizeTimezone(req.query.tz);
+    const tz = requestTimezone(req);
     const target = await getWeightTarget(userIdFromReq(req), undefined, { timezone: tz });
     res.json(target);
   } catch (error) {
@@ -2648,7 +2861,7 @@ apiRouter.get('/weight-target', async (req, res) => {
 
 apiRouter.put('/weight-target', async (req, res) => {
   try {
-    const timezone = normalizeTimezone(req.body?.tz || req.query.tz);
+    const timezone = requestTimezone(req);
     const target = await setWeightTarget(userIdFromReq(req), { ...(req.body || {}), tz: timezone });
     res.json({ ok: true, ...target });
   } catch (error) {
@@ -2755,7 +2968,7 @@ apiRouter.get('/workouts', async (req, res) => {
     const limit = normalizeLimit(req.query.limit);
     const offset = normalizeOffset(req.query.offset);
     const scope = normalizeScope(req.query.scope);
-    const tz = normalizeTimezone(req.query.tz);
+    const tz = requestTimezone(req);
     const data = await listWorkoutEntries(userIdFromReq(req), { limit, offset, scope, timezone: tz });
     res.json(data);
   } catch (error) {
@@ -2846,7 +3059,7 @@ apiRouter.get('/sexual-activity', async (req, res) => {
     const limit = normalizeLimit(req.query.limit);
     const offset = normalizeOffset(req.query.offset);
     const scope = normalizeScope(req.query.scope);
-    const tz = normalizeTimezone(req.query.tz);
+    const tz = requestTimezone(req);
     const data = await listSexualActivityEntries(userIdFromReq(req), { limit, offset, scope, timezone: tz });
     res.json(data);
   } catch (error) {
@@ -2910,7 +3123,7 @@ apiRouter.get('/sleep', async (req, res) => {
     const limit = normalizeLimit(req.query.limit);
     const offset = normalizeOffset(req.query.offset);
     const scope = normalizeScope(req.query.scope);
-    const tz = normalizeTimezone(req.query.tz);
+    const tz = requestTimezone(req);
     const data = await listSleepEntries(userIdFromReq(req), { limit, offset, scope, timezone: tz });
     res.json(data);
   } catch (error) {
@@ -2976,12 +3189,23 @@ apiRouter.get('/analysis/latest', async (req, res) => {
   }
 });
 
+apiRouter.get('/coach/weekly-recap', async (req, res) => {
+  try {
+    const tz = requestTimezone(req);
+    const snapshot = await getAnalysisSnapshot(userIdFromReq(req), 14, tz);
+    const recap = buildWeeklyRecap(snapshot);
+    return res.json({ recap });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to build weekly recap.');
+  }
+});
+
 apiRouter.post('/analysis', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
     const body = requirePlainObject(req.body || {}, 'analysis request');
     const days = normalizeAnalysisDays(body.days);
-    const tz = normalizeTimezone(body.tz);
+    const tz = requestTimezone(req);
     const limitResponse = await enforceDailyUsage(
       req,
       res,
@@ -3009,7 +3233,7 @@ apiRouter.get('/dashboard', async (req, res) => {
   try {
     const limit = normalizeLimit(req.query.limit);
     const offset = normalizeOffset(req.query.offset);
-    const tz = normalizeTimezone(req.query.tz);
+    const tz = requestTimezone(req);
     const date = req.query.date ? normalizeString(req.query.date, 'date', { maxLength: 20 }) : undefined;
     const data = await getDashboard(userIdFromReq(req), date, { limit, offset, timezone: tz });
     res.json(data);
@@ -3021,7 +3245,7 @@ apiRouter.get('/dashboard', async (req, res) => {
 apiRouter.get('/daily-totals', async (req, res) => {
   try {
     const scope = normalizeScope(req.query.scope);
-    const tz = normalizeTimezone(req.query.tz);
+    const tz = requestTimezone(req);
     const totals = await getDailyTotals(userIdFromReq(req), scope, tz);
     const targets = await getMacroTargets(userIdFromReq(req), undefined, { timezone: tz });
     const targetHistory = await getMacroTargetHistory(userIdFromReq(req), scope, tz);
@@ -3092,6 +3316,26 @@ apiRouter.delete('/coach/dismissals', async (req, res) => {
     res.json({ ok: true, deletedCount });
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/diagnostics/client', async (req, res) => {
+  try {
+    const body = requirePlainObject(req.body || {}, 'client diagnostic');
+    const diagnostic = {
+      level: normalizeString(body.level, 'level', { maxLength: 20, fallback: 'info' }),
+      category: normalizeString(body.category, 'category', { maxLength: 80, fallback: 'client' }),
+      message: normalizeString(body.message, 'message', { maxLength: 1000, required: true }),
+      details: body.details && typeof body.details === 'object' && !Array.isArray(body.details) ? body.details : null,
+      userAgent: normalizeString(body.userAgent || req.get('user-agent'), 'userAgent', { maxLength: 512, fallback: '' }),
+      appPlatform: normalizeString(body.appPlatform || 'web', 'appPlatform', { maxLength: 80, fallback: 'web' }),
+      appVersion: normalizeString(body.appVersion || appBuild, 'appVersion', { maxLength: 80, fallback: appBuild }),
+      requestId: normalizeString(body.requestId || req.requestId, 'requestId', { maxLength: 128, fallback: req.requestId || '' })
+    };
+    const saved = await logClientDiagnostic(userIdFromReq(req), diagnostic);
+    return res.json({ ok: true, diagnostic: saved });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to record diagnostic.');
   }
 });
 
@@ -3296,4 +3540,14 @@ async function startServer() {
   }
 }
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = {
+  app,
+  startServer,
+  buildWeeklyRecap,
+  requestTimezone,
+  normalizeTimezone
+};

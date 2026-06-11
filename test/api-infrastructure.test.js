@@ -19,9 +19,13 @@ test('db.js exports all required functions', () => {
     'getUserAccountControls',
     'listAdminAccounts',
     'updateAdminAccountControls',
+    'updateUserPreferences',
     'getProviderUserId',
     'logAudit',
+    'logClientDiagnostic',
+    'listClientDiagnostics',
     'addEntries',
+    'copyEntriesForLocalDay',
     'updateEntry',
     'deleteEntry',
     'scaleMealGroup',
@@ -29,9 +33,12 @@ test('db.js exports all required functions', () => {
     'updateSavedItem',
     'deleteSavedItem',
     'listSavedItems',
+    'addStarterQuickAdds',
     'quickAddFromSaved',
+    'applyFoodCorrections',
     'claimLegacyData',
     'getDashboard',
+    'getDailyTotals',
     'getMacroTargets',
     'setMacroTarget',
     'addWeightEntry',
@@ -122,8 +129,8 @@ test('saved quick-add meals preserve component rows', () => {
   assert.ok(db.includes('components JSONB'));
   assert.ok(db.includes('ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS components JSONB'));
   assert.ok(db.includes('function normalizeSavedItemComponents'));
-  assert.ok(db.includes('INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat, components)'));
-  assert.ok(db.includes('SELECT id, name, quantity, unit, calories, protein, carbs, fat, components'));
+  assert.ok(db.includes('INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat, components, source, source_detail)'));
+  assert.ok(db.includes('SELECT id, name, quantity, unit, calories, protein, carbs, fat, components,\n            source, source_detail AS "sourceDetail"'));
   assert.ok(db.includes('const mealGroup = components.length > 1 ? crypto.randomUUID() : null'));
   assert.ok(db.includes('meal_group,\n             meal_name,\n             meal_quantity,\n             meal_unit'));
   assert.ok(server.includes('function validateSavedItemComponents'));
@@ -317,6 +324,19 @@ test('coach dismissals are durable and user scoped', () => {
   assert.ok(db.includes('ON CONFLICT (user_id, dismissal_type, dismissal_key)'));
 });
 
+test('feature foundation persistence schema is present', () => {
+  const db = read('src/db.js');
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS schema_migrations'));
+  assert.ok(db.includes("recordSchemaMigration('2026-06-11_feature_foundations')"));
+  assert.ok(db.includes("timezone TEXT NOT NULL DEFAULT 'America/New_York'"));
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS food_corrections'));
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS client_diagnostics'));
+  assert.ok(db.includes('source TEXT NOT NULL DEFAULT \'manual\''));
+  assert.ok(db.includes('needs_review BOOLEAN NOT NULL DEFAULT FALSE'));
+  assert.ok(db.includes('correction_key TEXT'));
+  assert.ok(db.includes('idx_client_diagnostics_user_created'));
+});
+
 test('getDashboard supports pagination via limit/offset', () => {
   const db = read('src/db.js');
   assert.ok(db.includes('LIMIT $2 OFFSET $3'), 'getDashboard entries query must use LIMIT/OFFSET');
@@ -347,7 +367,13 @@ test('server.js imports all new db functions', () => {
     'getUserAccountControls',
     'listAdminAccounts',
     'updateAdminAccountControls',
+    'updateUserPreferences',
     'logAudit',
+    'logClientDiagnostic',
+    'listClientDiagnostics',
+    'copyEntriesForLocalDay',
+    'addStarterQuickAdds',
+    'applyFoodCorrections',
     'createApiToken',
     'validateApiToken',
     'listApiTokens',
@@ -412,6 +438,13 @@ test('server.js disables Express fingerprinting and hardens state-changing origi
   assert.ok(server.includes("['POST', 'PUT', 'PATCH', 'DELETE']"));
   assert.ok(server.includes("req.authMode === 'bearer'"));
   assert.ok(server.includes("'Forbidden request origin.'"));
+});
+
+test('server.js keeps CSP image sources on data URLs, not blobs', () => {
+  const server = read('src/server.js');
+  const cspLine = server.split('\n').find((line) => line.includes('Content-Security-Policy')) || '';
+  assert.ok(cspLine.includes("img-src 'self' data: https:"));
+  assert.equal(cspLine.includes('img-src') && cspLine.includes('blob:'), false);
 });
 
 test('server.js validates OAuth state for web auth flows', () => {
@@ -490,6 +523,7 @@ test('server.js lets local iOS debug builds use the dev user without web auth by
   assert.ok(server.includes('const localDevUser = !isProduction'));
   assert.ok(server.includes('const localAuthBypassUser = localAuthBypassEnabled ? localDevUser : null'));
   assert.ok(server.includes('if (!localAuthBypassUser || (req.user && req.user.id))'));
+  assert.ok(server.includes('controls = await upsertUser(localAuthBypassUser)'));
   assert.ok(server.includes('localAuthBypassUser && userId === String(localAuthBypassUser.id).toLowerCase()'));
   assert.ok(server.includes("app.post('/auth/dev/mobile'"));
   assert.ok(server.includes("createApiToken(persistedUser.id, 'DailyMacros iOS Dev'"));

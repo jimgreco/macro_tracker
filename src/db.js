@@ -64,7 +64,23 @@ async function checkDatabaseHealth() {
   };
 }
 
+async function recordSchemaMigration(name) {
+  await pool.query(
+    `INSERT INTO schema_migrations (name, applied_at)
+     VALUES ($1, NOW())
+     ON CONFLICT (name) DO NOTHING`,
+    [name]
+  );
+}
+
 async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      name TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
   // ── Core user table ──
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -73,6 +89,7 @@ async function initDb() {
       name TEXT,
       picture TEXT,
       provider TEXT NOT NULL DEFAULT 'google',
+      timezone TEXT NOT NULL DEFAULT 'America/New_York',
       is_disabled BOOLEAN NOT NULL DEFAULT FALSE,
       sexual_activity_enabled BOOLEAN NOT NULL DEFAULT FALSE,
       setup_tutorial_reset_at TIMESTAMPTZ,
@@ -111,6 +128,11 @@ async function initDb() {
       meal_name TEXT,
       meal_quantity DOUBLE PRECISION DEFAULT 1,
       meal_unit TEXT DEFAULT 'serving',
+      source TEXT NOT NULL DEFAULT 'manual',
+      source_detail TEXT,
+      confidence DOUBLE PRECISION,
+      needs_review BOOLEAN NOT NULL DEFAULT FALSE,
+      correction_key TEXT,
       deleted_at TIMESTAMPTZ
     );
   `);
@@ -127,6 +149,8 @@ async function initDb() {
       carbs DOUBLE PRECISION NOT NULL,
       components JSONB,
       fat DOUBLE PRECISION NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      source_detail TEXT,
       usage_count INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       deleted_at TIMESTAMPTZ
@@ -320,7 +344,42 @@ async function initDb() {
     );
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS food_corrections (
+      user_id TEXT NOT NULL,
+      correction_key TEXT NOT NULL,
+      item_name TEXT NOT NULL,
+      quantity DOUBLE PRECISION NOT NULL,
+      unit TEXT,
+      calories DOUBLE PRECISION NOT NULL,
+      protein DOUBLE PRECISION NOT NULL,
+      carbs DOUBLE PRECISION NOT NULL,
+      fat DOUBLE PRECISION NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual_correction',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, correction_key)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_diagnostics (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      level TEXT NOT NULL DEFAULT 'info',
+      category TEXT NOT NULL DEFAULT 'client',
+      message TEXT NOT NULL,
+      details JSONB,
+      user_agent TEXT,
+      app_platform TEXT,
+      app_version TEXT,
+      request_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
   // ── Migrations for existing databases ──
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/New_York';`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN NOT NULL DEFAULT FALSE;`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sexual_activity_enabled BOOLEAN NOT NULL DEFAULT FALSE;`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_tutorial_reset_at TIMESTAMPTZ;`);
@@ -368,10 +427,17 @@ async function initDb() {
     ALTER TABLE entries
       ADD COLUMN IF NOT EXISTS meal_unit TEXT DEFAULT 'serving';
   `);
+  await pool.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';`);
+  await pool.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS source_detail TEXT;`);
+  await pool.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION;`);
+  await pool.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS needs_review BOOLEAN NOT NULL DEFAULT FALSE;`);
+  await pool.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS correction_key TEXT;`);
 
   // Soft-delete columns for existing databases
   await pool.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS components JSONB;`);
+  await pool.query(`ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';`);
+  await pool.query(`ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS source_detail TEXT;`);
   await pool.query(`ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE macro_targets ADD COLUMN IF NOT EXISTS effective_date DATE;`);
   await pool.query(`UPDATE macro_targets SET effective_date = DATE '1970-01-01' WHERE effective_date IS NULL;`);
@@ -459,6 +525,8 @@ async function initDb() {
 
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_entries_user_consumed ON entries(user_id, consumed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_entries_user_source ON entries(user_id, source);
+    CREATE INDEX IF NOT EXISTS idx_entries_user_review ON entries(user_id, needs_review) WHERE deleted_at IS NULL AND needs_review IS TRUE;
     CREATE INDEX IF NOT EXISTS idx_saved_items_user_name ON saved_items(user_id, lower(name));
     CREATE INDEX IF NOT EXISTS idx_macro_targets_user ON macro_targets(user_id);
     CREATE INDEX IF NOT EXISTS idx_macro_targets_user_macro_effective ON macro_targets(user_id, macro, effective_date DESC);
@@ -490,7 +558,12 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_billing_events_stripe ON billing_events(stripe_event_id);
     CREATE INDEX IF NOT EXISTS idx_daily_usage_counts_user_date ON daily_usage_counts(user_id, usage_date DESC);
     CREATE INDEX IF NOT EXISTS idx_coach_dismissals_user_updated ON coach_dismissals(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_food_corrections_user_updated ON food_corrections(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_client_diagnostics_user_created ON client_diagnostics(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_client_diagnostics_level_created ON client_diagnostics(level, created_at DESC);
   `);
+
+  await recordSchemaMigration('2026-06-11_feature_foundations');
 }
 
 // ── Users ──
@@ -523,6 +596,7 @@ function rowToPublicUser(row) {
     name: row.name || null,
     picture: row.picture || null,
     provider: row.provider || 'google',
+    timezone: row.timezone || 'America/New_York',
     isDisabled: Boolean(row.isDisabled ?? row.is_disabled),
     sexualActivityEnabled: Boolean(row.sexualActivityEnabled ?? row.sexual_activity_enabled),
     setupTutorialResetAt: dateToIso(row.setupTutorialResetAt ?? row.setup_tutorial_reset_at),
@@ -577,12 +651,13 @@ async function upsertUser(user) {
     }
 
     const userResult = await client.query(
-      `INSERT INTO users (id, email, name, picture, provider, last_login_at, login_count, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW(), 1, NOW())
+      `INSERT INTO users (id, email, name, picture, provider, timezone, last_login_at, login_count, updated_at)
+       VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'America/New_York'), NOW(), 1, NOW())
        ON CONFLICT (id) DO UPDATE
          SET email = COALESCE(EXCLUDED.email, users.email),
              name = COALESCE(EXCLUDED.name, users.name),
              picture = COALESCE(EXCLUDED.picture, users.picture),
+             timezone = COALESCE(users.timezone, EXCLUDED.timezone),
              provider = CASE
                WHEN EXCLUDED.provider = ANY(string_to_array(users.provider, ',')) THEN users.provider
                ELSE users.provider || ',' || EXCLUDED.provider
@@ -591,6 +666,7 @@ async function upsertUser(user) {
              login_count = COALESCE(users.login_count, 0) + 1,
              updated_at = NOW()
        RETURNING id, email, name, picture, provider,
+                 timezone,
                  is_disabled AS "isDisabled",
                  sexual_activity_enabled AS "sexualActivityEnabled",
                  setup_tutorial_reset_at AS "setupTutorialResetAt",
@@ -598,7 +674,7 @@ async function upsertUser(user) {
                  login_count AS "loginCount",
                  created_at AS "createdAt",
                  updated_at AS "updatedAt"`,
-      [canonicalUserId, email, name, picture, provider]
+      [canonicalUserId, email, name, picture, provider, user.timezone || null]
     );
 
     if (providerUserId) {
@@ -625,7 +701,7 @@ async function upsertUser(user) {
 
 async function getUserAccountControls(userId) {
   const result = await pool.query(
-    `SELECT id, email, name, picture, provider,
+    `SELECT id, email, name, picture, provider, timezone,
             is_disabled AS "isDisabled",
             sexual_activity_enabled AS "sexualActivityEnabled",
             setup_tutorial_reset_at AS "setupTutorialResetAt",
@@ -664,7 +740,10 @@ function rowToAdminAccount(row) {
     lastSleepAt: dateToIso(row.lastSleepAt ?? row.last_sleep_at),
     lastSexualActivityAt: dateToIso(row.lastSexualActivityAt ?? row.last_sexual_activity_at),
     lastApiTokenUsedAt: dateToIso(row.lastApiTokenUsedAt ?? row.last_api_token_used_at),
-    lastAuditAt: dateToIso(row.lastAuditAt ?? row.last_audit_at)
+    lastAuditAt: dateToIso(row.lastAuditAt ?? row.last_audit_at),
+    diagnosticCount7d: Number(row.diagnosticCount7d ?? row.diagnostic_count_7d ?? 0),
+    lastDiagnosticAt: dateToIso(row.lastDiagnosticAt ?? row.last_diagnostic_at),
+    lastClientErrorAt: dateToIso(row.lastClientErrorAt ?? row.last_client_error_at)
   };
 }
 
@@ -675,7 +754,7 @@ async function listAdminAccounts({ search = '', limit = 25, offset = 0 } = {}) {
 
   const result = await pool.query(
     `WITH filtered AS (
-       SELECT u.id, u.email, u.name, u.picture, u.provider,
+       SELECT u.id, u.email, u.name, u.picture, u.provider, u.timezone,
               u.is_disabled AS "isDisabled",
               u.sexual_activity_enabled AS "sexualActivityEnabled",
               u.setup_tutorial_reset_at AS "setupTutorialResetAt",
@@ -758,6 +837,15 @@ async function listAdminAccounts({ search = '', limit = 25, offset = 0 } = {}) {
        FROM audit_log
        WHERE user_id IN (SELECT id FROM paged)
        GROUP BY user_id
+     ),
+     client_diag_stats AS (
+       SELECT user_id,
+              COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS "diagnosticCount7d",
+              MAX(created_at) AS "lastDiagnosticAt",
+              MAX(created_at) FILTER (WHERE level IN ('error', 'fatal')) AS "lastClientErrorAt"
+       FROM client_diagnostics
+       WHERE user_id IN (SELECT id FROM paged)
+       GROUP BY user_id
      )
      SELECT p.*,
             COALESCE(es."itemCount", 0) AS "itemCount",
@@ -775,7 +863,10 @@ async function listAdminAccounts({ search = '', limit = 25, offset = 0 } = {}) {
             COALESCE(ts."apiTokenCount", 0) AS "apiTokenCount",
             ts."lastApiTokenUsedAt",
             COALESCE(us."dailyUsageCount7d", 0) AS "dailyUsageCount7d",
-            aus."lastAuditAt"
+            aus."lastAuditAt",
+            COALESCE(cds."diagnosticCount7d", 0) AS "diagnosticCount7d",
+            cds."lastDiagnosticAt",
+            cds."lastClientErrorAt"
      FROM paged p
      LEFT JOIN entry_stats es ON es.user_id = p.id
      LEFT JOIN saved_item_stats sis ON sis.user_id = p.id
@@ -787,6 +878,7 @@ async function listAdminAccounts({ search = '', limit = 25, offset = 0 } = {}) {
      LEFT JOIN token_stats ts ON ts.user_id = p.id
      LEFT JOIN usage_stats us ON us.user_id = p.id
      LEFT JOIN audit_stats aus ON aus.user_id = p.id
+     LEFT JOIN client_diag_stats cds ON cds.user_id = p.id
      ORDER BY p."lastLoginAt" DESC NULLS LAST, p."createdAt" DESC, p.id ASC`,
     [normalizedSearch, normalizedLimit, normalizedOffset]
   );
@@ -844,6 +936,42 @@ async function updateAdminAccountControls(userId, controls = {}) {
   return getUserAccountControls(normalizedUserId);
 }
 
+async function updateUserPreferences(userId, preferences = {}) {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) {
+    throw new Error('User id is required.');
+  }
+
+  const updates = [];
+  const values = [];
+  if (Object.prototype.hasOwnProperty.call(preferences, 'timezone')) {
+    const timezone = String(preferences.timezone || '').trim();
+    if (!timezone || timezone.length > 64) {
+      throw new Error('timezone must be 64 characters or less.');
+    }
+    values.push(timezone);
+    updates.push(`timezone = $${values.length}`);
+  }
+
+  if (!updates.length) {
+    return getUserAccountControls(normalizedUserId);
+  }
+
+  values.push(normalizedUserId);
+  const result = await pool.query(
+    `UPDATE users
+     SET ${updates.join(', ')}, updated_at = NOW()
+     WHERE id = $${values.length}
+     RETURNING id`,
+    values
+  );
+  if (!result.rowCount) {
+    throw new Error('Account not found.');
+  }
+
+  return getUserAccountControls(normalizedUserId);
+}
+
 async function getProviderUserId(userId, provider) {
   const normalizedProvider = normalizeAuthProvider(provider);
   const result = await pool.query(
@@ -868,6 +996,70 @@ async function logAudit(userId, action, entityType, entityId, details) {
   } catch (_error) {
     // Audit logging should never break the main operation
   }
+}
+
+async function logClientDiagnostic(userId, diagnostic = {}) {
+  const message = String(diagnostic.message || '').trim();
+  if (!message) {
+    throw new Error('Diagnostic message is required.');
+  }
+  const level = String(diagnostic.level || 'info').trim().toLowerCase();
+  const normalizedLevel = ['debug', 'info', 'warning', 'error', 'fatal'].includes(level) ? level : 'info';
+  const category = String(diagnostic.category || 'client').trim().slice(0, 80) || 'client';
+  const details = diagnostic.details && typeof diagnostic.details === 'object' && !Array.isArray(diagnostic.details)
+    ? JSON.stringify(diagnostic.details)
+    : null;
+
+  const result = await pool.query(
+    `INSERT INTO client_diagnostics (
+       user_id, level, category, message, details, user_agent, app_platform, app_version, request_id
+     )
+     VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9)
+     RETURNING id, created_at AS "createdAt"`,
+    [
+      userId,
+      normalizedLevel,
+      category,
+      message.slice(0, 1000),
+      details,
+      String(diagnostic.userAgent || '').slice(0, 512) || null,
+      String(diagnostic.appPlatform || diagnostic.app_platform || '').slice(0, 80) || null,
+      String(diagnostic.appVersion || diagnostic.app_version || '').slice(0, 80) || null,
+      String(diagnostic.requestId || diagnostic.request_id || '').slice(0, 128) || null
+    ]
+  );
+
+  return {
+    id: Number(result.rows[0].id),
+    createdAt: dateToIso(result.rows[0].createdAt)
+  };
+}
+
+async function listClientDiagnostics(userId, { limit = 25 } = {}) {
+  const normalizedLimit = Math.max(1, Math.min(100, Math.floor(Number(limit) || 25)));
+  const result = await pool.query(
+    `SELECT id, level, category, message, details, user_agent AS "userAgent",
+            app_platform AS "appPlatform", app_version AS "appVersion",
+            request_id AS "requestId", created_at AS "createdAt"
+     FROM client_diagnostics
+     WHERE user_id = $1
+     ORDER BY created_at DESC, id DESC
+     LIMIT $2`,
+    [userId, normalizedLimit]
+  );
+
+  return result.rows.map((row) => ({
+    id: Number(row.id),
+    level: row.level,
+    category: row.category,
+    message: row.message,
+    details: row.details || null,
+    userAgent: row.userAgent || null,
+    appPlatform: row.appPlatform || null,
+    appVersion: row.appVersion || null,
+    requestId: row.requestId || null,
+    createdAt: dateToIso(row.createdAt)
+  }));
 }
 
 // ── Macros / entries ──
@@ -925,6 +1117,164 @@ function normalizeTargetEffectiveDate(value, timezone = 'America/New_York') {
   return normalizeIsoDateString(raw, 'Effective date');
 }
 
+const ENTRY_SOURCES = new Set([
+  'manual',
+  'ai_text',
+  'ai_photo',
+  'barcode',
+  'quick_add',
+  'copy_day',
+  'starter_template',
+  'manual_correction',
+  'food_correction'
+]);
+
+function normalizeEntrySource(source) {
+  const normalized = String(source || '').trim().toLowerCase();
+  return ENTRY_SOURCES.has(normalized) ? normalized : 'manual';
+}
+
+function normalizeSourceDetail(value) {
+  const detail = String(value || '').trim();
+  return detail ? detail.slice(0, 255) : null;
+}
+
+function normalizeEntryConfidence(value, fallback = null) {
+  if (value == null || value === '') {
+    return fallback;
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+  return Math.max(0, Math.min(1, Number(number.toFixed(3))));
+}
+
+function nutritionCorrectionKey(itemName) {
+  return String(itemName || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 160);
+}
+
+function rowNeedsReview(row) {
+  if (row.needsReview != null || row.needs_review != null) {
+    return Boolean(row.needsReview ?? row.needs_review);
+  }
+  const source = normalizeEntrySource(row.source);
+  return source === 'ai_text' || source === 'ai_photo' || source === 'barcode';
+}
+
+function normalizeEntryForInsert(row) {
+  const source = normalizeEntrySource(row.source);
+  return {
+    itemName: row.itemName,
+    quantity: Number(row.quantity || 0),
+    unit: row.unit || null,
+    calories: Number(row.calories || 0),
+    protein: Number(row.protein || 0),
+    carbs: Number(row.carbs || 0),
+    fat: Number(row.fat || 0),
+    consumedAt: row.consumedAt,
+    mealGroup: row.mealGroup || null,
+    mealName: row.mealName || null,
+    mealQuantity: row.mealQuantity != null ? Number(row.mealQuantity) : 1,
+    mealUnit: row.mealUnit || 'serving',
+    source,
+    sourceDetail: normalizeSourceDetail(row.sourceDetail ?? row.source_detail),
+    confidence: normalizeEntryConfidence(row.confidence, source === 'manual' || source === 'quick_add' ? 1 : null),
+    needsReview: rowNeedsReview({ ...row, source }),
+    correctionKey: nutritionCorrectionKey(row.itemName)
+  };
+}
+
+async function upsertFoodCorrection(userId, item) {
+  const correctionKey = nutritionCorrectionKey(item?.itemName || item?.name);
+  if (!correctionKey) {
+    return null;
+  }
+  const itemName = String(item.itemName || item.name || '').trim();
+  if (!itemName) {
+    return null;
+  }
+
+  await pool.query(
+    `INSERT INTO food_corrections (
+       user_id, correction_key, item_name, quantity, unit, calories, protein, carbs, fat, source, updated_at
+     )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'manual_correction',NOW())
+     ON CONFLICT (user_id, correction_key)
+     DO UPDATE SET
+       item_name = EXCLUDED.item_name,
+       quantity = EXCLUDED.quantity,
+       unit = EXCLUDED.unit,
+       calories = EXCLUDED.calories,
+       protein = EXCLUDED.protein,
+       carbs = EXCLUDED.carbs,
+       fat = EXCLUDED.fat,
+       source = EXCLUDED.source,
+       updated_at = NOW()`,
+    [
+      userId,
+      correctionKey,
+      itemName,
+      Number(item.quantity || 0),
+      item.unit || null,
+      Number(item.calories || 0),
+      Number(item.protein || 0),
+      Number(item.carbs || 0),
+      Number(item.fat || 0)
+    ]
+  );
+
+  return correctionKey;
+}
+
+async function applyFoodCorrections(userId, items) {
+  if (!Array.isArray(items) || !items.length) {
+    return [];
+  }
+  const keys = Array.from(new Set(items.map((item) => nutritionCorrectionKey(item.itemName || item.name)).filter(Boolean)));
+  if (!keys.length) {
+    return items;
+  }
+  const result = await pool.query(
+    `SELECT correction_key, item_name, quantity, unit, calories, protein, carbs, fat
+     FROM food_corrections
+     WHERE user_id = $1 AND correction_key = ANY($2::text[])`,
+    [userId, keys]
+  );
+  const corrections = new Map(result.rows.map((row) => [row.correction_key, row]));
+
+  return items.map((item) => {
+    const key = nutritionCorrectionKey(item.itemName || item.name);
+    const correction = corrections.get(key);
+    if (!correction) {
+      return item;
+    }
+    return {
+      ...item,
+      itemName: correction.item_name || item.itemName,
+      quantity: Number(correction.quantity || item.quantity || 0),
+      unit: correction.unit || item.unit || 'serving',
+      calories: Number(correction.calories || 0),
+      protein: Number(correction.protein || 0),
+      carbs: Number(correction.carbs || 0),
+      fat: Number(correction.fat || 0),
+      source: 'food_correction',
+      sourceDetail: 'Remembered correction',
+      confidence: 1,
+      needsReview: false,
+      correctionKey: key
+    };
+  });
+}
+
 async function addEntries(userId, entries) {
   if (!entries.length) return;
 
@@ -946,25 +1296,36 @@ async function addEntries(userId, entries) {
         meal_group,
         meal_name,
         meal_quantity,
-        meal_unit
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        meal_unit,
+        source,
+        source_detail,
+        confidence,
+        needs_review,
+        correction_key
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
     `;
 
     for (const row of entries) {
+      const entry = normalizeEntryForInsert(row);
       await client.query(query, [
         userId,
-        row.itemName,
-        Number(row.quantity || 0),
-        row.unit || null,
-        Number(row.calories || 0),
-        Number(row.protein || 0),
-        Number(row.carbs || 0),
-        Number(row.fat || 0),
-        new Date(row.consumedAt),
-        row.mealGroup || null,
-        row.mealName || null,
-        row.mealQuantity != null ? Number(row.mealQuantity) : 1,
-        row.mealUnit || 'serving'
+        entry.itemName,
+        entry.quantity,
+        entry.unit,
+        entry.calories,
+        entry.protein,
+        entry.carbs,
+        entry.fat,
+        new Date(entry.consumedAt),
+        entry.mealGroup,
+        entry.mealName,
+        entry.mealQuantity,
+        entry.mealUnit,
+        entry.source,
+        entry.sourceDetail,
+        entry.confidence,
+        entry.needsReview,
+        entry.correctionKey
       ]);
     }
 
@@ -977,7 +1338,87 @@ async function addEntries(userId, entries) {
   }
 }
 
+async function copyEntriesForLocalDay(userId, sourceDay, targetDay, timezone = 'America/New_York') {
+  const normalizedSourceDay = normalizeIsoDateString(sourceDay, 'sourceDay');
+  const normalizedTargetDay = normalizeIsoDateString(targetDay, 'targetDay');
+  const result = await pool.query(
+    `SELECT id,
+            item_name AS "itemName",
+            quantity,
+            unit,
+            calories,
+            protein,
+            carbs,
+            fat,
+            consumed_at AS "consumedAt",
+            (consumed_at AT TIME ZONE $3)::time AS "localTime",
+            meal_group AS "mealGroup",
+            meal_name AS "mealName",
+            meal_quantity AS "mealQuantity",
+            meal_unit AS "mealUnit"
+     FROM entries
+     WHERE user_id = $1 AND deleted_at IS NULL
+       AND (consumed_at AT TIME ZONE $3)::date = $2::date
+     ORDER BY consumed_at ASC, id ASC`,
+    [userId, normalizedSourceDay, timezone]
+  );
+
+  if (!result.rows.length) {
+    return { copiedCount: 0 };
+  }
+
+  const groupMap = new Map();
+  const rows = result.rows.map((row) => {
+    const oldGroup = row.mealGroup || null;
+    if (oldGroup && !groupMap.has(oldGroup)) {
+      groupMap.set(oldGroup, crypto.randomUUID());
+    }
+    return {
+      itemName: row.itemName,
+      quantity: Number(row.quantity || 0),
+      unit: row.unit || 'serving',
+      calories: Number(row.calories || 0),
+      protein: Number(row.protein || 0),
+      carbs: Number(row.carbs || 0),
+      fat: Number(row.fat || 0),
+      consumedAt: null,
+      mealGroup: oldGroup ? groupMap.get(oldGroup) : null,
+      mealName: row.mealName || null,
+      mealQuantity: Number(row.mealQuantity || 1),
+      mealUnit: row.mealUnit || 'serving',
+      source: 'copy_day',
+      sourceDetail: `copied_from:${normalizedSourceDay}`,
+      confidence: 1,
+      needsReview: false
+    };
+  });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      const localTime = String(result.rows[i].localTime || '12:00:00');
+      const consumedAtResult = await client.query(
+        `SELECT (($1::date + $2::time) AT TIME ZONE $3) AS "consumedAt"`,
+        [normalizedTargetDay, localTime, timezone]
+      );
+      row.consumedAt = consumedAtResult.rows[0].consumedAt;
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  await addEntries(userId, rows);
+  return { copiedCount: rows.length };
+}
+
 async function updateEntry(userId, id, entry) {
+  const correctionKey = nutritionCorrectionKey(entry.itemName);
   const result = await pool.query(
     `UPDATE entries
      SET
@@ -988,7 +1429,12 @@ async function updateEntry(userId, id, entry) {
        protein = $5,
        carbs = $6,
        fat = $7,
-       consumed_at = $8
+       consumed_at = $8,
+       source = 'manual_correction',
+       source_detail = 'Corrected by user',
+       confidence = 1,
+       needs_review = FALSE,
+       correction_key = $11
      WHERE id = $9 AND user_id = $10 AND deleted_at IS NULL`,
     [
       entry.itemName,
@@ -1000,9 +1446,14 @@ async function updateEntry(userId, id, entry) {
       Number(entry.fat || 0),
       new Date(entry.consumedAt),
       id,
-      userId
+      userId,
+      correctionKey
     ]
   );
+
+  if (result.rowCount) {
+    await upsertFoodCorrection(userId, entry);
+  }
 
   return result.rowCount || 0;
 }
@@ -1153,9 +1604,10 @@ function savedItemComponentsJson(item) {
 }
 
 async function addSavedItem(userId, item) {
+  const source = normalizeEntrySource(item.source);
   const result = await pool.query(
-    `INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat, components)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+    `INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat, components, source, source_detail)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)
      RETURNING id`,
     [
       userId,
@@ -1166,7 +1618,9 @@ async function addSavedItem(userId, item) {
       Number(item.protein || 0),
       Number(item.carbs || 0),
       Number(item.fat || 0),
-      savedItemComponentsJson(item)
+      savedItemComponentsJson(item),
+      source,
+      normalizeSourceDetail(item.sourceDetail ?? item.source_detail)
     ]
   );
 
@@ -1190,8 +1644,12 @@ async function updateSavedItem(userId, id, item) {
     'calories = $4',
     'protein = $5',
     'carbs = $6',
-    'fat = $7'
+    'fat = $7',
+    `source = COALESCE($8, source)`,
+    `source_detail = COALESCE($9, source_detail)`
   ];
+  values.push(item.source ? normalizeEntrySource(item.source) : null);
+  values.push(item.sourceDetail || item.source_detail ? normalizeSourceDetail(item.sourceDetail ?? item.source_detail) : null);
 
   if (Object.prototype.hasOwnProperty.call(item, 'components')) {
     values.push(savedItemComponentsJson(item));
@@ -1219,7 +1677,8 @@ async function deleteSavedItem(userId, id) {
 
 async function listSavedItems(userId) {
   const result = await pool.query(
-    `SELECT id, name, quantity, unit, calories, protein, carbs, fat, components, usage_count AS "usageCount"
+    `SELECT id, name, quantity, unit, calories, protein, carbs, fat, components,
+            source, source_detail AS "sourceDetail", usage_count AS "usageCount"
      FROM saved_items
      WHERE user_id = $1 AND deleted_at IS NULL
      ORDER BY lower(name) ASC`,
@@ -1235,8 +1694,38 @@ async function listSavedItems(userId) {
     carbs: Number(row.carbs || 0),
     fat: Number(row.fat || 0),
     components: normalizeSavedItemComponents(row.components),
+    source: row.source || 'manual',
+    sourceDetail: row.sourceDetail || null,
     usageCount: Number(row.usageCount || 0)
   }));
+}
+
+const STARTER_QUICK_ADDS = Object.freeze([
+  { name: 'Greek yogurt', quantity: 1, unit: 'serving', calories: 130, protein: 18, carbs: 8, fat: 0, sourceDetail: 'starter_template' },
+  { name: 'Chicken breast', quantity: 4, unit: 'oz', calories: 185, protein: 35, carbs: 0, fat: 4, sourceDetail: 'starter_template' },
+  { name: 'White rice', quantity: 1, unit: 'cup', calories: 205, protein: 4, carbs: 45, fat: 0.4, sourceDetail: 'starter_template' },
+  { name: 'Eggs', quantity: 2, unit: 'eggs', calories: 140, protein: 12, carbs: 1, fat: 10, sourceDetail: 'starter_template' },
+  { name: 'Protein shake', quantity: 1, unit: 'shake', calories: 160, protein: 30, carbs: 5, fat: 2, sourceDetail: 'starter_template' }
+]);
+
+async function addStarterQuickAdds(userId) {
+  const existing = await listSavedItems(userId);
+  const existingNames = new Set(existing.map((item) => String(item.name || '').trim().toLowerCase()));
+  const addedIds = [];
+  for (const item of STARTER_QUICK_ADDS) {
+    if (existingNames.has(item.name.toLowerCase())) {
+      continue;
+    }
+    const id = await addSavedItem(userId, {
+      ...item,
+      source: 'starter_template'
+    });
+    addedIds.push(id);
+  }
+  return {
+    addedCount: addedIds.length,
+    addedIds
+  };
 }
 
 async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
@@ -1298,8 +1787,13 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
              meal_group,
              meal_name,
              meal_quantity,
-             meal_unit
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+             meal_unit,
+             source,
+             source_detail,
+             confidence,
+             needs_review,
+             correction_key
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'quick_add',$14,1,FALSE,$15)`,
           [
             userId,
             entry.itemName,
@@ -1313,7 +1807,9 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
             mealGroup,
             mealGroup ? saved.name : null,
             mealGroup ? mealQuantity : 1,
-            mealGroup ? (saved.unit || 'serving') : 'serving'
+            mealGroup ? (saved.unit || 'serving') : 'serving',
+            `saved_item:${saved.id}`,
+            nutritionCorrectionKey(entry.itemName)
           ]
         );
       }
@@ -1357,8 +1853,13 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
          protein,
          carbs,
          fat,
-         consumed_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+         consumed_at,
+         source,
+         source_detail,
+         confidence,
+         needs_review,
+         correction_key
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'quick_add',$10,1,FALSE,$11)`,
       [
         userId,
         entry.itemName,
@@ -1368,7 +1869,9 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
         entry.protein,
         entry.carbs,
         entry.fat,
-        new Date(consumedAt)
+        new Date(consumedAt),
+        `saved_item:${saved.id}`,
+        nutritionCorrectionKey(entry.itemName)
       ]
     );
 
@@ -1532,8 +2035,10 @@ function toIsoDate(date) {
 
 async function getDashboard(userId, dateInput, options = {}) {
   const timezone = options.timezone || 'America/New_York';
-  const baseDate = normalizeDate(dateInput);
-  const baseDay = toIsoDate(baseDate);
+  const baseDay = dateInput
+    ? normalizeIsoDateString(String(dateInput).slice(0, 10), 'date')
+    : todayIsoDateInTimezone(timezone);
+  const baseDate = new Date(`${baseDay}T00:00:00Z`);
   const limit = Math.min(Math.max(1, Number(options.limit) || 100), 500);
   const offset = Math.max(0, Number(options.offset) || 0);
 
@@ -1617,7 +2122,12 @@ async function getDashboard(userId, dateInput, options = {}) {
        meal_group AS "mealGroup",
        meal_name AS "mealName",
        meal_quantity AS "mealQuantity",
-       meal_unit AS "mealUnit"
+       meal_unit AS "mealUnit",
+       source,
+       source_detail AS "sourceDetail",
+       confidence,
+       needs_review AS "needsReview",
+       correction_key AS "correctionKey"
      FROM entries
      WHERE user_id = $1 AND deleted_at IS NULL
      ORDER BY consumed_at DESC, id DESC
@@ -1637,7 +2147,12 @@ async function getDashboard(userId, dateInput, options = {}) {
     mealGroup: row.mealGroup || null,
     mealName: row.mealName || null,
     mealQuantity: Number(row.mealQuantity || 1),
-    mealUnit: row.mealUnit || 'serving'
+    mealUnit: row.mealUnit || 'serving',
+    source: row.source || 'manual',
+    sourceDetail: row.sourceDetail || null,
+    confidence: row.confidence == null ? null : Number(row.confidence),
+    needsReview: Boolean(row.needsReview),
+    correctionKey: row.correctionKey || null
   }));
 
   const targets = await getMacroTargets(userId, baseDay, { timezone });
@@ -2489,7 +3004,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
       ),
       getMacroTargets(userId, undefined, { timezone }),
       getMacroTargetHistory(userId, days, timezone),
-      getWeightTarget(userId),
+      getWeightTarget(userId, undefined, { timezone }),
       getWeightTargetHistory(userId, days, timezone),
       pool.query(
         `SELECT MIN(started_at) AS "startedAt"
@@ -2676,7 +3191,7 @@ async function createApiToken(userId, name) {
 async function validateApiToken(token) {
   const hash = crypto.createHash('sha256').update(token).digest('hex');
   const result = await pool.query(
-    `SELECT t.id, t.user_id, u.email, u.name, u.picture, u.provider,
+    `SELECT t.id, t.user_id, u.email, u.name, u.picture, u.provider, u.timezone,
             u.is_disabled AS "isDisabled",
             u.sexual_activity_enabled AS "sexualActivityEnabled",
             u.setup_tutorial_reset_at AS "setupTutorialResetAt",
@@ -2703,6 +3218,7 @@ async function validateApiToken(token) {
     name: row.name,
     picture: row.picture,
     provider: row.provider,
+    timezone: row.timezone || 'America/New_York',
     isDisabled: Boolean(row.isDisabled),
     sexualActivityEnabled: Boolean(row.sexualActivityEnabled),
     setupTutorialResetAt: dateToIso(row.setupTutorialResetAt),
@@ -2830,12 +3346,13 @@ async function deleteCoachDismissals(userId) {
 // ── GDPR ──
 
 async function exportUserData(userId) {
-  const [user, identities, entries, savedItems, macroTargets, weightEntries, workoutEntries, sexualActivityEntries, sleepEntries, weightTarget, weightTargets, analysisReports, usageCounts, coachDismissals] =
+  const [user, identities, entries, savedItems, foodCorrections, macroTargets, weightEntries, workoutEntries, sexualActivityEntries, sleepEntries, weightTarget, weightTargets, analysisReports, usageCounts, coachDismissals, clientDiagnostics] =
     await Promise.all([
-      pool.query('SELECT id, email, name, provider, created_at, updated_at FROM users WHERE id = $1', [userId]),
+      pool.query('SELECT id, email, name, provider, timezone, created_at, updated_at FROM users WHERE id = $1', [userId]),
       pool.query('SELECT provider, provider_user_id, created_at, updated_at FROM user_identities WHERE user_id = $1 ORDER BY provider', [userId]),
-      pool.query('SELECT id, item_name, quantity, unit, calories, protein, carbs, fat, consumed_at, meal_group, meal_name, meal_quantity, meal_unit, created_at FROM entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY consumed_at DESC', [userId]),
-      pool.query('SELECT id, name, quantity, unit, calories, protein, carbs, fat, components, usage_count, created_at FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL ORDER BY name', [userId]),
+      pool.query('SELECT id, item_name, quantity, unit, calories, protein, carbs, fat, consumed_at, meal_group, meal_name, meal_quantity, meal_unit, source, source_detail, confidence, needs_review, correction_key, created_at FROM entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY consumed_at DESC', [userId]),
+      pool.query('SELECT id, name, quantity, unit, calories, protein, carbs, fat, components, source, source_detail, usage_count, created_at FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL ORDER BY name', [userId]),
+      pool.query('SELECT correction_key, item_name, quantity, unit, calories, protein, carbs, fat, source, created_at, updated_at FROM food_corrections WHERE user_id = $1 ORDER BY updated_at DESC', [userId]),
       pool.query('SELECT macro, target, effective_date, updated_at FROM macro_targets WHERE user_id = $1 ORDER BY effective_date DESC, macro', [userId]),
       pool.query('SELECT id, weight, logged_at, source, external_id, created_at FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
       pool.query('SELECT id, description, intensity, duration_hours, calories_burned, logged_at, source, external_id, created_at FROM workout_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
@@ -2845,7 +3362,8 @@ async function exportUserData(userId) {
       pool.query('SELECT target_weight, target_date, effective_date, updated_at FROM weight_targets WHERE user_id = $1 ORDER BY effective_date DESC', [userId]),
       pool.query('SELECT id, period_days, report_json, created_at FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC', [userId]),
       pool.query('SELECT feature, usage_date, count, updated_at FROM daily_usage_counts WHERE user_id = $1 ORDER BY usage_date DESC, feature', [userId]),
-      pool.query('SELECT dismissal_type, dismissal_key, dismissed_until, created_at, updated_at FROM coach_dismissals WHERE user_id = $1 ORDER BY updated_at DESC', [userId])
+      pool.query('SELECT dismissal_type, dismissal_key, dismissed_until, created_at, updated_at FROM coach_dismissals WHERE user_id = $1 ORDER BY updated_at DESC', [userId]),
+      pool.query('SELECT id, level, category, message, details, app_platform, app_version, request_id, created_at FROM client_diagnostics WHERE user_id = $1 ORDER BY created_at DESC LIMIT 500', [userId])
     ]);
 
   return {
@@ -2854,6 +3372,7 @@ async function exportUserData(userId) {
     identities: identities.rows,
     entries: entries.rows,
     savedItems: savedItems.rows,
+    foodCorrections: foodCorrections.rows,
     macroTargets: macroTargets.rows,
     weightEntries: weightEntries.rows,
     workoutEntries: workoutEntries.rows,
@@ -2863,7 +3382,8 @@ async function exportUserData(userId) {
     weightTargets: weightTargets.rows,
     analysisReports: analysisReports.rows,
     usageCounts: usageCounts.rows,
-    coachDismissals: coachDismissals.rows
+    coachDismissals: coachDismissals.rows,
+    clientDiagnostics: clientDiagnostics.rows
   };
 }
 
@@ -2874,6 +3394,7 @@ async function deleteUserAccount(userId) {
     await client.query('DELETE FROM user_identities WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM entries WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM saved_items WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM food_corrections WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM macro_targets WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM weight_entries WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM workout_entries WHERE user_id = $1', [userId]);
@@ -2884,6 +3405,7 @@ async function deleteUserAccount(userId) {
     await client.query('DELETE FROM api_tokens WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM daily_usage_counts WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM coach_dismissals WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM client_diagnostics WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM billing_events WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM subscriptions WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM audit_log WHERE user_id = $1', [userId]);
@@ -3043,9 +3565,13 @@ module.exports = {
   getUserAccountControls,
   listAdminAccounts,
   updateAdminAccountControls,
+  updateUserPreferences,
   getProviderUserId,
   logAudit,
+  logClientDiagnostic,
+  listClientDiagnostics,
   addEntries,
+  copyEntriesForLocalDay,
   updateEntry,
   deleteEntry,
   scaleMealGroup,
@@ -3056,7 +3582,9 @@ module.exports = {
   updateSavedItem,
   deleteSavedItem,
   listSavedItems,
+  addStarterQuickAdds,
   quickAddFromSaved,
+  applyFoodCorrections,
   claimLegacyData,
   getDashboard,
   getDailyTotals,
