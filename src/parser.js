@@ -1,6 +1,20 @@
 const OpenAI = require('openai');
 const { toFile } = require('openai/uploads');
 const { normalizeMealParse } = require('./meal-normalizer');
+const { capConservativeWorkoutCalories } = require('./workout-calories');
+
+const WORKOUT_PARSE_SYSTEM_PROMPT = [
+  'You extract structured workout logs from natural language. Return strict JSON only.',
+  'Infer description, intensity, total duration in hours, and estimated calories burned.',
+  'Allowed intensity values are low, medium, high. Use medium if not provided.',
+  'Parse minute inputs correctly (e.g., 45 min = 0.75 hours). Keep durationHours realistic between 0.1 and 12.',
+  'Description should be only the activity/focus and must omit intensity words plus generic words like workout, training, or session.',
+  'Calories burned must mean active exercise calories only: calories above resting metabolism, not total calories, basal calories, or resting calories for elapsed clock time.',
+  'If the user gives both active and total calories, use active calories. If they only give total calories, do not copy the total value; make a conservative active-calorie estimate from activity, duration, and intensity.',
+  'When estimating calories burned, be conservative and err on the lower end -- it is better to slightly underestimate active calories burned than to overestimate them.',
+  'For strength training, weightlifting, resistance training, bodybuilding, or body-part workouts, assume elapsed duration includes normal rest periods between sets unless the user clearly says circuit, HIIT, supersets, or minimal rest.',
+  'For low/light or medium/moderate intensity strength training, average calorie burn over the full session including those rests; do not treat every minute as continuous lifting.'
+].join(' ');
 
 function parseImageDataUrl(imageDataUrl) {
   const match = String(imageDataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/s);
@@ -176,13 +190,19 @@ function normalizeWorkoutIntensity(intensity, fallback = 'medium') {
   return fallback;
 }
 
-function sanitizeWorkoutParse(parsed) {
+function sanitizeWorkoutParse(parsed, sourceText = '') {
   const description = normalizeWorkoutDescription(parsed.description || '') || 'General';
   const intensity = normalizeWorkoutIntensity(parsed.intensity);
   let durationHours = Number(parsed.durationHours);
   durationHours = Math.max(0.1, Math.min(12, durationHours));
   durationHours = Math.round(durationHours * 100) / 100;
-  const caloriesBurned = Math.max(0, Math.round(Number(parsed.caloriesBurned || 0)));
+  const caloriesBurned = capConservativeWorkoutCalories({
+    sourceText,
+    description,
+    intensity,
+    durationHours,
+    caloriesBurned: parsed.caloriesBurned
+  });
   return { description, intensity, durationHours, caloriesBurned };
 }
 
@@ -198,7 +218,7 @@ async function parseWorkoutText({ text }) {
     input: [
       {
         role: 'system',
-        content: 'You extract structured workout logs from natural language. Return strict JSON only. Infer description, intensity, total duration in hours, and estimated calories burned. Allowed intensity values are low, medium, high. Use medium if not provided. Parse minute inputs correctly (e.g., 45 min = 0.75 hours). Keep durationHours realistic between 0.1 and 12. Description should be only the activity/focus and must omit intensity words plus generic words like workout, training, or session. When estimating calories burned, be conservative and err on the lower end — it is better to slightly underestimate calories burned than to overestimate them.'
+        content: WORKOUT_PARSE_SYSTEM_PROMPT
       },
       {
         role: 'user',
@@ -233,7 +253,7 @@ async function parseWorkoutText({ text }) {
     parsed = {};
   }
 
-  return sanitizeWorkoutParse(parsed);
+  return sanitizeWorkoutParse(parsed, normalizedText);
 }
 
 module.exports = {

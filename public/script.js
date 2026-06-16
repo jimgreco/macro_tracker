@@ -695,7 +695,7 @@ function showWorkoutTargetModal() {
       <h3>Edit Workout Targets</h3>
       <label for="wkt-modal-target">Workouts per week</label>
       <input id="wkt-modal-target" type="number" min="0" max="14" step="1" value="${escapeAttr(currentWorkouts)}" placeholder="No target" />
-      <label for="wkt-modal-cal-target">Calories burned per week</label>
+      <label for="wkt-modal-cal-target">Active calories burned per week</label>
       <input id="wkt-modal-cal-target" type="number" min="0" step="50" value="${escapeAttr(currentCals)}" placeholder="No target" />
       <div class="combine-modal-actions">
         <button type="button" class="btn-muted table-action-btn" id="wkt-modal-cancel-btn">Cancel</button>
@@ -4445,7 +4445,7 @@ function showWorkoutEditModal(entry) {
           <input id="workout-modal-duration" type="number" step="0.25" min="0" value="${escapeAttr(entry.durationHours)}" />
         </div>
         <div class="entry-modal-field">
-          <label for="workout-modal-calories">Calories</label>
+          <label for="workout-modal-calories">Active calories burned</label>
           <input id="workout-modal-calories" type="number" step="1" min="0" value="${escapeAttr(entry.caloriesBurned)}" />
         </div>
       </div>
@@ -5585,7 +5585,7 @@ function renderWorkoutCard(entry) {
         <div class="entry-card-chips">
           <span class="entry-card-chip">${escapeHtml(dateText)}</span>
           <span class="entry-card-chip">${fmtNumber(entry.durationHours)} hr</span>
-          <span class="entry-card-chip entry-card-chip--accent">${fmtNumber(entry.caloriesBurned)} cal</span>
+          <span class="entry-card-chip entry-card-chip--accent">${fmtNumber(entry.caloriesBurned)} active cal</span>
         </div>
       </div>
     </div>
@@ -5761,15 +5761,19 @@ async function updateWorkoutEntryApi(entryId, payload) {
   }
 }
 
-function estimateWorkoutCalories(text, hours) {
+function estimateWorkoutCalories(text, hours, intensity = 'medium') {
+  const durationHours = Math.max(0, Number(hours) || 0);
   const lower = String(text || '').toLowerCase();
-  if (lower.includes('run') || lower.includes('cycling') || lower.includes('bike')) {
-    return Math.round(hours * 650);
-  }
-  if (lower.includes('lift') || lower.includes('strength')) {
-    return Math.round(hours * 420);
-  }
-  return Math.round(hours * 500);
+  const normalizedIntensity = normalizeWorkoutIntensity(intensity);
+  const strengthPattern = /\b(?:lift|lifting|weightlifting|weight\s*training|strength|resistance|bodybuilding|barbell|dumbbell|kettlebell|bench|squat|deadlift|press|curl|pullup|pushup|chest|back|legs?|arms?|shoulders?|upper\s*body|lower\s*body|push\s*day|pull\s*day)\b/i;
+  const cardioPattern = /\b(?:run|running|jog|jogging|cycle|cycling|bike|biking|spin|rowing?|swim|swimming|elliptical|stair|hike|hiking)\b/i;
+  const category = strengthPattern.test(lower) ? 'strength' : (cardioPattern.test(lower) ? 'cardio' : 'general');
+  const activeCaloriesPerHour = {
+    strength: { low: 130, medium: 220, high: 380 },
+    cardio: { low: 330, medium: 500, high: 650 },
+    general: { low: 220, medium: 350, high: 500 }
+  };
+  return Math.round(durationHours * activeCaloriesPerHour[category][normalizedIntensity]);
 }
 
 function normalizeWorkoutDescription(text) {
@@ -6734,7 +6738,7 @@ if (parseWorkoutBtnEl) {
           description: fallback.description,
           intensity: fallback.intensity,
           durationHours: fallback.durationHours,
-          caloriesBurned: estimateWorkoutCalories(fallback.description, fallback.durationHours)
+          caloriesBurned: estimateWorkoutCalories(`${text} ${fallback.description}`, fallback.durationHours, fallback.intensity)
         };
         setActionBanner('Used fallback workout parsing. You can edit values before saving.', 'info');
       }

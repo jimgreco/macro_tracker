@@ -86,6 +86,7 @@ const {
   consumeDailyUsage
 } = require('./db');
 const { parseMealText, parseWorkoutText } = require('./parser');
+const { estimateWorkoutCalories } = require('./workout-calories');
 const { scaleMealUnitRows } = require('./meal-normalizer');
 const packageJson = require('../package.json');
 
@@ -2495,7 +2496,7 @@ apiRouter.post('/sync-workouts', async (req, res) => {
           durationHours = Number((diffMs / (1000 * 60 * 60)).toFixed(2));
           // If we have a real duration, re-estimate calories based on it if ChatGPT inferred a very different duration
           if (Math.abs(durationHours - parsed.durationHours) > 0.2) {
-             parsed.caloriesBurned = estimateWorkoutCalories(parsed.description, durationHours);
+             parsed.caloriesBurned = estimateWorkoutCalories(`${text} ${parsed.description}`, durationHours, parsed.intensity);
           }
         }
       }
@@ -2522,17 +2523,6 @@ apiRouter.post('/sync-workouts', async (req, res) => {
     return sendError(req, res, 500, 'Failed to sync workouts from Workout Planner.', error);
   }
 });
-
-function estimateWorkoutCalories(text, hours) {
-  const lower = String(text || '').toLowerCase();
-  if (lower.includes('run') || lower.includes('cycling') || lower.includes('bike')) {
-    return Math.round(hours * 650);
-  }
-  if (lower.includes('lift') || lower.includes('strength')) {
-    return Math.round(hours * 420);
-  }
-  return Math.round(hours * 500);
-}
 
 apiRouter.post('/entries/bulk', async (req, res) => {
   try {

@@ -678,6 +678,18 @@ test('workout parser uses server endpoint with local fallback', () => {
   assert.equal(server.includes("apiRouter.post('/parse-workout'"), true);
 });
 
+test('workout screens label calories as active calories burned', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+  const swift = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
+
+  assert.equal(html.includes('Active calories burned'), true);
+  assert.equal(html.includes('Active cal / week'), true);
+  assert.equal(script.includes('Active calories burned per week'), true);
+  assert.equal(script.includes('${fmtNumber(entry.caloriesBurned)} active cal'), true);
+  assert.equal(swift.includes('Active Calories Burned'), true);
+  assert.equal(swift.includes('active kcal'), true);
+});
 
 test('workout target input lives on workout page and not analysis form', () => {
   const html = read('public/index.html');

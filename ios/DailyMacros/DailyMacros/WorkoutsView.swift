@@ -152,7 +152,7 @@ struct WorkoutsView: View {
                 )
                 statChip(
                     icon: "flame",
-                    label: "Cal/Week",
+                    label: "Active Cal/Week",
                     valueText: formatWholeNumber(caloriesPerWeek),
                     targetText: caloriesTarget > 0 ? formatWholeNumber(caloriesTarget) : nil,
                     color: .orange
@@ -462,7 +462,7 @@ struct WorkoutsView: View {
                     Label(formatDuration(workout.durationHours), systemImage: "clock")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    Label("\(Int(workout.caloriesBurned)) kcal", systemImage: "flame")
+                    Label("\(Int(workout.caloriesBurned)) active kcal", systemImage: "flame")
                         .font(.subheadline)
                         .foregroundStyle(.orange)
                 }
@@ -500,7 +500,7 @@ struct WorkoutsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Calories Burned per Week")
+                        Text("Active Calories Burned per Week")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         TextField("Cal/week", text: $editCaloriesPerWeek)
@@ -646,10 +646,10 @@ struct WorkoutsView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Calories")
+                        Text("Active Calories Burned")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        TextField("Calories", text: $parsedCalories)
+                        TextField("Active calories", text: $parsedCalories)
                             .textFieldStyle(.roundedBorder)
                             .keyboardType(.numberPad)
                     }
@@ -739,10 +739,10 @@ struct WorkoutsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Calories")
+                            Text("Active Calories Burned")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            TextField("Calories", text: $editWorkoutCalories)
+                            TextField("Active calories", text: $editWorkoutCalories)
                                 .textFieldStyle(.roundedBorder)
                                 .keyboardType(.numberPad)
                         }
