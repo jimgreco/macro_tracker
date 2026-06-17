@@ -11,7 +11,9 @@ struct HealthKitWorkoutSyncResult {
 enum HealthKitWorkoutSyncError: LocalizedError {
     case unavailable
     case missingActiveEnergyType
+    case invalidWorkoutDate
     case workoutUnavailable
+    case deleteFailed
 
     var errorDescription: String? {
         switch self {
@@ -19,8 +21,12 @@ enum HealthKitWorkoutSyncError: LocalizedError {
             return "Apple Health workout sync is not available on this device."
         case .missingActiveEnergyType:
             return "Apple Health active energy data is not available on this device."
+        case .invalidWorkoutDate:
+            return "This workout does not have a valid date for Apple Health sync."
         case .workoutUnavailable:
             return "Apple Health saved the workout, but did not return a workout record."
+        case .deleteFailed:
+            return "Apple Health could not remove duplicate DailyMacros workout records."
         }
     }
 }
@@ -52,7 +58,7 @@ final class HealthKitWorkoutSync: ObservableObject {
         try await requestAuthorization()
 
         let cutoff = syncCutoffDate()
-        let healthWorkouts = try await fetchHealthWorkouts(since: cutoff)
+        var healthWorkouts = try await fetchHealthWorkouts(since: cutoff)
         let existingResponse = try await api.getWorkouts(limit: 500, offset: 0, scope: "month")
         var existingExternalIds = Set(existingResponse.entries.compactMap { entry in
             entry.source == "healthkit" ? entry.externalId : nil
@@ -97,20 +103,41 @@ final class HealthKitWorkoutSync: ObservableObject {
         }
 
         let refreshedResponse = try await api.getWorkouts(limit: 500, offset: 0, scope: "month")
-        var dailyMacrosExternalIds = dailyMacrosExternalUUIDs(from: healthWorkouts)
+        var healthWorkoutSignatures = Set(healthWorkouts.map(healthWorkoutSignature))
         var exportedCount = 0
 
         for workout in refreshedResponse.entries {
             guard shouldExport(workout, cutoff: cutoff) else { continue }
-
-            let externalUUID = dailyMacrosExternalUUID(for: workout)
-            if dailyMacrosExternalIds.contains(externalUUID) {
+            guard let signature = workoutSignature(workout) else {
                 skippedCount += 1
                 continue
             }
 
-            try await saveWorkoutToHealthKit(workout, externalUUID: externalUUID)
-            dailyMacrosExternalIds.insert(externalUUID)
+            let externalUUID = dailyMacrosExternalUUID(for: workout)
+            let matchingDailyMacrosWorkouts = dailyMacrosHealthWorkouts(
+                matching: workout,
+                externalUUID: externalUUID,
+                in: healthWorkouts
+            )
+
+            if !matchingDailyMacrosWorkouts.isEmpty {
+                let deletedWorkoutIds = try await deleteDuplicateDailyMacrosWorkouts(matchingDailyMacrosWorkouts)
+                if !deletedWorkoutIds.isEmpty {
+                    healthWorkouts.removeAll { deletedWorkoutIds.contains($0.uuid) }
+                }
+                healthWorkoutSignatures.insert(signature)
+                skippedCount += 1
+                continue
+            }
+
+            if healthWorkoutSignatures.contains(signature) {
+                skippedCount += 1
+                continue
+            }
+
+            let savedWorkout = try await saveWorkoutToHealthKit(workout, externalUUID: externalUUID)
+            healthWorkouts.append(savedWorkout)
+            healthWorkoutSignatures.insert(signature)
             exportedCount += 1
         }
 
@@ -159,11 +186,13 @@ final class HealthKitWorkoutSync: ObservableObject {
         }
     }
 
-    private func saveWorkoutToHealthKit(_ workout: WorkoutEntry, externalUUID: String) async throws {
+    private func saveWorkoutToHealthKit(_ workout: WorkoutEntry, externalUUID: String) async throws -> HKWorkout {
         guard let activeEnergyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) else {
             throw HealthKitWorkoutSyncError.missingActiveEnergyType
         }
-        guard let start = parseDate(workout.loggedAt) else { return }
+        guard let start = parseDate(workout.loggedAt) else {
+            throw HealthKitWorkoutSyncError.invalidWorkoutDate
+        }
 
         let durationSeconds = max(workout.durationHours * 3600, 60)
         let end = start.addingTimeInterval(durationSeconds)
@@ -200,7 +229,7 @@ final class HealthKitWorkoutSync: ObservableObject {
         }
 
         try await builder.endCollection(at: end)
-        _ = try await finishWorkout(builder)
+        return try await finishWorkout(builder)
     }
 
     private func finishWorkout(_ builder: HKWorkoutBuilder) async throws -> HKWorkout {
@@ -220,10 +249,10 @@ final class HealthKitWorkoutSync: ObservableObject {
     }
 
     private func shouldImport(_ workout: HKWorkout) -> Bool {
-        guard let externalUUID = workout.metadata?[HKMetadataKeyExternalUUID] as? String else {
-            return true
+        if isDailyMacrosWorkout(workout) {
+            return false
         }
-        return !externalUUID.hasPrefix(dailyMacrosExternalPrefix)
+        return true
     }
 
     private func shouldExport(_ workout: WorkoutEntry, cutoff: Date) -> Bool {
@@ -243,16 +272,54 @@ final class HealthKitWorkoutSync: ObservableObject {
         return max(0, quantity.doubleValue(for: .kilocalorie()))
     }
 
-    private func dailyMacrosExternalUUIDs(from workouts: [HKWorkout]) -> Set<String> {
-        Set(
-            workouts.compactMap { workout in
-                guard let value = workout.metadata?[HKMetadataKeyExternalUUID] as? String,
-                      value.hasPrefix(dailyMacrosExternalPrefix) else {
-                    return nil
+    private func dailyMacrosHealthWorkouts(
+        matching workout: WorkoutEntry,
+        externalUUID: String,
+        in healthWorkouts: [HKWorkout]
+    ) -> [HKWorkout] {
+        guard let signature = workoutSignature(workout) else { return [] }
+        let workoutId = "\(workout.id)"
+
+        return healthWorkouts
+            .filter { healthWorkout in
+                if healthWorkout.externalUUID == externalUUID {
+                    return true
                 }
-                return value
+                if healthWorkout.dailyMacrosWorkoutId == workoutId {
+                    return true
+                }
+                return isDailyMacrosWorkout(healthWorkout)
+                    && healthWorkoutSignature(healthWorkout) == signature
             }
-        )
+            .sorted { first, second in
+                if first.externalUUID == externalUUID && second.externalUUID != externalUUID { return true }
+                if first.dailyMacrosWorkoutId == workoutId && second.dailyMacrosWorkoutId != workoutId { return true }
+                return first.uuid.uuidString < second.uuid.uuidString
+            }
+    }
+
+    private func deleteDuplicateDailyMacrosWorkouts(_ workouts: [HKWorkout]) async throws -> Set<UUID> {
+        guard workouts.count > 1 else { return [] }
+        let duplicates = Array(workouts.dropFirst())
+        try await deleteHealthObjects(duplicates)
+        return Set(duplicates.map(\.uuid))
+    }
+
+    private func deleteHealthObjects(_ objects: [HKObject]) async throws {
+        guard !objects.isEmpty else { return }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            healthStore.delete(objects) { success, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard success else {
+                    continuation.resume(throwing: HealthKitWorkoutSyncError.deleteFailed)
+                    return
+                }
+                continuation.resume(returning: ())
+            }
+        }
     }
 
     private func dailyMacrosExternalUUID(for workout: WorkoutEntry) -> String {
@@ -268,6 +335,27 @@ final class HealthKitWorkoutSync: ObservableObject {
         let fiveMinuteBucket = Int(start.timeIntervalSince1970 / 300)
         let durationMinutes = Int((durationHours * 60).rounded())
         return "\(fiveMinuteBucket)|\(durationMinutes)"
+    }
+
+    private func healthWorkoutSignature(_ workout: HKWorkout) -> String {
+        workoutSignature(start: workout.startDate, durationHours: max(workout.duration / 3600, 0.01))
+    }
+
+    private func isDailyMacrosWorkout(_ workout: HKWorkout) -> Bool {
+        if workout.externalUUID?.hasPrefix(dailyMacrosExternalPrefix) == true {
+            return true
+        }
+        if workout.metadata?[dailyMacrosSourceMetadataKey] as? String == "DailyMacros" {
+            return true
+        }
+        if workout.dailyMacrosWorkoutId != nil {
+            return true
+        }
+        if let bundleIdentifier = Bundle.main.bundleIdentifier,
+           workout.sourceRevision.source.bundleIdentifier == bundleIdentifier {
+            return true
+        }
+        return false
     }
 
     private func syncCutoffDate() -> Date {
@@ -389,5 +477,15 @@ final class HealthKitWorkoutSync: ObservableObject {
             return .basketball
         }
         return .other
+    }
+}
+
+private extension HKWorkout {
+    var externalUUID: String? {
+        metadata?[HKMetadataKeyExternalUUID] as? String
+    }
+
+    var dailyMacrosWorkoutId: String? {
+        metadata?["com.dailymacros.workoutId"] as? String
     }
 }
