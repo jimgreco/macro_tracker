@@ -17,6 +17,17 @@ class AuthManager: ObservableObject {
     func checkAuth() async {
         defer { isLoading = false }
 
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            ScreenshotSeedData.prepareRuntimeStateIfNeeded()
+            api.token = nil
+            api.endLocalDevOfflineSession()
+            user = ScreenshotSeedData.user
+            isAuthenticated = true
+            return
+        }
+        #endif
+
         if api.token != nil {
             do {
                 user = try await api.getMe()
@@ -40,6 +51,14 @@ class AuthManager: ObservableObject {
     }
 
     func refreshUser() async {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            user = ScreenshotSeedData.user
+            isAuthenticated = true
+            return
+        }
+        #endif
+
         #if DEBUG
         if api.isLocalDevOfflineSession, localDevBypassAvailable {
             do {

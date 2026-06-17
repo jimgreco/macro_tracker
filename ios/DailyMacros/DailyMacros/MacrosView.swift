@@ -136,7 +136,7 @@ struct MacrosView: View {
     @State private var showEditMeal = false
     @State private var showEditParsedItem = false
     @State private var errorMessage: String?
-    @State private var selectedDate = Date()
+    @State private var selectedDate = AppClock.now
     @State private var isMealEditing = false
     @State private var selectedEntryIds: Set<Int> = []
     @State private var selectedMealGroups: Set<String> = []
@@ -283,7 +283,7 @@ struct MacrosView: View {
             components: $0.components ?? []
         ) })
 
-        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: AppClock.now) ?? AppClock.now
         var historyBySignature: [String: QuickAddTemplate] = [:]
         for entry in entries {
             let loggedAt = parseISO(entry.consumedAt)
@@ -1527,7 +1527,7 @@ struct MacrosView: View {
     private func canCopyToToday(_ entry: Entry) -> Bool {
         let calendar = Calendar.current
         let loggedDay = calendar.startOfDay(for: parseISO(entry.consumedAt))
-        let today = calendar.startOfDay(for: Date())
+        let today = calendar.startOfDay(for: AppClock.now)
         return loggedDay < today
     }
 

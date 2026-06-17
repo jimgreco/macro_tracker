@@ -64,6 +64,14 @@ class APIClient: ObservableObject {
     @Published private(set) var isLocalDevOfflineSession = false
 
     init() {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            ScreenshotSeedData.prepareRuntimeStateIfNeeded()
+            self.token = nil
+            return
+        }
+        #endif
+
         self.token = KeychainHelper.load(key: "api_token")
     }
 
@@ -259,12 +267,24 @@ class APIClient: ObservableObject {
     // MARK: - Auth
 
     func getMe() async throws -> User? {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.user
+        }
+        #endif
+
         let request = try authorizedRequest(apiURL("/me"))
         let response: MeResponse = try await perform(request)
         return response.user
     }
 
     func updateAccountPreferences(timezone: String) async throws -> User? {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.user
+        }
+        #endif
+
         let payload: [String: Any] = ["timezone": timezone]
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/account/preferences"), method: "PATCH", body: body)
@@ -273,6 +293,12 @@ class APIClient: ObservableObject {
     }
 
     func getVersion() async throws -> VersionResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.version()
+        }
+        #endif
+
         let request = try authorizedRequest(apiURL("/version"))
         return try await perform(request)
     }
@@ -315,6 +341,17 @@ class APIClient: ObservableObject {
     }
 
     func signInWithDevBypass() async throws -> AppleSignInResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            let user = ScreenshotSeedData.user
+            return AppleSignInResponse(
+                ok: true,
+                token: "screenshot-token",
+                user: AppleSignInUser(id: user.id, name: user.name, email: user.email)
+            )
+        }
+        #endif
+
         let url = baseURL.appendingPathComponent("auth/dev/mobile")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -325,6 +362,12 @@ class APIClient: ObservableObject {
     // MARK: - Dashboard
 
     func getDashboard(date: String? = nil, limit: Int = 100, offset: Int = 0) async throws -> DashboardResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.dashboard(date: date, limit: limit, offset: offset)
+        }
+        #endif
+
         var components = URLComponents(url: apiURL("/dashboard"), resolvingAgainstBaseURL: false)!
         var queryItems: [URLQueryItem] = []
         if let date { queryItems.append(.init(name: "date", value: date)) }
@@ -339,11 +382,23 @@ class APIClient: ObservableObject {
     // MARK: - Coach Dismissals
 
     func getCoachDismissals() async throws -> CoachDismissalsResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.coachDismissals()
+        }
+        #endif
+
         let request = try authorizedRequest(apiURL("/coach/dismissals"))
         return try await perform(request)
     }
 
     func syncCoachDismissals(_ dismissals: [CoachDismissalRecord]) async throws -> CoachDismissalsResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.coachDismissals()
+        }
+        #endif
+
         let payload = ["dismissals": dismissals.map { record -> [String: Any] in
             var item: [String: Any] = [
                 "type": record.type,
@@ -360,6 +415,12 @@ class APIClient: ObservableObject {
     }
 
     func resetSyncedCoachDismissals() async throws {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return
+        }
+        #endif
+
         let request = try authorizedRequest(apiURL("/coach/dismissals"), method: "DELETE")
         let _: OkResponse = try await perform(request)
     }
@@ -486,6 +547,12 @@ class APIClient: ObservableObject {
     // MARK: - Saved Items
 
     func getSavedItems() async throws -> [SavedItem] {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.savedItems()
+        }
+        #endif
+
         let request = try authorizedRequest(apiURL("/saved-items"))
         return try await perform(request)
     }
@@ -555,6 +622,12 @@ class APIClient: ObservableObject {
     // MARK: - Daily Totals
 
     func getDailyTotals(scope: String = "week") async throws -> DailyTotalsResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.dailyTotalsResponse(scope: scope)
+        }
+        #endif
+
         var components = URLComponents(url: apiURL("/daily-totals"), resolvingAgainstBaseURL: false)!
         components.queryItems = [.init(name: "scope", value: scope)]
         let request = try authorizedRequest(components.url!)
@@ -581,6 +654,12 @@ class APIClient: ObservableObject {
     // MARK: - Weight
 
     func getWeights(scope: String = "month", limit: Int? = nil, offset: Int = 0) async throws -> WeightEntriesResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.weights(scope: scope, limit: limit, offset: offset)
+        }
+        #endif
+
         var components = URLComponents(url: apiURL("/weights"), resolvingAgainstBaseURL: false)!
         var queryItems: [URLQueryItem] = [.init(name: "scope", value: scope)]
         if let limit { queryItems.append(.init(name: "limit", value: "\(limit)")) }
@@ -592,6 +671,12 @@ class APIClient: ObservableObject {
 
     @discardableResult
     func addWeight(_ weight: Double, loggedAt: String, source: String? = nil, externalId: String? = nil) async throws -> EntryMutationResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.mutationOK(id: 9001)
+        }
+        #endif
+
         var payload: [String: Any] = ["weight": weight, "loggedAt": loggedAt]
         if let source { payload["source"] = source }
         if let externalId { payload["externalId"] = externalId }
@@ -621,6 +706,12 @@ class APIClient: ObservableObject {
     }
 
     func getWeightTarget() async throws -> WeightTarget {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.weightTarget()
+        }
+        #endif
+
         let request = try authorizedRequest(apiURL("/weight-target"))
         return try await perform(request)
     }
@@ -643,6 +734,12 @@ class APIClient: ObservableObject {
     // MARK: - Workouts
 
     func getWorkouts(limit: Int = 100, offset: Int = 0, scope: String = "week") async throws -> WorkoutsResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.workouts(limit: limit, offset: offset, scope: scope)
+        }
+        #endif
+
         var components = URLComponents(url: apiURL("/workouts"), resolvingAgainstBaseURL: false)!
         var queryItems: [URLQueryItem] = [.init(name: "scope", value: scope)]
         if limit != 100 { queryItems.append(.init(name: "limit", value: "\(limit)")) }
@@ -670,6 +767,12 @@ class APIClient: ObservableObject {
         source: String? = nil,
         externalId: String? = nil
     ) async throws -> WorkoutMutationResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return WorkoutMutationResponse(ok: true, id: 9002, created: true)
+        }
+        #endif
+
         var payload: [String: Any] = [
             "description": description,
             "intensity": intensity,
@@ -711,6 +814,12 @@ class APIClient: ObservableObject {
     }
 
     func syncWorkouts() async throws -> SyncWorkoutsResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return SyncWorkoutsResponse(message: "Screenshot mode", syncedCount: 0)
+        }
+        #endif
+
         let request = try authorizedRequest(apiURL("/sync-workouts"), method: "POST")
         return try await perform(request)
     }
@@ -718,12 +827,24 @@ class APIClient: ObservableObject {
     // MARK: - Analysis
 
     func getLatestAnalysis() async throws -> AnalysisReport? {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.latestAnalysis()
+        }
+        #endif
+
         let request = try authorizedRequest(apiURL("/analysis/latest"))
         let response: AnalysisReportResponse = try await perform(request)
         return response.report
     }
 
     func generateAnalysis(days: Int = 90) async throws -> AnalysisReport? {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.latestAnalysis()
+        }
+        #endif
+
         let payload: [String: Any] = ["days": days]
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/analysis"), method: "POST", body: body)
@@ -734,6 +855,12 @@ class APIClient: ObservableObject {
     // MARK: - Sexual Activity
 
     func getHealthEntries(scope: String = "week", limit: Int = 100, offset: Int = 0) async throws -> HealthEntriesResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.healthEntries(scope: scope, limit: limit, offset: offset)
+        }
+        #endif
+
         var components = URLComponents(url: apiURL("/sexual-activity"), resolvingAgainstBaseURL: false)!
         var queryItems: [URLQueryItem] = [.init(name: "scope", value: scope)]
         if limit != 100 { queryItems.append(.init(name: "limit", value: "\(limit)")) }
@@ -745,6 +872,12 @@ class APIClient: ObservableObject {
 
     @discardableResult
     func addHealthEntry(type: String, loggedAt: String, source: String? = nil, externalId: String? = nil) async throws -> EntryMutationResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.mutationOK(id: 9003)
+        }
+        #endif
+
         var payload: [String: Any] = ["type": type, "loggedAt": loggedAt]
         if let source { payload["source"] = source }
         if let externalId { payload["externalId"] = externalId }
@@ -776,6 +909,12 @@ class APIClient: ObservableObject {
     // MARK: - Sleep
 
     func getSleepEntries(scope: String = "week", limit: Int = 100, offset: Int = 0) async throws -> SleepEntriesResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.sleepEntries(scope: scope, limit: limit, offset: offset)
+        }
+        #endif
+
         var components = URLComponents(url: apiURL("/sleep"), resolvingAgainstBaseURL: false)!
         var queryItems: [URLQueryItem] = [.init(name: "scope", value: scope)]
         if limit != 100 { queryItems.append(.init(name: "limit", value: "\(limit)")) }
@@ -787,6 +926,12 @@ class APIClient: ObservableObject {
 
     @discardableResult
     func addSleepEntry(durationHours: Double, wakeUps: Int, quality: Int? = nil, notes: String? = nil, loggedAt: String, source: String? = nil, externalId: String? = nil) async throws -> EntryMutationResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.mutationOK(id: 9004)
+        }
+        #endif
+
         var payload: [String: Any] = ["durationHours": durationHours, "wakeUps": wakeUps, "loggedAt": loggedAt]
         if let quality { payload["quality"] = quality }
         if let notes { payload["notes"] = notes }
@@ -822,6 +967,12 @@ class APIClient: ObservableObject {
     // MARK: - Subscription
 
     func getSubscription() async throws -> SubscriptionResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.subscription()
+        }
+        #endif
+
         let request = try authorizedRequest(apiURL("/subscription"))
         return try await perform(request)
     }

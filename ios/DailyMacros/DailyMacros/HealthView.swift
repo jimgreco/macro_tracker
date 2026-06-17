@@ -234,7 +234,7 @@ struct HealthView: View {
 
     private var activityOccurrencePoints: [ActivityOccurrencePoint] {
         let calendar = healthCalendar
-        let today = calendar.startOfDay(for: Date())
+        let today = calendar.startOfDay(for: AppClock.now)
         let typesByDay = Dictionary(uniqueKeysWithValues: dailyTypes.map { ($0.day, orderedActivityTypes($0.types)) })
 
         let days = activityOccurrenceDayCount

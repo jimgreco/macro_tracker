@@ -1,0 +1,12 @@
+project("ios/DailyMacros/DailyMacros.xcodeproj")
+scheme("DailyMacrosScreenshots")
+app_identifier("com.dailymacros.app")
+configuration("Debug")
+
+devices((ENV["SCREENSHOT_DEVICES"] || "iPhone 17 Pro Max,iPad Pro 13-inch (M5)").split(",").map(&:strip))
+languages(["en-US"])
+
+output_directory("fastlane/screenshots")
+clear_previous_screenshots(true)
+reinstall_app(true)
+override_status_bar(true)

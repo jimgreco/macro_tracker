@@ -236,7 +236,7 @@ struct WorkoutsView: View {
 
     private var workoutOccurrencePoints: [WorkoutOccurrencePoint] {
         let calendar = workoutCalendar
-        let today = calendar.startOfDay(for: Date())
+        let today = calendar.startOfDay(for: AppClock.now)
         let workoutDays = Set(dailyCalories.map(\.day))
 
         let days = occurrenceDayCount

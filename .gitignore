@@ -16,6 +16,11 @@ data/*.sqlite3
 *.xcuserstate
 **/xcuserdata/
 
+# Fastlane generated screenshot artifacts
+fastlane/screenshots/
+fastlane/report.xml
+fastlane/README.md
+
 # Runtime data
 data/
 certs/*.p8

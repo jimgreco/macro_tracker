@@ -20,6 +20,12 @@ struct DailyMacrosApp: App {
 
     private var shouldShowOnboarding: Bool {
         #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return false
+        }
+        #endif
+
+        #if DEBUG
         if auth.isLocalDevUser {
             return false
         }
@@ -46,6 +52,12 @@ struct DailyMacrosApp: App {
                         .environmentObject(auth)
                         .environmentObject(api)
                         .task(id: autoSyncKey) {
+                            #if DEBUG
+                            if ScreenshotSeedData.isEnabled {
+                                return
+                            }
+                            #endif
+
                             await healthKitAutoSync.start(
                                 api: api,
                                 includeSexualActivity: shouldIncludeSexualActivity
@@ -75,6 +87,12 @@ struct DailyMacrosApp: App {
             }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active, auth.isAuthenticated else { return }
+                #if DEBUG
+                if ScreenshotSeedData.isEnabled {
+                    return
+                }
+                #endif
+
                 Task {
                     await auth.refreshUser()
                     await MainActor.run {
