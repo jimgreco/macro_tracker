@@ -279,7 +279,7 @@ test('bulk entries route preserves source metadata and applies corrections', rou
       source: 'ai_text',
       sourceDetail: 'route test',
       items: [
-        { itemName: 'Yogurt', quantity: 1, unit: 'serving', calories: 120, protein: 18, carbs: 8, fat: 0 }
+        { itemName: 'Yogurt', quantity: 1, unit: 'serving', calories: 120, protein: 18, carbs: 8, fat: 0, confidence: 'medium' }
       ]
     })
   });
@@ -288,6 +288,7 @@ test('bulk entries route preserves source metadata and applies corrections', rou
   assert.equal(body.ok, true);
   assert.equal(latestCall('applyFoodCorrections').payload[0].source, 'ai_text');
   assert.equal(latestCall('addEntries').payload.rows[0].source, 'ai_text');
+  assert.equal(latestCall('addEntries').payload.rows[0].confidence, 0.7);
 });
 
 test('copy-day and starter quick-add routes call backend primitives', routeTestOptions, async () => {

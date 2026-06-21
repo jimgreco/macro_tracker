@@ -874,6 +874,25 @@ function normalizeNumber(value, fieldName, { min = 0, max = Number.MAX_SAFE_INTE
   return number;
 }
 
+const CONFIDENCE_LABEL_SCORES = {
+  high: 0.9,
+  medium: 0.7,
+  low: 0.4
+};
+
+function normalizeConfidence(value, fieldName) {
+  if (value == null || value === '') {
+    return undefined;
+  }
+  if (typeof value === 'string') {
+    const label = value.trim().toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(CONFIDENCE_LABEL_SCORES, label)) {
+      return CONFIDENCE_LABEL_SCORES[label];
+    }
+  }
+  return normalizeNumber(value, fieldName, { min: 0, max: 1 });
+}
+
 function normalizeIsoDateTime(value, fieldName, fallback = todayIsoString()) {
   const raw = value || fallback;
   const date = new Date(raw);
@@ -1454,7 +1473,7 @@ function validateItems(items, consumedAt) {
       consumedAt: normalizeIsoDateTime(item.consumedAt || consumedAt, `items[${index}].consumedAt`),
       source: normalizeString(item.source, `items[${index}].source`, { maxLength: 40, fallback: '' }) || undefined,
       sourceDetail: normalizeString(item.sourceDetail || item.source_detail, `items[${index}].sourceDetail`, { maxLength: 255, fallback: '' }) || undefined,
-      confidence: item.confidence == null ? undefined : normalizeNumber(item.confidence, `items[${index}].confidence`, { min: 0, max: 1 }),
+      confidence: normalizeConfidence(item.confidence, `items[${index}].confidence`),
       needsReview: item.needsReview == null && item.needs_review == null ? undefined : Boolean(item.needsReview ?? item.needs_review)
     };
   });
