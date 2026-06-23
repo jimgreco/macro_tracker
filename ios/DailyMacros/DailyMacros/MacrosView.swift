@@ -99,6 +99,15 @@ private struct QuickMealQueueItem: Identifiable {
     var fat: Double
 }
 
+private struct EditingMealContext: Identifiable, Sendable {
+    let mealGroup: String
+    let items: [Entry]
+    let originalQuantity: Double
+
+    var id: String { mealGroup }
+    var first: Entry? { items.first }
+}
+
 private struct MealImageAttachment: Identifiable {
     let id = UUID()
     var dataUrl: String
@@ -133,7 +142,6 @@ struct MacrosView: View {
     @State private var showAddSheet = false
     @State private var showEditTargets = false
     @State private var showEditEntry = false
-    @State private var showEditMeal = false
     @State private var showEditParsedItem = false
     @State private var errorMessage: String?
     @State private var selectedDate = AppClock.now
@@ -166,13 +174,11 @@ struct MacrosView: View {
     @State private var origFat: Double = 0
 
     // Meal editing state
-    @State private var editingMealGroup: String?
-    @State private var editingMealItems: [Entry] = []
+    @State private var editingMeal: EditingMealContext?
     @State private var editMealName = ""
     @State private var editMealQuantity = ""
     @State private var editMealUnit = ""
     @State private var saveEditedMealAsQuickAdd = false
-    @State private var origMealQuantity: Double = 0
 
     // Parsed item editing state
     @State private var editingParsedIndex: Int?
@@ -434,8 +440,8 @@ struct MacrosView: View {
             .sheet(isPresented: $showEditEntry) {
                 editEntrySheet
             }
-            .sheet(isPresented: $showEditMeal) {
-                editMealSheet
+            .sheet(item: $editingMeal) { meal in
+                editMealSheet(meal: meal)
             }
             .task {
                 Task { await loadSavedItems(showErrors: false) }
@@ -1322,18 +1328,19 @@ struct MacrosView: View {
 
     private func beginEditMeal(items: [Entry]) {
         guard let first = items.first, let mealGroup = first.mealGroup else { return }
-        editingMealGroup = mealGroup
-        editingMealItems = items
         editMealName = first.mealName ?? "Meal"
         editMealQuantity = "\(first.mealQuantity ?? 1)"
         editMealUnit = first.mealUnit ?? "serving"
         saveEditedMealAsQuickAdd = false
-        origMealQuantity = first.mealQuantity ?? 1
-        showEditMeal = true
+        editingMeal = EditingMealContext(
+            mealGroup: mealGroup,
+            items: items,
+            originalQuantity: first.mealQuantity ?? 1
+        )
     }
 
-    private var editMealSheet: some View {
-        let canSave = canSaveEditedMeal
+    private func editMealSheet(meal: EditingMealContext) -> some View {
+        let canSave = canSaveEditedMeal(meal: meal)
 
         return NavigationStack {
             ScrollView {
@@ -1356,11 +1363,11 @@ struct MacrosView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     // Preview scaled totals
-                    if let scale = mealScaleFactor {
-                        let totalCal = editingMealItems.reduce(0) { $0 + $1.calories }
-                        let totalP = editingMealItems.reduce(0) { $0 + $1.protein }
-                        let totalC = editingMealItems.reduce(0) { $0 + $1.carbs }
-                        let totalF = editingMealItems.reduce(0) { $0 + $1.fat }
+                    if let scale = mealScaleFactor(for: meal) {
+                        let totalCal = meal.items.reduce(0) { $0 + $1.calories }
+                        let totalP = meal.items.reduce(0) { $0 + $1.protein }
+                        let totalC = meal.items.reduce(0) { $0 + $1.carbs }
+                        let totalF = meal.items.reduce(0) { $0 + $1.fat }
 
                         VStack(spacing: 8) {
                             if abs(scale - 1.0) > 0.001 {
@@ -1391,7 +1398,7 @@ struct MacrosView: View {
                         Text("Items in this meal")
                             .font(.caption.bold())
                             .foregroundStyle(Color.mutedText)
-                        ForEach(editingMealItems) { entry in
+                        ForEach(meal.items) { entry in
                             HStack {
                                 Circle()
                                     .fill(Color.neonGreen.opacity(0.4))
@@ -1414,9 +1421,9 @@ struct MacrosView: View {
                         .font(.subheadline)
                         .tint(Color.neonGreen)
 
-                    if let first = editingMealItems.first, canCopyToToday(first) {
+                    if let first = meal.first, canCopyToToday(first) {
                         Button {
-                            Task { await copyEditedMealToToday() }
+                            Task { await copyEditedMealToToday(meal) }
                         } label: {
                             Label("Copy to Today", systemImage: "doc.on.doc")
                                 .font(.subheadline)
@@ -1429,7 +1436,7 @@ struct MacrosView: View {
 
                     HStack(spacing: 12) {
                         Button(role: .destructive) {
-                            Task { await deleteEditedMeal() }
+                            Task { await deleteEditedMeal(meal) }
                         } label: {
                             Label("Delete", systemImage: "trash")
                                 .font(.headline)
@@ -1440,11 +1447,9 @@ struct MacrosView: View {
                         .disabled(isSaving)
 
                         Button {
-                            if let mg = editingMealGroup {
-                                Task {
-                                    await splitMeal(mealGroup: mg)
-                                    showEditMeal = false
-                                }
+                            Task {
+                                await splitMeal(mealGroup: meal.mealGroup)
+                                editingMeal = nil
                             }
                         } label: {
                             Label("Split", systemImage: "rectangle.split.3x1")
@@ -1456,7 +1461,7 @@ struct MacrosView: View {
                         .disabled(isSaving)
 
                         Button {
-                            Task { await saveEditedMeal() }
+                            Task { await saveEditedMeal(meal) }
                         } label: {
                             if isSaving {
                                 ProgressView().frame(maxWidth: .infinity)
@@ -1477,7 +1482,7 @@ struct MacrosView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showEditMeal = false; editingMealGroup = nil }
+                    Button("Cancel") { editingMeal = nil }
                 }
             }
         }
@@ -1485,8 +1490,8 @@ struct MacrosView: View {
         .presentationContentInteraction(.scrolls)
     }
 
-    private var canSaveEditedMeal: Bool {
-        guard let first = editingMealItems.first, !isSaving else { return false }
+    private func canSaveEditedMeal(meal: EditingMealContext) -> Bool {
+        guard let first = meal.first, !isSaving else { return false }
         let name = editMealName.trimmingCharacters(in: .whitespacesAndNewlines)
         let unit = normalizedUnit(editMealUnit)
 
@@ -1496,15 +1501,15 @@ struct MacrosView: View {
         }
 
         let nameChanged = name != (first.mealName ?? "Meal").trimmingCharacters(in: .whitespacesAndNewlines)
-        let quantityChanged = abs(quantity - origMealQuantity) > 0.001
+        let quantityChanged = abs(quantity - meal.originalQuantity) > 0.001
         let unitChanged = unit != normalizedUnit(first.mealUnit ?? "serving")
 
         return nameChanged || quantityChanged || unitChanged || saveEditedMealAsQuickAdd
     }
 
-    private var mealScaleFactor: Double? {
-        guard let newQty = Double(editMealQuantity), origMealQuantity > 0 else { return nil }
-        return newQty / origMealQuantity
+    private func mealScaleFactor(for meal: EditingMealContext) -> Double? {
+        guard let newQty = Double(editMealQuantity), meal.originalQuantity > 0 else { return nil }
+        return newQty / meal.originalQuantity
     }
 
     private func scaledChip(_ label: String, value: Double, color: Color) -> some View {
@@ -3311,16 +3316,15 @@ struct MacrosView: View {
         }
     }
 
-    private func saveEditedMeal() async {
-        guard let mealGroup = editingMealGroup else { return }
-        guard canSaveEditedMeal else { return }
+    private func saveEditedMeal(_ meal: EditingMealContext) async {
+        guard canSaveEditedMeal(meal: meal) else { return }
         isSaving = true
         defer { isSaving = false }
         do {
-            let newQty = Double(editMealQuantity) ?? origMealQuantity
+            let newQty = Double(editMealQuantity) ?? meal.originalQuantity
             if saveEditedMealAsQuickAdd {
-                let sourceMealQuantity = max(origMealQuantity, 0.0001)
-                let components = editingMealItems.map { item in
+                let sourceMealQuantity = max(meal.originalQuantity, 0.0001)
+                let components = meal.items.map { item in
                     ParsedMealItem(
                         itemName: item.itemName,
                         quantity: item.quantity / sourceMealQuantity,
@@ -3352,21 +3356,20 @@ struct MacrosView: View {
                 await loadSavedItems()
             }
             try await api.scaleMealGroup(
-                mealGroup: mealGroup,
+                mealGroup: meal.mealGroup,
                 quantity: newQty,
                 unit: editMealUnit,
                 name: editMealName
             )
-            showEditMeal = false
-            editingMealGroup = nil
+            editingMeal = nil
             await loadDashboard()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func deleteEditedMeal() async {
-        let ids = editingMealItems.map(\.id)
+    private func deleteEditedMeal(_ meal: EditingMealContext) async {
+        let ids = meal.items.map(\.id)
         guard !ids.isEmpty else { return }
         isSaving = true
         defer { isSaving = false }
@@ -3374,9 +3377,7 @@ struct MacrosView: View {
             for id in ids {
                 try await api.deleteEntry(id: id)
             }
-            showEditMeal = false
-            editingMealGroup = nil
-            editingMealItems = []
+            editingMeal = nil
             await loadDashboard()
         } catch {
             errorMessage = error.localizedDescription
@@ -3397,17 +3398,13 @@ struct MacrosView: View {
         }
     }
 
-    private func copyEditedMealToToday() async {
-        guard let mealGroup = editingMealGroup,
-              let first = editingMealItems.first,
-              canCopyToToday(first) else { return }
+    private func copyEditedMealToToday(_ meal: EditingMealContext) async {
+        guard let first = meal.first, canCopyToToday(first) else { return }
         isSaving = true
         defer { isSaving = false }
         do {
-            _ = try await api.copyMealToToday(mealGroup: mealGroup)
-            showEditMeal = false
-            editingMealGroup = nil
-            editingMealItems = []
+            _ = try await api.copyMealToToday(mealGroup: meal.mealGroup)
+            editingMeal = nil
             await loadDashboard()
         } catch {
             errorMessage = error.localizedDescription

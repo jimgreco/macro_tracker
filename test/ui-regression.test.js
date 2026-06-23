@@ -217,8 +217,8 @@ test('iOS macro edit sheets use disabled saves and left-side destructive actions
     swift.indexOf('/// When quantity changes')
   );
   const mealEdit = swift.slice(
-    swift.indexOf('private var editMealSheet'),
-    swift.indexOf('private var mealScaleFactor')
+    swift.indexOf('private func editMealSheet(meal: EditingMealContext)'),
+    swift.indexOf('private func mealScaleFactor')
   );
   const parsedEdit = swift.slice(
     swift.indexOf('private var editParsedItemSheet'),
@@ -243,13 +243,19 @@ test('iOS macro edit sheets use disabled saves and left-side destructive actions
   assert.equal(entryEdit.includes('Label("Copy to Today", systemImage: "doc.on.doc")'), true);
   assert.equal(entryEdit.includes('if let entry = editingEntry, canCopyToToday(entry)'), true);
 
-  assert.equal(mealEdit.includes('let canSave = canSaveEditedMeal'), true);
+  assert.equal(swift.includes('private struct EditingMealContext: Identifiable, Sendable'), true);
+  assert.equal(swift.includes('@State private var editingMeal: EditingMealContext?'), true);
+  assert.equal(swift.includes('.sheet(item: $editingMeal) { meal in'), true);
+  assert.equal(swift.includes('@State private var showEditMeal'), false);
+  assert.equal(mealEdit.includes('let canSave = canSaveEditedMeal(meal: meal)'), true);
   assert.equal(mealEdit.includes('.tint(canSave ? Color.neonGreen : .gray)'), true);
   assert.equal(mealEdit.includes('.disabled(!canSave)'), true);
+  assert.equal(mealEdit.includes('meal.items.reduce(0)'), true);
+  assert.equal(mealEdit.includes('ForEach(meal.items)'), true);
   assert.equal(mealEdit.includes('Label("Delete", systemImage: "trash")'), true);
   assert.equal(mealEdit.indexOf('Label("Delete", systemImage: "trash")') < mealEdit.indexOf('Label("Split", systemImage: "rectangle.split.3x1")'), true);
   assert.equal(mealEdit.includes('Label("Copy to Today", systemImage: "doc.on.doc")'), true);
-  assert.equal(mealEdit.includes('if let first = editingMealItems.first, canCopyToToday(first)'), true);
+  assert.equal(mealEdit.includes('if let first = meal.first, canCopyToToday(first)'), true);
 
   assert.equal(parsedEdit.includes('let canSave = canSaveParsedItem'), true);
   assert.equal(parsedEdit.includes('.tint(canSave ? Color.neonCyan : .gray)'), true);
@@ -261,7 +267,7 @@ test('iOS macro edit sheets use disabled saves and left-side destructive actions
   assert.equal(quickEdit.includes('.disabled(!canSave)'), true);
   assert.equal(swift.includes('private func canCopyToToday(_ entry: Entry) -> Bool'), true);
   assert.equal(swift.includes('private func copyEditedEntryToToday() async'), true);
-  assert.equal(swift.includes('private func copyEditedMealToToday() async'), true);
+  assert.equal(swift.includes('private func copyEditedMealToToday(_ meal: EditingMealContext) async'), true);
   assert.equal(api.includes('func copyEntryToToday(entryId: Int) async throws -> CopyEntriesResponse'), true);
   assert.equal(api.includes('func copyMealToToday(mealGroup: String) async throws -> CopyEntriesResponse'), true);
   assert.equal(api.includes('apiURL("/entries/copy-to-today")'), true);
