@@ -177,6 +177,7 @@ Coach Tony P. category controls are local user preferences layered after confide
 - Authenticated smoke script: `scripts/production-smoke.sh`, which uses a smoke API token to exercise disposable meal, quick-add, weight, sleep, and optional sexual-activity write journeys before cleanup.
 - Public privacy policy: `/privacy`; source copy in `docs/privacy-policy.md`, App Store privacy notes in `docs/app-store-privacy.md`.
 - App Store screenshots: `bundle exec fastlane ios screenshots` drives the `DailyMacrosScreenshots` UI-test target. The app runs with `--app-store-screenshots`, uses debug-only deterministic data from `ScreenshotSeedData.swift`, and writes review assets to `fastlane/screenshots/`. The manual GitHub workflow is `.github/workflows/app-store-screenshots.yml`; leave `upload_to_app_store=false` until screenshots are reviewed.
+- TestFlight signing: `.github/workflows/testflight.yml` verifies the App Store distribution `.p12` before import. Keep the `openssl pkcs12 -legacy` fallback because GitHub `macos-latest` OpenSSL can reject older Apple certificate bundles encrypted with legacy ciphers such as `RC2-40-CBC`.
 - Legacy Elastic Beanstalk material remains in `docs/aws-production-security-audit.md`; do not use it as the current deploy source of truth unless that platform is intentionally revived.
 
 ### Deployment Process

@@ -883,6 +883,8 @@ test('TestFlight workflow rejects placeholder API base URLs and passes build met
   const workflow = read('.github/workflows/testflight.yml');
   assert.ok(workflow.includes('IOS_API_BASE_URL must be a real HTTPS production origin'));
   assert.ok(workflow.includes('IOS_API_BASE_URL must start with https://'));
+  assert.ok(workflow.includes('openssl pkcs12 -legacy -in "$RUNNER_TEMP/cert.p12"'));
+  assert.ok(workflow.includes('openssl pkcs12 verification: OK (legacy provider)'));
   assert.ok(workflow.includes('GIT_COMMIT_HASH="$(git rev-parse --short=7 HEAD)"'));
   assert.ok(workflow.includes('APP_BUILD="$BUILD_NUMBER"'));
   assert.ok(workflow.includes('GIT_COMMIT_HASH="$GIT_COMMIT_HASH"'));
