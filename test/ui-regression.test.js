@@ -964,6 +964,26 @@ test('iOS workout refresh ignores cancellation errors', () => {
   assert.equal(loadWorkouts.includes('errorMessage = error.localizedDescription'), false);
 });
 
+test('iOS workout day stats match the visible occurrence window', () => {
+  const workouts = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
+  const statsSection = workouts.slice(
+    workouts.indexOf('// MARK: - Stats Section'),
+    workouts.indexOf('// MARK: - Workout Occurrence')
+  );
+  const statsCalculations = workouts.slice(
+    workouts.indexOf('private var activeWorkoutDaysPerWeek'),
+    workouts.indexOf('private var scopeWeeks')
+  );
+
+  assert.equal(statsSection.includes('label: "Active Days/Week"'), true);
+  assert.equal(statsSection.includes('valueText: activeWorkoutDaysPerWeekText'), true);
+  assert.equal(statsCalculations.includes('let visibleDays = Set(workoutOccurrencePoints.map(\\.id))'), true);
+  assert.equal(statsCalculations.includes('return dailyCalories.filter { visibleDays.contains($0.day) }'), true);
+  assert.equal(statsCalculations.includes('let totalCal = visible.reduce(0.0) { $0 + $1.calories }'), true);
+  assert.equal(statsCalculations.includes('Double(dailyCalories.count)'), false);
+  assert.equal(statsSection.includes('label: "Workouts/Week"'), false);
+});
+
 test('iOS HealthKit auto-sync registers background delivery and exports after local creates', () => {
   const app = read('ios/DailyMacros/DailyMacros/DailyMacrosApp.swift');
   const autoSync = read('ios/DailyMacros/DailyMacros/HealthKitAutoSync.swift');

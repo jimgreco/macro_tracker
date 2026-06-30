@@ -145,8 +145,8 @@ struct WorkoutsView: View {
             HStack(spacing: 12) {
                 statChip(
                     icon: "figure.run",
-                    label: "Workouts/Week",
-                    valueText: String(format: "%.1f", workoutsPerWeek),
+                    label: "Active Days/Week",
+                    valueText: activeWorkoutDaysPerWeekText,
                     targetText: workoutsTarget > 0 ? formatWholeNumber(workoutsTarget) : nil,
                     color: .cyan
                 )
@@ -373,17 +373,31 @@ struct WorkoutsView: View {
         }
     }
 
-    private var workoutsPerWeek: Double {
-        guard !dailyCalories.isEmpty else { return 0 }
+    private var activeWorkoutDaysPerWeek: Double {
+        let activeDays = visibleDailyCalories.count
+        guard activeDays > 0 else { return 0 }
         let weeks = max(Double(scopeWeeks), 1)
-        return Double(dailyCalories.count) / weeks
+        return Double(activeDays) / weeks
+    }
+
+    private var activeWorkoutDaysPerWeekText: String {
+        if scope == "week" {
+            return formatWholeNumber(activeWorkoutDaysPerWeek)
+        }
+        return String(format: "%.1f", activeWorkoutDaysPerWeek)
     }
 
     private var caloriesPerWeek: Double {
-        guard !dailyCalories.isEmpty else { return 0 }
-        let totalCal = dailyCalories.reduce(0.0) { $0 + $1.calories }
+        let visible = visibleDailyCalories
+        guard !visible.isEmpty else { return 0 }
+        let totalCal = visible.reduce(0.0) { $0 + $1.calories }
         let weeks = max(Double(scopeWeeks), 1)
         return totalCal / weeks
+    }
+
+    private var visibleDailyCalories: [WorkoutDailyCalories] {
+        let visibleDays = Set(workoutOccurrencePoints.map(\.id))
+        return dailyCalories.filter { visibleDays.contains($0.day) }
     }
 
     private var scopeWeeks: Int {
@@ -490,10 +504,10 @@ struct WorkoutsView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Workouts per Week")
+                        Text("Workout Days per Week")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        TextField("Workouts/week", text: $editWorkoutsPerWeek)
+                        TextField("Workout days/week", text: $editWorkoutsPerWeek)
                             .textFieldStyle(.roundedBorder)
                             .keyboardType(.numberPad)
                     }
