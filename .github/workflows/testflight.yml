@@ -19,7 +19,7 @@ jobs:
         run: |
           set -euo pipefail
           ls /Applications | grep -i '^Xcode' || true
-          for p in /Applications/Xcode_26.app /Applications/Xcode_26.0.app /Applications/Xcode_26.1.app /Applications/Xcode_26.2.app /Applications/Xcode-26.app /Applications/Xcode.app; do
+          for p in /Applications/Xcode_26.4.app /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app /Applications/Xcode_26.1.app /Applications/Xcode_26.0.app /Applications/Xcode_26.app /Applications/Xcode-26.app /Applications/Xcode.app; do
             if [ -d "$p" ]; then
               sudo xcode-select -s "$p/Contents/Developer"
               echo "Selected: $p"
