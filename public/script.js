@@ -5,11 +5,7 @@ const state = {
   quickEntriesLoading: false,
   quickEntriesLoaded: false,
   quickEntriesError: '',
-  quickSearchQuery: '',
   quickSelectedKey: '',
-  quickPickerOpen: false,
-  quickPickerShowAll: false,
-  quickPickerActiveIndex: -1,
   editingEntryId: null,
   mealImageAttachments: [],
   mealImageLoading: false,
@@ -95,10 +91,7 @@ const mealCameraInputEl = document.getElementById('meal-camera-input');
 const mealPhotoPreviewWrapEl = document.getElementById('meal-photo-preview-wrap');
 const parseNoteEl = document.getElementById('parse-note');
 const parsedItemsContainerEl = document.getElementById('parsed-items-container');
-const quickComboboxEl = document.getElementById('quick-entry-combobox');
-const quickSearchEl = document.getElementById('quick-entry-search');
-const quickEntryListboxEl = document.getElementById('quick-entry-listbox');
-const quickEntryToggleBtnEl = document.getElementById('quick-entry-toggle-btn');
+const quickSelectEl = document.getElementById('quick-entry-select');
 const quickMultiplierEl = document.getElementById('quick-multiplier');
 const quickAddBtnEl = document.getElementById('quick-add-btn');
 const quickEditToggleBtnEl = document.getElementById('quick-edit-toggle-btn');
@@ -1325,38 +1318,6 @@ function formatSavedItemOption(item) {
   return `${compactName}${components.length ? `/${components.length}i` : ''} (${fmtNumber(item.calories)}cal/${fmtNumber(item.protein)}P/${fmtNumber(item.carbs)}C/${fmtNumber(item.fat)}F)`;
 }
 
-function normalizeQuickSearch(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function quickEntrySearchText(item) {
-  const componentText = savedItemComponents(item)
-    .map((component) => `${component.itemName || component.name || ''} ${component.unit || ''}`)
-    .join(' ');
-  return normalizeQuickSearch([
-    item.name,
-    item.unit,
-    componentText,
-    fmtNumber(item.calories),
-    fmtNumber(item.protein),
-    fmtNumber(item.carbs),
-    fmtNumber(item.fat),
-    'cal',
-    'protein',
-    'carbs',
-    'fat'
-  ].join(' '));
-}
-
-function matchesQuickSearch(item, query) {
-  const normalizedQuery = normalizeQuickSearch(query);
-  if (!normalizedQuery) {
-    return true;
-  }
-  const haystack = quickEntrySearchText(item);
-  return normalizedQuery.split(/\s+/).every((token) => haystack.includes(token));
-}
-
 function syncHistoryQuickItems() {
   state.historyQuickItems = buildHistoryQuickItems(state.dashboardData?.entries || [], state.savedItems);
 }
@@ -1780,7 +1741,7 @@ function runCoachAction(actionType) {
   if (actionType === 'focus-meal') {
     mealTextEl?.focus();
   } else if (actionType === 'focus-quick-add') {
-    quickSearchEl?.focus();
+    quickSelectEl?.focus();
   } else if (actionType === 'focus-workout') {
     workoutTextEl?.focus();
   } else if (actionType === 'focus-weight') {
@@ -2677,24 +2638,21 @@ function getSelectedQuickTemplate() {
   return null;
 }
 
-function quickPickerOptionGroups(query) {
-  const normalizedQuery = normalizeQuickSearch(query);
-  const savedMatches = state.savedItems.filter((item) => matchesQuickSearch(item, normalizedQuery));
-  const historyMatches = state.historyQuickItems.filter((item) => matchesQuickSearch(item, normalizedQuery));
+function quickEntryOptionGroups() {
   const groups = [];
-  if (savedMatches.length) {
+  if (state.savedItems.length) {
     groups.push({
       label: 'Saved quick entries',
-      items: savedMatches.map((item) => ({
+      items: state.savedItems.map((item) => ({
         key: 'saved:' + String(item.id),
         label: formatSavedItemOption(item)
       }))
     });
   }
-  if (historyMatches.length) {
+  if (state.historyQuickItems.length) {
     groups.push({
       label: 'Recent from previous days',
-      items: historyMatches.map((item) => ({
+      items: state.historyQuickItems.map((item) => ({
         key: item.key,
         label: formatSavedItemOption(item)
       }))
@@ -2708,104 +2666,65 @@ function flattenQuickPickerGroups(groups) {
 }
 
 function findQuickPickerOption(key) {
-  return flattenQuickPickerGroups(quickPickerOptionGroups('')).find((option) => option.key === key) || null;
+  return flattenQuickPickerGroups(quickEntryOptionGroups()).find((option) => option.key === key) || null;
 }
 
-function setQuickPickerOpen(open) {
-  state.quickPickerOpen = Boolean(open);
-  if (quickSearchEl) {
-    quickSearchEl.setAttribute('aria-expanded', String(state.quickPickerOpen));
-  }
-  if (quickEntryToggleBtnEl) {
-    quickEntryToggleBtnEl.setAttribute('aria-expanded', String(state.quickPickerOpen));
-  }
-  if (quickEntryListboxEl) {
-    quickEntryListboxEl.hidden = !state.quickPickerOpen;
-  }
-}
-
-function selectQuickEntry(key, { updateInput = true } = {}) {
+function selectQuickEntry(key) {
   const option = findQuickPickerOption(key);
   state.quickSelectedKey = option ? option.key : '';
-  state.quickSearchQuery = '';
-  state.quickPickerShowAll = false;
-  state.quickPickerActiveIndex = -1;
-  if (updateInput && quickSearchEl) {
-    quickSearchEl.value = option ? option.label : '';
+  if (quickSelectEl) {
+    quickSelectEl.value = state.quickSelectedKey;
   }
-  setQuickPickerOpen(false);
   const selectedTemplate = getSelectedQuickTemplate();
   quickAddBtnEl.disabled = !selectedTemplate;
   quickEditToggleBtnEl.disabled = !selectedTemplate;
 }
 
-function renderQuickEntryList() {
-  if (!quickEntryListboxEl) {
+function renderQuickEntrySelect(message = '') {
+  if (!quickSelectEl) {
     return;
   }
 
   const hasKnownEntries = Boolean(state.savedItems.length || state.historyQuickItems.length);
-  const query = state.quickPickerShowAll ? '' : (quickSearchEl?.value || state.quickSearchQuery || '');
-  const groups = quickPickerOptionGroups(query);
+  const groups = quickEntryOptionGroups();
   const options = flattenQuickPickerGroups(groups);
 
-  quickEntryListboxEl.innerHTML = '';
+  quickSelectEl.innerHTML = '';
 
   if (state.quickEntriesLoading && !hasKnownEntries) {
-    quickEntryListboxEl.innerHTML = '<div class="quick-entry-empty">Loading quick entries...</div>';
-    state.quickPickerActiveIndex = -1;
+    quickSelectEl.append(new Option('Loading quick entries...', ''));
+    quickSelectEl.disabled = true;
     return;
   }
   if (state.quickEntriesError && !hasKnownEntries) {
-    quickEntryListboxEl.innerHTML = '<div class="quick-entry-empty">Quick entries unavailable</div>';
-    state.quickPickerActiveIndex = -1;
+    quickSelectEl.append(new Option('Quick entries unavailable', ''));
+    quickSelectEl.disabled = true;
     return;
   }
   if (!hasKnownEntries) {
-    quickEntryListboxEl.innerHTML = '<div class="quick-entry-empty">No quick add history yet</div>';
-    state.quickPickerActiveIndex = -1;
+    quickSelectEl.append(new Option('No quick add history yet', ''));
+    quickSelectEl.disabled = true;
     return;
   }
   if (!options.length) {
-    quickEntryListboxEl.innerHTML = `<div class="quick-entry-empty">${query ? 'No matching quick entries' : 'No quick entries'}</div>`;
-    state.quickPickerActiveIndex = -1;
+    quickSelectEl.append(new Option(message || 'No quick entries', ''));
+    quickSelectEl.disabled = true;
     return;
   }
 
-  if (state.quickPickerActiveIndex < 0 || state.quickPickerActiveIndex >= options.length) {
-    state.quickPickerActiveIndex = 0;
-  }
-
-  let optionIndex = 0;
   for (const group of groups) {
-    const groupEl = document.createElement('div');
-    groupEl.className = 'quick-entry-group';
-    groupEl.innerHTML = `<div class="quick-entry-group-label">${escapeHtml(group.label)}</div>`;
+    const groupEl = document.createElement('optgroup');
+    groupEl.label = group.label;
     for (const option of group.items) {
-      const optionEl = document.createElement('button');
-      const selected = option.key === state.quickSelectedKey;
-      const active = optionIndex === state.quickPickerActiveIndex;
-      optionEl.type = 'button';
-      optionEl.className = 'quick-entry-option' + (selected ? ' is-selected' : '') + (active ? ' is-active' : '');
-      optionEl.id = `quick-entry-option-${optionIndex}`;
-      optionEl.dataset.quickEntryKey = option.key;
-      optionEl.setAttribute('role', 'option');
-      optionEl.setAttribute('aria-selected', selected ? 'true' : 'false');
+      const optionEl = document.createElement('option');
+      optionEl.value = option.key;
       optionEl.textContent = option.label;
-      optionEl.addEventListener('mousedown', (event) => event.preventDefault());
-      optionEl.addEventListener('click', () => {
-        selectQuickEntry(option.key);
-        quickSearchEl?.focus();
-      });
       groupEl.appendChild(optionEl);
-      optionIndex += 1;
     }
-    quickEntryListboxEl.appendChild(groupEl);
+    quickSelectEl.appendChild(groupEl);
   }
-
-  if (quickSearchEl) {
-    quickSearchEl.setAttribute('aria-activedescendant', `quick-entry-option-${state.quickPickerActiveIndex}`);
-  }
+  quickSelectEl.disabled = false;
+  quickSelectEl.value = state.quickSelectedKey;
 }
 
 
@@ -2937,31 +2856,20 @@ function buildHistoryQuickItems(entries, savedItems) {
 
 function renderSavedItems() {
   const selectedBefore = state.quickSelectedKey;
-  const hasKnownEntries = Boolean(state.savedItems.length || state.historyQuickItems.length);
 
-  if (quickSearchEl) {
-    quickSearchEl.disabled = !hasKnownEntries && state.quickEntriesLoading;
-    quickSearchEl.placeholder = state.quickEntriesLoading && !hasKnownEntries
-      ? 'Loading quick entries...'
-      : 'Search quick entries';
-  }
-  if (quickEntryToggleBtnEl) {
-    quickEntryToggleBtnEl.disabled = !hasKnownEntries && state.quickEntriesLoading;
-  }
-
-  if (state.quickEntriesLoading && !hasKnownEntries) {
+  if (state.quickEntriesLoading && !state.savedItems.length && !state.historyQuickItems.length) {
     state.quickSelectedKey = '';
     quickAddBtnEl.disabled = true;
     quickEditToggleBtnEl.disabled = true;
-    renderQuickEntryList();
+    renderQuickEntrySelect();
     return;
   }
 
-  if (state.quickEntriesError && !hasKnownEntries) {
+  if (state.quickEntriesError && !state.savedItems.length && !state.historyQuickItems.length) {
     state.quickSelectedKey = '';
     quickAddBtnEl.disabled = true;
     quickEditToggleBtnEl.disabled = true;
-    renderQuickEntryList();
+    renderQuickEntrySelect();
     return;
   }
 
@@ -2969,21 +2877,15 @@ function renderSavedItems() {
     state.quickSelectedKey = '';
     quickAddBtnEl.disabled = true;
     quickEditToggleBtnEl.disabled = true;
-    if (quickSearchEl) {
-      quickSearchEl.value = '';
-    }
-    renderQuickEntryList();
+    renderQuickEntrySelect();
     return;
   }
 
-  const allOptions = flattenQuickPickerGroups(quickPickerOptionGroups(''));
+  const allOptions = flattenQuickPickerGroups(quickEntryOptionGroups());
   const selectedOption = allOptions.find((option) => option.key === selectedBefore) || allOptions[0] || null;
   state.quickSelectedKey = selectedOption ? selectedOption.key : '';
-  if (quickSearchEl && !state.quickPickerOpen) {
-    quickSearchEl.value = selectedOption ? selectedOption.label : '';
-  }
 
-  renderQuickEntryList();
+  renderQuickEntrySelect();
   const selectedTemplate = getSelectedQuickTemplate();
   quickAddBtnEl.disabled = !selectedTemplate;
   quickEditToggleBtnEl.disabled = !selectedTemplate;
@@ -4682,97 +4584,11 @@ if (copyYesterdayBtnEl) {
   });
 }
 
-if (quickSearchEl) {
-  quickSearchEl.addEventListener('input', () => {
-    state.quickSearchQuery = quickSearchEl.value;
-    state.quickSelectedKey = '';
-    state.quickPickerShowAll = false;
-    state.quickPickerActiveIndex = 0;
-    quickAddBtnEl.disabled = true;
-    quickEditToggleBtnEl.disabled = true;
-    setQuickPickerOpen(true);
-    renderQuickEntryList();
-  });
-
-  quickSearchEl.addEventListener('focus', () => {
-    if (!state.savedItems.length && !state.historyQuickItems.length && !state.quickEntriesLoading) {
-      return;
-    }
-    if (!state.quickPickerOpen) {
-      state.quickPickerShowAll = false;
-    }
-    setQuickPickerOpen(true);
-    renderQuickEntryList();
-    quickSearchEl.select();
-  });
-
-  quickSearchEl.addEventListener('keydown', (event) => {
-    if (!['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) {
-      return;
-    }
-
-    const query = state.quickPickerShowAll ? '' : quickSearchEl.value;
-    const options = flattenQuickPickerGroups(quickPickerOptionGroups(query));
-
-    if (event.key === 'Escape') {
-      setQuickPickerOpen(false);
-      state.quickPickerShowAll = false;
-      quickSearchEl.removeAttribute('aria-activedescendant');
-      return;
-    }
-
-    if (!options.length) {
-      return;
-    }
-
-    event.preventDefault();
-
-    if (!state.quickPickerOpen) {
-      setQuickPickerOpen(true);
-    }
-
-    if (event.key === 'ArrowDown') {
-      state.quickPickerActiveIndex = Math.min(options.length - 1, Math.max(0, state.quickPickerActiveIndex + 1));
-      renderQuickEntryList();
-      return;
-    }
-
-    if (event.key === 'ArrowUp') {
-      state.quickPickerActiveIndex = Math.max(0, state.quickPickerActiveIndex - 1);
-      renderQuickEntryList();
-      return;
-    }
-
-    if (event.key === 'Enter') {
-      const active = options[Math.max(0, state.quickPickerActiveIndex)];
-      if (active) {
-        selectQuickEntry(active.key);
-      }
-    }
+if (quickSelectEl) {
+  quickSelectEl.addEventListener('change', () => {
+    selectQuickEntry(quickSelectEl.value);
   });
 }
-
-if (quickEntryToggleBtnEl) {
-  quickEntryToggleBtnEl.addEventListener('click', () => {
-    const nextOpen = !state.quickPickerOpen;
-    state.quickPickerShowAll = nextOpen;
-    state.quickPickerActiveIndex = 0;
-    setQuickPickerOpen(nextOpen);
-    renderQuickEntryList();
-    if (nextOpen) {
-      quickSearchEl?.focus();
-    }
-  });
-}
-
-document.addEventListener('mousedown', (event) => {
-  if (!quickComboboxEl || quickComboboxEl.contains(event.target)) {
-    return;
-  }
-  setQuickPickerOpen(false);
-  state.quickPickerShowAll = false;
-  quickSearchEl?.removeAttribute('aria-activedescendant');
-});
 
 quickEditToggleBtnEl.addEventListener('click', () => {
   const selectedTemplate = getSelectedQuickTemplate();

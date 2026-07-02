@@ -355,25 +355,26 @@ test('web logged entry lists request paginated pages', () => {
   assert.equal(styles.includes('.entry-page-sentinel'), true);
 });
 
-test('quick entries are searchable and load outside dashboard refresh', () => {
+test('quick entries use a simple picker and load outside dashboard refresh', () => {
   const html = read('public/index.html');
   const script = read('public/script.js');
   const styles = read('public/styles.css');
 
-  assert.equal(html.includes('id="quick-entry-search"'), true);
-  assert.equal(html.includes('id="quick-entry-combobox"'), true);
-  assert.equal(html.includes('id="quick-entry-listbox"'), true);
-  assert.equal(html.includes('id="quick-entry-toggle-btn"'), true);
+  assert.equal(html.includes('id="quick-entry-select"'), true);
+  assert.equal(html.includes('id="quick-entry-search"'), false);
+  assert.equal(html.includes('id="quick-entry-combobox"'), false);
+  assert.equal(html.includes('id="quick-entry-listbox"'), false);
+  assert.equal(html.includes('id="quick-entry-toggle-btn"'), false);
   assert.equal(html.includes('id="saved-item-select"'), false);
   assert.equal(script.includes('quickSelectedKey'), true);
-  assert.equal(script.includes('function quickPickerOptionGroups(query)'), true);
-  assert.equal(script.includes('function renderQuickEntryList()'), true);
-  assert.equal(script.includes('const quickEntryListboxEl'), true);
-  assert.equal(script.includes('quickSearchEl.addEventListener'), true);
+  assert.equal(script.includes('function quickEntryOptionGroups()'), true);
+  assert.equal(script.includes('function renderQuickEntrySelect('), true);
+  assert.equal(script.includes('const quickSelectEl'), true);
+  assert.equal(script.includes("quickSelectEl.addEventListener('change'"), true);
   assert.equal(script.includes('loadQuickEntries({ force: true })'), true);
   assert.equal(script.includes('savedSelectEl'), false);
-  assert.equal(styles.includes('.quick-entry-combobox'), true);
-  assert.equal(styles.includes('.quick-entry-listbox'), true);
+  assert.equal(styles.includes('.quick-entry-select-wrap'), true);
+  assert.equal(styles.includes('#quick-entry-select'), true);
 
   const start = script.indexOf('async function refreshDashboard()');
   const end = script.indexOf("parseBtnEl.addEventListener", start);

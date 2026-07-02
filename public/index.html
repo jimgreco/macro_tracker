@@ -110,27 +110,11 @@
           <section id="quick-section" aria-labelledby="quick-add-heading" class="panel glass">
             <h2 id="quick-add-heading">Quick Add</h2>
             <div class="row no-wrap quick-top-row">
-              <div class="quick-entry-combobox" id="quick-entry-combobox">
-                <label for="quick-entry-search" class="sr-only">Search quick entries</label>
-                <input
-                  id="quick-entry-search"
-                  type="search"
-                  autocomplete="off"
-                  placeholder="Search quick entries"
-                  role="combobox"
-                  aria-autocomplete="list"
-                  aria-expanded="false"
-                  aria-controls="quick-entry-listbox"
-                />
-                <button
-                  id="quick-entry-toggle-btn"
-                  type="button"
-                  class="quick-entry-toggle"
-                  aria-label="Show quick entries"
-                  aria-controls="quick-entry-listbox"
-                  aria-expanded="false"
-                ></button>
-                <div id="quick-entry-listbox" class="quick-entry-listbox" role="listbox" hidden></div>
+              <div class="quick-entry-select-wrap" id="quick-entry-select-wrap">
+                <label for="quick-entry-select" class="sr-only">Quick entry</label>
+                <select id="quick-entry-select" disabled>
+                  <option value="">Loading quick entries...</option>
+                </select>
               </div>
               <div class="quick-inline-controls">
                 <label for="quick-multiplier" class="sr-only">Multiplier</label>
