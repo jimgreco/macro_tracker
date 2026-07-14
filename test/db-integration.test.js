@@ -107,6 +107,36 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     const savedItems = await db.listSavedItems(userId);
     assert.equal(savedItems.filter((item) => item.source === 'starter_template').length, 5);
 
+    for (const source of ['healthkit', 'workout_planner']) {
+      const externalId = `${source}-${crypto.randomUUID()}`;
+      const syncedWorkout = await db.addWorkoutEntry(userId, {
+        description: 'Integration Run',
+        intensity: 'medium',
+        durationHours: 0.5,
+        caloriesBurned: 250,
+        loggedAt: new Date().toISOString(),
+        source,
+        externalId
+      });
+      assert.equal(syncedWorkout.created, true);
+      assert.equal(await db.deleteWorkoutEntry(userId, syncedWorkout.id), 1);
+
+      const replayedWorkout = await db.addWorkoutEntry(userId, {
+        description: 'Integration Run',
+        intensity: 'medium',
+        durationHours: 0.5,
+        caloriesBurned: 250,
+        loggedAt: new Date().toISOString(),
+        source,
+        externalId
+      });
+      assert.equal(replayedWorkout.created, false);
+      assert.equal(replayedWorkout.id, syncedWorkout.id);
+    }
+
+    const workouts = await db.listWorkoutEntries(userId, { limit: 100, scope: 'month' });
+    assert.equal(workouts.entries.some((entry) => entry.description === 'Integration Run'), false);
+
     await db.logClientDiagnostic(userId, {
       level: 'error',
       category: 'integration',

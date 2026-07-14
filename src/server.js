@@ -2521,7 +2521,7 @@ apiRouter.post('/sync-workouts', async (req, res) => {
       }
       
       // Save to PG
-      await addWorkoutEntry(userId, {
+      const result = await addWorkoutEntry(userId, {
         description: parsed.description,
         intensity: parsed.intensity,
         durationHours: durationHours,
@@ -2530,8 +2530,10 @@ apiRouter.post('/sync-workouts', async (req, res) => {
         source: 'workout_planner',
         externalId: log.id || log._id || log.uuid || null
       });
-      
-      syncedCount++;
+
+      if (result.created !== false) {
+        syncedCount++;
+      }
     }
 
     return res.json({

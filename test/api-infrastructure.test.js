@@ -201,6 +201,25 @@ test('workout entries track external sync source ids', () => {
   assert.ok(db.includes('external_id AS "externalId"'));
 });
 
+test('synced workout tombstones prevent deleted workouts from being re-imported', () => {
+  const db = read('src/db.js');
+  const addWorkoutSection = db.slice(
+    db.indexOf('async function addWorkoutEntry'),
+    db.indexOf('async function updateWorkoutEntry')
+  );
+  const server = read('src/server.js');
+  const syncWorkoutSection = server.slice(
+    server.indexOf("apiRouter.post('/sync-workouts'"),
+    server.indexOf("apiRouter.post('/entries/bulk'")
+  );
+
+  assert.ok(addWorkoutSection.includes('WHERE user_id = $1 AND source = $2 AND external_id = $3'));
+  assert.equal(addWorkoutSection.includes('external_id = $3 AND deleted_at IS NULL'), false);
+  assert.ok(addWorkoutSection.includes('ORDER BY deleted_at NULLS FIRST, id DESC'));
+  assert.ok(syncWorkoutSection.includes('const result = await addWorkoutEntry'));
+  assert.ok(syncWorkoutSection.includes('if (result.created !== false)'));
+});
+
 test('health metric entries track external sync source ids', () => {
   const db = read('src/db.js');
   assert.ok(db.includes('idx_weight_entries_user_source_external'));

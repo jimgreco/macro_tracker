@@ -2581,7 +2581,8 @@ async function addWorkoutEntry(userId, payload) {
     const existing = await pool.query(
       `SELECT id
        FROM workout_entries
-       WHERE user_id = $1 AND source = $2 AND external_id = $3 AND deleted_at IS NULL
+       WHERE user_id = $1 AND source = $2 AND external_id = $3
+       ORDER BY deleted_at NULLS FIRST, id DESC
        LIMIT 1`,
       [userId, source, externalId]
     );

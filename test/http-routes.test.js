@@ -36,10 +36,13 @@ const originalEnv = {
   LOCAL_DEV_USER_ID: process.env.LOCAL_DEV_USER_ID,
   LOCAL_DEV_USER_EMAIL: process.env.LOCAL_DEV_USER_EMAIL,
   LOCAL_DEV_USER_NAME: process.env.LOCAL_DEV_USER_NAME,
-  SESSION_SECRET: process.env.SESSION_SECRET
+  SESSION_SECRET: process.env.SESSION_SECRET,
+  INTERNAL_SYNC_SECRET: process.env.INTERNAL_SYNC_SECRET,
+  WORKOUT_API_URL: process.env.WORKOUT_API_URL
 };
 const originalLoad = Module._load;
 const calls = [];
+let workoutAddResult = { id: 1, created: true };
 
 function record(name, payload) {
   calls.push({ name, payload });
@@ -133,7 +136,10 @@ const fakeDb = {
   listWeightEntries: async () => ({ entries: [] }),
   getWeightTarget: async () => ({ targetWeight: null, targetDate: null }),
   setWeightTarget: async () => ({ targetWeight: 180, targetDate: '2026-12-31' }),
-  addWorkoutEntry: async () => ({ id: 1, created: true }),
+  addWorkoutEntry: async (_userId, payload) => {
+    record('addWorkoutEntry', payload);
+    return workoutAddResult;
+  },
   updateWorkoutEntry: async () => 1,
   deleteWorkoutEntry: async () => 1,
   listWorkoutEntries: async () => ({ entries: [], dailyCalories: [] }),
@@ -329,6 +335,40 @@ test('copy-to-today route copies either an entry or a meal group', routeTestOpti
   assert.equal(invalid.res.status, 400);
   assert.equal(latestCall('copyEntriesToLocalDay').payload.mealGroup, 'meal-group-id');
   assert.equal(latestCall('copyEntriesToLocalDay').payload.timezone, 'America/Los_Angeles');
+});
+
+test('workout sync does not count a tombstoned external workout as newly synced', routeTestOptions, async () => {
+  resetCalls();
+  const originalFetch = global.fetch;
+  const originalWorkoutAddResult = workoutAddResult;
+  process.env.INTERNAL_SYNC_SECRET = 'route-test-secret';
+  process.env.WORKOUT_API_URL = 'http://workout.test';
+  workoutAddResult = { id: 42, created: false };
+  global.fetch = async (input, options) => {
+    if (String(input) === 'http://workout.test/logs') {
+      return new Response(JSON.stringify([{
+        id: 'planner-deleted-workout',
+        name: 'Deleted Run',
+        date: new Date().toISOString().slice(0, 10),
+        exerciseItems: []
+      }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    return originalFetch(input, options);
+  };
+
+  try {
+    const { res, body } = await request('/api/sync-workouts', { method: 'POST' });
+    assert.equal(res.status, 200);
+    assert.equal(body.syncedCount, 0);
+    assert.equal(body.message, 'No new workouts to sync.');
+    assert.equal(latestCall('addWorkoutEntry').payload.externalId, 'planner-deleted-workout');
+  } finally {
+    global.fetch = originalFetch;
+    workoutAddResult = originalWorkoutAddResult;
+  }
 });
 
 test('weekly recap and diagnostics routes are wired through real middleware', routeTestOptions, async () => {

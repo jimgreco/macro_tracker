@@ -105,7 +105,7 @@ Run `TEST_DATABASE_URL=postgres://... npm run test:check` before pushing DB/sche
 - **Apple Sign-In**: Web flow uses form POST callback (`/auth/apple/callback`). iOS flow uses `/auth/apple/mobile` endpoint that verifies the Apple identity token and returns an API token. Apple user IDs are prefixed with `apple_` to avoid collision with Google IDs.
 - **Users table**: Central `users` table with upsert on every OAuth login. Supports `google`, `apple`, and `local-dev` providers.
 - **API versioning**: Routes on `express.Router()` mounted at both `/api/v1/` and `/api/` (backward compat).
-- **Soft deletes**: All data tables have `deleted_at TIMESTAMPTZ`. DELETE operations do `UPDATE SET deleted_at = NOW()`. All SELECTs filter `AND deleted_at IS NULL`.
+- **Soft deletes**: All data tables have `deleted_at TIMESTAMPTZ`. DELETE operations do `UPDATE SET deleted_at = NOW()`. All user-facing SELECTs filter `AND deleted_at IS NULL`. Synced workout deletes are durable tombstones: `addWorkoutEntry()` deduplication by `(user_id, source, external_id)` must include soft-deleted rows so Apple Health or Workout Planner sync cannot recreate a workout the user deleted.
 - **Bearer tokens**: `api_tokens` table with SHA-256 hashed tokens. `bearerTokenAuth` middleware checks before session auth on `/api` routes.
 - **Per-user rate limiting**: Rate limiter keys on `req.user.id` when available, falls back to IP.
 - **Audit logging**: `audit_log` table. `logAudit()` wraps in try/catch to never break main operations.
