@@ -1101,6 +1101,7 @@ function appendBarcodeItemToParsedMeal(result, barcode) {
   const item = result.item;
   const productName = result.productName || item.itemName;
   const existingItems = scaleParsedMealItemsToConsumedTotals(state.parsedMeal);
+  const existingSource = state.parsedMeal?.review?.source;
   const nextItems = existingItems.concat([item]);
   const existingName = String(state.parsedMeal?.mealName || '').trim();
   const mealName = existingItems.length
@@ -1112,6 +1113,10 @@ function appendBarcodeItemToParsedMeal(result, barcode) {
     mealQuantity: 1,
     mealUnit: nextItems.length > 1 ? 'meal' : 'serving',
     notes: `Loaded ${productName} from barcode ${barcode}.`,
+    review: {
+      needed: true,
+      source: existingItems.length ? (existingSource || 'barcode') : 'barcode'
+    },
     items: nextItems
   };
   renderParsedItems(state.parsedMeal);
@@ -1308,14 +1313,15 @@ function isCompactMobileView() {
 function formatSavedItemOption(item) {
   const components = savedItemComponents(item);
   const itemType = components.length ? ` · ${components.length} items` : '';
+  const amount = `${fmtNumber(item.quantity)} ${item.unit || 'serving'}`;
   if (!isCompactMobileView()) {
-    return `${item.name}${itemType} (${formatMacros(item)})`;
+    return `${item.name}${itemType} · ${amount} (${formatMacros(item)})`;
   }
 
   const maxName = 22;
   const name = String(item.name || 'Item');
   const compactName = name.length > maxName ? `${name.slice(0, maxName - 1)}…` : name;
-  return `${compactName}${components.length ? `/${components.length}i` : ''} (${fmtNumber(item.calories)}cal/${fmtNumber(item.protein)}P/${fmtNumber(item.carbs)}C/${fmtNumber(item.fat)}F)`;
+  return `${compactName}${components.length ? `/${components.length}i` : ''} · ${amount} (${fmtNumber(item.calories)}cal/${fmtNumber(item.protein)}P/${fmtNumber(item.carbs)}C/${fmtNumber(item.fat)}F)`;
 }
 
 function syncHistoryQuickItems() {

@@ -90,6 +90,9 @@ private struct QuickAddTemplate: Identifiable {
 private struct QuickMealQueueItem: Identifiable {
     let id: UUID
     let sourceTemplateId: String
+    var sourceMealTemplateId: String?
+    var sourceMealQuantity: Double?
+    var sourceMealUnit: String?
     var name: String
     var quantity: Double
     var unit: String
@@ -135,6 +138,7 @@ struct MacrosView: View {
     @State private var parsedMealName: String?
     @State private var parsedMealQuantity = "1"
     @State private var parsedMealUnit = "serving"
+    @State private var parsedMealSource = "ai_text"
     @State private var saveParsedAsQuickAdd = false
     @State private var isParsing = false
     @State private var isSaving = false
@@ -2200,7 +2204,7 @@ struct MacrosView: View {
                             }
                         }
 
-                        Text("\(Int(template.calories)) kcal | \(macroBreakdownText(protein: template.protein, carbs: template.carbs, fat: template.fat))")
+                        Text("\(compactNumberText(template.quantity)) \(template.unit) · \(Int(template.calories)) kcal | \(macroBreakdownText(protein: template.protein, carbs: template.carbs, fat: template.fat))")
                             .font(.caption2)
                             .foregroundStyle(Color.mutedText)
                             .lineLimit(1)
@@ -2245,10 +2249,14 @@ struct MacrosView: View {
 
     private var quickMealQueueSection: some View {
         let totals = quickMealQueueTotals
+        let mealUnitContext = queuedMealUnitContext()
+        let queueLabel = mealUnitContext.map {
+            "\(compactNumberText($0.quantity)) \($0.unit) queued"
+        } ?? "\(quickMealQueue.count) item\(quickMealQueue.count == 1 ? "" : "s") queued"
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Label("\(quickMealQueue.count) queued", systemImage: "tray.full")
+                Label(queueLabel, systemImage: "tray.full")
                     .font(.subheadline.bold())
                     .foregroundStyle(Color.neonGreen)
 
@@ -2326,14 +2334,16 @@ struct MacrosView: View {
     }
 
     private func quickMealQueueRow(_ item: QuickMealQueueItem) -> some View {
-        HStack(spacing: 10) {
+        let displayScale = queuedQuickItemDisplayScale(item)
+
+        return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Text("\(compactNumberText(item.quantity)) \(item.unit)")
+                Text("\(compactNumberText(item.quantity / displayScale)) \(item.unit)")
                     .font(.caption2)
                     .foregroundStyle(Color.mutedText)
                     .lineLimit(1)
@@ -2343,11 +2353,15 @@ struct MacrosView: View {
             Spacer(minLength: 8)
 
             VStack(alignment: .trailing, spacing: 2) {
-                Text("\(Int(item.calories)) kcal")
+                Text("\(Int(item.calories / displayScale)) kcal")
                     .font(.subheadline)
                     .foregroundStyle(.white)
 
-                Text(macroBreakdownText(protein: item.protein, carbs: item.carbs, fat: item.fat))
+                Text(macroBreakdownText(
+                    protein: item.protein / displayScale,
+                    carbs: item.carbs / displayScale,
+                    fat: item.fat / displayScale
+                ))
                     .font(.caption2)
                     .foregroundStyle(Color.mutedText)
                     .lineLimit(1)
@@ -2618,19 +2632,20 @@ struct MacrosView: View {
     // MARK: - Edit Queued Quick Meal Item Sheet
 
     private func beginEditQueuedQuickItem(_ item: QuickMealQueueItem) {
+        let displayScale = queuedQuickItemDisplayScale(item)
         editingQuickMealQueueItem = item
         editQueuedQuickName = item.name
-        editQueuedQuickQuantity = "\(item.quantity)"
+        editQueuedQuickQuantity = "\(item.quantity / displayScale)"
         editQueuedQuickUnit = item.unit
-        editQueuedQuickCal = "\(Int(item.calories))"
-        editQueuedQuickProtein = "\(Int(item.protein))"
-        editQueuedQuickCarbs = "\(Int(item.carbs))"
-        editQueuedQuickFat = "\(Int(item.fat))"
-        origQueuedQuickQuantity = item.quantity
-        origQueuedQuickCal = item.calories
-        origQueuedQuickProtein = item.protein
-        origQueuedQuickCarbs = item.carbs
-        origQueuedQuickFat = item.fat
+        editQueuedQuickCal = "\(Int(item.calories / displayScale))"
+        editQueuedQuickProtein = "\(Int(item.protein / displayScale))"
+        editQueuedQuickCarbs = "\(Int(item.carbs / displayScale))"
+        editQueuedQuickFat = "\(Int(item.fat / displayScale))"
+        origQueuedQuickQuantity = item.quantity / displayScale
+        origQueuedQuickCal = item.calories / displayScale
+        origQueuedQuickProtein = item.protein / displayScale
+        origQueuedQuickCarbs = item.carbs / displayScale
+        origQueuedQuickFat = item.fat / displayScale
     }
 
     private func editQuickMealQueueItemSheet(_ item: QuickMealQueueItem) -> some View {
@@ -2704,6 +2719,7 @@ struct MacrosView: View {
 
     private func canSaveQueuedQuickItem(_ item: QuickMealQueueItem) -> Bool {
         guard quickMealQueue.contains(where: { $0.id == item.id }) else { return false }
+        let displayScale = queuedQuickItemDisplayScale(item)
         let name = editQueuedQuickName.trimmingCharacters(in: .whitespacesAndNewlines)
         let unit = normalizedUnit(editQueuedQuickUnit)
 
@@ -2717,12 +2733,12 @@ struct MacrosView: View {
         }
 
         let nameChanged = name != item.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let quantityChanged = abs(quantity - item.quantity) > 0.001
+        let quantityChanged = abs(quantity - (item.quantity / displayScale)) > 0.001
         let unitChanged = unit != normalizedUnit(item.unit)
-        let caloriesChanged = abs(calories - editableWholeNumberBaseline(for: item.calories)) > 0.001
-        let proteinChanged = abs(protein - editableWholeNumberBaseline(for: item.protein)) > 0.001
-        let carbsChanged = abs(carbs - editableWholeNumberBaseline(for: item.carbs)) > 0.001
-        let fatChanged = abs(fat - editableWholeNumberBaseline(for: item.fat)) > 0.001
+        let caloriesChanged = abs(calories - editableWholeNumberBaseline(for: item.calories / displayScale)) > 0.001
+        let proteinChanged = abs(protein - editableWholeNumberBaseline(for: item.protein / displayScale)) > 0.001
+        let carbsChanged = abs(carbs - editableWholeNumberBaseline(for: item.carbs / displayScale)) > 0.001
+        let fatChanged = abs(fat - editableWholeNumberBaseline(for: item.fat / displayScale)) > 0.001
 
         return nameChanged || quantityChanged || unitChanged || caloriesChanged || proteinChanged || carbsChanged || fatChanged
     }
@@ -2739,14 +2755,15 @@ struct MacrosView: View {
     private func saveQueuedQuickItem(_ item: QuickMealQueueItem) {
         guard canSaveQueuedQuickItem(item) else { return }
         guard let index = quickMealQueue.firstIndex(where: { $0.id == item.id }) else { return }
+        let displayScale = queuedQuickItemDisplayScale(item)
 
         quickMealQueue[index].name = editQueuedQuickName.trimmingCharacters(in: .whitespacesAndNewlines)
-        quickMealQueue[index].quantity = Double(editQueuedQuickQuantity) ?? quickMealQueue[index].quantity
+        quickMealQueue[index].quantity = (Double(editQueuedQuickQuantity) ?? (quickMealQueue[index].quantity / displayScale)) * displayScale
         quickMealQueue[index].unit = normalizedUnit(editQueuedQuickUnit)
-        quickMealQueue[index].calories = Double(editQueuedQuickCal) ?? quickMealQueue[index].calories
-        quickMealQueue[index].protein = Double(editQueuedQuickProtein) ?? quickMealQueue[index].protein
-        quickMealQueue[index].carbs = Double(editQueuedQuickCarbs) ?? quickMealQueue[index].carbs
-        quickMealQueue[index].fat = Double(editQueuedQuickFat) ?? quickMealQueue[index].fat
+        quickMealQueue[index].calories = (Double(editQueuedQuickCal) ?? (quickMealQueue[index].calories / displayScale)) * displayScale
+        quickMealQueue[index].protein = (Double(editQueuedQuickProtein) ?? (quickMealQueue[index].protein / displayScale)) * displayScale
+        quickMealQueue[index].carbs = (Double(editQueuedQuickCarbs) ?? (quickMealQueue[index].carbs / displayScale)) * displayScale
+        quickMealQueue[index].fat = (Double(editQueuedQuickFat) ?? (quickMealQueue[index].fat / displayScale)) * displayScale
         editingQuickMealQueueItem = nil
     }
 
@@ -2915,7 +2932,12 @@ struct MacrosView: View {
         ]
 
         do {
-            try await api.saveMealEntries(items: [item], consumedAt: timestamp)
+            try await api.saveMealEntries(
+                items: [item],
+                consumedAt: timestamp,
+                source: "quick_add",
+                sourceDetail: "Coach Tony P. habitual item"
+            )
             await loadDashboard()
         } catch {
             errorMessage = error.localizedDescription
@@ -2989,6 +3011,7 @@ struct MacrosView: View {
             parsedMealName = response.mealName
             parsedMealQuantity = "\(response.mealQuantity ?? 1)"
             parsedMealUnit = response.mealUnit ?? "serving"
+            parsedMealSource = mealImageAttachments.isEmpty ? "ai_text" : "ai_photo"
             saveParsedAsQuickAdd = false
             showParsed = true
         } catch {
@@ -3038,7 +3061,11 @@ struct MacrosView: View {
                 return
             }
 
+            let hadExistingItems = !parsedItems.isEmpty
             appendParsedBarcodeItem(item, productName: response.productName ?? item.itemName)
+            if !hadExistingItems {
+                parsedMealSource = "barcode"
+            }
             saveParsedAsQuickAdd = false
             showParsed = true
         } catch {
@@ -3071,6 +3098,8 @@ struct MacrosView: View {
                 mealQuantity: Double(parsedMealQuantity),
                 mealUnit: parsedMealUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : parsedMealUnit,
                 itemsAreMealUnit: parsedItems.count > 1,
+                source: parsedMealSource,
+                sourceDetail: parsedMealSource == "barcode" ? "Open Food Facts barcode lookup" : "OpenAI meal parse",
                 saveItems: saveItems
             )
             showAddSheet = false
@@ -3127,12 +3156,16 @@ struct MacrosView: View {
                     quickMealQueue[queueIndex].protein += addedProtein
                     quickMealQueue[queueIndex].carbs += addedCarbs
                     quickMealQueue[queueIndex].fat += addedFat
+                    quickMealQueue[queueIndex].sourceMealQuantity = (quickMealQueue[queueIndex].sourceMealQuantity ?? 0) + componentScale
                     continue
                 }
 
                 quickMealQueue.append(QuickMealQueueItem(
                     id: UUID(),
                     sourceTemplateId: sourceTemplateId,
+                    sourceMealTemplateId: template.id,
+                    sourceMealQuantity: componentScale,
+                    sourceMealUnit: template.unit,
                     name: component.itemName,
                     quantity: addedQuantity,
                     unit: component.unit ?? "serving",
@@ -3171,6 +3204,9 @@ struct MacrosView: View {
         quickMealQueue.append(QuickMealQueueItem(
             id: UUID(),
             sourceTemplateId: template.id,
+            sourceMealTemplateId: nil,
+            sourceMealQuantity: nil,
+            sourceMealUnit: nil,
             name: template.name,
             quantity: addedQuantity,
             unit: template.unit,
@@ -3223,16 +3259,41 @@ struct MacrosView: View {
         }
     }
 
-    private func queuedQuickMealPayload() -> [[String: Any]] {
-        quickMealQueue.map { item in
+    private func queuedMealUnitContext() -> (quantity: Double, unit: String)? {
+        guard quickMealQueue.count > 1,
+              let first = quickMealQueue.first,
+              let sourceMealTemplateId = first.sourceMealTemplateId,
+              let quantity = first.sourceMealQuantity,
+              quantity > 0 else {
+            return nil
+        }
+
+        let isSingleSavedMeal = quickMealQueue.allSatisfy { item in
+            item.sourceMealTemplateId == sourceMealTemplateId
+                && abs((item.sourceMealQuantity ?? 0) - quantity) <= 0.001
+                && item.sourceMealUnit == first.sourceMealUnit
+        }
+        guard isSingleSavedMeal else { return nil }
+        return (quantity, first.sourceMealUnit ?? "serving")
+    }
+
+    private func queuedQuickItemDisplayScale(_ item: QuickMealQueueItem) -> Double {
+        queuedMealUnitContext() == nil ? 1 : max(item.sourceMealQuantity ?? 1, 0.0001)
+    }
+
+    private func queuedQuickMealPayload(mealUnitQuantity: Double? = nil) -> [[String: Any]] {
+        let divisor = max(mealUnitQuantity ?? 1, 0.0001)
+        return quickMealQueue.map { item in
             [
                 "itemName": item.name.trimmingCharacters(in: .whitespacesAndNewlines),
-                "quantity": item.quantity,
+                "quantity": item.quantity / divisor,
                 "unit": item.unit,
-                "calories": item.calories,
-                "protein": item.protein,
-                "carbs": item.carbs,
-                "fat": item.fat
+                "calories": item.calories / divisor,
+                "protein": item.protein / divisor,
+                "carbs": item.carbs / divisor,
+                "fat": item.fat / divisor,
+                "source": "quick_add",
+                "sourceDetail": "iOS quick add queue"
             ]
         }
     }
@@ -3260,14 +3321,16 @@ struct MacrosView: View {
         defer { isSaving = false }
 
         do {
-            let items = queuedQuickMealPayload()
+            let mealUnitContext = queuedMealUnitContext()
+            let items = queuedQuickMealPayload(mealUnitQuantity: mealUnitContext?.quantity)
             let mealName = queuedQuickMealName(requestedMealName)
             try await api.saveMealEntries(
                 items: items,
                 consumedAt: isoTimestamp,
                 mealName: mealName,
-                mealQuantity: items.count > 1 ? 1.0 : nil,
-                mealUnit: items.count > 1 ? "meal" : nil
+                mealQuantity: items.count > 1 ? (mealUnitContext?.quantity ?? 1.0) : nil,
+                mealUnit: items.count > 1 ? (mealUnitContext?.unit ?? "meal") : nil,
+                itemsAreMealUnit: mealUnitContext != nil
             )
             quickMealQueue = []
             quickMealName = ""

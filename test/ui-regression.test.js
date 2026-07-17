@@ -394,6 +394,7 @@ test('web quick-add meals save and replay component payloads', () => {
   assert.equal(script.includes('const components = savedItemComponents(template);'), true);
   assert.equal(script.includes('itemsAreMealUnit: true'), true);
   assert.equal(script.includes('components: savedItemComponents(selectedTemplate)'), true);
+  assert.equal(script.includes("const amount = `${fmtNumber(item.quantity)} ${item.unit || 'serving'}`"), true);
 });
 
 test('iOS quick items are searchable and preload saved items in the background', () => {
@@ -452,6 +453,15 @@ test('iOS quick add queues multiple items before saving a meal', () => {
   assert.equal(queueActions.includes('quickMealQueue[index].quantity += addedQuantity'), true);
   assert.equal(queueActions.includes('quickMealQueue.append(QuickMealQueueItem('), true);
   assert.equal(queueActions.includes('sourceTemplateId: template.id'), true);
+  assert.equal(queueActions.includes('sourceMealTemplateId: template.id'), true);
+  assert.equal(queueActions.includes('sourceMealQuantity: componentScale'), true);
+  assert.equal(queueActions.includes('private func queuedMealUnitContext()'), true);
+  assert.equal(swift.includes('private func queuedQuickItemDisplayScale'), true);
+  assert.equal(swift.includes('let displayScale = queuedQuickItemDisplayScale(item)'), true);
+  assert.equal(queueActions.includes('let divisor = max(mealUnitQuantity ?? 1, 0.0001)'), true);
+  assert.equal(queueActions.includes('"source": "quick_add"'), true);
+  assert.equal(queueActions.includes('itemsAreMealUnit: mealUnitContext != nil'), true);
+  assert.equal(swift.includes('source: parsedMealSource'), true);
   assert.equal(queueActions.includes('quickQueuedFeedbackToken == token'), true);
   assert.equal(swift.includes('@State private var showQuickMealNamePrompt = false'), true);
   assert.equal(swift.includes('.alert("Name Meal", isPresented: $showQuickMealNamePrompt)'), true);

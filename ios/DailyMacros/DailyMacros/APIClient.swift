@@ -451,6 +451,8 @@ class APIClient: ObservableObject {
         mealQuantity: Double? = nil,
         mealUnit: String? = nil,
         itemsAreMealUnit: Bool = false,
+        source: String? = nil,
+        sourceDetail: String? = nil,
         saveItems: [[String: Any]] = []
     ) async throws {
         var payload: [String: Any] = ["items": items, "consumedAt": consumedAt]
@@ -458,6 +460,8 @@ class APIClient: ObservableObject {
         if let mealQuantity { payload["mealQuantity"] = mealQuantity }
         if let mealUnit { payload["mealUnit"] = mealUnit }
         if itemsAreMealUnit { payload["itemsAreMealUnit"] = true }
+        if let source { payload["source"] = source }
+        if let sourceDetail { payload["sourceDetail"] = sourceDetail }
         if !saveItems.isEmpty { payload["saveItems"] = saveItems }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/entries/bulk"), method: "POST", body: body)

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
+const { applyFoodCorrectionToItem, canApplyFoodCorrection } = require('./food-correction');
 
 const isProduction = process.env.NODE_ENV === 'production';
 const databaseUrl = process.env.DATABASE_URL || (!isProduction ? 'postgres://postgres:postgres@localhost:5432/macro_tracker' : '');
@@ -1239,7 +1240,12 @@ async function applyFoodCorrections(userId, items) {
   if (!Array.isArray(items) || !items.length) {
     return [];
   }
-  const keys = Array.from(new Set(items.map((item) => nutritionCorrectionKey(item.itemName || item.name)).filter(Boolean)));
+  const keys = Array.from(new Set(
+    items
+      .filter(canApplyFoodCorrection)
+      .map((item) => nutritionCorrectionKey(item.itemName || item.name))
+      .filter(Boolean)
+  ));
   if (!keys.length) {
     return items;
   }
@@ -1254,24 +1260,7 @@ async function applyFoodCorrections(userId, items) {
   return items.map((item) => {
     const key = nutritionCorrectionKey(item.itemName || item.name);
     const correction = corrections.get(key);
-    if (!correction) {
-      return item;
-    }
-    return {
-      ...item,
-      itemName: correction.item_name || item.itemName,
-      quantity: Number(correction.quantity || item.quantity || 0),
-      unit: correction.unit || item.unit || 'serving',
-      calories: Number(correction.calories || 0),
-      protein: Number(correction.protein || 0),
-      carbs: Number(correction.carbs || 0),
-      fat: Number(correction.fat || 0),
-      source: 'food_correction',
-      sourceDetail: 'Remembered correction',
-      confidence: 1,
-      needsReview: false,
-      correctionKey: key
-    };
+    return applyFoodCorrectionToItem(item, correction, key);
   });
 }
 

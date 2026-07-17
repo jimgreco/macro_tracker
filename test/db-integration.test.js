@@ -82,6 +82,37 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     assert.equal(corrected[0].protein, 20);
     assert.equal(corrected[0].needsReview, false);
 
+    const doubledCorrection = await db.applyFoodCorrections(userId, [
+      {
+        itemName: 'integration oatmeal',
+        quantity: 2,
+        unit: 'bowl',
+        calories: 600,
+        protein: 24,
+        carbs: 96,
+        fat: 12,
+        source: 'ai_text'
+      }
+    ]);
+    assert.equal(doubledCorrection[0].quantity, 2);
+    assert.equal(doubledCorrection[0].calories, 710);
+    assert.equal(doubledCorrection[0].protein, 40);
+
+    const trustedQuickAdd = await db.applyFoodCorrections(userId, [
+      {
+        itemName: 'integration oatmeal',
+        quantity: 1,
+        unit: 'bowl',
+        calories: 300,
+        protein: 12,
+        carbs: 48,
+        fat: 6,
+        source: 'quick_add'
+      }
+    ]);
+    assert.equal(trustedQuickAdd[0].calories, 300);
+    assert.equal(trustedQuickAdd[0].source, 'quick_add');
+
     const copyResult = await db.copyEntriesForLocalDay(userId, '2026-06-11', '2026-06-12', 'America/New_York');
     assert.equal(copyResult.copiedCount, 1);
     const copiedDashboard = await db.getDashboard(userId, '2026-06-12', { timezone: 'America/New_York' });
