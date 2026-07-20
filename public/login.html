@@ -160,6 +160,18 @@
         color: var(--muted);
         text-align: center;
       }
+
+      .legal-links {
+        display: flex;
+        justify-content: center;
+        gap: 0.8rem;
+        margin-top: 0.8rem;
+        font-size: 0.74rem;
+      }
+
+      .legal-links a {
+        color: var(--muted);
+      }
     </style>
   </head>
   <body>
@@ -182,6 +194,10 @@
       </div>
       <p id="error" class="error" hidden>Sign-in failed. Please try again.</p>
       <p id="login-version" class="version" hidden></p>
+      <nav class="legal-links" aria-label="Legal">
+        <a href="/privacy">Privacy Policy</a>
+        <a href="/terms">Terms of Service</a>
+      </nav>
     </main>
 
     <script src="/login.js"></script>

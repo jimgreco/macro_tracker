@@ -67,6 +67,21 @@ body {
   margin: 1.4rem auto 2.8rem;
 }
 
+.site-legal-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin: -1rem auto 2rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.site-legal-footer a {
+  color: inherit;
+}
+
 .topbar {
   display: grid;
   grid-template-columns: auto 1fr auto;

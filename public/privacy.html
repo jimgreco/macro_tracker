@@ -85,13 +85,20 @@
     ul {
       padding-left: 1.2rem;
     }
+
+    .legal-links {
+      margin-top: 2.5rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.95rem;
+    }
   </style>
 </head>
 <body>
   <main>
     <article>
       <h1>DailyMacros Privacy Policy</h1>
-      <p class="updated">Last updated May 25, 2026</p>
+      <p class="updated">Last updated July 20, 2026</p>
 
       <p>DailyMacros is a private friends and family beta for nutrition, workout, weight, sleep, and wellness tracking. This policy explains what the app collects, why it is collected, and the controls available to you.</p>
 
@@ -99,7 +106,7 @@
       <ul>
         <li>Account details from sign-in providers, such as name, email address, provider identifiers, and profile image when provided.</li>
         <li>Nutrition data, saved foods, meal groups, macro targets, meal text, barcode lookups, and meal photos you submit for parsing.</li>
-        <li>Workout, weight, sleep, and wellness entries. Sexual activity entries are available only when enabled for an account.</li>
+        <li>Workout, weight, sleep, and wellness entries. If you connect Oura, this includes Oura sleep, readiness, activity, stress, resilience, bedtime-guidance, and optional workout aggregates. Sexual activity entries are available only when enabled for an account.</li>
         <li>Subscription and billing state from Stripe when paid features are enabled.</li>
         <li>Operational records such as API tokens, audit events, request references, build/version metadata, and beta usage limits needed to run and support the service.</li>
         <li>Diagnostics that you choose to export and share for support. The iOS diagnostic export is stored locally until you share it.</li>
@@ -108,8 +115,13 @@
       <h2>Apple Health</h2>
       <p>HealthKit permissions are optional. If you grant access, DailyMacros may read or write supported weight, workout, sleep, and sexual activity data so the app and Apple Health stay in sync. You can change Health permissions at any time in iOS Settings.</p>
 
+      <h2>Oura</h2>
+      <p>Connecting Oura is optional and uses Oura's authorization screen. DailyMacros requests daily-data access plus the minimum personal scope needed to obtain Oura's opaque user identifier and route signed webhook updates to your account. Oura profile fields such as age, height, weight, biological sex, and Oura email are discarded.</p>
+      <p>Oura access and refresh tokens are encrypted on the DailyMacros server. DailyMacros stores allowlisted aggregate Oura metrics and does not retain raw heart-rate, HRV, movement, sleep-phase, or MET sample arrays. Imported aggregates remain stored until you choose Disconnect &amp; Delete or delete your DailyMacros account. Signed webhooks deliver Oura cloud updates after your ring syncs to Oura, with scheduled reconciliation for missed events.</p>
+      <p>DailyMacros may combine Oura aggregates with other app history for trends, coaching, and user-requested analysis. If an AI feature uses connected Oura data, that processing follows the same user-triggered AI disclosures described below.</p>
+
       <h2>AI Processing</h2>
-      <p>When you ask DailyMacros to parse or analyze a meal, workout, meal photo, or report, that content may be sent to OpenAI to produce nutrition or workout estimates. DailyMacros does not send that content to OpenAI unless you use those AI features. OpenAI publishes its API data controls at <a href="https://platform.openai.com/docs/guides/your-data">platform.openai.com/docs/guides/your-data</a>.</p>
+      <p>When you ask DailyMacros to parse or analyze a meal, workout, meal photo, report, or connected health data, relevant content may be sent to OpenAI to produce estimates or analysis. DailyMacros does not send that content to OpenAI unless you use those AI features. OpenAI publishes its API data controls at <a href="https://platform.openai.com/docs/guides/your-data">platform.openai.com/docs/guides/your-data</a>.</p>
 
       <h2>Barcode Data</h2>
       <p>Barcode lookups use Open Food Facts product data. DailyMacros sends the barcode value needed to look up the product and stores the nutrition entry only when you save it.</p>
@@ -121,10 +133,14 @@
       <p>Production data is backed up for operational recovery. Account data remains in the active database until you delete your account or request help deleting it. Deleted account data is removed from the active database, while encrypted transport and provider logs or infrastructure backups may remain for a limited operational window before aging out.</p>
 
       <h2>Your Controls</h2>
-      <p>You can export a JSON copy of your account data or permanently delete your account from Account &amp; Privacy on the web or Settings on iOS. You can also revoke HealthKit access from iOS Settings and sign out from the app.</p>
+      <p>You can export a JSON copy of your account data or permanently delete your account from Account &amp; Privacy on the web or Settings on iOS. You can disconnect Oura and delete imported Oura data from either Settings surface, revoke HealthKit access from iOS Settings, and sign out from the app.</p>
 
       <h2>Support</h2>
       <p>For support or privacy requests, contact the person who invited you. Include the request reference shown in any error message and the build information from Settings or Account &amp; Privacy.</p>
+
+      <nav class="legal-links" aria-label="Legal">
+        <a href="/terms">Terms of Service</a>
+      </nav>
     </article>
   </main>
 </body>
