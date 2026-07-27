@@ -2004,6 +2004,61 @@ function buildCopyMealToTodayHandler(mealGroup, mealEntry) {
   };
 }
 
+function ouraConnectionLabel(status) {
+  if (!status?.configured) return 'Not configured';
+  if (!status.connected) return 'Not connected';
+  if (status.state === 'syncing') return 'Syncing';
+  if (status.state === 'reauthorization_required') return 'Reconnect required';
+  if (status.state === 'error') return 'Needs attention';
+  return 'Connected';
+}
+
+function renderOuraAccountControls(overlay, status) {
+  const statusEl = overlay.querySelector('#account-oura-status');
+  const detailEl = overlay.querySelector('#account-oura-detail');
+  const connectButton = overlay.querySelector('#account-oura-connect-btn');
+  const syncButton = overlay.querySelector('#account-oura-sync-btn');
+  const disconnectButton = overlay.querySelector('#account-oura-disconnect-btn');
+  if (!statusEl || !detailEl || !connectButton || !syncButton || !disconnectButton) return;
+
+  statusEl.textContent = ouraConnectionLabel(status);
+  statusEl.dataset.state = status?.state || 'unknown';
+  const canReconnect = status?.state === 'reauthorization_required' || status?.state === 'error';
+  connectButton.hidden = !status?.configured || (status.connected && !canReconnect);
+  connectButton.textContent = status?.connected ? 'Reconnect Oura' : 'Connect Oura';
+  syncButton.hidden = !status?.connected;
+  disconnectButton.hidden = !status?.connected;
+
+  if (!status?.configured) {
+    detailEl.textContent = 'The Oura integration still needs server credentials before it can be connected.';
+    return;
+  }
+  if (!status.connected) {
+    detailEl.textContent = 'By connecting, you authorize DailyMacros to import 90 days of Oura aggregates and combine them with your app history for trends, coaching, and user-requested analysis. Imported records remain until you disconnect Oura or delete your account.';
+    return;
+  }
+
+  const details = [];
+  if (status.lastSyncedAt) details.push(`Last data sync ${formatDateTimeLabel(status.lastSyncedAt)}`);
+  if (status.lastWebhookAt) details.push(`Last Oura update ${formatDateTimeLabel(status.lastWebhookAt)}`);
+  details.push(status.updateMode === 'webhook'
+    ? 'New cloud data should arrive in about a minute after Oura syncs.'
+    : 'Webhook delivery is not configured; scheduled reconciliation is active.');
+  details.push('Imported records remain until you disconnect Oura or delete your account and may be combined with your app history for user-requested analysis.');
+  if (status.lastError) details.push(status.lastError);
+  detailEl.textContent = details.join(' · ');
+}
+
+async function loadOuraAccountControls(overlay) {
+  try {
+    const status = await api('/api/oura/status');
+    if (overlay.isConnected) renderOuraAccountControls(overlay, status);
+  } catch (error) {
+    const detailEl = overlay.querySelector('#account-oura-detail');
+    if (detailEl) detailEl.textContent = error.message;
+  }
+}
+
 function showAccountPrivacyModal() {
   let overlay = document.getElementById('entry-modal-overlay');
   if (overlay) overlay.remove();
@@ -2051,10 +2106,22 @@ function showAccountPrivacyModal() {
       <h3>Account & Privacy</h3>
       <div class="account-privacy-copy">
         <p><strong>Support</strong><span>Contact the person who invited you. Include any request reference shown in an error message and the build details below.</span></p>
-        <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
+        <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, optional Oura aggregate metrics, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
         <p><strong>AI processing</strong><span>${escapeHtml(aiProcessingCopy)}</span></p>
         <p><strong>Controls</strong><span>You can export a JSON copy of your account data or permanently delete your account from here. <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span></p>
       </div>
+      <fieldset class="account-preference-controls account-oura-controls">
+        <legend>Oura Ring</legend>
+        <div class="account-oura-summary">
+          <span id="account-oura-status" class="account-oura-status" data-state="loading">Checking connection…</span>
+          <span id="account-oura-detail" class="account-oura-detail">Loading Oura status.</span>
+        </div>
+        <div class="account-preference-actions">
+          <button type="button" class="btn-success table-action-btn" id="account-oura-connect-btn" hidden>Connect Oura</button>
+          <button type="button" class="btn-secondary table-action-btn" id="account-oura-sync-btn" hidden>Sync Now</button>
+          <button type="button" class="btn-danger table-action-btn" id="account-oura-disconnect-btn" hidden>Disconnect &amp; Delete Oura Data</button>
+        </div>
+      </fieldset>
       ${sexualActivityPageControl}
       <fieldset class="account-preference-controls">
         <legend>Preferences</legend>
@@ -2153,6 +2220,47 @@ function showAccountPrivacyModal() {
       setActionBanner(error.message, 'error');
     }
   });
+  document.getElementById('account-oura-connect-btn')?.addEventListener('click', async () => {
+    try {
+      const result = await api('/api/oura/connect', {
+        method: 'POST',
+        body: JSON.stringify({ returnTo: 'web' })
+      });
+      window.location.assign(result.authorizationUrl);
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+  document.getElementById('account-oura-sync-btn')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await api('/api/oura/sync', {
+        method: 'POST',
+        body: JSON.stringify({ days: 14 })
+      });
+      setActionBanner('Oura data synced.', 'success');
+      await loadOuraAccountControls(overlay);
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    } finally {
+      button.disabled = false;
+    }
+  });
+  document.getElementById('account-oura-disconnect-btn')?.addEventListener('click', async (event) => {
+    if (!window.confirm('Disconnect Oura and permanently delete imported Oura data from DailyMacros?')) return;
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await api('/api/oura/connection', { method: 'DELETE' });
+      setActionBanner('Oura disconnected and imported data deleted.', 'success');
+      await loadOuraAccountControls(overlay);
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    } finally {
+      button.disabled = false;
+    }
+  });
   document.getElementById('account-export-btn').addEventListener('click', async () => {
     try {
       await exportAccountData();
@@ -2171,6 +2279,7 @@ function showAccountPrivacyModal() {
   overlay.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') overlay.remove();
   });
+  loadOuraAccountControls(overlay);
 }
 
 function formatDateTimeLabel(isoString) {
@@ -6700,6 +6809,19 @@ refreshAppVersion();
 loadQuickEntries({ force: true });
 
 (async function initApp() {
+  const callbackParams = new URLSearchParams(window.location.search);
+  if (callbackParams.get('oura') === 'connected') {
+    setActionBanner('Oura connected. The initial 90-day sync is running.', 'success');
+  } else if (callbackParams.get('oura') === 'error') {
+    setActionBanner(callbackParams.get('message') || 'Oura connection failed.', 'error');
+  }
+  if (callbackParams.has('oura')) {
+    callbackParams.delete('oura');
+    callbackParams.delete('message');
+    const cleanedQuery = callbackParams.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${cleanedQuery ? `?${cleanedQuery}` : ''}${window.location.hash}`);
+  }
+
   try {
     await refreshProfile();
   } catch (error) {

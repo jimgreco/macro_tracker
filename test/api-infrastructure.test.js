@@ -63,6 +63,21 @@ test('db.js exports all required functions', () => {
     'listCoachDismissals',
     'upsertCoachDismissals',
     'deleteCoachDismissals',
+    'createOuraOauthState',
+    'consumeOuraOauthState',
+    'getOuraConnection',
+    'getOuraConnectionByProviderUserId',
+    'upsertOuraConnection',
+    'rotateOuraConnectionTokens',
+    'updateOuraConnection',
+    'listActiveOuraConnections',
+    'upsertOuraDocument',
+    'deleteOuraDocument',
+    'reconcileOuraDocuments',
+    'listOuraDocuments',
+    'upsertOuraWebhookSubscription',
+    'listOuraWebhookSubscriptions',
+    'deleteOuraConnection',
     'exportUserData',
     'deleteUserAccount',
     'getPlanLimits',
@@ -144,6 +159,34 @@ test('db.js creates audit_log table', () => {
   assert.ok(db.includes('CREATE TABLE IF NOT EXISTS audit_log'));
   assert.ok(db.includes("action TEXT NOT NULL"));
   assert.ok(db.includes("entity_type TEXT NOT NULL"));
+});
+
+test('direct Oura integration persists encrypted connections and normalized tombstoned documents', () => {
+  const db = read('src/db.js');
+  const server = read('src/server.js');
+  const oura = read('src/oura.js');
+
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS oura_oauth_states'));
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS oura_connections'));
+  assert.ok(db.includes('access_token_encrypted TEXT NOT NULL'));
+  assert.ok(db.includes('refresh_token_encrypted TEXT NOT NULL'));
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS oura_documents'));
+  assert.ok(db.includes('PRIMARY KEY (user_id, data_type, provider_document_id)'));
+  assert.ok(db.includes('WHEN oura_documents.deleted_at IS NOT NULL AND NOT $7'));
+  assert.ok(db.includes("recordSchemaMigration('2026-07-20_direct_oura_integration')"));
+
+  assert.ok(oura.includes("createCipheriv('aes-256-gcm'"));
+  assert.ok(oura.includes("grant_type: 'refresh_token'"));
+  assert.ok(oura.includes('rotateOuraConnectionTokens'));
+  assert.ok(oura.includes('normalizeOuraDocument'));
+  assert.equal(oura.includes('movement_30_sec:'), false);
+  assert.equal(oura.includes('OURA_RETENTION_DAYS'), false);
+  assert.equal(db.includes('purgeOuraDocumentsBefore'), false);
+  assert.ok(oura.includes('deleteOuraConnection(userId, { deleteData: true })'));
+  assert.ok(server.indexOf("app.post('/webhooks/oura', express.raw") < server.indexOf("app.use(express.json"));
+  assert.ok(server.includes("apiRouter.post('/oura/connect'"));
+  assert.ok(server.includes("apiRouter.post('/oura/sync'"));
+  assert.ok(server.includes("apiRouter.delete('/oura/connection'"));
 });
 
 test('all data tables have deleted_at column', () => {
