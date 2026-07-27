@@ -104,6 +104,9 @@ class AuthManager: ObservableObject {
             picture: nil,
             provider: "apple"
         )
+        if let user {
+            api.activateAuthenticatedAccount(userId: user.id)
+        }
         isAuthenticated = true
         Diagnostics.shared.record(category: "auth", message: "Signed in with Apple")
     }
@@ -119,6 +122,9 @@ class AuthManager: ObservableObject {
             picture: nil,
             provider: "local-dev"
         )
+        if let user {
+            api.activateAuthenticatedAccount(userId: user.id)
+        }
         isAuthenticated = true
         Diagnostics.shared.record(category: "auth", message: "Signed in with local dev bypass")
     }
@@ -143,6 +149,7 @@ class AuthManager: ObservableObject {
             picture: nil,
             provider: "local-dev"
         )
+        api.activateAuthenticatedAccount(userId: "local-dev-user")
         isAuthenticated = true
         Diagnostics.shared.record(
             level: "warning",
@@ -163,6 +170,9 @@ class AuthManager: ObservableObject {
             picture: nil,
             provider: "google"
         )
+        if let user {
+            api.activateAuthenticatedAccount(userId: user.id)
+        }
         isAuthenticated = true
         Diagnostics.shared.record(category: "auth", message: "Signed in with Google")
     }
@@ -185,6 +195,9 @@ class AuthManager: ObservableObject {
                 picture: nil,
                 provider: "google"
             )
+            if let userId = user?.id, !userId.isEmpty {
+                api.activateAuthenticatedAccount(userId: userId)
+            }
             isAuthenticated = true
             Diagnostics.shared.record(category: "auth", message: "Handled Google callback")
             Task {
@@ -198,6 +211,7 @@ class AuthManager: ObservableObject {
     func signOut() {
         api.token = nil
         api.endLocalDevOfflineSession()
+        api.deactivateAuthenticatedAccount()
         user = nil
         isAuthenticated = false
         Diagnostics.shared.record(category: "auth", message: "Signed out")
@@ -208,6 +222,7 @@ class AuthManager: ObservableObject {
             try await api.deleteAllTokens()
         }
         api.endLocalDevOfflineSession()
+        api.deactivateAuthenticatedAccount()
         user = nil
         isAuthenticated = false
         Diagnostics.shared.record(category: "auth", message: "Signed out everywhere")

@@ -379,6 +379,24 @@ async function initDb() {
     );
   `);
 
+  // ── Per-account idempotency ledger for replayable client mutations ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_mutations (
+      user_id TEXT NOT NULL,
+      client_mutation_id TEXT NOT NULL,
+      request_method TEXT NOT NULL,
+      request_path TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'processing',
+      response_status INTEGER,
+      response_body JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, client_mutation_id),
+      CHECK (state IN ('processing', 'completed'))
+    );
+  `);
+
   // ── Migrations for existing databases ──
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/New_York';`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN NOT NULL DEFAULT FALSE;`);
@@ -562,9 +580,11 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_food_corrections_user_updated ON food_corrections(user_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_client_diagnostics_user_created ON client_diagnostics(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_client_diagnostics_level_created ON client_diagnostics(level, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_client_mutations_completed ON client_mutations(completed_at DESC);
   `);
 
   await recordSchemaMigration('2026-06-11_feature_foundations');
+  await recordSchemaMigration('2026-07-27_client_mutation_idempotency');
 }
 
 // ── Users ──
@@ -1061,6 +1081,115 @@ async function listClientDiagnostics(userId, { limit = 25 } = {}) {
     requestId: row.requestId || null,
     createdAt: dateToIso(row.createdAt)
   }));
+}
+
+// ── Replay-safe client mutations ──
+
+function mapClientMutation(row) {
+  if (!row) return null;
+  return {
+    userId: row.userId ?? row.user_id,
+    clientMutationId: row.clientMutationId ?? row.client_mutation_id,
+    method: row.requestMethod ?? row.request_method,
+    path: row.requestPath ?? row.request_path,
+    requestHash: row.requestHash ?? row.request_hash,
+    state: row.state,
+    responseStatus:
+      row.responseStatus == null && row.response_status == null
+        ? null
+        : Number(row.responseStatus ?? row.response_status),
+    responseBody: row.responseBody ?? row.response_body ?? null,
+    createdAt: dateToIso(row.createdAt ?? row.created_at),
+    completedAt: dateToIso(row.completedAt ?? row.completed_at)
+  };
+}
+
+async function getClientMutation(userId, clientMutationId) {
+  const result = await pool.query(
+    `SELECT user_id AS "userId",
+            client_mutation_id AS "clientMutationId",
+            request_method AS "requestMethod",
+            request_path AS "requestPath",
+            request_hash AS "requestHash",
+            state,
+            response_status AS "responseStatus",
+            response_body AS "responseBody",
+            created_at AS "createdAt",
+            completed_at AS "completedAt"
+     FROM client_mutations
+     WHERE user_id = $1 AND client_mutation_id = $2`,
+    [userId, clientMutationId]
+  );
+  return mapClientMutation(result.rows[0]);
+}
+
+async function claimClientMutation(userId, clientMutationId, descriptor) {
+  const result = await pool.query(
+    `INSERT INTO client_mutations (
+       user_id, client_mutation_id, request_method, request_path, request_hash
+     )
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id, client_mutation_id) DO NOTHING
+     RETURNING client_mutation_id`,
+    [
+      userId,
+      clientMutationId,
+      descriptor.method,
+      descriptor.path,
+      descriptor.requestHash
+    ]
+  );
+
+  if (result.rows.length) {
+    return { disposition: 'acquired' };
+  }
+
+  const mutation = await getClientMutation(userId, clientMutationId);
+  if (
+    !mutation ||
+    mutation.method !== descriptor.method ||
+    mutation.path !== descriptor.path ||
+    mutation.requestHash !== descriptor.requestHash
+  ) {
+    return { disposition: 'conflict', mutation };
+  }
+
+  if (mutation.state === 'completed') {
+    return { disposition: 'replay', mutation };
+  }
+
+  return { disposition: 'processing', mutation };
+}
+
+async function completeClientMutation(userId, clientMutationId, result) {
+  const updated = await pool.query(
+    `UPDATE client_mutations
+     SET state = 'completed',
+         response_status = $3,
+         response_body = $4::jsonb,
+         completed_at = NOW()
+     WHERE user_id = $1
+       AND client_mutation_id = $2
+       AND state = 'processing'
+     RETURNING user_id AS "userId",
+               client_mutation_id AS "clientMutationId",
+               request_method AS "requestMethod",
+               request_path AS "requestPath",
+               request_hash AS "requestHash",
+               state,
+               response_status AS "responseStatus",
+               response_body AS "responseBody",
+               created_at AS "createdAt",
+               completed_at AS "completedAt"`,
+    [
+      userId,
+      clientMutationId,
+      Number(result.responseStatus) || 200,
+      JSON.stringify(result.responseBody ?? null)
+    ]
+  );
+
+  return mapClientMutation(updated.rows[0]) || getClientMutation(userId, clientMutationId);
 }
 
 // ── Macros / entries ──
@@ -3486,6 +3615,7 @@ async function deleteUserAccount(userId) {
     await client.query('DELETE FROM daily_usage_counts WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM coach_dismissals WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM client_diagnostics WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM client_mutations WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM billing_events WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM subscriptions WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM audit_log WHERE user_id = $1', [userId]);
@@ -3650,6 +3780,9 @@ module.exports = {
   logAudit,
   logClientDiagnostic,
   listClientDiagnostics,
+  claimClientMutation,
+  getClientMutation,
+  completeClientMutation,
   addEntries,
   copyEntriesForLocalDay,
   copyEntriesToLocalDay,

@@ -4,6 +4,7 @@ import AuthenticationServices
 enum APIError: LocalizedError {
     case notAuthenticated
     case serverError(String)
+    case httpError(status: Int, message: String)
     case networkError(Error)
     case decodingError(Error)
 
@@ -12,6 +13,8 @@ enum APIError: LocalizedError {
         case .notAuthenticated:
             return "Not authenticated. Please sign in."
         case .serverError(let message):
+            return message
+        case .httpError(_, let message):
             return message
         case .networkError(let error):
             return error.localizedDescription
@@ -53,6 +56,10 @@ class APIClient: ObservableObject {
 
     @Published var token: String? {
         didSet {
+            if oldValue != token {
+                authenticatedUserId = nil
+                OfflineMutationStore.shared.deactivateAccount()
+            }
             if let token {
                 isLocalDevOfflineSession = false
                 KeychainHelper.save(key: "api_token", value: token)
@@ -62,6 +69,9 @@ class APIClient: ObservableObject {
         }
     }
     @Published private(set) var isLocalDevOfflineSession = false
+    @Published private(set) var authenticatedUserId: String?
+    private var isFlushingPendingMutations = false
+    private var didReportLegacyQueueDiscard = false
 
     init() {
         #if DEBUG
@@ -79,7 +89,12 @@ class APIClient: ObservableObject {
         baseURL.appendingPathComponent("api/v1\(path)")
     }
 
-    private func authorizedRequest(_ url: URL, method: String = "GET", body: Data? = nil) throws -> URLRequest {
+    private func authorizedRequest(
+        _ url: URL,
+        method: String = "GET",
+        body: Data? = nil,
+        clientMutationId: UUID? = nil
+    ) throws -> URLRequest {
         guard let token = token ?? (isLocalDevOfflineSession ? "local-dev-offline" : nil) else {
             throw APIError.notAuthenticated
         }
@@ -87,8 +102,42 @@ class APIClient: ObservableObject {
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let clientMutationId {
+            request.setValue(
+                clientMutationId.uuidString.lowercased(),
+                forHTTPHeaderField: "X-Client-Mutation-Id"
+            )
+        }
         request.httpBody = body
         return request
+    }
+
+    func activateAuthenticatedAccount(userId: String) {
+        let normalizedUserId = userId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedUserId.isEmpty else {
+            deactivateAuthenticatedAccount()
+            return
+        }
+
+        authenticatedUserId = normalizedUserId
+        OfflineMutationStore.shared.activateAccount(userId: normalizedUserId)
+        if !didReportLegacyQueueDiscard,
+           OfflineMutationStore.shared.legacyDiscardedCount > 0 {
+            didReportLegacyQueueDiscard = true
+            Diagnostics.shared.record(
+                level: "warning",
+                category: "offline",
+                message: "Discarded legacy unowned pending mutations",
+                details: [
+                    "count": "\(OfflineMutationStore.shared.legacyDiscardedCount)"
+                ]
+            )
+        }
+    }
+
+    func deactivateAuthenticatedAccount() {
+        authenticatedUserId = nil
+        OfflineMutationStore.shared.deactivateAccount()
     }
 
     func beginLocalDevOfflineSession() {
@@ -138,7 +187,10 @@ class APIClient: ObservableObject {
                         "requestId": errorResponse.requestId ?? ""
                     ]
                 )
-                throw APIError.serverError(errorResponse.error + suffix)
+                throw APIError.httpError(
+                    status: httpResponse.statusCode,
+                    message: errorResponse.error + suffix
+                )
             }
             Diagnostics.shared.record(
                 level: "error",
@@ -146,7 +198,10 @@ class APIClient: ObservableObject {
                 message: "Request failed",
                 details: ["status": "\(httpResponse.statusCode)", "url": request.url?.absoluteString ?? ""]
             )
-            throw APIError.serverError("Request failed with status \(httpResponse.statusCode)")
+            throw APIError.httpError(
+                status: httpResponse.statusCode,
+                message: "Request failed with status \(httpResponse.statusCode)"
+            )
         }
 
         do {
@@ -194,7 +249,10 @@ class APIClient: ObservableObject {
                         "requestId": errorResponse.requestId ?? ""
                     ]
                 )
-                throw APIError.serverError(errorResponse.error + suffix)
+                throw APIError.httpError(
+                    status: httpResponse.statusCode,
+                    message: errorResponse.error + suffix
+                )
             }
             Diagnostics.shared.record(
                 level: "error",
@@ -202,7 +260,10 @@ class APIClient: ObservableObject {
                 message: "Request failed",
                 details: ["status": "\(httpResponse.statusCode)", "url": request.url?.absoluteString ?? ""]
             )
-            throw APIError.serverError("Request failed with status \(httpResponse.statusCode)")
+            throw APIError.httpError(
+                status: httpResponse.statusCode,
+                message: "Request failed with status \(httpResponse.statusCode)"
+            )
         }
 
         return data
@@ -224,44 +285,138 @@ class APIClient: ObservableObject {
         ].contains(nsError.code)
     }
 
-    private func queueMutation(path: String, method: String, body: Data?, summary: String) {
-        OfflineMutationStore.shared.enqueue(method: method, path: path, body: body, summary: summary)
-        Diagnostics.shared.record(
-            level: "warning",
-            category: "offline",
-            message: "Queued mutation",
-            details: ["path": path, "summary": summary, "pending": "\(OfflineMutationStore.shared.pendingCount)"]
+    private func performReplayableMutation<T: Decodable>(
+        path: String,
+        method: String,
+        body: Data?,
+        kind: PendingMutationKind,
+        queuedResponse: T
+    ) async throws -> T {
+        guard let ownerUserId = authenticatedUserId,
+              OfflineMutationStore.shared.activeOwnerUserId == ownerUserId else {
+            throw APIError.notAuthenticated
+        }
+
+        let mutation = OfflineMutationStore.shared.makeMutation(
+            ownerUserId: ownerUserId,
+            method: method,
+            path: path,
+            body: body,
+            kind: kind
         )
+        let request = try authorizedRequest(
+            apiURL(path),
+            method: method,
+            body: body,
+            clientMutationId: mutation.clientMutationId
+        )
+
+        do {
+            return try await perform(request)
+        } catch {
+            guard shouldQueueMutation(after: error) else { throw error }
+            try OfflineMutationStore.shared.enqueue(mutation)
+            Diagnostics.shared.record(
+                level: "warning",
+                category: "offline",
+                message: "Saved mutation offline",
+                details: [
+                    "kind": kind.rawValue,
+                    "method": method,
+                    "path": path,
+                    "pending": "\(OfflineMutationStore.shared.pendingCount)"
+                ]
+            )
+            return queuedResponse
+        }
+    }
+
+    private func isTerminalReplayConflict(_ error: Error) -> Bool {
+        guard case APIError.httpError(let status, let message) = error else {
+            return false
+        }
+        if status == 409 && message.localizedCaseInsensitiveContains("still processing") {
+            return false
+        }
+        return [400, 403, 404, 409, 410, 422].contains(status)
     }
 
     func flushPendingMutations() async throws {
-        let pending = OfflineMutationStore.shared.snapshot()
+        guard !isFlushingPendingMutations else { return }
+        guard let ownerUserId = authenticatedUserId else { return }
+        isFlushingPendingMutations = true
+        defer { isFlushingPendingMutations = false }
+
+        let pending = OfflineMutationStore.shared.snapshot(for: ownerUserId)
         guard !pending.isEmpty else { return }
 
         for mutation in pending {
+            guard authenticatedUserId == ownerUserId,
+                  OfflineMutationStore.shared.activeOwnerUserId == ownerUserId else {
+                throw APIError.notAuthenticated
+            }
+
             let request = try authorizedRequest(
                 apiURL(mutation.path),
                 method: mutation.method,
-                body: mutation.body
+                body: mutation.body,
+                clientMutationId: mutation.clientMutationId
             )
             do {
                 _ = try await performData(request)
-                OfflineMutationStore.shared.remove(id: mutation.id)
+                try OfflineMutationStore.shared.remove(
+                    clientMutationId: mutation.clientMutationId,
+                    ownerUserId: ownerUserId
+                )
                 Diagnostics.shared.record(
                     category: "offline",
                     message: "Flushed pending mutation",
-                    details: ["path": mutation.path, "summary": mutation.summary]
+                    details: [
+                        "kind": mutation.kind.rawValue,
+                        "method": mutation.method,
+                        "path": mutation.path
+                    ]
                 )
             } catch {
+                if isTerminalReplayConflict(error) {
+                    try OfflineMutationStore.shared.remove(
+                        clientMutationId: mutation.clientMutationId,
+                        ownerUserId: ownerUserId
+                    )
+                    Diagnostics.shared.record(
+                        level: "warning",
+                        category: "offline",
+                        message: "Discarded pending mutation after conflict",
+                        details: [
+                            "kind": mutation.kind.rawValue,
+                            "method": mutation.method,
+                            "path": mutation.path
+                        ]
+                    )
+                    continue
+                }
                 Diagnostics.shared.record(
                     level: "warning",
                     category: "offline",
                     message: "Pending mutation flush paused",
-                    details: ["path": mutation.path, "error": error.localizedDescription]
+                    details: [
+                        "kind": mutation.kind.rawValue,
+                        "method": mutation.method,
+                        "path": mutation.path
+                    ]
                 )
                 throw error
             }
         }
+    }
+
+    private func discardPendingMutationsForDeletedAccount() throws {
+        guard let ownerUserId = authenticatedUserId else { return }
+        try OfflineMutationStore.shared.discardPendingWorkForDeletedAccount(userId: ownerUserId)
+        Diagnostics.shared.record(
+            category: "offline",
+            message: "Discarded pending work for account deletion"
+        )
     }
 
     // MARK: - Auth
@@ -275,6 +430,9 @@ class APIClient: ObservableObject {
 
         let request = try authorizedRequest(apiURL("/me"))
         let response: MeResponse = try await perform(request)
+        if let user = response.user {
+            activateAuthenticatedAccount(userId: user.id)
+        }
         return response.user
     }
 
@@ -444,6 +602,7 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
+    @discardableResult
     func saveMealEntries(
         items: [[String: Any]],
         consumedAt: String,
@@ -454,7 +613,7 @@ class APIClient: ObservableObject {
         source: String? = nil,
         sourceDetail: String? = nil,
         saveItems: [[String: Any]] = []
-    ) async throws {
+    ) async throws -> OkResponse {
         var payload: [String: Any] = ["items": items, "consumedAt": consumedAt]
         if let mealName { payload["mealName"] = mealName }
         if let mealQuantity { payload["mealQuantity"] = mealQuantity }
@@ -464,16 +623,13 @@ class APIClient: ObservableObject {
         if let sourceDetail { payload["sourceDetail"] = sourceDetail }
         if !saveItems.isEmpty { payload["saveItems"] = saveItems }
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let request = try authorizedRequest(apiURL("/entries/bulk"), method: "POST", body: body)
-        do {
-            let _: OkResponse = try await perform(request)
-        } catch {
-            if shouldQueueMutation(after: error) {
-                queueMutation(path: "/entries/bulk", method: "POST", body: body, summary: mealName ?? "Meal entry")
-                return
-            }
-            throw error
-        }
+        return try await performReplayableMutation(
+            path: "/entries/bulk",
+            method: "POST",
+            body: body,
+            kind: .meal,
+            queuedResponse: OkResponse(ok: true)
+        )
     }
 
     func updateEntry(
@@ -498,13 +654,23 @@ class APIClient: ObservableObject {
         ]
         if let consumedAt { payload["consumedAt"] = consumedAt }
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let request = try authorizedRequest(apiURL("/entries/\(id)"), method: "PUT", body: body)
-        let _: OkResponse = try await perform(request)
+        let _: OkResponse = try await performReplayableMutation(
+            path: "/entries/\(id)",
+            method: "PUT",
+            body: body,
+            kind: .meal,
+            queuedResponse: OkResponse(ok: true)
+        )
     }
 
     func deleteEntry(id: Int) async throws {
-        let request = try authorizedRequest(apiURL("/entries/\(id)"), method: "DELETE")
-        let _: OkResponse = try await perform(request)
+        let _: OkResponse = try await performReplayableMutation(
+            path: "/entries/\(id)",
+            method: "DELETE",
+            body: nil,
+            kind: .meal,
+            queuedResponse: OkResponse(ok: true)
+        )
     }
 
     func copyEntryToToday(entryId: Int) async throws -> CopyEntriesResponse {
@@ -611,16 +777,13 @@ class APIClient: ObservableObject {
             "consumedAt": consumedAt
         ]
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let request = try authorizedRequest(apiURL("/quick-add"), method: "POST", body: body)
-        do {
-            let _: OkResponse = try await perform(request)
-        } catch {
-            if shouldQueueMutation(after: error) {
-                queueMutation(path: "/quick-add", method: "POST", body: body, summary: "Quick add item")
-                return
-            }
-            throw error
-        }
+        let _: OkResponse = try await performReplayableMutation(
+            path: "/quick-add",
+            method: "POST",
+            body: body,
+            kind: .quickAdd,
+            queuedResponse: OkResponse(ok: true)
+        )
     }
 
     // MARK: - Daily Totals
@@ -685,28 +848,35 @@ class APIClient: ObservableObject {
         if let source { payload["source"] = source }
         if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let request = try authorizedRequest(apiURL("/weights"), method: "POST", body: body)
-        do {
-            return try await perform(request)
-        } catch {
-            if shouldQueueMutation(after: error) {
-                queueMutation(path: "/weights", method: "POST", body: body, summary: "Weight entry")
-                return EntryMutationResponse(ok: true, id: nil, created: true)
-            }
-            throw error
-        }
+        return try await performReplayableMutation(
+            path: "/weights",
+            method: "POST",
+            body: body,
+            kind: .weight,
+            queuedResponse: EntryMutationResponse(ok: true, id: nil, created: true)
+        )
     }
 
     func updateWeight(id: Int, weight: Double, loggedAt: String) async throws {
         let payload: [String: Any] = ["weight": weight, "loggedAt": loggedAt]
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let request = try authorizedRequest(apiURL("/weights/\(id)"), method: "PUT", body: body)
-        let _: OkResponse = try await perform(request)
+        let _: OkResponse = try await performReplayableMutation(
+            path: "/weights/\(id)",
+            method: "PUT",
+            body: body,
+            kind: .weight,
+            queuedResponse: OkResponse(ok: true)
+        )
     }
 
     func deleteWeight(id: Int) async throws {
-        let request = try authorizedRequest(apiURL("/weights/\(id)"), method: "DELETE")
-        let _: OkResponse = try await perform(request)
+        let _: OkResponse = try await performReplayableMutation(
+            path: "/weights/\(id)",
+            method: "DELETE",
+            body: nil,
+            kind: .weight,
+            queuedResponse: OkResponse(ok: true)
+        )
     }
 
     func getWeightTarget() async throws -> WeightTarget {
@@ -787,16 +957,13 @@ class APIClient: ObservableObject {
         if let source { payload["source"] = source }
         if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let request = try authorizedRequest(apiURL("/workouts"), method: "POST", body: body)
-        do {
-            return try await perform(request)
-        } catch {
-            if shouldQueueMutation(after: error) {
-                queueMutation(path: "/workouts", method: "POST", body: body, summary: description)
-                return WorkoutMutationResponse(ok: true, id: nil, created: true)
-            }
-            throw error
-        }
+        return try await performReplayableMutation(
+            path: "/workouts",
+            method: "POST",
+            body: body,
+            kind: .workout,
+            queuedResponse: WorkoutMutationResponse(ok: true, id: nil, created: true)
+        )
     }
 
     func updateWorkout(id: Int, description: String, intensity: String, durationHours: Double, caloriesBurned: Double, loggedAt: String) async throws {
@@ -808,13 +975,23 @@ class APIClient: ObservableObject {
             "loggedAt": loggedAt
         ]
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let request = try authorizedRequest(apiURL("/workouts/\(id)"), method: "PUT", body: body)
-        let _: OkResponse = try await perform(request)
+        let _: OkResponse = try await performReplayableMutation(
+            path: "/workouts/\(id)",
+            method: "PUT",
+            body: body,
+            kind: .workout,
+            queuedResponse: OkResponse(ok: true)
+        )
     }
 
     func deleteWorkout(id: Int) async throws {
-        let request = try authorizedRequest(apiURL("/workouts/\(id)"), method: "DELETE")
-        let _: OkResponse = try await perform(request)
+        let _: OkResponse = try await performReplayableMutation(
+            path: "/workouts/\(id)",
+            method: "DELETE",
+            body: nil,
+            kind: .workout,
+            queuedResponse: OkResponse(ok: true)
+        )
     }
 
     func syncWorkouts() async throws -> SyncWorkoutsResponse {
@@ -886,28 +1063,35 @@ class APIClient: ObservableObject {
         if let source { payload["source"] = source }
         if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let request = try authorizedRequest(apiURL("/sexual-activity"), method: "POST", body: body)
-        do {
-            return try await perform(request)
-        } catch {
-            if shouldQueueMutation(after: error) {
-                queueMutation(path: "/sexual-activity", method: "POST", body: body, summary: "Sexual activity entry")
-                return EntryMutationResponse(ok: true, id: nil, created: true)
-            }
-            throw error
-        }
+        return try await performReplayableMutation(
+            path: "/sexual-activity",
+            method: "POST",
+            body: body,
+            kind: .sexualActivity,
+            queuedResponse: EntryMutationResponse(ok: true, id: nil, created: true)
+        )
     }
 
     func updateHealthEntry(id: Int, type: String, loggedAt: String) async throws {
         let payload: [String: Any] = ["type": type, "loggedAt": loggedAt]
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let request = try authorizedRequest(apiURL("/sexual-activity/\(id)"), method: "PUT", body: body)
-        let _: OkResponse = try await perform(request)
+        let _: OkResponse = try await performReplayableMutation(
+            path: "/sexual-activity/\(id)",
+            method: "PUT",
+            body: body,
+            kind: .sexualActivity,
+            queuedResponse: OkResponse(ok: true)
+        )
     }
 
     func deleteHealthEntry(id: Int) async throws {
-        let request = try authorizedRequest(apiURL("/sexual-activity/\(id)"), method: "DELETE")
-        let _: OkResponse = try await perform(request)
+        let _: OkResponse = try await performReplayableMutation(
+            path: "/sexual-activity/\(id)",
+            method: "DELETE",
+            body: nil,
+            kind: .sexualActivity,
+            queuedResponse: OkResponse(ok: true)
+        )
     }
 
     // MARK: - Sleep
@@ -942,16 +1126,13 @@ class APIClient: ObservableObject {
         if let source { payload["source"] = source }
         if let externalId { payload["externalId"] = externalId }
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let request = try authorizedRequest(apiURL("/sleep"), method: "POST", body: body)
-        do {
-            return try await perform(request)
-        } catch {
-            if shouldQueueMutation(after: error) {
-                queueMutation(path: "/sleep", method: "POST", body: body, summary: "Sleep entry")
-                return EntryMutationResponse(ok: true, id: nil, created: true)
-            }
-            throw error
-        }
+        return try await performReplayableMutation(
+            path: "/sleep",
+            method: "POST",
+            body: body,
+            kind: .sleep,
+            queuedResponse: EntryMutationResponse(ok: true, id: nil, created: true)
+        )
     }
 
     func updateSleepEntry(id: Int, durationHours: Double, wakeUps: Int, quality: Int?, notes: String?, loggedAt: String) async throws {
@@ -959,13 +1140,23 @@ class APIClient: ObservableObject {
         payload["quality"] = quality.map { $0 as Any } ?? NSNull()
         payload["notes"] = notes.map { $0 as Any } ?? NSNull()
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let request = try authorizedRequest(apiURL("/sleep/\(id)"), method: "PUT", body: body)
-        let _: OkResponse = try await perform(request)
+        let _: OkResponse = try await performReplayableMutation(
+            path: "/sleep/\(id)",
+            method: "PUT",
+            body: body,
+            kind: .sleep,
+            queuedResponse: OkResponse(ok: true)
+        )
     }
 
     func deleteSleepEntry(id: Int) async throws {
-        let request = try authorizedRequest(apiURL("/sleep/\(id)"), method: "DELETE")
-        let _: OkResponse = try await perform(request)
+        let _: OkResponse = try await performReplayableMutation(
+            path: "/sleep/\(id)",
+            method: "DELETE",
+            body: nil,
+            kind: .sleep,
+            queuedResponse: OkResponse(ok: true)
+        )
     }
 
     // MARK: - Subscription
@@ -1001,9 +1192,20 @@ class APIClient: ObservableObject {
     }
 
     func deleteAccount() async throws {
-        let request = try authorizedRequest(apiURL("/account"), method: "DELETE")
-        let _: OkResponse = try await perform(request)
-        token = nil
+        let ownerUserId = authenticatedUserId
+        try discardPendingMutationsForDeletedAccount()
+        do {
+            let request = try authorizedRequest(apiURL("/account"), method: "DELETE")
+            let _: OkResponse = try await perform(request)
+            token = nil
+        } catch {
+            if let ownerUserId {
+                OfflineMutationStore.shared.restoreAccountAfterFailedDeletion(
+                    userId: ownerUserId
+                )
+            }
+            throw error
+        }
     }
 
     // MARK: - API Tokens

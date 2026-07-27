@@ -72,7 +72,7 @@ struct SettingsView: View {
                     Task { await deleteAccount() }
                 }
             } message: {
-                Text("This will permanently delete your account and all associated data. This cannot be undone.")
+                Text("This permanently deletes your account, server data, and any protected pending work on this device. This cannot be undone.")
             }
             .sheet(isPresented: $showAccountDetails) {
                 AccountDetailsView()
@@ -520,7 +520,7 @@ struct SettingsView: View {
     private var pendingSyncSection: some View {
         Section("Offline Queue") {
             HStack {
-                Text("Pending Logs")
+                Text("Pending for This Account")
                 Spacer()
                 Text("\(offlineQueue.pendingCount)")
                     .foregroundStyle(.secondary)
@@ -530,7 +530,7 @@ struct SettingsView: View {
                 Task { await flushPendingLogs() }
             } label: {
                 HStack {
-                    Text("Sync Pending Logs")
+                    Text("Sync Pending Work")
                     Spacer()
                     if isFlushingPending {
                         ProgressView()
@@ -781,6 +781,12 @@ private struct AccountDetailsView: View {
                     }
 
                     signOutCard
+                    if offlineQueue.pendingCount > 0 {
+                        Text("Signing out keeps pending work protected and hidden until you sign back in to this same account. It is never sent through another account.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                    }
 
                     Text(SettingsBuildLabel.accountVersionLabel)
                         .font(.footnote.monospaced())
@@ -813,7 +819,7 @@ private struct AccountDetailsView: View {
                     Task { await signOutEverywhere() }
                 }
             } message: {
-                Text("This revokes DailyMacros API tokens on every device and signs you out here.")
+                Text("This revokes DailyMacros API tokens on every device and signs you out here. Protected pending work stays with this account until you sign in again.")
             }
             .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }

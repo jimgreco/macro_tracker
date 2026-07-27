@@ -29,6 +29,52 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     const updatedUser = await db.updateUserPreferences(userId, { timezone: 'America/Chicago' });
     assert.equal(updatedUser.timezone, 'America/Chicago');
 
+    const clientMutationId = crypto.randomUUID();
+    const mutationDescriptor = {
+      method: 'POST',
+      path: '/weights',
+      requestHash: crypto.createHash('sha256').update('integration-mutation').digest('hex')
+    };
+    const concurrentClaims = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        db.claimClientMutation(userId, clientMutationId, mutationDescriptor)
+      )
+    );
+    assert.equal(
+      concurrentClaims.filter((claim) => claim.disposition === 'acquired').length,
+      1
+    );
+    assert.equal(
+      concurrentClaims.filter((claim) => claim.disposition === 'processing').length,
+      7
+    );
+
+    await db.completeClientMutation(userId, clientMutationId, {
+      responseStatus: 200,
+      responseBody: { ok: true, id: 90210 }
+    });
+    const replayClaim = await db.claimClientMutation(
+      userId,
+      clientMutationId,
+      mutationDescriptor
+    );
+    assert.equal(replayClaim.disposition, 'replay');
+    assert.deepEqual(replayClaim.mutation.responseBody, { ok: true, id: 90210 });
+
+    const conflictingClaim = await db.claimClientMutation(
+      userId,
+      clientMutationId,
+      { ...mutationDescriptor, requestHash: 'different-request-hash' }
+    );
+    assert.equal(conflictingClaim.disposition, 'conflict');
+
+    const otherAccountClaim = await db.claimClientMutation(
+      `${userId}-other`,
+      clientMutationId,
+      mutationDescriptor
+    );
+    assert.equal(otherAccountClaim.disposition, 'acquired');
+
     await db.addEntries(userId, [
       {
         itemName: 'Integration Oatmeal',
@@ -186,6 +232,7 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     assert.equal(exported.clientDiagnostics.length, 1);
   } finally {
     await db.deleteUserAccount(userId).catch(() => {});
+    await db.deleteUserAccount(`${userId}-other`).catch(() => {});
     await db.getPool().end();
     delete require.cache[dbPath];
     if (originalDatabaseUrl == null) delete process.env.DATABASE_URL;

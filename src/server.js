@@ -25,6 +25,9 @@ const {
   logAudit,
   logClientDiagnostic,
   listClientDiagnostics,
+  claimClientMutation,
+  getClientMutation,
+  completeClientMutation,
   addEntries,
   copyEntriesForLocalDay,
   copyEntriesToLocalDay,
@@ -88,6 +91,7 @@ const {
 const { parseMealText, parseWorkoutText } = require('./parser');
 const { estimateWorkoutCalories } = require('./workout-calories');
 const { scaleMealUnitRows } = require('./meal-normalizer');
+const { createClientMutationMiddleware } = require('./idempotency');
 const packageJson = require('../package.json');
 
 const app = express();
@@ -2185,6 +2189,21 @@ app.get('/healthz', async (req, res) => {
 // ── API Router (mounted at /api/v1 and /api for backward compat) ──
 
 const apiRouter = express.Router();
+
+apiRouter.use(createClientMutationMiddleware({
+  claimClientMutation,
+  getClientMutation,
+  completeClientMutation,
+  userIdFromRequest: userIdFromReq,
+  onPersistenceError: (error, context) => {
+    logServerError(null, error, {
+      status: 500,
+      category: 'client_mutation',
+      method: context.method,
+      path: context.path
+    });
+  }
+}));
 
 // ── Durable plan-based feature gating for AI endpoints ──
 function limitFromEnv(name, fallbackValue) {

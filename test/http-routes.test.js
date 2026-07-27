@@ -43,6 +43,8 @@ const originalEnv = {
 const originalLoad = Module._load;
 const calls = [];
 let workoutAddResult = { id: 1, created: true };
+let weightAddDelayMs = 0;
+const clientMutations = new Map();
 
 function record(name, payload) {
   calls.push({ name, payload });
@@ -54,6 +56,10 @@ function resetCalls() {
 
 function latestCall(name) {
   return [...calls].reverse().find((call) => call.name === name);
+}
+
+function clientMutationKey(userId, clientMutationId) {
+  return `${userId}:${clientMutationId}`;
 }
 
 const fakeUser = {
@@ -91,6 +97,39 @@ const fakeDb = {
     return { id: 42, createdAt: new Date().toISOString() };
   },
   listClientDiagnostics: async () => [],
+  claimClientMutation: async (userId, clientMutationId, descriptor) => {
+    const key = clientMutationKey(userId, clientMutationId);
+    const existing = clientMutations.get(key);
+    if (!existing) {
+      clientMutations.set(key, {
+        userId,
+        clientMutationId,
+        ...descriptor,
+        state: 'processing',
+        responseStatus: null,
+        responseBody: null
+      });
+      return { disposition: 'acquired' };
+    }
+    if (
+      existing.method !== descriptor.method ||
+      existing.path !== descriptor.path ||
+      existing.requestHash !== descriptor.requestHash
+    ) {
+      return { disposition: 'conflict', mutation: existing };
+    }
+    return existing.state === 'completed'
+      ? { disposition: 'replay', mutation: existing }
+      : { disposition: 'processing', mutation: existing };
+  },
+  getClientMutation: async (userId, clientMutationId) =>
+    clientMutations.get(clientMutationKey(userId, clientMutationId)) || null,
+  completeClientMutation: async (userId, clientMutationId, result) => {
+    const key = clientMutationKey(userId, clientMutationId);
+    const mutation = clientMutations.get(key);
+    Object.assign(mutation, result, { state: 'completed' });
+    return mutation;
+  },
   addEntries: async (userId, rows) => {
     record('addEntries', { userId, rows });
   },
@@ -130,7 +169,13 @@ const fakeDb = {
   getMacroTargets: async () => ({}),
   getMacroTargetHistory: async () => [],
   setMacroTarget: async () => ({ macro: 'calories', target: 2000 }),
-  addWeightEntry: async () => ({ id: 1, created: true }),
+  addWeightEntry: async (_userId, payload) => {
+    record('addWeightEntry', payload);
+    if (weightAddDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, weightAddDelayMs));
+    }
+    return { id: 1, created: true };
+  },
   updateWeightEntry: async () => 1,
   deleteWeightEntry: async () => 1,
   listWeightEntries: async () => ({ entries: [] }),
@@ -295,6 +340,57 @@ test('bulk entries route preserves source metadata and applies corrections', rou
   assert.equal(latestCall('applyFoodCorrections').payload[0].source, 'ai_text');
   assert.equal(latestCall('addEntries').payload.rows[0].source, 'ai_text');
   assert.equal(latestCall('addEntries').payload.rows[0].confidence, 0.7);
+});
+
+test('client mutation ids make concurrent and repeated writes idempotent', routeTestOptions, async () => {
+  resetCalls();
+  clientMutations.clear();
+  weightAddDelayMs = 75;
+  const clientMutationId = '1ebc54be-2d4d-4d04-986b-87226b5523e7';
+  const options = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: 'http://localhost:3000',
+      'X-Client-Mutation-Id': clientMutationId
+    },
+    body: JSON.stringify({
+      weight: 181.2,
+      loggedAt: '2026-07-27T12:00:00.000Z'
+    })
+  };
+
+  try {
+    const [first, concurrentReplay] = await Promise.all([
+      request('/api/v1/weights', options),
+      request('/api/v1/weights', options)
+    ]);
+    const laterReplay = await request('/api/weights', options);
+
+    assert.equal(first.res.status, 200);
+    assert.equal(concurrentReplay.res.status, 200);
+    assert.equal(laterReplay.res.status, 200);
+    assert.equal(calls.filter((call) => call.name === 'addWeightEntry').length, 1);
+    assert.ok(
+      [first, concurrentReplay].some(
+        (result) => result.res.headers.get('x-idempotent-replay') === 'true'
+      )
+    );
+    assert.equal(laterReplay.res.headers.get('x-idempotent-replay'), 'true');
+
+    const mismatch = await request('/api/v1/weights', {
+      ...options,
+      body: JSON.stringify({
+        weight: 199.9,
+        loggedAt: '2026-07-27T12:00:00.000Z'
+      })
+    });
+    assert.equal(mismatch.res.status, 409);
+    assert.match(mismatch.body.error, /different request/i);
+    assert.equal(calls.filter((call) => call.name === 'addWeightEntry').length, 1);
+  } finally {
+    weightAddDelayMs = 0;
+  }
 });
 
 test('copy-day and starter quick-add routes call backend primitives', routeTestOptions, async () => {

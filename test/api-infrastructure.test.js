@@ -146,6 +146,27 @@ test('db.js creates audit_log table', () => {
   assert.ok(db.includes("entity_type TEXT NOT NULL"));
 });
 
+test('client mutation idempotency ledger is per-user and stores no request payload', () => {
+  const db = read('src/db.js');
+  const server = read('src/server.js');
+  const middleware = read('src/idempotency.js');
+
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS client_mutations'));
+  assert.ok(db.includes('PRIMARY KEY (user_id, client_mutation_id)'));
+  assert.ok(db.includes("CHECK (state IN ('processing', 'completed'))"));
+  assert.equal(db.includes('request_body'), false);
+  assert.ok(db.includes('async function claimClientMutation'));
+  assert.ok(db.includes('async function completeClientMutation'));
+  assert.ok(db.includes("DELETE FROM client_mutations WHERE user_id = $1"));
+  assert.ok(server.includes('createClientMutationMiddleware'));
+  assert.ok(server.includes('claimClientMutation'));
+  assert.ok(middleware.includes("const CLIENT_MUTATION_HEADER = 'x-client-mutation-id'"));
+  assert.ok(middleware.includes("claim.disposition === 'processing'"));
+  assert.ok(middleware.includes("claim.disposition === 'replay'"));
+  assert.ok(middleware.includes("claim.disposition === 'conflict'"));
+  assert.ok(middleware.includes("res.set('X-Idempotent-Replay', 'true')"));
+});
+
 test('all data tables have deleted_at column', () => {
   const db = read('src/db.js');
   const tablesWithSoftDelete = [

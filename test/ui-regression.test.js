@@ -1364,9 +1364,67 @@ test('iOS app includes onboarding reminders offline queue and diagnostics founda
   assert.ok(settings.includes('Offline Queue'));
   assert.ok(settings.includes('Export Diagnostics'));
   assert.ok(offline.includes('struct PendingMutation'));
-  assert.ok(api.includes('queueMutation(path: "/entries/bulk"'));
+  assert.ok(api.includes('path: "/entries/bulk"'));
+  assert.ok(api.includes('kind: .meal'));
+  assert.ok(api.includes('forHTTPHeaderField: "X-Client-Mutation-Id"'));
   assert.ok(api.includes('func flushPendingMutations()'));
   assert.ok(diagnostics.includes('Logger(subsystem: "com.dailymacros.app"'));
+});
+
+test('iOS offline replay is protected, account-scoped, and lifecycle-safe', () => {
+  const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  const auth = read('ios/DailyMacros/DailyMacros/AuthManager.swift');
+  const offline = read('ios/DailyMacros/DailyMacros/OfflineMutationStore.swift');
+  const mainTabs = read('ios/DailyMacros/DailyMacros/MainTabView.swift');
+  const settings = read('ios/DailyMacros/DailyMacros/SettingsView.swift');
+
+  assert.ok(offline.includes('let clientMutationId: UUID'));
+  assert.ok(offline.includes('let ownerUserId: String'));
+  assert.ok(offline.includes('activeOwnerUserId == ownerUserId'));
+  assert.ok(offline.includes('.filter { $0.ownerUserId == ownerUserId }'));
+  assert.ok(offline.includes('pending-mutations-v2.json'));
+  assert.ok(offline.includes('Data(contentsOf: storageURL)'));
+  assert.ok(offline.includes('.completeFileProtection'));
+  assert.ok(offline.includes('FileProtectionType.complete'));
+  assert.ok(offline.includes('resourceValues.isExcludedFromBackup = true'));
+  assert.equal(offline.includes('UserDefaults.standard.set'), false);
+
+  assert.ok(offline.includes('pending_mutations_v1'));
+  assert.ok(offline.includes('LegacyPendingMutation'));
+  assert.ok(offline.includes('defaults.removeObject(forKey: legacyStorageKey)'));
+  assert.ok(offline.includes('discardPendingWorkForDeletedAccount'));
+  assert.ok(offline.includes('deletedOwnerUserIds.insert'));
+  assert.ok(offline.includes('func deactivateAccount()'));
+
+  assert.ok(api.includes('forHTTPHeaderField: "X-Client-Mutation-Id"'));
+  assert.ok(api.includes('clientMutationId: mutation.clientMutationId'));
+  assert.ok(api.includes('guard !isFlushingPendingMutations else { return }'));
+  assert.ok(api.includes('snapshot(for: ownerUserId)'));
+  assert.ok(api.includes('activeOwnerUserId == ownerUserId'));
+  assert.ok(api.includes('discardPendingMutationsForDeletedAccount()'));
+
+  for (const kind of ['.meal', '.quickAdd', '.weight', '.workout', '.sleep', '.sexualActivity']) {
+    assert.ok(api.includes(`kind: ${kind}`), `offline replay must cover ${kind}`);
+  }
+  for (const method of ['method: "POST"', 'method: "PUT"', 'method: "DELETE"']) {
+    assert.ok(api.includes(method), `offline replay must cover ${method}`);
+  }
+
+  const offlineDiagnostics = api.slice(
+    api.indexOf('private func performReplayableMutation'),
+    api.indexOf('// MARK: - Auth')
+  );
+  assert.equal(offlineDiagnostics.includes('"body":'), false);
+  assert.equal(offlineDiagnostics.includes('"summary":'), false);
+  assert.ok(offlineDiagnostics.includes('"kind": kind.rawValue'));
+  assert.ok(offlineDiagnostics.includes('"kind": mutation.kind.rawValue'));
+
+  assert.ok(auth.includes('api.deactivateAuthenticatedAccount()'));
+  assert.ok(api.includes('try discardPendingMutationsForDeletedAccount()'));
+  assert.ok(settings.includes('pending work protected and hidden'));
+  assert.ok(settings.includes('Protected pending work stays with this account'));
+  assert.ok(mainTabs.includes('Text("Saved offline")'));
+  assert.ok(mainTabs.includes('pending for this account'));
 });
 
 test('iOS debug builds can launch as the local dev user', () => {
