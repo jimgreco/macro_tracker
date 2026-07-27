@@ -87,10 +87,10 @@ struct LoginView: View {
 
     private var loginBrand: some View {
         HStack(spacing: 10) {
-            DailyMacrosLogoMark()
+            MacrovanaLogoMark()
                 .frame(width: 42, height: 42)
 
-            Text("DailyMacros")
+            Text("Macrovana")
                 .font(.system(size: 34, weight: .heavy))
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
@@ -108,7 +108,7 @@ struct LoginView: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("DailyMacros")
+        .accessibilityLabel("Macrovana")
     }
 
     private var googleButton: some View {
@@ -467,7 +467,7 @@ private struct GoogleLogoMark: View {
     }
 }
 
-private struct DailyMacrosLogoMark: View {
+private struct MacrovanaLogoMark: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 18, style: .continuous)

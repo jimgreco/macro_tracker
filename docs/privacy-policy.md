@@ -1,8 +1,8 @@
-# DailyMacros Privacy Policy
+# Macrovana Privacy Policy
 
-Last updated: July 20, 2026
+Last updated: July 27, 2026
 
-DailyMacros is a private friends and family beta for nutrition, workout, weight, sleep, and wellness tracking. The public policy is served by the app at `/privacy`; this Markdown copy exists so privacy and App Store review details can be reviewed in the repo.
+Macrovana is a private friends and family beta for nutrition, workout, weight, sleep, and wellness tracking. The public policy is served by the app at `/privacy`; this Markdown copy exists so privacy and App Store review details can be reviewed in the repo.
 
 ## Data Collected
 
@@ -15,29 +15,29 @@ DailyMacros is a private friends and family beta for nutrition, workout, weight,
 
 ## Apple Health
 
-HealthKit permissions are optional. If a user grants access, DailyMacros may read or write supported weight, workout, sleep, and sexual activity data so the app and Apple Health stay in sync. Users can change Health permissions at any time in iOS Settings.
+HealthKit permissions are optional. If a user grants access, Macrovana may read or write supported weight, workout, sleep, and sexual activity data so the app and Apple Health stay in sync. Users can change Health permissions at any time in iOS Settings.
 
 ## Oura
 
-Connecting Oura is optional and uses Oura's authorization screen. DailyMacros requests daily-data access plus the minimum personal scope needed to obtain Oura's opaque user identifier and route signed webhook updates to the correct account. DailyMacros discards Oura profile fields such as age, height, weight, biological sex, and Oura email.
+Connecting Oura is optional and uses Oura's authorization screen. Macrovana requests daily-data access plus the minimum personal scope needed to obtain Oura's opaque user identifier and route signed webhook updates to the correct account. Macrovana discards Oura profile fields such as age, height, weight, biological sex, and Oura email.
 
-Oura access and refresh tokens are encrypted on the DailyMacros server. DailyMacros stores allowlisted aggregate Oura metrics and does not retain raw heart-rate, HRV, movement, sleep-phase, or MET sample arrays. Imported aggregates remain stored until the user chooses Disconnect & Delete or deletes the DailyMacros account. Oura cloud updates are received by signed webhooks after the ring syncs to Oura, with scheduled reconciliation for missed events.
+Oura access and refresh tokens are encrypted on the Macrovana server. Macrovana stores allowlisted aggregate Oura metrics and does not retain raw heart-rate, HRV, movement, sleep-phase, or MET sample arrays. Imported aggregates remain stored until the user chooses Disconnect & Delete or deletes the Macrovana account. Oura cloud updates are received by signed webhooks after the ring syncs to Oura, with scheduled reconciliation for missed events.
 
-DailyMacros may combine Oura aggregates with other app history for trends, coaching, and user-requested analysis. If an AI feature uses connected Oura data, that processing follows the same user-triggered AI disclosures described below.
+Macrovana may combine Oura aggregates with other app history for trends, coaching, and user-requested analysis. If an AI feature uses connected Oura data, that processing follows the same user-triggered AI disclosures described below.
 
 ## AI Processing
 
-When a user asks DailyMacros to parse or analyze a meal, workout, meal photo, report, or connected health data, relevant content may be sent to OpenAI to produce estimates or analysis. DailyMacros does not send that content to OpenAI unless the user uses those AI features. OpenAI publishes API data controls at <https://platform.openai.com/docs/guides/your-data>.
+When a user asks Macrovana to parse or analyze a meal, workout, meal photo, report, or connected health data, relevant content may be sent to OpenAI to produce estimates or analysis. Macrovana does not send that content to OpenAI unless the user uses those AI features. OpenAI publishes API data controls at <https://platform.openai.com/docs/guides/your-data>.
 
 Coach Tony P. coaching uses local deterministic rules to decide whether a card is eligible. On supported iOS versions, on-device Apple Foundation Models may rank or rephrase already-eligible Coach Tony P. cards. Routine Coach Tony P. cards are not sent to OpenAI, and local AI cannot override the rule evidence, confidence gates, actions, or dismissal controls.
 
 ## Barcode Data
 
-Barcode lookups use Open Food Facts product data. DailyMacros sends the barcode value needed to look up the product and stores the nutrition entry only when the user saves it.
+Barcode lookups use Open Food Facts product data. Macrovana sends the barcode value needed to look up the product and stores the nutrition entry only when the user saves it.
 
 ## How Data Is Used
 
-Data is used for app functionality, account authentication, syncing across web and iOS, support, security, abuse prevention, beta reliability, billing when enabled, and account export or deletion. DailyMacros does not sell personal data and does not use third-party advertising or cross-app tracking.
+Data is used for app functionality, account authentication, syncing across web and iOS, support, security, abuse prevention, beta reliability, billing when enabled, and account export or deletion. Macrovana does not sell personal data and does not use third-party advertising or cross-app tracking.
 
 ## Backups And Retention
 

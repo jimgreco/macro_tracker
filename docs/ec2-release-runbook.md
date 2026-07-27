@@ -63,13 +63,13 @@ Set these on the remote compose environment for the `macros` service:
 
 ## Oura API Setup
 
-1. Register the production OAuth redirect exactly as `https://<production-domain>/auth/oura/callback` in the Oura developer application.
-2. Set `OURA_WEBHOOK_URL` to `https://<production-domain>/webhooks/oura`. The app creates and renews create/update/delete subscriptions for each enabled data type.
+1. Register the production OAuth redirect exactly as `https://macrovana.com/auth/oura/callback` in the Oura developer application.
+2. Set `OURA_WEBHOOK_URL` to `https://macrovana.com/webhooks/oura`. The app creates and renews create/update/delete subscriptions for each enabled data type.
 3. Generate separate high-entropy values for `OURA_TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`) and `OURA_WEBHOOK_VERIFICATION_TOKEN` (`openssl rand -hex 32`). Never reuse the Oura client secret for token encryption.
 4. Confirm the Oura application is approved for the intended user count; unapproved applications have a small development-user limit.
 5. After deploy, connect a test account from Settings, confirm the 90-day backfill completes, and check that `/api/v1/oura/status` reports `updateMode: webhook` and active subscriptions.
 
-The integration requests `personal` only to obtain Oura's opaque user id for webhook routing; age, height, weight, biological sex, and Oura email are discarded. Stored Oura records contain allowlisted aggregate metrics and omit raw heart-rate, HRV, movement, phase, and MET sample arrays. Imported records remain until the user disconnects Oura or deletes the DailyMacros account. Oura aggregates may be combined with other app history for trends, coaching, and user-requested analysis under the app's normal AI disclosures.
+The integration requests `personal` only to obtain Oura's opaque user id for webhook routing; age, height, weight, biological sex, and Oura email are discarded. Stored Oura records contain allowlisted aggregate metrics and omit raw heart-rate, HRV, movement, phase, and MET sample arrays. Imported records remain until the user disconnects Oura or deletes the Macrovana account. Oura aggregates may be combined with other app history for trends, coaching, and user-requested analysis under the app's normal AI disclosures.
 
 ## Pre-Deploy Checks
 Run locally before merging to `main`:
@@ -103,15 +103,15 @@ Push or merge to `main`. The workflow will:
 ## Manual Smoke
 After deploy, run:
 ```bash
-BASE_URL=https://your-production-domain
+BASE_URL=https://macrovana.com
 curl --fail --show-error "$BASE_URL/healthz"
 curl --fail --show-error "$BASE_URL/version"
 ```
 
 Or run the bundled smoke script:
 ```bash
-PRODUCTION_BASE_URL=https://your-production-domain scripts/production-smoke.sh
-PRODUCTION_BASE_URL=https://your-production-domain API_TOKEN=<beta-test-api-token> scripts/production-smoke.sh
+PRODUCTION_BASE_URL=https://macrovana.com scripts/production-smoke.sh
+PRODUCTION_BASE_URL=https://macrovana.com API_TOKEN=<beta-test-api-token> scripts/production-smoke.sh
 ```
 
 With `API_TOKEN`, the smoke script now creates disposable meal, saved quick-add, weight, sleep, and optional sexual-activity records, updates the editable records, verifies dashboard visibility where applicable, and deletes the created records before exit. Use a dedicated smoke account so any interrupted cleanup is isolated from real beta-user data.

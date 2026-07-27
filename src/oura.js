@@ -595,7 +595,7 @@ function createOuraService({ db, env = process.env, fetchImpl = globalThis.fetch
       const previousConnection = await db.getOuraConnection(oauthState.userId);
       const existingConnection = await db.getOuraConnectionByProviderUserId(ouraUserId);
       if (existingConnection && existingConnection.userId !== oauthState.userId) {
-        throw new Error('This Oura account is already connected to another DailyMacros account.');
+        throw new Error('This Oura account is already connected to another Macrovana account.');
       }
 
       await db.upsertOuraConnection(oauthState.userId, {

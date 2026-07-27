@@ -1,7 +1,7 @@
 {
   "name": "macro-tracker-app",
   "version": "1.0.0",
-  "description": "Web macro tracker with natural language meal parsing",
+  "description": "Macrovana nutrition and wellness tracker with natural language meal parsing",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {

@@ -1,4 +1,4 @@
-# Macro Tracker Web App
+# Macrovana Web App
 
 A web app for tracking macros with:
 - PostgreSQL database backend
@@ -96,7 +96,7 @@ Required GitHub Actions secrets for deploy:
 For the current EC2/Docker Compose deployment set:
 - `DATABASE_URL` to the internal Docker Postgres connection string
 - `PGSSL=false`
-- `APP_BASE_URL=https://your-production-domain`
+- `APP_BASE_URL=https://macrovana.com`
 - `SESSION_SECRET` to a long random value (required in production)
 - `APP_BUILD` to the deployed git SHA
 - `ADMIN_EMAILS` or `ADMIN_USER_IDS` to the production admin allowlist

@@ -1550,7 +1550,7 @@ async function refreshCoachDismissals() {
 }
 
 function isCoachSuggestionDismissed(suggestion) {
-  const rules = window.DailyMacrosCoachRules;
+  const rules = window.MacrovanaCoachRules;
   if (rules?.isSuggestionDismissed) {
     return rules.isSuggestionDismissed(suggestion, state.coachDismissals, new Date());
   }
@@ -1622,7 +1622,7 @@ function buildCoachContext() {
 }
 
 function buildCoachCandidates(pageKey) {
-  const rules = window.DailyMacrosCoachRules;
+  const rules = window.MacrovanaCoachRules;
   if (!rules?.buildCoachCandidates) {
     return [];
   }
@@ -2034,7 +2034,7 @@ function renderOuraAccountControls(overlay, status) {
     return;
   }
   if (!status.connected) {
-    detailEl.textContent = 'By connecting, you authorize DailyMacros to import 90 days of Oura aggregates and combine them with your app history for trends, coaching, and user-requested analysis. Imported records remain until you disconnect Oura or delete your account.';
+    detailEl.textContent = 'By connecting, you authorize Macrovana to import 90 days of Oura aggregates and combine them with your app history for trends, coaching, and user-requested analysis. Imported records remain until you disconnect Oura or delete your account.';
     return;
   }
 
@@ -2106,7 +2106,7 @@ function showAccountPrivacyModal() {
       <h3>Account & Privacy</h3>
       <div class="account-privacy-copy">
         <p><strong>Support</strong><span>Contact the person who invited you. Include any request reference shown in an error message and the build details below.</span></p>
-        <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, optional Oura aggregate metrics, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
+        <p><strong>Your data</strong><span>Macrovana stores nutrition, weight, workouts, sleep, optional Oura aggregate metrics, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
         <p><strong>AI processing</strong><span>${escapeHtml(aiProcessingCopy)}</span></p>
         <p><strong>Controls</strong><span>You can export a JSON copy of your account data or permanently delete your account from here. <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span></p>
       </div>
@@ -2248,7 +2248,7 @@ function showAccountPrivacyModal() {
     }
   });
   document.getElementById('account-oura-disconnect-btn')?.addEventListener('click', async (event) => {
-    if (!window.confirm('Disconnect Oura and permanently delete imported Oura data from DailyMacros?')) return;
+    if (!window.confirm('Disconnect Oura and permanently delete imported Oura data from Macrovana?')) return;
     const button = event.currentTarget;
     button.disabled = true;
     try {

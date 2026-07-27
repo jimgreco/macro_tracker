@@ -675,8 +675,8 @@ test('iOS login matches website sign-in layout', () => {
 
   assert.ok(swift.includes('LoginBackground'));
   assert.ok(swift.includes('loginCard'));
-  assert.ok(swift.includes('DailyMacrosLogoMark()'));
-  assert.ok(swift.includes('Text("DailyMacros")'));
+  assert.ok(swift.includes('MacrovanaLogoMark()'));
+  assert.ok(swift.includes('Text("Macrovana")'));
   assert.ok(swift.includes('Sign in to continue to the app.'));
   assert.ok(swift.includes('Text("Continue with Google")'));
   assert.ok(swift.includes('GoogleLogoMark()'));
@@ -1163,7 +1163,7 @@ test('web Coach Tony P. renders local suggestions with synced dismissals', () =>
   assert.ok(script.includes("api('/api/coach/dismissals',"));
   assert.ok(script.includes('WEB_COACH_LOCAL_DISMISSALS_KEY'));
   assert.ok(script.includes('WEB_COACH_DISABLED_CATEGORIES_KEY'));
-  assert.ok(script.includes('DailyMacrosCoachRules'));
+  assert.ok(script.includes('MacrovanaCoachRules'));
   assert.ok(script.includes('isCoachCategoryDisabled(candidate)'));
   assert.ok(script.includes('account-coach-category-toggle'));
   assert.ok(coachRules.includes('coachEndOfTodayIso'));
@@ -1290,7 +1290,7 @@ test('iOS app includes onboarding reminders offline queue and diagnostics founda
   assert.ok(app.includes('api.flushPendingMutations()'));
   assert.ok(auth.includes('func refreshUser() async'));
   assert.ok(models.includes('let setupTutorialResetAt: String?'));
-  assert.ok(onboarding.includes('Set Up DailyMacros'));
+  assert.ok(onboarding.includes('Set Up Macrovana'));
   assert.ok(onboarding.includes('@EnvironmentObject var auth: AuthManager'));
   assert.ok(onboarding.includes('private enum SetupStep'));
   assert.ok(onboarding.includes('case macros'));

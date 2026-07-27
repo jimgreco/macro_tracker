@@ -1,4 +1,4 @@
-# Macro Tracker — Codex Guide
+# Macrovana — Codex Guide
 
 ## Project Overview
 
@@ -53,7 +53,7 @@ If Docker is unavailable locally but Homebrew Postgres binaries exist, a throwaw
 | `public/login.js` | Login page behavior |
 | `docker-compose.yml` | Local PostgreSQL container |
 | `.env.example` | All env vars with descriptions |
-| `ios/DailyMacros/` | SwiftUI iOS app (Xcode project) |
+| `ios/DailyMacros/` | SwiftUI iOS app (Xcode project; legacy internal name retained for update compatibility) |
 
 ## Required Environment Variables
 
@@ -113,7 +113,7 @@ Run `TEST_DATABASE_URL=postgres://... npm run test:check` before pushing DB/sche
 - **Pagination**: `getDashboard()` and `listWorkoutEntries()` accept `{ limit, offset }`, responses include `pagination` object.
 - **Stripe billing**: Webhook registered BEFORE `express.json()` for raw body access. Handles `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. Plan gating infrastructure exists but is currently disabled (no upgrade restrictions).
 - **Database**: Schema auto-created on startup. `schema_migrations` records feature/schema markers while legacy startup repair SQL remains in `initDb()`. Tables include `users`, `user_identities`, `entries`, `saved_items`, `food_corrections`, `macro_targets`, `weight_entries`, `workout_entries`, `sexual_activity_entries`, `sleep_entries`, `weight_targets`, `analysis_reports`, `api_tokens`, `audit_log`, `client_diagnostics`, `subscriptions`, `billing_events`, `coach_dismissals`, `daily_usage_counts`, `oura_connections`, `oura_oauth_states`, `oura_documents`, and `oura_webhook_subscriptions`.
-- **Oura Cloud**: `src/oura.js` owns server-side authorization-code OAuth, AES-256-GCM credential encryption, atomic single-use refresh rotation, 90-day backfill, signed create/update/delete webhook processing, subscription renewal, and hourly reconciliation. The required `personal` scope is used only to retain Oura's opaque user id for webhook routing; discard the remaining profile response. Persist only allowlisted aggregate fields in `oura_documents`, never raw heart-rate, HRV, movement, phase, or MET sample arrays. Oura document keys and delete tombstones are `(user_id, data_type, provider_document_id)`. Imported records persist until the user disconnects Oura or deletes the DailyMacros account. Web/iOS clients use `/api/v1/oura/*`; credentials never leave the server. Oura aggregates may be combined with other app history for trends, coaching, and user-requested analysis under the app's normal AI disclosures.
+- **Oura Cloud**: `src/oura.js` owns server-side authorization-code OAuth, AES-256-GCM credential encryption, atomic single-use refresh rotation, 90-day backfill, signed create/update/delete webhook processing, subscription renewal, and hourly reconciliation. The required `personal` scope is used only to retain Oura's opaque user id for webhook routing; discard the remaining profile response. Persist only allowlisted aggregate fields in `oura_documents`, never raw heart-rate, HRV, movement, phase, or MET sample arrays. Oura document keys and delete tombstones are `(user_id, data_type, provider_document_id)`. Imported records persist until the user disconnects Oura or deletes the Macrovana account. Web/iOS clients use `/api/v1/oura/*`; credentials never leave the server. Oura aggregates may be combined with other app history for trends, coaching, and user-requested analysis under the app's normal AI disclosures.
 - **API**: REST endpoints under `/api/v1/`. Rate-limited parse endpoints (15 req/min). See `src/server.js` for full route list.
 - **Frontend**: Single HTML page (`public/index.html`) with all state in `public/script.js`.
 - **Modal-based editing**: All editing (entries, meals, quick adds, weight, workouts) uses modal popups (`showEntryModal`, `showCombineModal`, `showWeightEditModal`, `showWorkoutEditModal`). Target editing also uses modals: `showEditTargetsModal` (macro targets), `showWeightTargetModal` (weight target + date), `showWorkoutTargetModal` (workouts/week + calories/week). Each is accessed via "(edit targets)" or "(edit target)" links in the Logged Entries heading of each tab. No inline edit rows remain.
@@ -127,7 +127,7 @@ Run `TEST_DATABASE_URL=postgres://... npm run test:check` before pushing DB/sche
 - **Weight chart**: `drawSimpleLineChart` on `#weight-canvas` shows weight trend with average and target lines. Weight page has period toggles (week/month/year).
 - **Workout stats**: Workout page shows stats chips (workouts/week, active cal/week) with target values and a data source note. Workout graphs (occurrence + calories) have been removed. Workout calories should mean active calories burned only, not total/resting calories; OpenAI workout parsing should estimate conservatively and assume normal rest periods for low/light or medium/moderate strength training unless circuit/HIIT/minimal-rest wording is explicit. Web and iOS workout screens should label these values as active calories.
 - **Tab order**: Macros, Workouts, Weight, Health.
-- **Branding**: App name is "DailyMacros" with an abstract macro plate logo icon.
+- **Branding**: App name is "Macrovana" with an abstract macro plate logo icon and canonical origin `https://macrovana.com`. Keep the legacy `DailyMacros` Xcode target/project paths, `com.dailymacros.app` bundle ID, `dailymacros://` callback scheme, persisted preference keys, and HealthKit identifiers so existing installs and synced records continue working.
 - **Meal grouping**: Entries can be combined into meals via `meal_group` UUID. API endpoints: `POST /api/entries/combine`, `POST /api/meal-group/:id/split`, `POST /api/entries/:id/remove-from-group`, `PUT /api/meal-group/:id/scale`. Parsed repeated multi-item meals keep the repetition on `mealQuantity` and display child components per meal unit; `/api/entries/bulk` accepts `itemsAreMealUnit: true` and scales those unit-level rows back to consumed totals before persistence so dashboard totals remain additive.
 - **Health tab**: Contains two sub-sections separated by `health-section-divider` headings: "Sexual Activity" (log activity type, logged entries, weekly snapshot graph) and "Sleep" (log hours + wake-ups, sleep log, weekly snapshot graph with average line). Sleep entries store `duration_hours` (decimal), `wake_ups` (integer), optional `quality` (1-5), and optional `notes` text. Both sections have week/month/year period toggles. Sleep data is included in the Analysis section. Edit modals: `showHealthEditModal` (sexual activity), `showSleepEditModal` (sleep — date/time on row 1, hours + wake-ups on row 2). Sexual Activity visibility is two-layered: the admin-controlled account feature from `/api/me` must be enabled, then the user can show/hide the page locally from Settings / Account & Privacy.
 - **Macro display format**: Logged entries show explicit labels: `28g protein · 12g carbs · 6g fat`. Calories shown as `220 cal`. Quick Add dropdown uses abbreviated format: `260cal/24P/12C/6F` (compact for space).
@@ -140,7 +140,7 @@ SwiftUI app targeting iOS 17+. Uses token-based auth (either via Sign in with Ap
 
 | File | Purpose |
 |------|---------|
-| `DailyMacrosApp.swift` | App entry point, auth routing, onboarding routing, pending-log retry, dark mode |
+| `DailyMacrosApp.swift` | App entry point, auth routing, onboarding routing, pending-log retry, dark mode; the type name is legacy/internal |
 | `AuthManager.swift` | Auth state, Sign in with Apple, token auth |
 | `APIClient.swift` | Singleton API client, all REST endpoints, Keychain, offline mutation queue flushing |
 | `Models.swift` | Codable response types |
@@ -177,7 +177,7 @@ Coach Tony P. category controls are local user preferences layered after confide
 - Version check: `GET /version`.
 - Authenticated smoke script: `scripts/production-smoke.sh`, which uses a smoke API token to exercise disposable meal, quick-add, weight, sleep, and optional sexual-activity write journeys before cleanup.
 - Public privacy policy: `/privacy`; source copy in `docs/privacy-policy.md`, App Store privacy notes in `docs/app-store-privacy.md`.
-- App Store screenshots: `bundle exec fastlane ios screenshots` drives the `DailyMacrosScreenshots` UI-test target. The app runs with `--app-store-screenshots`, uses debug-only deterministic data from `ScreenshotSeedData.swift`, and writes review assets to `fastlane/screenshots/`. The manual GitHub workflow is `.github/workflows/app-store-screenshots.yml`; leave `upload_to_app_store=false` until screenshots are reviewed.
+- App Store screenshots: `bundle exec fastlane ios screenshots` drives the legacy-named `DailyMacrosScreenshots` UI-test target. The app runs with `--app-store-screenshots`, uses debug-only deterministic data from `ScreenshotSeedData.swift`, and writes review assets to `fastlane/screenshots/`. The manual GitHub workflow is `.github/workflows/app-store-screenshots.yml`; leave `upload_to_app_store=false` until screenshots are reviewed.
 - TestFlight signing: `.github/workflows/testflight.yml` verifies the App Store distribution `.p12` before import. Keep the `openssl pkcs12 -legacy` fallback because GitHub `macos-latest` OpenSSL can reject older Apple certificate bundles encrypted with legacy ciphers such as `RC2-40-CBC`.
 - Legacy Elastic Beanstalk material remains in `docs/aws-production-security-audit.md`; do not use it as the current deploy source of truth unless that platform is intentionally revived.
 

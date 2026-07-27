@@ -86,7 +86,7 @@ struct SettingsView: View {
                     Task { await disconnectOura() }
                 }
             } message: {
-                Text("This revokes DailyMacros access and permanently deletes imported Oura data from DailyMacros.")
+                Text("This revokes Macrovana access and permanently deletes imported Oura data from Macrovana.")
             }
             .sheet(isPresented: $showAccountDetails) {
                 AccountDetailsView()
@@ -149,7 +149,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
-                Text("Daily Macros stores nutrition, weight, workouts, sleep, optional Oura aggregate metrics, sexual activity entries, meal photos submitted for parsing, account details, and beta usage data. You can export a JSON copy of your data or permanently delete your account from this screen.")
+                Text("Macrovana stores nutrition, weight, workouts, sleep, optional Oura aggregate metrics, sexual activity entries, meal photos submitted for parsing, account details, and beta usage data. You can export a JSON copy of your data or permanently delete your account from this screen.")
                     .font(.subheadline)
             }
 
@@ -256,9 +256,9 @@ struct SettingsView: View {
             Text("Oura Ring")
         } footer: {
             if ouraStatus?.connected != true {
-                Text("By connecting, you authorize DailyMacros to import 90 days of Oura sleep, readiness, activity, stress, resilience, and bedtime aggregates and combine them with your app history for trends, coaching, and user-requested analysis. The personal scope is used only for Oura's opaque routing ID; other profile fields are discarded. Imported records remain until you disconnect Oura or delete your account.")
+                Text("By connecting, you authorize Macrovana to import 90 days of Oura sleep, readiness, activity, stress, resilience, and bedtime aggregates and combine them with your app history for trends, coaching, and user-requested analysis. The personal scope is used only for Oura's opaque routing ID; other profile fields are discarded. Imported records remain until you disconnect Oura or delete your account.")
             } else if ouraStatus?.updateMode == "webhook" {
-                Text("After your ring syncs to Oura, new cloud data should reach DailyMacros in about a minute. Imported records remain until you disconnect Oura or delete your account and may be combined with your app history for trends, coaching, and user-requested analysis.")
+                Text("After your ring syncs to Oura, new cloud data should reach Macrovana in about a minute. Imported records remain until you disconnect Oura or delete your account and may be combined with your app history for trends, coaching, and user-requested analysis.")
             } else {
                 Text("Signed webhook delivery is not active, so scheduled reconciliation is being used. Raw sample arrays are not stored; imported records remain until you disconnect Oura or delete your account and may be combined with your app history for trends, coaching, and user-requested analysis.")
             }
@@ -907,7 +907,7 @@ struct SettingsView: View {
         defer { isExporting = false }
         do {
             let data = try await api.exportData()
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("dailymacros-export.json")
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("macrovana-export.json")
             try data.write(to: tempURL)
             await MainActor.run {
                 let controller = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
@@ -925,7 +925,7 @@ struct SettingsView: View {
         isExportingDiagnostics = true
         defer { isExportingDiagnostics = false }
         do {
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("dailymacros-diagnostics.txt")
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("macrovana-diagnostics.txt")
             try diagnostics.exportText().write(to: tempURL, atomically: true, encoding: .utf8)
             await MainActor.run {
                 let controller = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
@@ -1030,7 +1030,7 @@ private struct AccountDetailsView: View {
                     Task { await signOutEverywhere() }
                 }
             } message: {
-                Text("This revokes DailyMacros API tokens on every device and signs you out here.")
+                Text("This revokes Macrovana API tokens on every device and signs you out here.")
             }
             .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
@@ -1208,7 +1208,7 @@ private struct AccountDetailsView: View {
         defer { isExporting = false }
         do {
             let data = try await api.exportData()
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("dailymacros-export.json")
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("macrovana-export.json")
             try data.write(to: tempURL)
             await MainActor.run {
                 let controller = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
@@ -1378,7 +1378,7 @@ private enum SettingsTimezoneOptions {
 
 private enum SettingsAccountText {
     static func displayName(for user: User?) -> String {
-        clean(user?.name) ?? "DailyMacros Account"
+        clean(user?.name) ?? "Macrovana Account"
     }
 
     static func email(for user: User?) -> String {

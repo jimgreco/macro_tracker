@@ -568,7 +568,7 @@ test('server.js supports native iOS Google sign-in code exchange', () => {
   assert.ok(server.includes('code_verifier'));
   assert.ok(server.includes('tokenInfo.aud !== googleIOSClientId'));
   assert.ok(server.includes('providerUserId: tokenInfo.sub'));
-  assert.ok(server.includes("createApiToken(persistedUser.id, 'DailyMacros iOS'"));
+  assert.ok(server.includes("createApiToken(persistedUser.id, 'Macrovana iOS'"));
 });
 
 test('server.js supports native iOS Apple sign-in without web Apple secrets', () => {
@@ -579,7 +579,7 @@ test('server.js supports native iOS Apple sign-in without web Apple secrets', ()
   assert.ok(server.includes('const validAudiences = [appleClientId, appleBundleId].filter(Boolean)'));
   assert.ok(server.includes('providerUserId: payload.sub'));
   assert.ok(server.includes('email: verifiedTokenEmail(payload)'));
-  assert.ok(server.includes("createApiToken(persistedUser.id, 'DailyMacros iOS'"));
+  assert.ok(server.includes("createApiToken(persistedUser.id, 'Macrovana iOS'"));
 });
 
 test('server.js lets local iOS debug builds use the dev user without web auth bypass', () => {
@@ -590,7 +590,7 @@ test('server.js lets local iOS debug builds use the dev user without web auth by
   assert.ok(server.includes('controls = await upsertUser(localAuthBypassUser)'));
   assert.ok(server.includes('localAuthBypassUser && userId === String(localAuthBypassUser.id).toLowerCase()'));
   assert.ok(server.includes("app.post('/auth/dev/mobile'"));
-  assert.ok(server.includes("createApiToken(persistedUser.id, 'DailyMacros iOS Dev'"));
+  assert.ok(server.includes("createApiToken(persistedUser.id, 'Macrovana iOS Dev'"));
 });
 
 test('server.js allows linked Google accounts to sync workouts', () => {
@@ -917,11 +917,11 @@ test('public privacy policy is served before frontend auth guard', () => {
   assert.ok(server.includes("fs.readFileSync(path.join(process.cwd(), 'public', 'privacy.html')"));
   assert.ok(server.includes("app.get(['/privacy', '/privacy.html']"));
   assert.ok(server.indexOf("app.get(['/privacy', '/privacy.html']") < server.indexOf('app.use(requireAuth, enforceActiveAccount);'));
-  assert.ok(privacyHtml.includes('DailyMacros Privacy Policy'));
+  assert.ok(privacyHtml.includes('Macrovana Privacy Policy'));
   assert.ok(privacyHtml.includes('OpenAI'));
   assert.ok(privacyHtml.includes('HealthKit'));
   assert.ok(privacyHtml.includes('does not use third-party advertising or cross-app tracking'));
-  assert.ok(policy.includes('DailyMacros Privacy Policy'));
+  assert.ok(policy.includes('Macrovana Privacy Policy'));
   assert.ok(appStoreNotes.includes('Privacy Policy URL'));
   assert.ok(appStoreNotes.includes('Tracking: No.'));
   assert.ok(appStoreNotes.includes('HealthKit permissions are optional'));
@@ -973,7 +973,7 @@ test('iOS settings exposes support privacy and build metadata', () => {
   assert.ok(api.includes('token = nil'));
   assert.ok(api.includes('kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly'));
   assert.ok(plist.includes('<key>CFBundleDisplayName</key>'));
-  assert.ok(plist.includes('<string>Daily Macros</string>'));
+  assert.ok(plist.includes('<string>Macrovana</string>'));
   assert.ok(plist.includes('<key>AppBuild</key>'));
   assert.ok(plist.includes('<key>GitCommitHash</key>'));
 });

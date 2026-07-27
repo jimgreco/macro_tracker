@@ -3558,7 +3558,7 @@ async function upsertOuraConnection(userId, connection) {
     );
     const previousOuraUserId = previousResult.rows[0]?.oura_user_id || null;
     if (previousOuraUserId && previousOuraUserId !== connection.ouraUserId) {
-      // Never blend aggregates from two provider accounts when a DailyMacros
+      // Never blend aggregates from two provider accounts when a Macrovana
       // user intentionally connects a different Oura account.
       await client.query('DELETE FROM oura_documents WHERE user_id = $1', [userId]);
     }

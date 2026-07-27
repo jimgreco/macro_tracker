@@ -9,7 +9,7 @@ Apple's App Privacy Details guidance says the app should identify data collected
 Use the production app URL:
 
 ```text
-https://<production-domain>/privacy
+https://macrovana.com/privacy
 ```
 
 ## Tracking
@@ -29,7 +29,7 @@ https://<production-domain>/privacy
 
 ## Data Not Used For Tracking
 
-DailyMacros does not use third-party advertising SDKs, does not sell personal data, and does not use collected data to track users across apps or websites.
+Macrovana does not use third-party advertising SDKs, does not sell personal data, and does not use collected data to track users across apps or websites.
 
 ## Third-Party Processing To Disclose
 
@@ -38,11 +38,11 @@ DailyMacros does not use third-party advertising SDKs, does not sell personal da
 - Google and Apple: sign-in provider data is used for authentication.
 - Stripe: subscription checkout, customer portal, and webhook state when paid features are enabled.
 - Open Food Facts: barcode lookup sends the barcode needed to retrieve product nutrition.
-- Oura: optional OAuth connection for sleep, readiness, activity, stress, resilience, bedtime-guidance, and optional workout aggregates. Tokens stay on the DailyMacros server, Oura profile details other than the opaque routing id are discarded, and imported aggregates remain until Oura is disconnected or the DailyMacros account is deleted. Oura aggregates may be combined with other app history for trends, coaching, and user-requested analysis.
+- Oura: optional OAuth connection for sleep, readiness, activity, stress, resilience, bedtime-guidance, and optional workout aggregates. Tokens stay on the Macrovana server, Oura profile details other than the opaque routing id are discarded, and imported aggregates remain until Oura is disconnected or the Macrovana account is deleted. Oura aggregates may be combined with other app history for trends, coaching, and user-requested analysis.
 
 ## HealthKit Notes
 
-HealthKit permissions are optional and controlled by the user. DailyMacros reads and writes only supported categories used by app features: weight, workouts, sleep, and sexual activity where enabled. Apple's HealthKit guidance says apps using HealthKit must provide a clearly stated privacy policy URL during submission: <https://developer.apple.com/design/human-interface-guidelines/healthkit/>.
+HealthKit permissions are optional and controlled by the user. Macrovana reads and writes only supported categories used by app features: weight, workouts, sleep, and sexual activity where enabled. Apple's HealthKit guidance says apps using HealthKit must provide a clearly stated privacy policy URL during submission: <https://developer.apple.com/design/human-interface-guidelines/healthkit/>.
 
 ## Reviewer Notes
 

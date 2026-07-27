@@ -464,7 +464,7 @@ final class HealthKitWellnessSync: ObservableObject {
         [
             HKMetadataKeyExternalUUID: externalUUID,
             HKMetadataKeyWasUserEntered: true,
-            dailyMacrosSourceMetadataKey: "DailyMacros",
+            dailyMacrosSourceMetadataKey: "Macrovana",
             dailyMacrosEntryIdMetadataKey: "\(entryId)"
         ]
     }

@@ -1,5 +1,5 @@
 [Unit]
-Description=Run DailyMacros logical Postgres backup before the daily EBS snapshot
+Description=Run Macrovana logical Postgres backup before the daily EBS snapshot
 
 [Timer]
 OnCalendar=*-*-* 02:35:00

@@ -1,4 +1,4 @@
-# Macro Tracker — Claude Code Guide
+# Macrovana — Claude Code Guide
 
 ## Project Overview
 
@@ -50,7 +50,7 @@ Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google/Apple OAuth setup locally.
 | `public/login.js` | Login page behavior |
 | `docker-compose.yml` | Local PostgreSQL container |
 | `.env.example` | All env vars with descriptions |
-| `ios/DailyMacros/` | SwiftUI iOS app (Xcode project) |
+| `ios/DailyMacros/` | SwiftUI iOS app (Xcode project; legacy internal name retained for update compatibility) |
 
 ## Required Environment Variables
 
@@ -114,7 +114,7 @@ Run `npm run test:check` for fast syntax + test pass (no database required).
 - **Weight chart**: `drawSimpleLineChart` on `#weight-canvas` shows weight trend with average and target lines. Weight page has period toggles (week/month/year).
 - **Workout stats**: Workout page shows stats chips (workouts/week, cal burned/week) with target values and a data source note. Workout graphs (occurrence + calories) have been removed.
 - **Tab order**: Macros, Workouts, Weight, Health.
-- **Branding**: App name is "DailyMacros" with an abstract macro plate logo icon.
+- **Branding**: App name is "Macrovana" with an abstract macro plate logo icon.
 - **Meal grouping**: Entries can be combined into meals via `meal_group` UUID. API endpoints: `POST /api/entries/combine`, `POST /api/meal-group/:id/split`, `POST /api/entries/:id/remove-from-group`, `PUT /api/meal-group/:id/scale`.
 - **Health tab**: Contains two sub-sections separated by `health-section-divider` headings: "Sexual Activity" (log activity type, logged entries, weekly snapshot graph) and "Sleep" (log hours + wake-ups, sleep log, weekly snapshot graph with average line). Sleep entries store `duration_hours` (decimal) and `wake_ups` (integer). Both sections have week/month/year period toggles. Sleep data is included in the Analysis section. Edit modals: `showHealthEditModal` (sexual activity), `showSleepEditModal` (sleep — date/time on row 1, hours + wake-ups on row 2).
 - **Macro display format**: Logged entries show explicit labels: `28g protein · 12g carbs · 6g fat`. Calories shown as `220 cal`. Quick Add dropdown uses abbreviated format: `260cal/24P/12C/6F` (compact for space).
@@ -126,7 +126,7 @@ SwiftUI app targeting iOS 17+. Uses token-based auth (either via Sign in with Ap
 
 | File | Purpose |
 |------|---------|
-| `DailyMacrosApp.swift` | App entry point, auth routing, onboarding routing, pending-log retry, dark mode |
+| `DailyMacrosApp.swift` | App entry point, auth routing, onboarding routing, pending-log retry, dark mode; the type name is legacy/internal |
 | `AuthManager.swift` | Auth state, Sign in with Apple, token auth |
 | `APIClient.swift` | Singleton API client, all REST endpoints, Keychain, offline mutation queue flushing |
 | `Models.swift` | Codable response types |

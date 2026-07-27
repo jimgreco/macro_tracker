@@ -31,8 +31,8 @@ enum ScreenshotSeedData {
     static var user: User {
         User(
             id: "screenshot-user",
-            name: "DailyMacros Preview",
-            email: "preview@dailymacros.app",
+            name: "Macrovana Preview",
+            email: "preview@macrovana.com",
             picture: nil,
             provider: "screenshot",
             timezone: "America/New_York",

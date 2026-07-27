@@ -1,4 +1,4 @@
-# Macro Tracker — Gemini Code Guide
+# Macrovana — Gemini Code Guide
 
 ## Deployment (EC2 + Docker)
 The production environment has been migrated from Elastic Beanstalk to a consolidated EC2 instance to reduce costs.

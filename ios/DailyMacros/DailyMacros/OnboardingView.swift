@@ -24,7 +24,7 @@ struct OnboardingView: View {
             case .workouts: return "Workouts"
             case .weight: return "Weight"
             case .sleep: return "Sleep"
-            case .targets: return "Set Up DailyMacros"
+            case .targets: return "Set Up Macrovana"
             }
         }
 
@@ -49,7 +49,7 @@ struct OnboardingView: View {
             case .sleep:
                 return "Track sleep duration and wake-ups so recovery context is visible beside meals and workouts."
             case .targets:
-                return "Set the targets DailyMacros uses for progress bars, weekly analysis, reminders, and weight goals."
+                return "Set the targets Macrovana uses for progress bars, weekly analysis, reminders, and weight goals."
             }
         }
 

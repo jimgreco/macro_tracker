@@ -1,4 +1,4 @@
-// --- Macro Tracker Server ---
+// --- Macrovana Server ---
 // Last Deployed: 2026-04-03
 require('dotenv').config();
 
@@ -1773,7 +1773,7 @@ async function lookupOpenFoodFactsBarcode(barcode) {
       method: 'GET',
       headers: {
         Accept: 'application/json',
-        'User-Agent': process.env.OPEN_FOOD_FACTS_USER_AGENT || 'DailyMacros/1.0 (https://macro-tracker.jim-greco.com)'
+        'User-Agent': process.env.OPEN_FOOD_FACTS_USER_AGENT || 'Macrovana/1.0 (https://macrovana.com)'
       },
       signal: controller.signal
     });
@@ -1925,7 +1925,7 @@ app.get('/auth/google', async (req, res, next) => {
         if (persistedUser.isDisabled) {
           return res.redirect('dailymacros://auth/callback?error=account_disabled');
         }
-        const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS', null);
+        const tokenResult = await createApiToken(persistedUser.id, 'Macrovana iOS', null);
         const params = new URLSearchParams({
           token: tokenResult.token,
           name: persistedUser.name || '',
@@ -1990,7 +1990,7 @@ app.get(
     if (req.session.mobileAuth) {
       delete req.session.mobileAuth;
       try {
-        const tokenResult = await createApiToken(signedInUser.id, 'DailyMacros iOS', null);
+        const tokenResult = await createApiToken(signedInUser.id, 'Macrovana iOS', null);
         const params = new URLSearchParams({
           token: tokenResult.token,
           name: signedInUser.name || '',
@@ -2067,7 +2067,7 @@ app.post('/auth/google/mobile', express.json(), async (req, res) => {
     if (persistedUser.isDisabled) {
       return res.status(403).json({ error: 'This account has been disabled.' });
     }
-    const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS', null);
+    const tokenResult = await createApiToken(persistedUser.id, 'Macrovana iOS', null);
 
     return res.json({
       ok: true,
@@ -2226,7 +2226,7 @@ app.post('/auth/apple/mobile', express.json(), async (req, res) => {
     }
 
     // Create a long-lived API token for the mobile app
-    const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS', null);
+    const tokenResult = await createApiToken(persistedUser.id, 'Macrovana iOS', null);
 
     return res.json({
       ok: true,
@@ -2248,7 +2248,7 @@ app.post('/auth/dev/mobile', async (req, res) => {
     if (persistedUser.isDisabled) {
       return res.status(403).json({ error: 'This account has been disabled.' });
     }
-    const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS Dev', null);
+    const tokenResult = await createApiToken(persistedUser.id, 'Macrovana iOS Dev', null);
     return res.json({
       ok: true,
       token: tokenResult.token,
@@ -3785,7 +3785,7 @@ async function startServer() {
     ouraService.startBackgroundJobs();
     app.listen(port, () => {
       // eslint-disable-next-line no-console
-      console.log(`Macro tracker listening on http://localhost:${port}`);
+      console.log(`Macrovana listening on http://localhost:${port}`);
     });
   } catch (error) {
     // eslint-disable-next-line no-console
