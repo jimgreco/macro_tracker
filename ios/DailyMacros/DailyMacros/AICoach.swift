@@ -264,6 +264,7 @@ final class CoachDismissalStore: ObservableObject {
     @Published private(set) var revision = 0
 
     private let defaults: UserDefaults
+    // Legacy keys preserve existing dismissals across the Macrovana rebrand.
     private let todayDismissalKey = "DailyMacros.aiCoach.dismissedToday.v1"
     private let actionDismissalKey = "DailyMacros.aiCoach.dismissedActions.v1"
 
@@ -867,7 +868,7 @@ private enum FoundationCoachNarrator {
         let session = LanguageModelSession(
             model: model,
             instructions: """
-            You are Coach Tony P., a firm but friendly coach inside DailyMacros.
+            You are Coach Tony P., a firm but friendly coach inside Macrovana.
             You receive only rule-approved, high-confidence coaching candidates, but you are the final judgment layer.
             You may hide all candidates if the coaching would feel awkward, socially tone-deaf, low-value, or like it is encouraging an unhelpful behavior.
             Choose the clearest candidate only when it is genuinely useful for the user right now, then rewrite only its title and message.

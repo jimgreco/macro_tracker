@@ -3052,6 +3052,37 @@ button[disabled] {
   gap: 0.45rem;
 }
 
+.account-oura-summary {
+  display: grid;
+  gap: 0.28rem;
+  margin-bottom: 0.7rem;
+}
+
+.account-oura-status {
+  color: #8fa5c7;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.account-oura-status[data-state="connected"] {
+  color: #76e6a5;
+}
+
+.account-oura-status[data-state="syncing"] {
+  color: #66d9ff;
+}
+
+.account-oura-status[data-state="error"],
+.account-oura-status[data-state="reauthorization_required"] {
+  color: #ff9fbb;
+}
+
+.account-oura-detail {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.42;
+}
+
 .account-privacy-modal .account-coach-category-toggle,
 .account-privacy-modal .account-preference-toggle {
   align-items: center;

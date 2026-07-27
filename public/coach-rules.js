@@ -3,7 +3,7 @@
   if (typeof module === 'object' && module.exports) {
     module.exports = rules;
   }
-  root.DailyMacrosCoachRules = rules;
+  root.MacrovanaCoachRules = rules;
 })(typeof globalThis !== 'undefined' ? globalThis : window, function coachRulesFactory() {
   function fmtNumber(value) {
     return Number(value || 0).toFixed(1).replace('.0', '');

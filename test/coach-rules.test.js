@@ -97,8 +97,8 @@ test('coach rules attach to a browser-style global', () => {
   context.globalThis = context;
   vm.runInNewContext(source, context);
 
-  assert.equal(typeof context.DailyMacrosCoachRules?.buildCoachCandidates, 'function');
-  assert.equal(typeof context.DailyMacrosCoachRules?.isSuggestionDismissed, 'function');
+  assert.equal(typeof context.MacrovanaCoachRules?.buildCoachCandidates, 'function');
+  assert.equal(typeof context.MacrovanaCoachRules?.isSuggestionDismissed, 'function');
 });
 
 test('missed meal coach requires learned daypart history and late timing', () => {

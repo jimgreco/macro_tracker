@@ -1,4 +1,4 @@
-// --- Macro Tracker Server ---
+// --- Macrovana Server ---
 // Last Deployed: 2026-04-03
 require('dotenv').config();
 
@@ -76,6 +76,21 @@ const {
   listCoachDismissals,
   upsertCoachDismissals,
   deleteCoachDismissals,
+  createOuraOauthState,
+  consumeOuraOauthState,
+  getOuraConnection,
+  getOuraConnectionByProviderUserId,
+  upsertOuraConnection,
+  rotateOuraConnectionTokens,
+  updateOuraConnection,
+  listActiveOuraConnections,
+  upsertOuraDocument,
+  deleteOuraDocument,
+  reconcileOuraDocuments,
+  listOuraDocuments,
+  upsertOuraWebhookSubscription,
+  listOuraWebhookSubscriptions,
+  deleteOuraConnection,
   exportUserData,
   deleteUserAccount,
   getPlanLimits,
@@ -88,6 +103,7 @@ const {
 const { parseMealText, parseWorkoutText } = require('./parser');
 const { estimateWorkoutCalories } = require('./workout-calories');
 const { scaleMealUnitRows } = require('./meal-normalizer');
+const { createOuraService } = require('./oura');
 const packageJson = require('../package.json');
 
 const app = express();
@@ -259,6 +275,27 @@ function sendError(req, res, status, message, error) {
   }
   return res.status(status).json(body);
 }
+
+const ouraService = createOuraService({
+  db: {
+    createOuraOauthState,
+    consumeOuraOauthState,
+    getOuraConnection,
+    getOuraConnectionByProviderUserId,
+    upsertOuraConnection,
+    rotateOuraConnectionTokens,
+    updateOuraConnection,
+    listActiveOuraConnections,
+    upsertOuraDocument,
+    deleteOuraDocument,
+    reconcileOuraDocuments,
+    listOuraDocuments,
+    upsertOuraWebhookSubscription,
+    listOuraWebhookSubscriptions,
+    deleteOuraConnection
+  },
+  logger: logJson
+});
 
 app.use((req, res, next) => {
   const incoming = String(req.get('x-request-id') || '').trim();
@@ -495,6 +532,46 @@ if (stripe && stripeWebhookSecret) {
     req.app.handle(Object.assign(req, { url: '/api/v1/webhooks/stripe' }), res);
   });
 }
+
+// Oura verifies this public callback with a GET challenge, then signs each
+// notification over the timestamp plus the exact JSON bytes. Keep POST raw.
+app.get('/webhooks/oura', (req, res) => {
+  if (!ouraService.verifyChallenge(req.query.verification_token)) {
+    return res.status(401).json({ error: 'Invalid Oura webhook verification token.' });
+  }
+  return res.json({ challenge: String(req.query.challenge || '') });
+});
+
+app.post('/webhooks/oura', express.raw({ type: 'application/json', limit: '256kb' }), (req, res) => {
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
+  const verified = ouraService.verifyWebhook({
+    timestamp: req.get('x-oura-timestamp'),
+    signature: req.get('x-oura-signature'),
+    rawBody
+  });
+  if (!verified) {
+    return res.status(401).json({ error: 'Invalid Oura webhook signature.' });
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(rawBody.toString('utf8'));
+  } catch (_error) {
+    return res.status(400).json({ error: 'Invalid Oura webhook payload.' });
+  }
+
+  res.status(200).type('text').send('OK');
+  setImmediate(() => {
+    ouraService.processWebhook(payload).catch((error) => {
+      logJson('error', 'oura_webhook_processing_failed', {
+        requestId: req.requestId,
+        dataType: payload?.data_type,
+        eventType: payload?.event_type,
+        message: safeErrorMessage(error)
+      });
+    });
+  });
+});
 
 app.use(express.json({ limit: '40mb' }));
 app.use(
@@ -855,6 +932,18 @@ function normalizeString(value, fieldName, { maxLength = 255, fallback = '', req
     throw new Error(`${fieldName} must be ${maxLength} characters or less.`);
   }
   return normalized || fallback;
+}
+
+function normalizeIsoDay(value, fieldName = 'date') {
+  const normalized = normalizeString(value, fieldName, { maxLength: 10, required: true });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw new Error(`${fieldName} must use YYYY-MM-DD.`);
+  }
+  const parsed = new Date(`${normalized}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== normalized) {
+    throw new Error(`${fieldName} must be a valid date.`);
+  }
+  return normalized;
 }
 
 function normalizeNumber(value, fieldName, { min = 0, max = Number.MAX_SAFE_INTEGER, fallback = 0, required = false } = {}) {
@@ -1684,7 +1773,7 @@ async function lookupOpenFoodFactsBarcode(barcode) {
       method: 'GET',
       headers: {
         Accept: 'application/json',
-        'User-Agent': process.env.OPEN_FOOD_FACTS_USER_AGENT || 'DailyMacros/1.0 (https://macro-tracker.jim-greco.com)'
+        'User-Agent': process.env.OPEN_FOOD_FACTS_USER_AGENT || 'Macrovana/1.0 (https://macrovana.com)'
       },
       signal: controller.signal
     });
@@ -1789,6 +1878,44 @@ app.get(['/favicon.svg', '/logo-mark.svg'], (req, res) => {
 
 app.use('/auth', createRateLimiter({ windowMs: 15 * 60 * 1000, maxRequests: 30 }));
 
+function redirectAfterOuraAuthorization(res, returnTo, result) {
+  const params = new URLSearchParams(result);
+  if (returnTo === 'ios') {
+    return res.redirect(`dailymacros://oura/callback?${params.toString()}`);
+  }
+  return res.redirect(`/?${params.toString()}`);
+}
+
+app.get('/auth/oura/callback', async (req, res) => {
+  try {
+    const result = await ouraService.completeAuthorization({
+      code: req.query.code,
+      state: req.query.state,
+      error: req.query.error,
+      scope: req.query.scope
+    });
+    await logAudit(result.userId, 'connect', 'oura_connection', null, {
+      scopes: result.grantedScopes
+    });
+
+    setImmediate(() => {
+      ouraService.initializeConnection(result.userId).catch((error) => {
+        logJson('error', 'oura_initial_sync_failed', {
+          userId: result.userId,
+          message: safeErrorMessage(error)
+        });
+      });
+    });
+    return redirectAfterOuraAuthorization(res, result.returnTo, { oura: 'connected' });
+  } catch (error) {
+    logJson('warn', 'oura_authorization_failed', { message: safeErrorMessage(error) });
+    return redirectAfterOuraAuthorization(res, error.returnTo, {
+      oura: 'error',
+      message: safeErrorMessage(error)
+    });
+  }
+});
+
 app.get('/auth/google', async (req, res, next) => {
   if (localAuthBypassUser) {
     // Web auth bypass can also satisfy the legacy mobile Google redirect path.
@@ -1798,7 +1925,7 @@ app.get('/auth/google', async (req, res, next) => {
         if (persistedUser.isDisabled) {
           return res.redirect('dailymacros://auth/callback?error=account_disabled');
         }
-        const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS', null);
+        const tokenResult = await createApiToken(persistedUser.id, 'Macrovana iOS', null);
         const params = new URLSearchParams({
           token: tokenResult.token,
           name: persistedUser.name || '',
@@ -1863,7 +1990,7 @@ app.get(
     if (req.session.mobileAuth) {
       delete req.session.mobileAuth;
       try {
-        const tokenResult = await createApiToken(signedInUser.id, 'DailyMacros iOS', null);
+        const tokenResult = await createApiToken(signedInUser.id, 'Macrovana iOS', null);
         const params = new URLSearchParams({
           token: tokenResult.token,
           name: signedInUser.name || '',
@@ -1940,7 +2067,7 @@ app.post('/auth/google/mobile', express.json(), async (req, res) => {
     if (persistedUser.isDisabled) {
       return res.status(403).json({ error: 'This account has been disabled.' });
     }
-    const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS', null);
+    const tokenResult = await createApiToken(persistedUser.id, 'Macrovana iOS', null);
 
     return res.json({
       ok: true,
@@ -2099,7 +2226,7 @@ app.post('/auth/apple/mobile', express.json(), async (req, res) => {
     }
 
     // Create a long-lived API token for the mobile app
-    const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS', null);
+    const tokenResult = await createApiToken(persistedUser.id, 'Macrovana iOS', null);
 
     return res.json({
       ok: true,
@@ -2121,7 +2248,7 @@ app.post('/auth/dev/mobile', async (req, res) => {
     if (persistedUser.isDisabled) {
       return res.status(403).json({ error: 'This account has been disabled.' });
     }
-    const tokenResult = await createApiToken(persistedUser.id, 'DailyMacros iOS Dev', null);
+    const tokenResult = await createApiToken(persistedUser.id, 'Macrovana iOS Dev', null);
     return res.json({
       ok: true,
       token: tokenResult.token,
@@ -2228,6 +2355,7 @@ apiRouter.use('/parse-meal', createRateLimiter({ windowMs: 60 * 1000, maxRequest
 apiRouter.use('/parse-workout', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30 }));
 apiRouter.use('/analysis', createRateLimiter({ windowMs: 10 * 60 * 1000, maxRequests: 5 }));
 apiRouter.use('/barcode', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30 }));
+apiRouter.use('/oura/sync', createRateLimiter({ windowMs: 5 * 60 * 1000, maxRequests: 5 }));
 
 
 apiRouter.get('/me', (req, res) => {
@@ -2252,6 +2380,69 @@ apiRouter.patch('/account/preferences', async (req, res) => {
     return res.json({ ok: true, user: clientUserPayload(req.user) });
   } catch (error) {
     return sendError(req, res, 400, error.message || 'Unable to update account preferences.');
+  }
+});
+
+// ── Oura Cloud connection and normalized data ──
+
+apiRouter.get('/oura/status', async (req, res) => {
+  try {
+    disableConditionalCaching(req, res);
+    return res.json(await ouraService.getStatus(userIdFromReq(req)));
+  } catch (error) {
+    return sendError(req, res, 500, 'Unable to load Oura connection status.', error);
+  }
+});
+
+apiRouter.post('/oura/connect', async (req, res) => {
+  try {
+    const returnTo = req.body?.returnTo === 'ios' ? 'ios' : 'web';
+    const result = await ouraService.createAuthorization(userIdFromReq(req), returnTo);
+    await logAudit(userIdFromReq(req), 'authorize', 'oura_connection', null, { returnTo });
+    return res.json(result);
+  } catch (error) {
+    const status = /not configured/i.test(error.message || '') ? 503 : 400;
+    return sendError(req, res, status, error.message || 'Unable to start Oura authorization.', error);
+  }
+});
+
+apiRouter.post('/oura/sync', async (req, res) => {
+  try {
+    const days = Math.min(Math.max(Number(req.body?.days) || 14, 1), 90);
+    const result = await ouraService.syncUser(userIdFromReq(req), { days });
+    await logAudit(userIdFromReq(req), 'sync', 'oura_connection', null, { days });
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to sync Oura data.');
+  }
+});
+
+apiRouter.get('/oura/documents', async (req, res) => {
+  try {
+    const options = {
+      dataType: req.query.dataType ? normalizeString(req.query.dataType, 'dataType', { maxLength: 64 }) : null,
+      startDate: req.query.startDate ? normalizeIsoDay(req.query.startDate, 'startDate') : null,
+      endDate: req.query.endDate ? normalizeIsoDay(req.query.endDate, 'endDate') : null,
+      limit: Math.min(normalizeLimit(req.query.limit, 500), 2000)
+    };
+    if (options.startDate && options.endDate && options.startDate > options.endDate) {
+      return sendError(req, res, 400, 'startDate must be on or before endDate.');
+    }
+    disableConditionalCaching(req, res);
+    const documents = await ouraService.listDocuments(userIdFromReq(req), options);
+    return res.json({ documents });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to load Oura data.');
+  }
+});
+
+apiRouter.delete('/oura/connection', async (req, res) => {
+  try {
+    const result = await ouraService.disconnectUser(userIdFromReq(req));
+    await logAudit(userIdFromReq(req), 'disconnect', 'oura_connection', null, { deleteData: true });
+    return res.json(result);
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to disconnect Oura.');
   }
 });
 
@@ -3463,6 +3654,15 @@ apiRouter.delete('/account', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
     logAudit(userId, 'delete', 'account');
+    try {
+      await ouraService.disconnectUser(userId);
+    } catch (error) {
+      // Account deletion remains authoritative even if Oura revocation is unavailable.
+      logJson('warn', 'oura_account_delete_disconnect_failed', {
+        userId,
+        message: safeErrorMessage(error)
+      });
+    }
     await deleteUserAccount(userId);
     req.logout(() => {
       req.session.destroy(() => {
@@ -3582,9 +3782,10 @@ app.use((error, req, res, next) => {
 async function startServer() {
   try {
     await initDb();
+    ouraService.startBackgroundJobs();
     app.listen(port, () => {
       // eslint-disable-next-line no-console
-      console.log(`Macro tracker listening on http://localhost:${port}`);
+      console.log(`Macrovana listening on http://localhost:${port}`);
     });
   } catch (error) {
     // eslint-disable-next-line no-console

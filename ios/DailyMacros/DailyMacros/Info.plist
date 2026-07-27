@@ -7,7 +7,7 @@
 	<key>AppBuild</key>
 	<string>$(APP_BUILD)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Daily Macros</string>
+	<string>Macrovana</string>
 	<key>GitCommitHash</key>
 	<string>$(GIT_COMMIT_HASH)</string>
 	<key>GoogleIOSClientID</key>
@@ -15,11 +15,11 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSCameraUsageDescription</key>
-	<string>DailyMacros uses the camera to parse meal photos.</string>
+	<string>Macrovana uses the camera to parse meal photos.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>DailyMacros reads recent workouts, body weight, sleep, and sexual activity from Apple Health so your health logs stay in sync.</string>
+	<string>Macrovana reads recent workouts, body weight, sleep, and sexual activity from Apple Health so your health logs stay in sync.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>DailyMacros writes workouts, body weight, sleep, and sexual activity you log to Apple Health when you choose to sync.</string>
+	<string>Macrovana writes workouts, body weight, sleep, and sexual activity you log to Apple Health when you choose to sync.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
@@ -52,7 +52,7 @@
 				<string>public.data</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>DailyMacros Entry Drag</string>
+			<string>Macrovana Entry Drag</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.dailymacros.entry-drag</string>
 			<key>UTTypeTagSpecification</key>

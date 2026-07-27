@@ -993,6 +993,50 @@ class APIClient: ObservableObject {
         return response.url
     }
 
+    // MARK: - Oura
+
+    func getOuraStatus() async throws -> OuraStatusResponse {
+        let request = try authorizedRequest(apiURL("/oura/status"))
+        return try await perform(request)
+    }
+
+    func createOuraAuthorization(returnTo: String = "ios") async throws -> URL {
+        let body = try JSONSerialization.data(withJSONObject: ["returnTo": returnTo])
+        let request = try authorizedRequest(apiURL("/oura/connect"), method: "POST", body: body)
+        let response: OuraAuthorizationResponse = try await perform(request)
+        guard let url = URL(string: response.authorizationUrl) else {
+            throw APIError.serverError("The server returned an invalid Oura authorization URL.")
+        }
+        return url
+    }
+
+    func syncOura(days: Int = 14) async throws -> OuraSyncResponse {
+        let body = try JSONSerialization.data(withJSONObject: ["days": days])
+        let request = try authorizedRequest(apiURL("/oura/sync"), method: "POST", body: body)
+        return try await perform(request)
+    }
+
+    func getOuraDocuments(
+        dataType: String? = nil,
+        startDate: String? = nil,
+        endDate: String? = nil,
+        limit: Int = 500
+    ) async throws -> OuraDocumentsResponse {
+        var components = URLComponents(url: apiURL("/oura/documents"), resolvingAgainstBaseURL: false)!
+        var queryItems = [URLQueryItem(name: "limit", value: "\(limit)")]
+        if let dataType { queryItems.append(.init(name: "dataType", value: dataType)) }
+        if let startDate { queryItems.append(.init(name: "startDate", value: startDate)) }
+        if let endDate { queryItems.append(.init(name: "endDate", value: endDate)) }
+        components.queryItems = queryItems
+        let request = try authorizedRequest(components.url!)
+        return try await perform(request)
+    }
+
+    func disconnectOura() async throws {
+        let request = try authorizedRequest(apiURL("/oura/connection"), method: "DELETE")
+        let _: OkResponse = try await perform(request)
+    }
+
     // MARK: - Account
 
     func exportData() async throws -> Data {

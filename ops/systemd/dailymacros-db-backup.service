@@ -1,5 +1,5 @@
 [Unit]
-Description=DailyMacros logical Postgres backup
+Description=Macrovana logical Postgres backup
 Wants=docker.service
 After=docker.service
 

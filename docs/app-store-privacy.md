@@ -9,7 +9,7 @@ Apple's App Privacy Details guidance says the app should identify data collected
 Use the production app URL:
 
 ```text
-https://<production-domain>/privacy
+https://macrovana.com/privacy
 ```
 
 ## Tracking
@@ -21,32 +21,34 @@ https://<production-domain>/privacy
 ## Data Linked To The User
 
 - Contact Info: email address and name from Google or Apple sign-in, used for account management and app functionality.
-- Identifiers: app user id, OAuth provider ids, API token records, Stripe customer/subscription ids when billing is enabled, used for account management, auth, billing, and security.
-- Health & Fitness: weight, workouts, sleep, calories, nutrition/macros, and HealthKit-synced wellness data, used for app functionality.
+- Identifiers: app user id, OAuth provider ids, Oura's opaque user id when connected, API token records, and Stripe customer/subscription ids when billing is enabled, used for account management, auth, update routing, billing, and security.
+- Health & Fitness: weight, workouts, sleep, calories, nutrition/macros, HealthKit-synced wellness data, and connected Oura aggregate metrics, used for app functionality.
 - Sensitive Info: sexual activity entries only when that feature is enabled for the account, used for app functionality.
 - User Content: meal text, workout text, saved foods, meal photos submitted for parsing, analysis prompts/results, and diagnostics exported and shared by the user, used for app functionality and support.
 - Purchases: subscription status and billing events from Stripe when paid features are enabled, used for app functionality and billing support.
 
 ## Data Not Used For Tracking
 
-DailyMacros does not use third-party advertising SDKs, does not sell personal data, and does not use collected data to track users across apps or websites.
+Macrovana does not use third-party advertising SDKs, does not sell personal data, and does not use collected data to track users across apps or websites.
 
 ## Third-Party Processing To Disclose
 
-- OpenAI: meal/workout/report text and meal photos are sent only when the user asks the app to parse or analyze them.
+- OpenAI: meal/workout/report text, meal photos, and relevant connected health data may be sent only when the user asks the app to parse or analyze them.
 - Coach Tony P. coaching: routine coach cards are generated from local deterministic rules. On supported iOS versions, on-device Apple Foundation Models may rank or rephrase already-eligible cards without sending those cards to OpenAI.
 - Google and Apple: sign-in provider data is used for authentication.
 - Stripe: subscription checkout, customer portal, and webhook state when paid features are enabled.
 - Open Food Facts: barcode lookup sends the barcode needed to retrieve product nutrition.
+- Oura: optional OAuth connection for sleep, readiness, activity, stress, resilience, bedtime-guidance, and optional workout aggregates. Tokens stay on the Macrovana server, Oura profile details other than the opaque routing id are discarded, and imported aggregates remain until Oura is disconnected or the Macrovana account is deleted. Oura aggregates may be combined with other app history for trends, coaching, and user-requested analysis.
 
 ## HealthKit Notes
 
-HealthKit permissions are optional and controlled by the user. DailyMacros reads and writes only supported categories used by app features: weight, workouts, sleep, and sexual activity where enabled. Apple's HealthKit guidance says apps using HealthKit must provide a clearly stated privacy policy URL during submission: <https://developer.apple.com/design/human-interface-guidelines/healthkit/>.
+HealthKit permissions are optional and controlled by the user. Macrovana reads and writes only supported categories used by app features: weight, workouts, sleep, and sexual activity where enabled. Apple's HealthKit guidance says apps using HealthKit must provide a clearly stated privacy policy URL during submission: <https://developer.apple.com/design/human-interface-guidelines/healthkit/>.
 
 ## Reviewer Notes
 
 - Account export: web Account & Privacy and iOS Settings.
 - Account deletion: web Account & Privacy and iOS Settings.
+- Oura connection, manual sync, disconnect, and imported-data deletion: web Account & Privacy and iOS Settings.
 - Coach Tony P. controls: web Account & Privacy and iOS Settings support coach mode/category controls and dismissal reset.
 - Support path: contact the inviter with request references and build metadata.
 - Public policy route: `/privacy`.

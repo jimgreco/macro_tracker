@@ -26,7 +26,7 @@ enum HealthKitWorkoutSyncError: LocalizedError {
         case .workoutUnavailable:
             return "Apple Health saved the workout, but did not return a workout record."
         case .deleteFailed:
-            return "Apple Health could not remove duplicate DailyMacros workout records."
+            return "Apple Health could not remove duplicate Macrovana workout records."
         }
     }
 }
@@ -203,7 +203,7 @@ final class HealthKitWorkoutSync: ObservableObject {
         let metadata: [String: Any] = [
             HKMetadataKeyExternalUUID: externalUUID,
             HKMetadataKeyWasUserEntered: true,
-            dailyMacrosSourceMetadataKey: "DailyMacros",
+            dailyMacrosSourceMetadataKey: "Macrovana",
             dailyMacrosWorkoutIdMetadataKey: "\(workout.id)"
         ]
 
@@ -345,7 +345,8 @@ final class HealthKitWorkoutSync: ObservableObject {
         if workout.externalUUID?.hasPrefix(dailyMacrosExternalPrefix) == true {
             return true
         }
-        if workout.metadata?[dailyMacrosSourceMetadataKey] as? String == "DailyMacros" {
+        if let source = workout.metadata?[dailyMacrosSourceMetadataKey] as? String,
+           source == "Macrovana" || source == "DailyMacros" {
             return true
         }
         if workout.dailyMacrosWorkoutId != nil {
