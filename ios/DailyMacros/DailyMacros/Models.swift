@@ -46,6 +46,13 @@ struct UserFeatures: Codable {
 
 struct MeResponse: Codable {
     let user: User?
+    let credential: CredentialStatus?
+}
+
+struct CredentialStatus: Codable {
+    let kind: String
+    let expiresAt: String?
+    let rotateWithinDays: Int?
 }
 
 struct AccountPreferencesResponse: Codable {
@@ -256,10 +263,33 @@ struct ApiToken: Codable, Identifiable {
     let createdAt: String
     let expiresAt: String?
     let lastUsedAt: String?
+    let current: Bool?
 }
 
 struct ApiTokenListResponse: Codable {
     let tokens: [ApiToken]
+}
+
+struct AuthSession: Codable, Identifiable {
+    let id: String
+    let kind: String
+    let name: String
+    let createdAt: String
+    let expiresAt: String?
+    let lastUsedAt: String?
+    let current: Bool
+}
+
+struct AuthSessionListResponse: Codable {
+    let sessions: [AuthSession]
+}
+
+struct RotatedCredentialResponse: Codable {
+    let id: Int
+    let name: String
+    let token: String
+    let createdAt: String
+    let expiresAt: String
 }
 
 struct OkResponse: Codable {

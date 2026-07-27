@@ -45,6 +45,8 @@ const calls = [];
 let workoutAddResult = { id: 1, created: true };
 let weightAddDelayMs = 0;
 const clientMutations = new Map();
+const webSessions = new Map();
+const rateLimits = new Map();
 
 function record(name, payload) {
   calls.push({ name, payload });
@@ -97,6 +99,51 @@ const fakeDb = {
     return { id: 42, createdAt: new Date().toISOString() };
   },
   listClientDiagnostics: async () => [],
+  loadWebSession: async (sessionId) => webSessions.get(sessionId) || null,
+  saveWebSession: async (sessionId, sessionData, metadata) => {
+    const record = { sessionData, ...metadata };
+    webSessions.set(sessionId, record);
+    return record;
+  },
+  touchWebSession: async (sessionId, sessionData, metadata) => {
+    const existing = webSessions.get(sessionId);
+    if (!existing) return null;
+    const record = { ...existing, sessionData, ...metadata };
+    webSessions.set(sessionId, record);
+    return record;
+  },
+  destroyWebSession: async (sessionId) => Number(webSessions.delete(sessionId)),
+  clearWebSessions: async () => {
+    const count = webSessions.size;
+    webSessions.clear();
+    return count;
+  },
+  countWebSessions: async () => webSessions.size,
+  listStoredWebSessions: async () => [...webSessions.values()],
+  listUserWebSessions: async (userId, currentSessionId) => {
+    record('listUserWebSessions', { userId, currentSessionId });
+    return [{
+      id: '9d47cc08-f7fb-49ed-aec6-60eae9a46ddd',
+      kind: 'web',
+      name: 'Web browser',
+      createdAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      current: Boolean(currentSessionId)
+    }];
+  },
+  deleteUserWebSession: async () => 1,
+  consumeRateLimit: async (bucketKey, windowMs) => {
+    const existing = rateLimits.get(bucketKey);
+    const now = Date.now();
+    if (!existing || new Date(existing.expiresAt).getTime() <= now) {
+      const fresh = { count: 1, expiresAt: new Date(now + windowMs).toISOString() };
+      rateLimits.set(bucketKey, fresh);
+      return fresh;
+    }
+    existing.count += 1;
+    return existing;
+  },
   claimClientMutation: async (userId, clientMutationId, descriptor) => {
     const key = clientMutationKey(userId, clientMutationId);
     const existing = clientMutations.get(key);
@@ -220,9 +267,29 @@ const fakeDb = {
   getLatestAnalysisReport: async () => null,
   createApiToken: async () => ({ id: 1, token: 'token' }),
   validateApiToken: async () => null,
-  listApiTokens: async () => [],
+  listApiTokens: async (_userId, currentTokenId) => [{
+    id: 7,
+    kind: 'mobile',
+    name: 'DailyMacros iOS',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    lastUsedAt: new Date().toISOString(),
+    current: currentTokenId === 7
+  }],
   deleteApiToken: async () => 1,
   deleteAllApiTokens: async () => 1,
+  rotateApiToken: async () => ({
+    id: 2,
+    name: 'DailyMacros iOS',
+    token: 'rotated-token',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 90 * 86400000).toISOString()
+  }),
+  revokeAllCredentials: async (userId) => {
+    record('revokeAllCredentials', { userId });
+    return { webSessionCount: 1, apiTokenCount: 1 };
+  },
+  getApiTokenPolicy: () => ({ ttlDays: 90, rotateWithinDays: 14 }),
   listCoachDismissals: async () => [],
   upsertCoachDismissals: async () => [],
   deleteCoachDismissals: async () => 0,
@@ -391,6 +458,26 @@ test('client mutation ids make concurrent and repeated writes idempotent', route
   } finally {
     weightAddDelayMs = 0;
   }
+});
+
+test('credential inventory omits secrets and revoke-all covers web and mobile', routeTestOptions, async () => {
+  resetCalls();
+  const inventory = await request('/api/auth/sessions');
+
+  assert.equal(inventory.res.status, 200);
+  assert.equal(inventory.body.sessions.length, 2);
+  assert.deepEqual(
+    inventory.body.sessions.map((session) => session.kind).sort(),
+    ['mobile', 'web']
+  );
+  assert.equal(JSON.stringify(inventory.body).includes('private-session-id'), false);
+  assert.equal(JSON.stringify(inventory.body).includes('token_hash'), false);
+
+  const revoked = await request('/api/auth/tokens', { method: 'DELETE' });
+  assert.equal(revoked.res.status, 200);
+  assert.equal(revoked.body.webSessionCount, 1);
+  assert.equal(revoked.body.apiTokenCount, 1);
+  assert.equal(latestCall('revokeAllCredentials').payload.userId, fakeUser.id);
 });
 
 test('copy-day and starter quick-add routes call backend primitives', routeTestOptions, async () => {

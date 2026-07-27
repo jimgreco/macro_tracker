@@ -45,6 +45,8 @@ A web app for tracking macros with:
    - `GOOGLE_IOS_CLIENT_ID` (iOS OAuth client ID used by the native app)
    - `APPLE_BUNDLE_ID` (iOS bundle id used to verify native Sign in with Apple; defaults to `com.dailymacros.app`)
    - `SESSION_TTL_DAYS` (default: `30`)
+   - `MOBILE_TOKEN_TTL_DAYS` (default: `90`, allowed: `7`-`180`)
+   - `MOBILE_TOKEN_ROTATE_WITHIN_DAYS` (default: `14`, allowed: `1`-`60`; iOS rotates only while online)
 
    Optional DB overrides (defaults already work with `npm run db:up`):
    - `DATABASE_URL` (default fallback: `postgres://postgres:postgres@localhost:5432/macro_tracker`)

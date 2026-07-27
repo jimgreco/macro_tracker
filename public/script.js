@@ -2075,6 +2075,15 @@ function showAccountPrivacyModal() {
           <button type="button" class="btn-secondary table-action-btn" id="account-starter-quick-adds-btn">Add Starter Quick Adds</button>
         </div>
       </fieldset>
+      <fieldset class="account-preference-controls">
+        <legend>Signed-in Devices</legend>
+        <div id="account-session-inventory" class="account-privacy-copy">
+          <p><span>Loading active browser sessions and mobile credentials…</span></p>
+        </div>
+        <div class="account-preference-actions">
+          <button type="button" class="btn-danger table-action-btn" id="account-sign-out-everywhere-btn">Sign Out Everywhere</button>
+        </div>
+      </fieldset>
       <fieldset class="account-coach-category-controls">
         <legend>Coach Tony P. Cards</legend>
         <div class="account-coach-category-grid">
@@ -2149,6 +2158,34 @@ function showAccountPrivacyModal() {
         result.addedCount > 0 ? `Added ${result.addedCount} starter quick add${result.addedCount === 1 ? '' : 's'}.` : 'Starter quick adds already exist.',
         'success'
       );
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
+  const sessionInventoryEl = document.getElementById('account-session-inventory');
+  api('/api/auth/sessions')
+    .then((result) => {
+      const sessions = Array.isArray(result.sessions) ? result.sessions : [];
+      sessionInventoryEl.innerHTML = sessions.length
+        ? sessions.map((session) => `
+            <p>
+              <strong>${escapeHtml(session.name || (session.kind === 'web' ? 'Web browser' : 'Mobile credential'))}${session.current ? ' · Current' : ''}</strong>
+              <span>${escapeHtml(session.lastUsedAt ? `Active ${formatDateTimeLabel(session.lastUsedAt)}` : `Created ${formatDateTimeLabel(session.createdAt)}`)}</span>
+            </p>
+          `).join('')
+        : '<p><span>No active credentials found.</span></p>';
+    })
+    .catch((error) => {
+      sessionInventoryEl.innerHTML = `<p><span>${escapeHtml(error.message)}</span></p>`;
+    });
+  document.getElementById('account-sign-out-everywhere-btn')?.addEventListener('click', async () => {
+    const confirmed = window.confirm(
+      'Sign out every browser and mobile device? Protected pending iOS work stays with its account.'
+    );
+    if (!confirmed) return;
+    try {
+      await api('/api/auth/tokens', { method: 'DELETE' });
+      window.location.assign('/login');
     } catch (error) {
       setActionBanner(error.message, 'error');
     }

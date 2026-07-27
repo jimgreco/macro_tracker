@@ -25,6 +25,16 @@ const {
   logAudit,
   logClientDiagnostic,
   listClientDiagnostics,
+  loadWebSession,
+  saveWebSession,
+  touchWebSession,
+  destroyWebSession,
+  clearWebSessions,
+  countWebSessions,
+  listStoredWebSessions,
+  listUserWebSessions,
+  deleteUserWebSession,
+  consumeRateLimit,
   claimClientMutation,
   getClientMutation,
   completeClientMutation,
@@ -75,7 +85,9 @@ const {
   validateApiToken,
   listApiTokens,
   deleteApiToken,
-  deleteAllApiTokens,
+  rotateApiToken,
+  revokeAllCredentials,
+  getApiTokenPolicy,
   listCoachDismissals,
   upsertCoachDismissals,
   deleteCoachDismissals,
@@ -92,6 +104,7 @@ const { parseMealText, parseWorkoutText } = require('./parser');
 const { estimateWorkoutCalories } = require('./workout-calories');
 const { scaleMealUnitRows } = require('./meal-normalizer');
 const { createClientMutationMiddleware } = require('./idempotency');
+const { PostgresSessionStore } = require('./postgres-session-store');
 const packageJson = require('../package.json');
 
 const app = express();
@@ -352,27 +365,36 @@ const enforceApiSource = enforceStateChangingSource;
 // ── Per-user rate limiting (falls back to IP for unauthenticated requests) ──
 
 function createRateLimiter({ windowMs, maxRequests }) {
-  const hits = new Map();
+  return async (req, res, next) => {
+    const identity = req.user && req.user.id ? `user:${req.user.id}` : `ip:${req.ip}`;
+    const scope = `${req.baseUrl}${req.path}`;
+    const bucketKey = crypto
+      .createHash('sha256')
+      .update(`${identity}\n${scope}`)
+      .digest('hex');
 
-  return (req, res, next) => {
-    const now = Date.now();
-    const userId = req.user && req.user.id ? req.user.id : req.ip;
-    const key = `${userId}:${req.baseUrl}${req.path}`;
-    const current = hits.get(key);
+    try {
+      const current = await consumeRateLimit(bucketKey, windowMs);
+      if (current.count <= maxRequests) {
+        return next();
+      }
 
-    if (!current || now > current.expiresAt) {
-      hits.set(key, { count: 1, expiresAt: now + windowMs });
-      return next();
-    }
-
-    current.count += 1;
-    if (current.count > maxRequests) {
-      const retryAfterSeconds = Math.ceil((current.expiresAt - now) / 1000);
+      const retryAfterSeconds = Math.ceil(
+        (new Date(current.expiresAt).getTime() - Date.now()) / 1000
+      );
       res.setHeader('Retry-After', String(Math.max(retryAfterSeconds, 1)));
       return sendError(req, res, 429, 'Too many requests. Please retry shortly.');
+    } catch (error) {
+      logServerError(req, error, {
+        status: 503,
+        category: 'shared_rate_limit',
+        scope
+      });
+      if (req.originalUrl && req.originalUrl.startsWith('/api/')) {
+        return sendError(req, res, 503, 'Request controls are temporarily unavailable.');
+      }
+      return res.status(503).type('text').send('Request controls are temporarily unavailable.');
     }
-
-    return next();
   };
 }
 
@@ -380,8 +402,15 @@ app.use(securityHeaders);
 
 
 
-passport.serializeUser((user, done) => done(null, user));
-passport.deserializeUser((user, done) => done(null, user));
+passport.serializeUser((user, done) => done(null, String(user.id)));
+passport.deserializeUser(async (userId, done) => {
+  try {
+    const user = await getUserAccountControls(String(userId || ''));
+    return done(null, user || false);
+  } catch (error) {
+    return done(error);
+  }
+});
 
 if (googleClientId && googleClientSecret) {
   passport.use(
@@ -501,10 +530,29 @@ if (stripe && stripeWebhookSecret) {
 }
 
 app.use(express.json({ limit: '40mb' }));
+const sessionTtlMs =
+  1000 * 60 * 60 * 24 * parsePositiveIntegerEnv('SESSION_TTL_DAYS', 30);
+const webSessionStore = new PostgresSessionStore({
+  loadSession: loadWebSession,
+  saveSession: saveWebSession,
+  touchSession: touchWebSession,
+  destroySession: destroyWebSession,
+  clearSessions: clearWebSessions,
+  countSessions: countWebSessions,
+  listSessions: listStoredWebSessions,
+  ttlMs: sessionTtlMs,
+  onError: (error) => {
+    logServerError(null, error, {
+      status: 503,
+      category: 'web_session_store'
+    });
+  }
+});
 app.use(
   session({
     name: isProduction ? '__Host-macro.sid' : 'macro.sid',
     secret: sessionSecret,
+    store: webSessionStore,
     resave: false,
     saveUninitialized: false,
     rolling: true,
@@ -515,7 +563,7 @@ app.use(
       // the session cookie to be sent on that POST so OAuth state can validate.
       sameSite: isProduction ? 'none' : 'lax',
       secure: isProduction,
-      maxAge: 1000 * 60 * 60 * 24 * parsePositiveIntegerEnv('SESSION_TTL_DAYS', 30)
+      maxAge: sessionTtlMs
     }
   })
 );
@@ -790,13 +838,24 @@ async function bearerTokenAuth(req, res, next) {
   }
 
   try {
-    const user = await validateApiToken(token);
-    if (user) {
+    const validatedCredential = await validateApiToken(token);
+    if (validatedCredential) {
+      const {
+        apiTokenId,
+        apiTokenName,
+        apiTokenExpiresAt,
+        ...user
+      } = validatedCredential;
       req.user = {
         ...user,
         isAdmin: isAdminUser(user)
       };
       req.authMode = 'bearer';
+      req.authCredential = {
+        id: apiTokenId,
+        name: apiTokenName,
+        expiresAt: apiTokenExpiresAt
+      };
     }
   } catch (_error) {
     // Token validation failed; fall through to session auth
@@ -2251,7 +2310,21 @@ apiRouter.use('/barcode', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 
 
 apiRouter.get('/me', (req, res) => {
   disableConditionalCaching(req, res);
-  res.json({ user: clientUserPayload(req.user) });
+  const tokenPolicy = getApiTokenPolicy();
+  res.json({
+    user: clientUserPayload(req.user),
+    credential: req.authMode === 'bearer'
+      ? {
+          kind: 'mobile',
+          expiresAt: req.authCredential?.expiresAt || null,
+          rotateWithinDays: tokenPolicy.rotateWithinDays
+        }
+      : {
+          kind: 'web',
+          expiresAt: req.session?.cookie?.expires || null,
+          rotateWithinDays: null
+        }
+  });
 });
 
 apiRouter.patch('/account/preferences', async (req, res) => {
@@ -3413,9 +3486,66 @@ apiRouter.post('/diagnostics/client', async (req, res) => {
 
 // ── API tokens (for mobile/external clients) ──
 
+apiRouter.get('/auth/sessions', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    const currentSessionId = req.authMode === 'bearer' ? null : req.sessionID;
+    const [webSessions, mobileCredentials] = await Promise.all([
+      listUserWebSessions(userId, currentSessionId),
+      listApiTokens(userId, req.authCredential?.id || null)
+    ]);
+    return res.json({
+      sessions: [
+        ...webSessions,
+        ...mobileCredentials.map((credential) => ({
+          ...credential,
+          id: String(credential.id)
+        }))
+      ]
+    });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.delete('/auth/sessions/:id', async (req, res) => {
+  try {
+    const publicId = String(req.params.id || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(publicId)) {
+      return res.status(400).json({ error: 'Invalid web session id.' });
+    }
+    const userId = userIdFromReq(req);
+    const deletedCount = await deleteUserWebSession(userId, publicId);
+    if (!deletedCount) {
+      return res.status(404).json({ error: 'Web session not found.' });
+    }
+    logAudit(userId, 'delete', 'web_session', publicId);
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/auth/token/rotate', async (req, res) => {
+  try {
+    if (req.authMode !== 'bearer' || !req.authCredential?.id) {
+      return res.status(400).json({ error: 'Mobile credential rotation requires bearer authentication.' });
+    }
+    const userId = userIdFromReq(req);
+    const rotated = await rotateApiToken(userId, req.authCredential.id);
+    logAudit(userId, 'rotate', 'api_token', String(rotated.id));
+    return res.json(rotated);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
 apiRouter.get('/auth/tokens', async (req, res) => {
   try {
-    const tokens = await listApiTokens(userIdFromReq(req));
+    const tokens = await listApiTokens(
+      userIdFromReq(req),
+      req.authCredential?.id || null
+    );
     res.json({ tokens });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -3437,9 +3567,18 @@ apiRouter.post('/auth/tokens', async (req, res) => {
 apiRouter.delete('/auth/tokens', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
-    const deletedCount = await deleteAllApiTokens(userId);
-    logAudit(userId, 'delete', 'api_tokens', 'all');
-    return res.json({ ok: true, deletedCount });
+    const revoked = await revokeAllCredentials(userId);
+    logAudit(userId, 'delete', 'credentials', 'all', revoked);
+
+    if (req.authMode === 'bearer') {
+      return res.json({ ok: true, ...revoked });
+    }
+
+    return req.logout(() => {
+      req.session.destroy(() => {
+        res.json({ ok: true, ...revoked });
+      });
+    });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }

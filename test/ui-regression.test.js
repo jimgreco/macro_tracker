@@ -1427,6 +1427,27 @@ test('iOS offline replay is protected, account-scoped, and lifecycle-safe', () =
   assert.ok(mainTabs.includes('pending for this account'));
 });
 
+test('credential inventory and rotation are visible without exposing secrets', () => {
+  const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  const models = read('ios/DailyMacros/DailyMacros/Models.swift');
+  const settings = read('ios/DailyMacros/DailyMacros/SettingsView.swift');
+  const web = read('public/script.js');
+
+  assert.ok(models.includes('struct CredentialStatus: Codable'));
+  assert.ok(models.includes('struct AuthSession: Codable, Identifiable'));
+  assert.ok(api.includes('shouldRotateCredential(response.credential)'));
+  assert.ok(api.includes('apiURL("/auth/token/rotate")'));
+  assert.ok(api.includes('message: "Mobile credential rotation deferred"'));
+  assert.ok(api.includes('func listAuthSessions()'));
+  assert.equal(api.includes('"token": rotated.token'), false);
+
+  assert.ok(settings.includes('groupedSection(title: "Signed-in Devices")'));
+  assert.ok(settings.includes('every browser session and mobile credential'));
+  assert.ok(web.includes('<legend>Signed-in Devices</legend>'));
+  assert.ok(web.includes("api('/api/auth/sessions')"));
+  assert.ok(web.includes('account-sign-out-everywhere-btn'));
+});
+
 test('iOS debug builds can launch as the local dev user', () => {
   const app = read('ios/DailyMacros/DailyMacros/DailyMacrosApp.swift');
   const auth = read('ios/DailyMacros/DailyMacros/AuthManager.swift');

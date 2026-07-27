@@ -430,10 +430,55 @@ class APIClient: ObservableObject {
 
         let request = try authorizedRequest(apiURL("/me"))
         let response: MeResponse = try await perform(request)
+        if shouldRotateCredential(response.credential) {
+            do {
+                try await rotateCurrentCredential()
+            } catch {
+                Diagnostics.shared.record(
+                    level: "warning",
+                    category: "auth",
+                    message: "Mobile credential rotation deferred"
+                )
+            }
+        }
         if let user = response.user {
             activateAuthenticatedAccount(userId: user.id)
         }
         return response.user
+    }
+
+    private func shouldRotateCredential(_ credential: CredentialStatus?) -> Bool {
+        guard
+            credential?.kind == "mobile",
+            let expiresAt = credential?.expiresAt,
+            let rotateWithinDays = credential?.rotateWithinDays,
+            rotateWithinDays > 0
+        else {
+            return false
+        }
+
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let expiration =
+            fractionalFormatter.date(from: expiresAt) ??
+            ISO8601DateFormatter().date(from: expiresAt)
+        guard let expiration else { return false }
+        return expiration.timeIntervalSinceNow <= Double(rotateWithinDays) * 24 * 60 * 60
+    }
+
+    private func rotateCurrentCredential() async throws {
+        let request = try authorizedRequest(
+            apiURL("/auth/token/rotate"),
+            method: "POST",
+            body: Data("{}".utf8)
+        )
+        let rotated: RotatedCredentialResponse = try await perform(request)
+        token = rotated.token
+        Diagnostics.shared.record(
+            category: "auth",
+            message: "Rotated mobile credential",
+            details: ["expiresAt": rotated.expiresAt]
+        )
     }
 
     func updateAccountPreferences(timezone: String) async throws -> User? {
@@ -1221,6 +1266,12 @@ class APIClient: ObservableObject {
         let request = try authorizedRequest(apiURL("/auth/tokens"))
         let response: ApiTokenListResponse = try await perform(request)
         return response.tokens
+    }
+
+    func listAuthSessions() async throws -> [AuthSession] {
+        let request = try authorizedRequest(apiURL("/auth/sessions"))
+        let response: AuthSessionListResponse = try await perform(request)
+        return response.sessions
     }
 
     func deleteToken(id: Int) async throws {

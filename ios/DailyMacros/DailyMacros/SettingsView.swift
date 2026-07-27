@@ -762,6 +762,8 @@ private struct AccountDetailsView: View {
     @State private var isExporting = false
     @State private var isSigningOutEverywhere = false
     @State private var showSignOutEverywhereConfirm = false
+    @State private var authSessions: [AuthSession] = []
+    @State private var isLoadingAuthSessions = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -774,6 +776,10 @@ private struct AccountDetailsView: View {
                         syncStatusRow
                         accountDivider
                         syncNowButton
+                    }
+
+                    groupedSection(title: "Signed-in Devices") {
+                        authSessionInventory
                     }
 
                     groupedSection(title: "Data") {
@@ -819,12 +825,15 @@ private struct AccountDetailsView: View {
                     Task { await signOutEverywhere() }
                 }
             } message: {
-                Text("This revokes DailyMacros API tokens on every device and signs you out here. Protected pending work stays with this account until you sign in again.")
+                Text("This revokes every browser session and mobile credential, then signs you out here. Protected pending work stays with this account until you sign in again.")
             }
             .alert("Error", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
             } message: {
                 Text(errorMessage ?? "")
+            }
+            .task {
+                await loadAuthSessions()
             }
         }
     }
@@ -926,6 +935,55 @@ private struct AccountDetailsView: View {
         .disabled(isExporting)
     }
 
+    @ViewBuilder
+    private var authSessionInventory: some View {
+        if isLoadingAuthSessions {
+            HStack {
+                Spacer()
+                ProgressView()
+                Spacer()
+            }
+            .frame(minHeight: 58)
+        } else if authSessions.isEmpty {
+            Text("No active credentials found.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 24)
+                .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+        } else {
+            ForEach(Array(authSessions.enumerated()), id: \.element.id) { index, session in
+                if index > 0 {
+                    accountDivider
+                }
+                HStack(spacing: 14) {
+                    Image(systemName: session.kind == "web" ? "globe" : "iphone")
+                        .font(.title3)
+                        .foregroundStyle(.cyan)
+                        .frame(width: 28)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(session.name)
+                                .font(.body.weight(.medium))
+                            if session.current {
+                                Text("Current")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.green)
+                            }
+                        }
+                        Text(authSessionDetail(session))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .frame(minHeight: 64)
+            }
+        }
+    }
+
     private var signOutCard: some View {
         VStack(spacing: 0) {
             Button {
@@ -1009,6 +1067,28 @@ private struct AccountDetailsView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func loadAuthSessions() async {
+        guard api.token != nil else { return }
+        isLoadingAuthSessions = true
+        defer { isLoadingAuthSessions = false }
+        do {
+            authSessions = try await api.listAuthSessions()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func authSessionDetail(_ session: AuthSession) -> String {
+        guard let lastUsedAt = session.lastUsedAt else {
+            return session.kind == "web" ? "Web session" : "Mobile credential"
+        }
+        let formatter = ISO8601DateFormatter()
+        guard let date = formatter.date(from: lastUsedAt) else {
+            return session.kind == "web" ? "Web session" : "Mobile credential"
+        }
+        return "Active \(date.formatted(date: .abbreviated, time: .shortened))"
     }
 
     private func signOutEverywhere() async {

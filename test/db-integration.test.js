@@ -29,6 +29,72 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     const updatedUser = await db.updateUserPreferences(userId, { timezone: 'America/Chicago' });
     assert.equal(updatedUser.timezone, 'America/Chicago');
 
+    const webSessionId = crypto.randomUUID();
+    const webSessionPublicId = crypto.randomUUID();
+    const webSessionData = {
+      cookie: { expires: new Date(Date.now() + 60_000).toISOString() },
+      passport: { user: userId },
+      appleAuthState: crypto.randomUUID()
+    };
+    await db.saveWebSession(webSessionId, webSessionData, {
+      publicId: webSessionPublicId,
+      userId,
+      expiresAt: new Date(Date.now() + 60_000)
+    });
+    const restoredWebSession = await db.loadWebSession(webSessionId);
+    assert.deepEqual(restoredWebSession.sessionData, webSessionData);
+    const webInventory = await db.listUserWebSessions(userId, webSessionId);
+    assert.equal(webInventory.length, 1);
+    assert.equal(webInventory[0].id, webSessionPublicId);
+    assert.equal(webInventory[0].current, true);
+
+    const expiredSessionId = crypto.randomUUID();
+    await db.saveWebSession(expiredSessionId, { passport: { user: userId } }, {
+      publicId: crypto.randomUUID(),
+      userId,
+      expiresAt: new Date(Date.now() - 1_000)
+    });
+    assert.equal(await db.loadWebSession(expiredSessionId), null);
+
+    const rateLimitKey = crypto.createHash('sha256').update(crypto.randomUUID()).digest('hex');
+    const sharedCounts = await Promise.all(
+      Array.from({ length: 12 }, () => db.consumeRateLimit(rateLimitKey, 60_000))
+    );
+    assert.deepEqual(
+      sharedCounts.map((entry) => entry.count).sort((a, b) => a - b),
+      Array.from({ length: 12 }, (_, index) => index + 1)
+    );
+
+    const mobileCredential = await db.createApiToken(userId, 'Integration iOS');
+    const validatedCredential = await db.validateApiToken(mobileCredential.token);
+    assert.equal(validatedCredential.id, userId);
+    assert.equal(validatedCredential.apiTokenId, mobileCredential.id);
+    assert.ok(
+      new Date(mobileCredential.expiresAt).getTime() <=
+        Date.now() + 91 * 24 * 60 * 60 * 1000
+    );
+    const rotatedCredential = await db.rotateApiToken(userId, mobileCredential.id);
+    assert.equal((await db.validateApiToken(rotatedCredential.token)).id, userId);
+    assert.equal(
+      (await db.validateApiToken(mobileCredential.token)).id,
+      userId,
+      'the prior credential remains valid so a lost rotation response cannot break offline use'
+    );
+
+    const credentialInventory = await db.listApiTokens(userId, rotatedCredential.id);
+    assert.equal(credentialInventory.length, 2);
+    assert.equal(
+      credentialInventory.find((entry) => entry.id === rotatedCredential.id).current,
+      true
+    );
+
+    const revokedCredentials = await db.revokeAllCredentials(userId);
+    assert.equal(revokedCredentials.webSessionCount, 1);
+    assert.equal(revokedCredentials.apiTokenCount, 2);
+    assert.equal(await db.loadWebSession(webSessionId), null);
+    assert.equal(await db.validateApiToken(mobileCredential.token), null);
+    assert.equal(await db.validateApiToken(rotatedCredential.token), null);
+
     const clientMutationId = crypto.randomUUID();
     const mutationDescriptor = {
       method: 'POST',

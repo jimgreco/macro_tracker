@@ -28,6 +28,8 @@ Set these on the remote compose environment for the `macros` service:
 - `ADMIN_EMAILS` or `ADMIN_USER_IDS`
 - `SESSION_SECRET`
 - `SESSION_TTL_DAYS`
+- `MOBILE_TOKEN_TTL_DAYS`
+- `MOBILE_TOKEN_ROTATE_WITHIN_DAYS`
 - `DATABASE_URL`
 - `PGSSL=false`
 - `OPENAI_API_KEY`

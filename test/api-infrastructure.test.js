@@ -59,7 +59,9 @@ test('db.js exports all required functions', () => {
     'validateApiToken',
     'listApiTokens',
     'deleteApiToken',
-    'deleteAllApiTokens',
+    'rotateApiToken',
+    'revokeAllCredentials',
+    'consumeRateLimit',
     'listCoachDismissals',
     'upsertCoachDismissals',
     'deleteCoachDismissals',
@@ -420,7 +422,9 @@ test('server.js imports all new db functions', () => {
     'validateApiToken',
     'listApiTokens',
     'deleteApiToken',
-    'deleteAllApiTokens',
+    'rotateApiToken',
+    'revokeAllCredentials',
+    'consumeRateLimit',
     'exportUserData',
     'deleteUserAccount',
     'consumeDailyUsage'
@@ -461,8 +465,13 @@ test('server.js checks bearer tokens even when a local dev user is preloaded', (
 
 test('server.js has per-user rate limiting', () => {
   const server = read('src/server.js');
-  // Rate limiter should use user id when available
-  assert.ok(server.includes('req.user && req.user.id ? req.user.id : req.ip'));
+  const db = read('src/db.js');
+  assert.ok(server.includes("req.user && req.user.id ? `user:${req.user.id}` : `ip:${req.ip}`"));
+  assert.ok(server.includes("createHash('sha256')"));
+  assert.ok(server.includes('await consumeRateLimit(bucketKey, windowMs)'));
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS rate_limit_counters'));
+  assert.ok(db.includes('ON CONFLICT (bucket_key) DO UPDATE'));
+  assert.ok(db.includes('DELETE FROM rate_limit_counters WHERE expires_at <= NOW()'));
 });
 
 test('server.js emits request IDs and includes them on API errors', () => {
@@ -501,9 +510,56 @@ test('production session cookie supports Apple form_post callbacks', () => {
   const server = read('src/server.js');
   const sessionSection = server.slice(server.indexOf('app.use(\n  session({'), server.indexOf('app.use(passport.initialize())'));
 
+  assert.ok(sessionSection.includes('store: webSessionStore'));
   assert.ok(sessionSection.includes("sameSite: isProduction ? 'none' : 'lax'"));
   assert.ok(sessionSection.includes('secure: isProduction'));
   assert.ok(server.includes("responseMode: 'form_post'"));
+});
+
+test('web sessions persist in PostgreSQL without exposing session credentials', () => {
+  const db = read('src/db.js');
+  const server = read('src/server.js');
+  const store = read('src/postgres-session-store.js');
+
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS web_sessions'));
+  assert.ok(db.includes('public_id UUID NOT NULL UNIQUE'));
+  assert.ok(db.includes('session_data JSONB NOT NULL'));
+  assert.ok(db.includes('expires_at > NOW()'));
+  assert.ok(server.includes('new PostgresSessionStore'));
+  assert.ok(server.includes('passport.serializeUser((user, done) => done(null, String(user.id)))'));
+  assert.ok(server.includes('getUserAccountControls(String(userId'));
+  assert.ok(store.includes('crypto.randomUUID()'));
+  assert.equal(db.includes('SELECT sid AS'), false);
+});
+
+test('credential inventory and revoke-all cover web and mobile sessions', () => {
+  const db = read('src/db.js');
+  const server = read('src/server.js');
+
+  assert.ok(server.includes("apiRouter.get('/auth/sessions'"));
+  assert.ok(server.includes("apiRouter.delete('/auth/sessions/:id'"));
+  assert.ok(server.includes("apiRouter.post('/auth/token/rotate'"));
+  assert.ok(server.includes('await revokeAllCredentials(userId)'));
+  assert.ok(db.includes('async function revokeAllCredentials'));
+  assert.ok(db.includes("DELETE FROM web_sessions WHERE user_id = $1"));
+  assert.ok(db.includes("DELETE FROM api_tokens WHERE user_id = $1"));
+  assert.ok(db.includes('async function rotateApiToken'));
+  assert.ok(db.includes('MOBILE_TOKEN_TTL_DAYS'));
+  assert.ok(db.includes('MOBILE_TOKEN_ROTATE_WITHIN_DAYS'));
+});
+
+test('auth diagnostics and inventory omit credential values', () => {
+  const server = read('src/server.js');
+  const store = read('src/postgres-session-store.js');
+  const inventorySection = server.slice(
+    server.indexOf("apiRouter.get('/auth/sessions'"),
+    server.indexOf("apiRouter.get('/auth/tokens'")
+  );
+
+  assert.equal(inventorySection.includes('token_hash'), false);
+  assert.equal(inventorySection.includes('sessionId:'), false);
+  assert.equal(inventorySection.includes('req.sessionID,'), false);
+  assert.equal(store.includes('console.'), false);
 });
 
 test('server.js enforces durable daily usage limits for AI endpoints', () => {

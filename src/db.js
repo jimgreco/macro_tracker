@@ -306,6 +306,29 @@ async function initDb() {
     );
   `);
 
+  // ── Shared web sessions and abuse-control counters ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS web_sessions (
+      sid TEXT PRIMARY KEY,
+      public_id UUID NOT NULL UNIQUE,
+      user_id TEXT,
+      session_data JSONB NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS rate_limit_counters (
+      bucket_key TEXT PRIMARY KEY,
+      count INTEGER NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK (count > 0)
+    );
+  `);
+
   // ── Audit log ──
   await pool.query(`
     CREATE TABLE IF NOT EXISTS audit_log (
@@ -571,6 +594,9 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities(user_id);
     CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
     CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+    CREATE INDEX IF NOT EXISTS idx_web_sessions_user ON web_sessions(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_web_sessions_expires ON web_sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_rate_limit_counters_expires ON rate_limit_counters(expires_at);
     CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer ON subscriptions(stripe_customer_id);
     CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id);
@@ -585,6 +611,11 @@ async function initDb() {
 
   await recordSchemaMigration('2026-06-11_feature_foundations');
   await recordSchemaMigration('2026-07-27_client_mutation_idempotency');
+  await recordSchemaMigration('2026-07-27_shared_auth_state');
+
+  await pool.query('DELETE FROM web_sessions WHERE expires_at <= NOW()');
+  await pool.query('DELETE FROM rate_limit_counters WHERE expires_at <= NOW()');
+  await pool.query('DELETE FROM api_tokens WHERE expires_at IS NOT NULL AND expires_at <= NOW()');
 }
 
 // ── Users ──
@@ -3374,12 +3405,216 @@ async function getLatestAnalysisReport(userId) {
   };
 }
 
+// ── Shared web sessions and rate limits ──
+
+function mapStoredWebSession(row) {
+  if (!row) return null;
+  return {
+    sessionData: row.sessionData ?? row.session_data,
+    userId: row.userId ?? row.user_id ?? null,
+    publicId: row.publicId ?? row.public_id,
+    expiresAt: dateToIso(row.expiresAt ?? row.expires_at),
+    createdAt: dateToIso(row.createdAt ?? row.created_at),
+    updatedAt: dateToIso(row.updatedAt ?? row.updated_at)
+  };
+}
+
+async function loadWebSession(sessionId) {
+  const result = await pool.query(
+    `SELECT session_data AS "sessionData",
+            user_id AS "userId",
+            public_id AS "publicId",
+            expires_at AS "expiresAt",
+            created_at AS "createdAt",
+            updated_at AS "updatedAt"
+     FROM web_sessions
+     WHERE sid = $1
+       AND expires_at > NOW()`,
+    [sessionId]
+  );
+  if (result.rows[0]) {
+    return mapStoredWebSession(result.rows[0]);
+  }
+  await pool.query('DELETE FROM web_sessions WHERE sid = $1 AND expires_at <= NOW()', [sessionId]);
+  return null;
+}
+
+async function saveWebSession(sessionId, sessionData, metadata) {
+  const result = await pool.query(
+    `INSERT INTO web_sessions (
+       sid, public_id, user_id, session_data, expires_at
+     )
+     VALUES ($1, $2, $3, $4::jsonb, $5)
+     ON CONFLICT (sid) DO UPDATE
+       SET user_id = EXCLUDED.user_id,
+           session_data = EXCLUDED.session_data,
+           expires_at = EXCLUDED.expires_at,
+           updated_at = NOW()
+     RETURNING session_data AS "sessionData",
+               user_id AS "userId",
+               public_id AS "publicId",
+               expires_at AS "expiresAt",
+               created_at AS "createdAt",
+               updated_at AS "updatedAt"`,
+    [
+      sessionId,
+      metadata.publicId,
+      metadata.userId || null,
+      JSON.stringify(sessionData),
+      metadata.expiresAt
+    ]
+  );
+  return mapStoredWebSession(result.rows[0]);
+}
+
+async function touchWebSession(sessionId, sessionData, metadata) {
+  const result = await pool.query(
+    `UPDATE web_sessions
+     SET user_id = $2,
+         session_data = $3::jsonb,
+         expires_at = $4,
+         updated_at = NOW()
+     WHERE sid = $1
+       AND expires_at > NOW()
+     RETURNING session_data AS "sessionData",
+               user_id AS "userId",
+               public_id AS "publicId",
+               expires_at AS "expiresAt",
+               created_at AS "createdAt",
+               updated_at AS "updatedAt"`,
+    [
+      sessionId,
+      metadata.userId || null,
+      JSON.stringify(sessionData),
+      metadata.expiresAt
+    ]
+  );
+  return mapStoredWebSession(result.rows[0]);
+}
+
+async function destroyWebSession(sessionId) {
+  const result = await pool.query('DELETE FROM web_sessions WHERE sid = $1', [sessionId]);
+  return result.rowCount || 0;
+}
+
+async function clearWebSessions() {
+  const result = await pool.query('DELETE FROM web_sessions');
+  return result.rowCount || 0;
+}
+
+async function countWebSessions() {
+  const result = await pool.query(
+    'SELECT COUNT(*)::int AS count FROM web_sessions WHERE expires_at > NOW()'
+  );
+  return Number(result.rows[0]?.count || 0);
+}
+
+async function listStoredWebSessions() {
+  const result = await pool.query(
+    `SELECT session_data AS "sessionData",
+            user_id AS "userId",
+            public_id AS "publicId",
+            expires_at AS "expiresAt",
+            created_at AS "createdAt",
+            updated_at AS "updatedAt"
+     FROM web_sessions
+     WHERE expires_at > NOW()
+     ORDER BY updated_at DESC`
+  );
+  return result.rows.map(mapStoredWebSession);
+}
+
+async function listUserWebSessions(userId, currentSessionId = null) {
+  const result = await pool.query(
+    `SELECT public_id AS id,
+            created_at AS "createdAt",
+            updated_at AS "lastUsedAt",
+            expires_at AS "expiresAt",
+            (sid = $2) AS current
+     FROM web_sessions
+     WHERE user_id = $1
+       AND expires_at > NOW()
+     ORDER BY updated_at DESC`,
+    [userId, currentSessionId]
+  );
+  return result.rows.map((row) => ({
+    id: String(row.id),
+    kind: 'web',
+    name: 'Web browser',
+    createdAt: dateToIso(row.createdAt),
+    lastUsedAt: dateToIso(row.lastUsedAt),
+    expiresAt: dateToIso(row.expiresAt),
+    current: Boolean(row.current)
+  }));
+}
+
+async function deleteUserWebSession(userId, publicId) {
+  const result = await pool.query(
+    'DELETE FROM web_sessions WHERE user_id = $1 AND public_id = $2',
+    [userId, publicId]
+  );
+  return result.rowCount || 0;
+}
+
+let lastRateLimitCleanupAt = 0;
+
+async function cleanupExpiredRateLimits(now = Date.now()) {
+  if (now - lastRateLimitCleanupAt < 60 * 1000) {
+    return;
+  }
+  lastRateLimitCleanupAt = now;
+  await pool.query('DELETE FROM rate_limit_counters WHERE expires_at <= NOW()');
+}
+
+async function consumeRateLimit(bucketKey, windowMs) {
+  await cleanupExpiredRateLimits();
+  const result = await pool.query(
+    `INSERT INTO rate_limit_counters (bucket_key, count, expires_at, updated_at)
+     VALUES ($1, 1, NOW() + ($2::double precision * INTERVAL '1 millisecond'), NOW())
+     ON CONFLICT (bucket_key) DO UPDATE
+       SET count = CASE
+             WHEN rate_limit_counters.expires_at <= NOW() THEN 1
+             ELSE rate_limit_counters.count + 1
+           END,
+           expires_at = CASE
+             WHEN rate_limit_counters.expires_at <= NOW()
+               THEN NOW() + ($2::double precision * INTERVAL '1 millisecond')
+             ELSE rate_limit_counters.expires_at
+           END,
+           updated_at = NOW()
+     RETURNING count, expires_at AS "expiresAt"`,
+    [bucketKey, windowMs]
+  );
+  return {
+    count: Number(result.rows[0].count),
+    expiresAt: dateToIso(result.rows[0].expiresAt)
+  };
+}
+
 // ── API tokens ──
 
-async function createApiToken(userId, name) {
+function boundedInteger(value, fallback, minimum, maximum) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function getApiTokenPolicy() {
+  return {
+    ttlDays: boundedInteger(process.env.MOBILE_TOKEN_TTL_DAYS, 90, 7, 180),
+    rotateWithinDays: boundedInteger(process.env.MOBILE_TOKEN_ROTATE_WITHIN_DAYS, 14, 1, 60)
+  };
+}
+
+async function createApiToken(userId, name, options = {}) {
+  const tokenOptions = options && typeof options === 'object' ? options : {};
+  const policy = getApiTokenPolicy();
+  const ttlDays = boundedInteger(tokenOptions.ttlDays, policy.ttlDays, 1, 180);
   const token = crypto.randomBytes(32).toString('hex');
   const hash = crypto.createHash('sha256').update(token).digest('hex');
-  const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000);
 
   const result = await pool.query(
     `INSERT INTO api_tokens (user_id, token_hash, name, expires_at)
@@ -3400,7 +3635,9 @@ async function createApiToken(userId, name) {
 async function validateApiToken(token) {
   const hash = crypto.createHash('sha256').update(token).digest('hex');
   const result = await pool.query(
-    `SELECT t.id, t.user_id, u.email, u.name, u.picture, u.provider, u.timezone,
+    `SELECT t.id, t.user_id, t.name AS "tokenName",
+            t.expires_at AS "tokenExpiresAt",
+            u.email, u.name, u.picture, u.provider, u.timezone,
             u.is_disabled AS "isDisabled",
             u.sexual_activity_enabled AS "sexualActivityEnabled",
             u.setup_tutorial_reset_at AS "setupTutorialResetAt",
@@ -3423,6 +3660,9 @@ async function validateApiToken(token) {
 
   return {
     id: row.user_id,
+    apiTokenId: Number(row.id),
+    apiTokenName: row.tokenName,
+    apiTokenExpiresAt: dateToIso(row.tokenExpiresAt),
     email: row.email,
     name: row.name,
     picture: row.picture,
@@ -3438,20 +3678,24 @@ async function validateApiToken(token) {
   };
 }
 
-async function listApiTokens(userId) {
+async function listApiTokens(userId, currentTokenId = null) {
   const result = await pool.query(
-    `SELECT id, name, created_at AS "createdAt", expires_at AS "expiresAt", last_used_at AS "lastUsedAt"
+    `SELECT id, name, created_at AS "createdAt", expires_at AS "expiresAt",
+            last_used_at AS "lastUsedAt", (id = $2) AS current
      FROM api_tokens
      WHERE user_id = $1
+       AND (expires_at IS NULL OR expires_at > NOW())
      ORDER BY created_at DESC`,
-    [userId]
+    [userId, currentTokenId]
   );
   return result.rows.map((row) => ({
     id: Number(row.id),
+    kind: 'mobile',
     name: row.name,
     createdAt: new Date(row.createdAt).toISOString(),
     expiresAt: row.expiresAt ? new Date(row.expiresAt).toISOString() : null,
-    lastUsedAt: row.lastUsedAt ? new Date(row.lastUsedAt).toISOString() : null
+    lastUsedAt: row.lastUsedAt ? new Date(row.lastUsedAt).toISOString() : null,
+    current: Boolean(row.current)
   }));
 }
 
@@ -3469,6 +3713,74 @@ async function deleteAllApiTokens(userId) {
     [userId]
   );
   return result.rowCount || 0;
+}
+
+async function rotateApiToken(userId, tokenId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const current = await client.query(
+      `SELECT id, name
+       FROM api_tokens
+       WHERE id = $1
+         AND user_id = $2
+         AND (expires_at IS NULL OR expires_at > NOW())
+       FOR UPDATE`,
+      [tokenId, userId]
+    );
+    if (!current.rows[0]) {
+      throw new Error('Active mobile credential not found.');
+    }
+
+    const policy = getApiTokenPolicy();
+    const token = crypto.randomBytes(32).toString('hex');
+    const hash = crypto.createHash('sha256').update(token).digest('hex');
+    const expiresAt = new Date(Date.now() + policy.ttlDays * 24 * 60 * 60 * 1000);
+    const inserted = await client.query(
+      `INSERT INTO api_tokens (user_id, token_hash, name, expires_at)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, name, created_at AS "createdAt", expires_at AS "expiresAt"`,
+      [userId, hash, current.rows[0].name || 'DailyMacros iOS', expiresAt]
+    );
+    await client.query('COMMIT');
+    return {
+      id: Number(inserted.rows[0].id),
+      name: inserted.rows[0].name,
+      token,
+      createdAt: dateToIso(inserted.rows[0].createdAt),
+      expiresAt: dateToIso(inserted.rows[0].expiresAt)
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function revokeAllCredentials(userId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const webSessions = await client.query(
+      'DELETE FROM web_sessions WHERE user_id = $1',
+      [userId]
+    );
+    const apiTokens = await client.query(
+      'DELETE FROM api_tokens WHERE user_id = $1',
+      [userId]
+    );
+    await client.query('COMMIT');
+    return {
+      webSessionCount: webSessions.rowCount || 0,
+      apiTokenCount: apiTokens.rowCount || 0
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 // ── AI coach dismissals ──
@@ -3616,6 +3928,7 @@ async function deleteUserAccount(userId) {
     await client.query('DELETE FROM coach_dismissals WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM client_diagnostics WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM client_mutations WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM web_sessions WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM billing_events WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM subscriptions WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM audit_log WHERE user_id = $1', [userId]);
@@ -3780,6 +4093,16 @@ module.exports = {
   logAudit,
   logClientDiagnostic,
   listClientDiagnostics,
+  loadWebSession,
+  saveWebSession,
+  touchWebSession,
+  destroyWebSession,
+  clearWebSessions,
+  countWebSessions,
+  listStoredWebSessions,
+  listUserWebSessions,
+  deleteUserWebSession,
+  consumeRateLimit,
   claimClientMutation,
   getClientMutation,
   completeClientMutation,
@@ -3832,6 +4155,9 @@ module.exports = {
   listApiTokens,
   deleteApiToken,
   deleteAllApiTokens,
+  rotateApiToken,
+  revokeAllCredentials,
+  getApiTokenPolicy,
   listCoachDismissals,
   upsertCoachDismissals,
   deleteCoachDismissals,
