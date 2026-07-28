@@ -1050,7 +1050,7 @@ test('iOS settings exposes support privacy and build metadata', () => {
   assert.ok(api.includes('token = nil'));
   assert.ok(api.includes('kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly'));
   assert.ok(plist.includes('<key>CFBundleDisplayName</key>'));
-  assert.ok(plist.includes('<string>Daily Macros</string>'));
+  assert.ok(plist.includes('<string>macrovana</string>'));
   assert.ok(plist.includes('<key>AppBuild</key>'));
   assert.ok(plist.includes('<key>GitCommitHash</key>'));
 });

@@ -90,7 +90,7 @@ struct LoginView: View {
             DailyMacrosLogoMark()
                 .frame(width: 42, height: 42)
 
-            Text("DailyMacros")
+            Text("macrovana")
                 .font(.system(size: 34, weight: .heavy))
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
@@ -108,7 +108,7 @@ struct LoginView: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("DailyMacros")
+        .accessibilityLabel("macrovana")
     }
 
     private var googleButton: some View {

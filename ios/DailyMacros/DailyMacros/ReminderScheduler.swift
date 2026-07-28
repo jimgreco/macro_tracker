@@ -50,11 +50,11 @@ final class ReminderScheduler: ObservableObject {
         let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
         guard granted else {
             UserDefaults.standard.set(false, forKey: enabledKey)
-            throw APIError.serverError("Notifications are not allowed for DailyMacros.")
+            throw APIError.serverError("Notifications are not allowed for macrovana.")
         }
 
         let content = UNMutableNotificationContent()
-        content.title = "Log DailyMacros"
+        content.title = "Log macrovana"
         content.body = "Add today's meals, weight, workout, or sleep before the day gets away."
         content.sound = .default
 

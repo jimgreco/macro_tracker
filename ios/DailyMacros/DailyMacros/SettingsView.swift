@@ -143,7 +143,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
-                Text("Daily Macros stores nutrition, weight, workouts, sleep, sexual activity entries, meal photos submitted for parsing, account details, and beta usage data. You can export a JSON copy of your data or permanently delete your account from this screen.")
+                Text("macrovana stores nutrition, weight, workouts, sleep, sexual activity entries, meal photos submitted for parsing, account details, and beta usage data. You can export a JSON copy of your data or permanently delete your account from this screen.")
                     .font(.subheadline)
             }
 
@@ -698,7 +698,7 @@ struct SettingsView: View {
         defer { isExporting = false }
         do {
             let data = try await api.exportData()
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("dailymacros-export.json")
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("macrovana-export.json")
             try data.write(to: tempURL)
             await MainActor.run {
                 let controller = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
@@ -716,7 +716,7 @@ struct SettingsView: View {
         isExportingDiagnostics = true
         defer { isExportingDiagnostics = false }
         do {
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("dailymacros-diagnostics.txt")
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("macrovana-diagnostics.txt")
             try diagnostics.exportText().write(to: tempURL, atomically: true, encoding: .utf8)
             await MainActor.run {
                 let controller = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
@@ -1063,7 +1063,7 @@ private struct AccountDetailsView: View {
         defer { isExporting = false }
         do {
             let data = try await api.exportData()
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("dailymacros-export.json")
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("macrovana-export.json")
             try data.write(to: tempURL)
             await MainActor.run {
                 let controller = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
@@ -1255,7 +1255,7 @@ private enum SettingsTimezoneOptions {
 
 private enum SettingsAccountText {
     static func displayName(for user: User?) -> String {
-        clean(user?.name) ?? "DailyMacros Account"
+        clean(user?.name) ?? "macrovana Account"
     }
 
     static func email(for user: User?) -> String {

@@ -76,7 +76,7 @@ final class Diagnostics: ObservableObject {
             .filter { !$0.isEmpty }
             .joined(separator: " | ")
         }
-        return (["DailyMacros Diagnostics"] + lines).joined(separator: "\n")
+        return (["macrovana Diagnostics"] + lines).joined(separator: "\n")
     }
 
     func clear() {

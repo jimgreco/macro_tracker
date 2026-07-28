@@ -719,7 +719,7 @@ test('iOS login matches website sign-in layout', () => {
   assert.ok(swift.includes('LoginBackground'));
   assert.ok(swift.includes('loginCard'));
   assert.ok(swift.includes('DailyMacrosLogoMark()'));
-  assert.ok(swift.includes('Text("DailyMacros")'));
+  assert.ok(swift.includes('Text("macrovana")'));
   assert.ok(swift.includes('Sign in to continue to the app.'));
   assert.ok(swift.includes('Text("Continue with Google")'));
   assert.ok(swift.includes('GoogleLogoMark()'));
@@ -1368,7 +1368,7 @@ test('iOS app includes onboarding reminders offline queue and diagnostics founda
   assert.ok(app.includes('api.flushPendingMutations()'));
   assert.ok(auth.includes('func refreshUser() async'));
   assert.ok(models.includes('let setupTutorialResetAt: String?'));
-  assert.ok(onboarding.includes('Set Up DailyMacros'));
+  assert.ok(onboarding.includes('Set Up macrovana'));
   assert.ok(onboarding.includes('@EnvironmentObject var auth: AuthManager'));
   assert.ok(onboarding.includes('private enum SetupStep'));
   assert.ok(onboarding.includes('case macros'));

@@ -26,7 +26,7 @@ enum HealthKitWorkoutSyncError: LocalizedError {
         case .workoutUnavailable:
             return "Apple Health saved the workout, but did not return a workout record."
         case .deleteFailed:
-            return "Apple Health could not remove duplicate DailyMacros workout records."
+            return "Apple Health could not remove duplicate macrovana workout records."
         }
     }
 }
