@@ -13,6 +13,8 @@ struct TodayView: View {
     @State private var isOffline = false
     @State private var loadMessage: String?
     @State private var lastUpdatedAt: Date?
+    @State private var loadGeneration = 0
+    @State private var refreshTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
@@ -31,6 +33,7 @@ struct TodayView: View {
                             dismissals: coachDismissals,
                             suggestions: coachSuggestions,
                             maximumSuggestions: 1,
+                            isActive: navigation.selectedDestination == .today,
                             onPrimaryAction: handleCoachAction
                         )
 
@@ -66,7 +69,7 @@ struct TodayView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
-                        Task { await loadToday(refreshing: true) }
+                        startRefresh()
                     } label: {
                         if isRefreshing {
                             ProgressView()
@@ -74,17 +77,23 @@ struct TodayView: View {
                             Image(systemName: "arrow.clockwise")
                         }
                     }
-                    .disabled(isRefreshing)
+                    .disabled(isRefreshing || isLoading)
                     .accessibilityLabel("Refresh Today")
 
                     AccountToolbarButton()
                 }
             }
             .task {
-                await loadToday(refreshing: false)
+                if response == nil {
+                    await loadToday(refreshing: false)
+                }
             }
             .refreshable {
                 await loadToday(refreshing: true)
+            }
+            .onDisappear {
+                refreshTask?.cancel()
+                refreshTask = nil
             }
         }
     }
@@ -472,7 +481,7 @@ struct TodayView: View {
             Text(loadMessage ?? "Connect to load the latest account facts. Quick logging is still available from the tabs below.")
         } actions: {
             Button("Try Again") {
-                Task { await loadToday(refreshing: true) }
+                startRefresh()
             }
             .buttonStyle(.borderedProminent)
         }
@@ -480,25 +489,44 @@ struct TodayView: View {
         .todayCard()
     }
 
+    @MainActor
+    private func startRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task {
+            await loadToday(refreshing: true)
+        }
+    }
+
+    @MainActor
     private func loadToday(refreshing: Bool) async {
+        loadGeneration &+= 1
+        let generation = loadGeneration
+
         if refreshing {
             isRefreshing = true
         } else if response == nil {
             isLoading = true
         }
         defer {
-            isRefreshing = false
-            isLoading = false
+            if loadGeneration == generation {
+                isRefreshing = false
+                isLoading = false
+            }
         }
 
         do {
             let next = try await api.getToday()
+            guard !Task.isCancelled, loadGeneration == generation else { return }
+            let nextCoachSuggestions = await buildCoachSuggestions(from: next)
+            guard !Task.isCancelled, loadGeneration == generation else { return }
+
             response = next
+            coachSuggestions = nextCoachSuggestions
             lastUpdatedAt = parseDate(next.generatedAt) ?? Date()
             isOffline = false
             loadMessage = nil
-            await rebuildCoachSuggestions(from: next)
         } catch {
+            guard !Task.isCancelled, loadGeneration == generation else { return }
             isOffline = isNetworkError(error)
             loadMessage = error.localizedDescription
             if response == nil {
@@ -507,7 +535,7 @@ struct TodayView: View {
         }
     }
 
-    private func rebuildCoachSuggestions(from response: TodayResponse) async {
+    private func buildCoachSuggestions(from response: TodayResponse) async -> [CoachSuggestion] {
         let context = response.context
         let macroDailyTotals = context.dashboard.previousDays + [context.dashboard.currentDayTotals]
 
@@ -543,8 +571,8 @@ struct TodayView: View {
             sleepSuggestions
         )
         let combined = macros + workouts + weight + sleep
-        guard !Task.isCancelled else { return }
-        coachSuggestions = combined.sorted {
+        guard !Task.isCancelled else { return [] }
+        return combined.sorted {
             if $0.priority == $1.priority {
                 return $0.confidence > $1.confidence
             }
@@ -566,8 +594,12 @@ struct TodayView: View {
     }
 
     private func formatNumber(_ value: Double) -> String {
-        if abs(value.rounded() - value) < 0.05 {
-            return String(Int(value.rounded()))
+        guard value.isFinite else { return "—" }
+        let rounded = value.rounded()
+        if abs(rounded - value) < 0.05,
+           rounded >= Double(Int.min),
+           rounded <= Double(Int.max) {
+            return String(Int(rounded))
         }
         return String(format: "%.1f", value)
     }

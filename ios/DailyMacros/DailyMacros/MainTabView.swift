@@ -50,9 +50,9 @@ final class AppNavigationModel: ObservableObject {
     private var pendingCoachSurface: CoachSurface?
 
     func request(_ action: AppQuickAction) {
+        pendingQuickAction = nil
         pendingCoachAction = nil
         pendingCoachSurface = nil
-        pendingQuickAction = action
         switch action {
         case .logMeal:
             selectedDestination = .macros
@@ -65,18 +65,20 @@ final class AppNavigationModel: ObservableObject {
             healthArea = .sleep
             selectedDestination = .health
         }
+        pendingQuickAction = action
     }
 
-    func consume(_ action: AppQuickAction) {
-        guard pendingQuickAction == action else { return }
+    @discardableResult
+    func consume(_ action: AppQuickAction) -> Bool {
+        guard pendingQuickAction == action, isActive(for: action) else { return false }
         pendingQuickAction = nil
+        return true
     }
 
     func request(_ action: CoachAction, from surface: CoachSurface) {
         pendingQuickAction = nil
-        pendingCoachAction = action
-        pendingCoachSurface = surface
-        coachActionRevision &+= 1
+        pendingCoachAction = nil
+        pendingCoachSurface = nil
 
         switch action.type {
         case .openLogMeal, .openQuickAdd, .logMealItem:
@@ -103,6 +105,10 @@ final class AppNavigationModel: ObservableObject {
                 selectedDestination = .health
             }
         }
+
+        pendingCoachAction = action
+        pendingCoachSurface = surface
+        coachActionRevision &+= 1
     }
 
     func consumeCoachAction(
@@ -110,6 +116,7 @@ final class AppNavigationModel: ObservableObject {
         matching types: [CoachActionType]
     ) -> CoachAction? {
         guard pendingCoachSurface == surface,
+              isActive(for: surface),
               let pendingCoachAction,
               types.contains(pendingCoachAction.type) else {
             return nil
@@ -150,6 +157,32 @@ final class AppNavigationModel: ObservableObject {
             open(.health)
         } else {
             open(.today)
+        }
+    }
+
+    private func isActive(for action: AppQuickAction) -> Bool {
+        switch action {
+        case .logMeal:
+            return selectedDestination == .macros
+        case .logWorkout:
+            return selectedDestination == .workouts
+        case .logWeight:
+            return selectedDestination == .health && healthArea == .weight
+        case .logSleep:
+            return selectedDestination == .health && healthArea == .sleep
+        }
+    }
+
+    private func isActive(for surface: CoachSurface) -> Bool {
+        switch surface {
+        case .macros:
+            return selectedDestination == .macros
+        case .workouts:
+            return selectedDestination == .workouts
+        case .weight:
+            return selectedDestination == .health && healthArea == .weight
+        case .sleep:
+            return selectedDestination == .health && healthArea == .sleep
         }
     }
 }
@@ -205,7 +238,9 @@ struct AccountToolbarButton: View {
 
 struct MainTabView: View {
     @EnvironmentObject var auth: AuthManager
+    @EnvironmentObject private var api: APIClient
     @StateObject private var offlineQueue = OfflineMutationStore.shared
+    @StateObject private var coachDismissals = CoachDismissalStore.shared
     @StateObject private var navigation = AppNavigationModel()
     @State private var showSettings = false
 
@@ -253,6 +288,9 @@ struct MainTabView: View {
         .onOpenURL { url in
             navigation.handle(url: url)
         }
+        .task(id: auth.user?.id) {
+            await syncCoachDismissals()
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             if offlineQueue.pendingCount > 0 {
                 HStack(spacing: 10) {
@@ -281,6 +319,44 @@ struct MainTabView: View {
             }
         }
     }
+
+    @MainActor
+    private func syncCoachDismissals() async {
+        guard auth.user != nil else { return }
+
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return
+        }
+        #endif
+
+        do {
+            let response = try await api.getCoachDismissals()
+            guard !Task.isCancelled else { return }
+            coachDismissals.mergeSyncedRecords(response.dismissals)
+
+            let mergedRecords = coachDismissals.syncedRecords()
+            if !mergedRecords.isEmpty {
+                let synced = try await api.syncCoachDismissals(mergedRecords)
+                guard !Task.isCancelled else { return }
+                coachDismissals.mergeSyncedRecords(synced.dismissals)
+            }
+
+            Diagnostics.shared.record(
+                category: "coach",
+                message: "\(CoachBrand.name) synced dismissals",
+                details: ["count": "\(mergedRecords.count)"]
+            )
+        } catch {
+            guard !Task.isCancelled else { return }
+            Diagnostics.shared.record(
+                level: "warning",
+                category: "coach",
+                message: "\(CoachBrand.name) dismissal sync skipped",
+                details: ["error": error.localizedDescription]
+            )
+        }
+    }
 }
 
 private struct HealthHubView: View {
@@ -296,9 +372,23 @@ private struct HealthHubView: View {
         showsSexualActivity ? [.weight, .sleep, .sexualActivity] : [.weight, .sleep]
     }
 
+    private var visibleHealthArea: HealthArea {
+        availableAreas.contains(navigation.healthArea) ? navigation.healthArea : .sleep
+    }
+
+    private var healthAreaSelection: Binding<HealthArea> {
+        Binding(
+            get: { visibleHealthArea },
+            set: { area in
+                guard availableAreas.contains(area) else { return }
+                navigation.healthArea = area
+            }
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Health section", selection: $navigation.healthArea) {
+            Picker("Health section", selection: healthAreaSelection) {
                 ForEach(availableAreas, id: \.self) { area in
                     Text(area.label)
                         .tag(area)
@@ -311,19 +401,22 @@ private struct HealthHubView: View {
             .padding(.bottom, 4)
             .accessibilityLabel("Health section")
 
-            TabView(selection: $navigation.healthArea) {
-                WeightView()
-                    .tag(HealthArea.weight)
-
-                SleepView()
-                    .tag(HealthArea.sleep)
-
-                if showsSexualActivity {
+            Group {
+                switch visibleHealthArea {
+                case .weight:
+                    WeightView()
+                case .sleep:
+                    SleepView()
+                case .sexualActivity:
                     SexualActivityView()
-                        .tag(HealthArea.sexualActivity)
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+            /*
+             Keep Health as one primary destination without nesting a dynamic
+             page-style TabView. A conditional page can otherwise disappear
+             while its tag is still selected, leaving UIKit to reconcile an
+             invalid page index during an outer tab transition.
+             */
             .clipped()
         }
         .onAppear {

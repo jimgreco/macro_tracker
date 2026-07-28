@@ -15,10 +15,15 @@ enum AppClock {
 #if DEBUG
 enum ScreenshotSeedData {
     static let launchArgument = "--app-store-screenshots"
+    static let stabilityLaunchArgument = "--tab-stability-testing"
 
     static var isEnabled: Bool {
         CommandLine.arguments.contains(launchArgument) ||
         ProcessInfo.processInfo.environment["APP_STORE_SCREENSHOTS"] == "1"
+    }
+
+    static var isTabStabilityTesting: Bool {
+        CommandLine.arguments.contains(stabilityLaunchArgument)
     }
 
     static let referenceDay = "2026-06-17"
@@ -38,7 +43,7 @@ enum ScreenshotSeedData {
             timezone: "America/New_York",
             isAdmin: false,
             setupTutorialResetAt: nil,
-            features: UserFeatures(sexualActivity: false)
+            features: UserFeatures(sexualActivity: isTabStabilityTesting)
         )
     }
 
@@ -49,9 +54,14 @@ enum ScreenshotSeedData {
 
         let defaults = UserDefaults.standard
         defaults.set(true, forKey: "onboarding_complete")
-        defaults.set(false, forKey: FeaturePreferenceKeys.sexualActivityPageVisible)
-        defaults.set(false, forKey: CoachSettingKeys.enabled)
-        defaults.set(CoachMode.off.rawValue, forKey: CoachSettingKeys.mode)
+        defaults.set(isTabStabilityTesting, forKey: FeaturePreferenceKeys.sexualActivityPageVisible)
+        defaults.set(isTabStabilityTesting, forKey: CoachSettingKeys.enabled)
+        defaults.set(
+            isTabStabilityTesting
+                ? CoachMode.localModelWithTemplates.rawValue
+                : CoachMode.off.rawValue,
+            forKey: CoachSettingKeys.mode
+        )
         defaults.set("[]", forKey: CoachSettingKeys.disabledCategories)
         defaults.removeObject(forKey: "api_base_url")
     }

@@ -258,6 +258,7 @@ struct CoachSuggestion: Identifiable, Sendable {
     }
 }
 
+@MainActor
 final class CoachDismissalStore: ObservableObject {
     static let shared = CoachDismissalStore()
 
@@ -341,8 +342,10 @@ final class CoachDismissalStore: ObservableObject {
     }
 
     func mergeSyncedRecords(_ records: [CoachDismissalRecord], now: Date = Date()) {
-        var todayDismissals = loadTodayDismissals()
-        var actionDismissals = loadActionDismissals()
+        let existingTodayDismissals = loadTodayDismissals().filter { $0.value > now }
+        let existingActionDismissals = loadActionDismissals()
+        var todayDismissals = existingTodayDismissals
+        var actionDismissals = existingActionDismissals
 
         for record in records {
             switch record.type {
@@ -363,9 +366,15 @@ final class CoachDismissalStore: ObservableObject {
             }
         }
 
-        saveTodayDismissals(todayDismissals.filter { $0.value > now })
+        let activeTodayDismissals = todayDismissals.filter { $0.value > now }
+        guard activeTodayDismissals != existingTodayDismissals
+                || actionDismissals != existingActionDismissals else {
+            return
+        }
+
+        saveTodayDismissals(activeTodayDismissals)
         saveActionDismissals(actionDismissals)
-        revision += 1
+        revision &+= 1
     }
 
     private func isDismissed(_ suggestion: CoachSuggestion, now: Date) -> Bool {
@@ -449,11 +458,11 @@ struct AICoachSlot: View {
     @State private var narratedSuggestion: CoachSuggestion?
     @State private var localAIVetoKey: String?
     @State private var narrationFailureKey: String?
-    @State private var didAttemptDismissalSync = false
     @State private var selectedSuggestionID: String?
 
     let suggestions: [CoachSuggestion]
     var maximumSuggestions = 3
+    var isActive = true
     let onPrimaryAction: (CoachSuggestion, CoachAction) -> Void
 
     var body: some View {
@@ -526,10 +535,7 @@ struct AICoachSlot: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .clipped()
-        .task {
-            await syncDismissalsFromServerIfNeeded()
-        }
-        .task(id: narrationTaskID(for: visibleCandidates, mode: mode)) {
+        .task(id: "\(isActive):\(narrationTaskID(for: visibleCandidates, mode: mode))") {
             await refreshNarration(for: visibleCandidates, mode: mode)
         }
     }
@@ -558,34 +564,6 @@ struct AICoachSlot: View {
             message: "\(CoachBrand.name) \(event)",
             details: details
         )
-    }
-
-    @MainActor
-    private func syncDismissalsFromServerIfNeeded() async {
-        guard !didAttemptDismissalSync else { return }
-        didAttemptDismissalSync = true
-
-        do {
-            let response = try await api.getCoachDismissals()
-            dismissals.mergeSyncedRecords(response.dismissals)
-            let mergedRecords = dismissals.syncedRecords()
-            if !mergedRecords.isEmpty {
-                let synced = try await api.syncCoachDismissals(mergedRecords)
-                dismissals.mergeSyncedRecords(synced.dismissals)
-            }
-            Diagnostics.shared.record(
-                category: "coach",
-                message: "\(CoachBrand.name) synced dismissals",
-                details: ["count": "\(mergedRecords.count)"]
-            )
-        } catch {
-            Diagnostics.shared.record(
-                level: "warning",
-                category: "coach",
-                message: "\(CoachBrand.name) dismissal sync skipped",
-                details: ["error": error.localizedDescription]
-            )
-        }
     }
 
     @MainActor
@@ -692,14 +670,61 @@ struct AICoachSlot: View {
     private func narrationTaskID(for candidates: [CoachSuggestion], mode: CoachMode) -> String {
         let candidateKey = candidates
             .prefix(3)
-            .map { "\($0.id):\($0.dismissalKey):\($0.priority)" }
+            .map {
+                [
+                    $0.id,
+                    $0.surface.rawValue,
+                    $0.category,
+                    $0.dismissalKey,
+                    String($0.priority),
+                    String(format: "%.4f", $0.confidence),
+                    $0.title,
+                    $0.message,
+                    $0.evidence.joined(separator: "\u{1f}"),
+                    narrationActionKey(for: $0.primaryAction)
+                ].joined(separator: "\u{1e}")
+            }
             .joined(separator: "|")
-        return "\(mode.rawValue):\(dismissals.revision):\(candidateKey)"
+        return "\(auth.user?.id ?? "signed-out"):\(mode.rawValue):\(candidateKey)"
+    }
+
+    private func narrationActionKey(for action: CoachAction?) -> String {
+        guard let action else { return "no-action" }
+
+        var components = [
+            String(describing: action.type),
+            action.label,
+            action.searchText ?? ""
+        ]
+        if let item = action.mealItem {
+            components.append(
+                [
+                    item.itemName,
+                    String(item.quantity),
+                    item.unit,
+                    String(item.calories),
+                    String(item.protein),
+                    String(item.carbs),
+                    String(item.fat)
+                ].joined(separator: "\u{1d}")
+            )
+        }
+        if let workout = action.workout {
+            components.append(
+                [
+                    workout.description,
+                    workout.intensity,
+                    String(workout.durationHours),
+                    String(workout.caloriesBurned)
+                ].joined(separator: "\u{1d}")
+            )
+        }
+        return components.joined(separator: "\u{1c}")
     }
 
     @MainActor
     private func refreshNarration(for candidates: [CoachSuggestion], mode: CoachMode) async {
-        guard mode.allowsLocalModel, !candidates.isEmpty else {
+        guard isActive, mode.allowsLocalModel, !candidates.isEmpty else {
             narratedSuggestion = nil
             localAIVetoKey = nil
             narrationFailureKey = nil
@@ -708,9 +733,16 @@ struct AICoachSlot: View {
 
         let activeKey = narrationTaskID(for: candidates, mode: mode)
         let eligibleCandidates = Array(candidates.prefix(3))
-        let result = await CoachNarrationWorker.shared.narrate(candidates: eligibleCandidates, mode: mode)
+        guard !Task.isCancelled else { return }
+        let result = await CoachNarrationWorker.shared.narrate(
+            candidates: eligibleCandidates,
+            mode: mode,
+            key: activeKey
+        )
 
-        guard activeKey == narrationTaskID(for: candidates, mode: mode) else {
+        guard !Task.isCancelled,
+              isActive,
+              activeKey == narrationTaskID(for: candidates, mode: mode) else {
             return
         }
 
@@ -801,9 +833,104 @@ actor CoachCandidateWorker {
 actor CoachNarrationWorker {
     static let shared = CoachNarrationWorker()
 
-    func narrate(candidates: [CoachSuggestion], mode: CoachMode) async -> CoachNarrationResult {
-        guard mode.allowsLocalModel, !candidates.isEmpty else { return .unavailable }
-        return await CoachNarrator.shared.narrate(candidates: Array(candidates.prefix(3)))
+    private struct CachedNarration {
+        let result: CoachNarrationResult
+        let validUntil: Date
+    }
+
+    private struct ActiveNarration {
+        let generation: Int
+        let key: String
+        let task: Task<CoachNarrationResult, Never>
+    }
+
+    private var cache: [String: CachedNarration] = [:]
+    private var cacheOrder: [String] = []
+    private var activeNarration: ActiveNarration?
+    private var generation = 0
+    private let cacheLimit = 24
+
+    func narrate(
+        candidates: [CoachSuggestion],
+        mode: CoachMode,
+        key: String
+    ) async -> CoachNarrationResult {
+        guard !Task.isCancelled, mode.allowsLocalModel, !candidates.isEmpty else {
+            return .unavailable
+        }
+
+        if let cached = cachedNarration(for: key) {
+            return cached
+        }
+
+        /*
+         FoundationModels generation is intentionally serialized and detached
+         from a tab's view task. Canceling or overlapping sessions during a
+         navigation transition can trap inside the framework before Swift can
+         surface an Error, so a canceled caller waits for the current session
+         to finish but never starts the next one.
+         */
+        while let current = activeNarration {
+            let currentResult = await current.task.value
+            finish(current, with: currentResult)
+
+            if current.key == key {
+                return currentResult
+            }
+
+            guard !Task.isCancelled else { return .unavailable }
+            if let cached = cachedNarration(for: key) {
+                return cached
+            }
+        }
+
+        guard !Task.isCancelled else { return .unavailable }
+        generation &+= 1
+        let eligibleCandidates = Array(candidates.prefix(3))
+        let task = Task {
+            return await CoachNarrator.shared.narrate(candidates: eligibleCandidates)
+        }
+        let active = ActiveNarration(generation: generation, key: key, task: task)
+        activeNarration = active
+
+        let result = await active.task.value
+        finish(active, with: result)
+        return result
+    }
+
+    private func finish(_ active: ActiveNarration, with result: CoachNarrationResult) {
+        guard activeNarration?.generation == active.generation else { return }
+        activeNarration = nil
+        store(result, for: active.key)
+    }
+
+    private func cachedNarration(for key: String, now: Date = Date()) -> CoachNarrationResult? {
+        guard let cached = cache[key] else { return nil }
+        guard cached.validUntil > now else {
+            cache.removeValue(forKey: key)
+            cacheOrder.removeAll { $0 == key }
+            return nil
+        }
+        return cached.result
+    }
+
+    private func store(_ result: CoachNarrationResult, for key: String, now: Date = Date()) {
+        let validUntil: Date
+        switch result {
+        case .narrated, .vetoed:
+            validUntil = .distantFuture
+        case .unavailable:
+            // Avoid retry storms while still allowing a preparing local model to recover.
+            validUntil = now.addingTimeInterval(60)
+        }
+
+        cache[key] = CachedNarration(result: result, validUntil: validUntil)
+        cacheOrder.removeAll { $0 == key }
+        cacheOrder.append(key)
+        while cacheOrder.count > cacheLimit {
+            let expiredKey = cacheOrder.removeFirst()
+            cache.removeValue(forKey: expiredKey)
+        }
     }
 }
 
@@ -811,11 +938,12 @@ actor CoachNarrator {
     static let shared = CoachNarrator()
 
     func narrate(candidates: [CoachSuggestion]) async -> CoachNarrationResult {
-        guard !candidates.isEmpty else { return .unavailable }
+        guard !Task.isCancelled, !candidates.isEmpty else { return .unavailable }
 
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
-            return await FoundationCoachNarrator.narrate(candidates: candidates)
+            let result = await FoundationCoachNarrator.narrate(candidates: candidates)
+            return Task.isCancelled ? .unavailable : result
         }
         #endif
 
@@ -864,10 +992,14 @@ enum CoachNarrationResult: Sendable {
 #if canImport(FoundationModels)
 @available(iOS 26.0, *)
 private enum FoundationCoachNarrator {
+    private static let quarantinedOSBuilds = ["24A5380h"]
+
     static func narrate(candidates: [CoachSuggestion]) async -> CoachNarrationResult {
+        guard !Task.isCancelled, !isRuntimeQuarantined else { return .unavailable }
         let model = SystemLanguageModel.default
         guard model.isAvailable else { return .unavailable }
 
+        guard !Task.isCancelled else { return .unavailable }
         let session = LanguageModelSession(
             model: model,
             instructions: """
@@ -896,13 +1028,20 @@ private enum FoundationCoachNarrator {
                 to: prompt,
                 options: GenerationOptions(sampling: .greedy, temperature: 0.1, maximumResponseTokens: 180)
             )
+            guard !Task.isCancelled else { return .unavailable }
             return validate(response.content, candidates: candidates)
+        } catch is CancellationError {
+            return .unavailable
         } catch {
             return .unavailable
         }
     }
 
     static var availabilitySummary: String {
+        if isRuntimeQuarantined {
+            return "Local AI is temporarily unavailable on this iOS beta. \(CoachBrand.name) will use local rule cards instead."
+        }
+
         switch SystemLanguageModel.default.availability {
         case .available:
             return "Local AI is available for \(CoachBrand.name) narration."
@@ -915,6 +1054,11 @@ private enum FoundationCoachNarrator {
         @unknown default:
             return "Local AI is unavailable on this device right now."
         }
+    }
+
+    private static var isRuntimeQuarantined: Bool {
+        let version = ProcessInfo.processInfo.operatingSystemVersionString
+        return quarantinedOSBuilds.contains { version.contains($0) }
     }
 
     private static func candidateJSON(_ candidates: [CoachSuggestion]) -> String {

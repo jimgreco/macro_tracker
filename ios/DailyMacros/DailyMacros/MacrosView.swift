@@ -411,6 +411,7 @@ struct MacrosView: View {
                             AICoachSlot(
                                 dismissals: coachDismissals,
                                 suggestions: coachSuggestions,
+                                isActive: appNavigation.selectedDestination == .macros,
                                 onPrimaryAction: { _, action in
                                     handleCoachAction(action)
                                 }
@@ -552,9 +553,8 @@ struct MacrosView: View {
             handleCoachAction(action)
             return
         }
-        guard appNavigation.pendingQuickAction == .logMeal else { return }
+        guard appNavigation.consume(.logMeal) else { return }
         beginLogMeal()
-        appNavigation.consume(.logMeal)
     }
 
     // MARK: - Trash Drop Zone

@@ -56,6 +56,7 @@ struct WorkoutsView: View {
                     AICoachSlot(
                         dismissals: coachDismissals,
                         suggestions: coachSuggestions,
+                        isActive: appNavigation.selectedDestination == .workouts,
                         onPrimaryAction: { _, action in
                             handleCoachAction(action)
                         }
@@ -139,10 +140,9 @@ struct WorkoutsView: View {
             handleCoachAction(action)
             return
         }
-        guard appNavigation.pendingQuickAction == .logWorkout else { return }
+        guard appNavigation.consume(.logWorkout) else { return }
         workoutLogDate = Date()
         showLogSheet = true
-        appNavigation.consume(.logWorkout)
     }
 
     // MARK: - Scope Picker

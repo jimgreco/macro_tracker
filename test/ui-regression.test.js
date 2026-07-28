@@ -897,6 +897,9 @@ test('iOS Health hub keeps sleep and optional sexual activity out of primary nav
   assert.equal(tabs.includes('SexualActivityView()'), true);
   assert.equal(tabs.includes('case .sexualActivity: return "Sexual Activity"'), true);
   assert.equal(tabs.includes('.onChange(of: navigation.healthArea)'), true);
+  assert.equal(tabs.includes('private var healthAreaSelection: Binding<HealthArea>'), true);
+  assert.equal(tabs.includes('switch visibleHealthArea'), true);
+  assert.equal(tabs.includes('.tabViewStyle(.page(indexDisplayMode: .never))'), false);
   assert.equal(settings.includes('if auth.user?.sexualActivityEnabled == true'), true);
   assert.equal(settings.includes('Toggle("Show page", isOn: $sexualActivityPageVisible)'), true);
   assert.equal(settings.includes('private var sexualActivitySection'), true);
@@ -930,6 +933,16 @@ test('Today uses one canonical snapshot and one highest-value coach action acros
   assert.equal(today.includes('maximumSuggestions: 1'), true);
   assert.equal(today.includes('navigation.request(action, from: suggestion.surface)'), true);
   assert.equal(tabs.includes('pendingCoachSurface == surface'), true);
+  assert.equal(tabs.includes('isActive(for: surface)'), true);
+  assert.equal(tabs.includes('guard pendingQuickAction == action, isActive(for: action)'), true);
+  const quickActionRequest = tabs.slice(
+    tabs.indexOf('func request(_ action: AppQuickAction)'),
+    tabs.indexOf('func consume(_ action: AppQuickAction)')
+  );
+  assert.ok(
+    quickActionRequest.lastIndexOf('selectedDestination =')
+      < quickActionRequest.lastIndexOf('pendingQuickAction = action')
+  );
   assert.equal(today.includes('AccountToolbarButton()'), true);
   assert.equal(today.includes('Showing an older snapshot'), true);
   assert.equal(today.includes('timeIntervalSince(lastUpdatedAt) > 15 * 60'), true);
@@ -1114,6 +1127,7 @@ test('iOS workouts annual occurrence graph renders 365 wrapped daily dots', () =
 
 test('iOS Coach Tony P. exposes settings and title-first cards', () => {
   const coach = read('ios/DailyMacros/DailyMacros/AICoach.swift');
+  const tabs = read('ios/DailyMacros/DailyMacros/MainTabView.swift');
   const settings = read('ios/DailyMacros/DailyMacros/SettingsView.swift');
 
   assert.ok(coach.includes('static let name = "Coach Tony P."'));
@@ -1162,8 +1176,22 @@ test('iOS Coach Tony P. exposes settings and title-first cards', () => {
   assert.ok(coach.includes('suggestions.count > 1'));
   assert.ok(coach.includes('func syncedRecords(now: Date = Date()) -> [CoachDismissalRecord]'));
   assert.ok(coach.includes('func mergeSyncedRecords(_ records: [CoachDismissalRecord]'));
-  assert.ok(coach.includes('api.getCoachDismissals()'));
+  assert.ok(tabs.includes('api.getCoachDismissals()'));
+  assert.ok(tabs.includes('.task(id: auth.user?.id)'));
   assert.ok(coach.includes('api.syncCoachDismissals(records)'));
+  assert.ok(coach.includes('activeTodayDismissals != existingTodayDismissals'));
+  assert.equal(coach.includes('\\(dismissals.revision):\\(candidateKey)'), false);
+  assert.ok(coach.includes('var isActive = true'));
+  assert.ok(coach.includes('while let current = activeNarration'));
+  assert.equal(coach.includes('activeNarration?.task.cancel()'), false);
+  assert.ok(coach.includes('guard !Task.isCancelled'));
+  assert.ok(coach.includes('auth.user?.id ?? "signed-out"'));
+  assert.ok(coach.includes('narrationActionKey(for: $0.primaryAction)'));
+  assert.ok(coach.includes('String(item.quantity)'));
+  assert.ok(coach.includes('String(workout.durationHours)'));
+  assert.ok(coach.includes('FoundationModels generation is intentionally serialized'));
+  assert.ok(coach.includes('private static let quarantinedOSBuilds = ["24A5380h"]'));
+  assert.ok(coach.includes('!isRuntimeQuarantined'));
   assert.ok(coach.includes('Button("Dismiss for today"'));
   assert.ok(coach.includes('Button("Hide this pattern"'));
   assert.ok(coach.includes('Button("Not useful", action: onNotUseful)'));

@@ -15,30 +15,51 @@ final class DailyMacrosScreenshots: XCTestCase {
             "-AppleLocale", "en_US"
         ]
         app.launchEnvironment["APP_STORE_SCREENSHOTS"] = "1"
+        if name.contains("testRapidPrimaryAndHealthTabSwitchingStaysStable") {
+            app.launchArguments.append("--tab-stability-testing")
+        }
         app.launch()
 
         XCUIDevice.shared.orientation = .portrait
-        XCTAssertTrue(app.staticTexts["Daily Totals"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 15))
     }
 
     func testAppStoreScreenshots() throws {
-        snapshot("01-Macros")
+        snapshot("01-Today")
 
         selectTab("Workouts")
         XCTAssertTrue(app.staticTexts["Stats"].waitForExistence(timeout: 10))
         snapshot("02-Workouts")
 
-        selectTab("Weight")
+        selectTab("Health")
+        selectHealthSection("Weight")
         XCTAssertTrue(app.staticTexts["Target Weight"].waitForExistence(timeout: 10))
         snapshot("03-Weight")
 
-        selectTab("Sleep")
+        selectHealthSection("Sleep")
         XCTAssertTrue(app.staticTexts["Sleep Log"].waitForExistence(timeout: 10))
         snapshot("04-Sleep")
 
-        selectTab("Analysis")
+        selectTab("Insights")
         XCTAssertTrue(app.staticTexts["30-Day Analysis"].waitForExistence(timeout: 10))
-        snapshot("05-Analysis")
+        snapshot("05-Insights")
+    }
+
+    func testRapidPrimaryAndHealthTabSwitchingStaysStable() throws {
+        let primaryTabs = ["Today", "Macros", "Workouts", "Health", "Insights"]
+
+        for _ in 0..<8 {
+            for tab in primaryTabs {
+                selectTab(tab)
+                XCTAssertEqual(app.state, .runningForeground, "App stopped while selecting \(tab)")
+            }
+
+            selectTab("Health")
+            selectHealthSection("Weight")
+            selectHealthSection("Sleep")
+            selectHealthSection("Sexual Activity")
+            XCTAssertEqual(app.state, .runningForeground, "App stopped while switching Health sections")
+        }
     }
 
     private func selectTab(_ name: String) {
@@ -61,5 +82,11 @@ final class DailyMacrosScreenshots: XCTestCase {
         let moreCell = app.cells.containing(.staticText, identifier: name).element
         XCTAssertTrue(moreCell.waitForExistence(timeout: 5), "Could not find More tab item named \(name)")
         moreCell.tap()
+    }
+
+    private func selectHealthSection(_ name: String) {
+        let button = app.segmentedControls.buttons[name]
+        XCTAssertTrue(button.waitForExistence(timeout: 5), "Could not find Health section named \(name)")
+        button.tap()
     }
 }

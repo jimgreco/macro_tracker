@@ -39,6 +39,8 @@ struct WeightView: View {
                     AICoachSlot(
                         dismissals: coachDismissals,
                         suggestions: coachSuggestions,
+                        isActive: appNavigation.selectedDestination == .health
+                            && appNavigation.healthArea == .weight,
                         onPrimaryAction: { _, action in
                             handleCoachAction(action)
                         }
@@ -122,10 +124,9 @@ struct WeightView: View {
             handleCoachAction(action)
             return
         }
-        guard appNavigation.pendingQuickAction == .logWeight else { return }
+        guard appNavigation.consume(.logWeight) else { return }
         newWeightDate = Date()
         showAddSheet = true
-        appNavigation.consume(.logWeight)
     }
 
     // MARK: - Scope Picker

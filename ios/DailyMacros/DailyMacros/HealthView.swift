@@ -503,6 +503,8 @@ struct HealthView: View {
             AICoachSlot(
                 dismissals: coachDismissals,
                 suggestions: sleepCoachSuggestions,
+                isActive: appNavigation.selectedDestination == .health
+                    && appNavigation.healthArea == .sleep,
                 onPrimaryAction: { _, action in
                     handleCoachAction(action)
                 }
@@ -1642,9 +1644,8 @@ struct HealthView: View {
             handleCoachAction(action)
             return
         }
-        guard mode == .sleep, appNavigation.pendingQuickAction == .logSleep else { return }
+        guard mode == .sleep, appNavigation.consume(.logSleep) else { return }
         showLogSheetForMode()
-        appNavigation.consume(.logSleep)
     }
 
     // MARK: - Helpers
