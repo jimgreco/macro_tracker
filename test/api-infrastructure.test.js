@@ -40,6 +40,10 @@ test('db.js exports all required functions', () => {
     'claimLegacyData',
     'getDashboard',
     'getDailyTotals',
+    'getNutritionDayCompleteness',
+    'getNutritionDayCompletenessForDays',
+    'listNutritionDayCompleteness',
+    'setNutritionDayCompleteness',
     'getMacroTargets',
     'setMacroTarget',
     'addWeightEntry',
@@ -81,6 +85,45 @@ test('db.js creates users table', () => {
   const db = read('src/db.js');
   assert.ok(db.includes('CREATE TABLE IF NOT EXISTS users'));
   assert.ok(db.includes("provider TEXT NOT NULL DEFAULT 'google'"));
+});
+
+test('nutrition day completeness is explicit, timezone-aware, exportable, and deletable', () => {
+  const db = read('src/db.js');
+  const server = read('src/server.js');
+
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS nutrition_day_completeness'));
+  assert.ok(db.includes("CHECK (state IN ('complete', 'partial'))"));
+  assert.ok(db.includes('PRIMARY KEY (user_id, local_date)'));
+  assert.ok(db.includes('timezone TEXT NOT NULL'));
+  assert.ok(db.includes('idx_nutrition_day_completeness_user_date'));
+  assert.ok(db.includes("recordSchemaMigration('2026-07-27_nutrition_day_completeness')"));
+  assert.ok(db.includes("DELETE FROM nutrition_day_completeness WHERE user_id = $1"));
+  assert.ok(db.includes('nutritionDayCompleteness: dayCompleteness.rows'));
+  assert.ok(db.includes('(consumed_at AT TIME ZONE $3)::date'));
+  assert.ok(server.includes("apiRouter.get('/day-completeness'"));
+  assert.ok(server.includes("apiRouter.put('/day-completeness/:day'"));
+  assert.ok(server.includes("logAudit(userId, 'update', 'nutrition_day_completeness'"));
+});
+
+test('nutrition analysis only joins entries from explicitly complete local days', () => {
+  const db = read('src/db.js');
+  const server = read('src/server.js');
+  const analysisDb = db.slice(
+    db.indexOf('async function getAnalysisSnapshot'),
+    db.indexOf('async function saveAnalysisReport')
+  );
+  const analysisServer = server.slice(
+    server.indexOf('function buildAnalysisMetrics'),
+    server.indexOf('function validateItems')
+  );
+
+  assert.ok(analysisDb.includes("completeness.state = 'complete'"));
+  assert.ok(analysisDb.includes('generate_series('));
+  assert.ok(analysisDb.includes("COALESCE(completeness.state, 'unknown')"));
+  assert.ok(analysisServer.includes('allMealDays.filter(isExplicitlyCompleteDay)'));
+  assert.ok(analysisServer.includes('not enough complete days for a protein claim'));
+  assert.ok(analysisServer.includes('partial and'));
+  assert.ok(analysisServer.includes('unknown'));
 });
 
 test('db.js tracks admin-controlled account flags and login stats', () => {

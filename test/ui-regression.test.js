@@ -67,6 +67,37 @@ test('primary navigation is limited to Today, Macros, Workouts, Health, and Insi
   assert.equal(html.includes('aria-labelledby="health-tab-sleep"'), true);
 });
 
+test('web and iOS use the same explicit day-completeness state for nutrition evidence', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+  const webCoach = read('public/coach-rules.js');
+  const models = read('ios/DailyMacros/DailyMacros/Models.swift');
+  const macrosView = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const iosCoach = read('ios/DailyMacros/DailyMacros/AICoach.swift');
+  const apiClient = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  const offlineStore = read('ios/DailyMacros/DailyMacros/OfflineMutationStore.swift');
+  const completeHelper = iosCoach.slice(
+    iosCoach.indexOf('private static func isCompleteMacroDay'),
+    iosCoach.indexOf('private static func lastSevenWorkoutDays')
+  );
+
+  assert.equal(html.includes('id="entries-completeness"'), true);
+  assert.equal(html.includes('id="entries-completeness-btn"'), true);
+  assert.equal(script.includes("nextState = current.state === 'complete' ? 'partial' : 'complete'"), true);
+  assert.equal(script.includes("row?.completeness?.state === 'complete'"), true);
+  assert.equal(webCoach.includes("row?.completeness?.state === 'complete'"), true);
+
+  assert.equal(models.includes('enum NutritionDayState: String, Codable, Sendable'), true);
+  assert.equal(models.includes('let completeness: DayCompleteness?'), true);
+  assert.equal(macrosView.includes('Button(isComplete ? "Reopen day" : "Mark complete")'), true);
+  assert.equal(macrosView.includes('TimeZone(identifier: auth.user?.timezone'), true);
+  assert.equal(completeHelper.includes('totals.completeness?.state == .complete'), true);
+  assert.equal(completeHelper.includes('targets.calories'), false);
+  assert.equal(apiClient.includes('func setNutritionDayCompleteness('), true);
+  assert.equal(apiClient.includes('kind: .dayCompleteness'), true);
+  assert.equal(offlineStore.includes('case dayCompleteness = "day_completeness"'), true);
+});
+
 test('weight page has log, entries, and snapshot sections', () => {
   const html = read('public/index.html');
 

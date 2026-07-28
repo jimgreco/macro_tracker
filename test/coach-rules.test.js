@@ -19,6 +19,10 @@ function macroDay(offset, overrides = {}) {
     protein: 160,
     carbs: 160,
     fat: 60,
+    completeness: {
+      state: 'complete',
+      eligibleForNutritionAnalysis: true
+    },
     ...overrides
   };
 }
@@ -89,6 +93,22 @@ test('macro protein coach requires enough complete days and repeated misses', ()
   assert.equal(suggestion.confidence >= 0.85, true);
   assert.equal(suggestion.modelSource, 'local_rules');
   assert.equal(suggestion.evidence[0].includes('4 recent complete days'), true);
+});
+
+test('unknown and partial nutrition days never become complete coach evidence', () => {
+  const breakfastOnly = baseContext({
+    macroDailyTotals: [
+      macroDay(-1, { protein: 25, completeness: { state: 'unknown' } }),
+      macroDay(-2, { protein: 30, completeness: { state: 'partial' } }),
+      macroDay(-3, { protein: 20, completeness: { state: 'unknown' } }),
+      macroDay(-4, { protein: 22, completeness: { state: 'partial' } }),
+      macroDay(-5, { protein: 28, completeness: { state: 'unknown' } })
+    ]
+  });
+
+  const suggestions = rules.buildCoachCandidates('macros', breakfastOnly);
+  assert.equal(suggestions.some((suggestion) => suggestion.category === 'protein-shortfall'), false);
+  assert.equal(rules.isExplicitlyCompleteDay(breakfastOnly.macroDailyTotals[0]), false);
 });
 
 test('coach rules attach to a browser-style global', () => {

@@ -2369,6 +2369,44 @@ button[disabled] {
   line-height: 1;
 }
 
+.day-completeness {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  margin-bottom: 0.7rem;
+  border: 1px solid rgba(0, 207, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(0, 207, 255, 0.06);
+}
+
+.day-completeness[data-state="complete"] {
+  border-color: rgba(5, 255, 161, 0.28);
+  background: rgba(5, 255, 161, 0.07);
+}
+
+.day-completeness-copy {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.day-completeness-copy strong {
+  color: #eaf4ff;
+  font-size: 0.82rem;
+}
+
+.day-completeness-copy span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.day-completeness button {
+  flex: 0 0 auto;
+}
+
 .entries-totals {
   margin-bottom: 0.65rem;
 }
@@ -2946,6 +2984,15 @@ button[disabled] {
     width: 1.82rem;
     min-width: 1.82rem;
     height: 1.82rem;
+  }
+
+  .day-completeness {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .day-completeness button {
+    width: 100%;
   }
 
   #previous-days .table,

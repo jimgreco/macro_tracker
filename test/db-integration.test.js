@@ -165,6 +165,9 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     assert.equal(logged.sourceDetail, 'integration test');
     assert.equal(logged.needsReview, true);
     assert.equal(logged.correctionKey, 'integration oatmeal');
+    assert.equal(dashboard.currentDayTotals.completeness.state, 'unknown');
+    assert.equal(dashboard.currentDayTotals.completeness.eligibleForNutritionAnalysis, false);
+    assert.equal(dashboard.currentDayTotals.completeness.suggestedState, 'partial');
 
     await db.updateEntry(userId, logged.id, {
       itemName: 'Integration Oatmeal',
@@ -225,12 +228,108 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     assert.equal(trustedQuickAdd[0].calories, 300);
     assert.equal(trustedQuickAdd[0].source, 'quick_add');
 
+    const completedDay = await db.setNutritionDayCompleteness(
+      userId,
+      '2026-06-11',
+      'complete',
+      'America/New_York'
+    );
+    assert.equal(completedDay.state, 'complete');
+    assert.equal(completedDay.eligibleForNutritionAnalysis, true);
+
+    await db.updateEntry(userId, logged.id, {
+      itemName: 'Integration Oatmeal',
+      quantity: 1,
+      unit: 'bowl',
+      calories: 360,
+      protein: 21,
+      carbs: 42,
+      fat: 8,
+      consumedAt: logged.consumedAt
+    });
+    const afterLateCorrection = await db.getDashboard(
+      userId,
+      '2026-06-11',
+      { timezone: 'America/New_York' }
+    );
+    assert.equal(afterLateCorrection.currentDayTotals.calories, 360);
+    assert.equal(afterLateCorrection.currentDayTotals.completeness.state, 'complete');
+    const completedSnapshot = await db.getAnalysisSnapshot(userId, 90, 'America/New_York');
+    assert.equal(
+      completedSnapshot.meals.dailyTotals.find((row) => row.day === '2026-06-11')
+        ?.completeness.eligibleForNutritionAnalysis,
+      true
+    );
+
+    const reopenedDay = await db.setNutritionDayCompleteness(
+      userId,
+      '2026-06-11',
+      'partial',
+      'America/New_York'
+    );
+    assert.equal(reopenedDay.state, 'partial');
+    assert.equal(reopenedDay.eligibleForNutritionAnalysis, false);
+    const reopenedSnapshot = await db.getAnalysisSnapshot(userId, 90, 'America/New_York');
+    assert.equal(
+      reopenedSnapshot.meals.dailyTotals.find((row) => row.day === '2026-06-11')
+        ?.completeness.eligibleForNutritionAnalysis,
+      false
+    );
+    await db.setNutritionDayCompleteness(userId, '2026-06-11', 'complete', 'America/New_York');
+
     const copyResult = await db.copyEntriesForLocalDay(userId, '2026-06-11', '2026-06-12', 'America/New_York');
     assert.equal(copyResult.copiedCount, 1);
     const copiedDashboard = await db.getDashboard(userId, '2026-06-12', { timezone: 'America/New_York' });
     const copied = copiedDashboard.entries.find((entry) => entry.source === 'copy_day');
     assert.ok(copied);
     assert.equal(copied.sourceDetail, 'copied_from:2026-06-11');
+    assert.equal(copiedDashboard.currentDayTotals.completeness.state, 'unknown');
+    assert.equal(copiedDashboard.currentDayTotals.completeness.eligibleForNutritionAnalysis, false);
+
+    const completeNoEntryDay = await db.setNutritionDayCompleteness(
+      userId,
+      '2026-06-14',
+      'complete',
+      'America/New_York'
+    );
+    assert.equal(completeNoEntryDay.state, 'complete');
+    const noEntryDashboard = await db.getDashboard(
+      userId,
+      '2026-06-14',
+      { timezone: 'America/New_York' }
+    );
+    assert.equal(noEntryDashboard.currentDayTotals.calories, 0);
+    assert.equal(noEntryDashboard.currentDayTotals.completeness.state, 'complete');
+
+    await db.addEntries(userId, [{
+      itemName: 'DST Midnight Fixture',
+      quantity: 1,
+      unit: 'serving',
+      calories: 77,
+      protein: 7,
+      carbs: 8,
+      fat: 2,
+      consumedAt: '2026-03-08T07:30:00.000Z',
+      source: 'manual'
+    }]);
+    const newYorkDstDay = await db.getDashboard(
+      userId,
+      '2026-03-08',
+      { timezone: 'America/New_York' }
+    );
+    const losAngelesPriorDay = await db.getDashboard(
+      userId,
+      '2026-03-07',
+      { timezone: 'America/Los_Angeles' }
+    );
+    assert.equal(newYorkDstDay.currentDayTotals.calories, 77);
+    assert.equal(losAngelesPriorDay.currentDayTotals.calories, 77);
+    await db.setNutritionDayCompleteness(userId, '2026-03-08', 'complete', 'America/New_York');
+    assert.equal(
+      (await db.getNutritionDayCompleteness(userId, '2026-03-07', 'America/Los_Angeles')).state,
+      'unknown',
+      'marking the New York local day must not mark the adjacent travel day complete'
+    );
 
     const singleCopyResult = await db.copyEntriesToLocalDay(userId, {
       entryId: logged.id,
@@ -296,6 +395,15 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     const exported = await db.exportUserData(userId);
     assert.equal(exported.foodCorrections.length, 1);
     assert.equal(exported.clientDiagnostics.length, 1);
+    assert.equal(
+      exported.nutritionDayCompleteness.some((row) => {
+        const localDay = row.local_date instanceof Date
+          ? row.local_date.toISOString().slice(0, 10)
+          : String(row.local_date).slice(0, 10);
+        return localDay === '2026-06-11' && row.state === 'complete';
+      }),
+      true
+    );
   } finally {
     await db.deleteUserAccount(userId).catch(() => {});
     await db.deleteUserAccount(`${userId}-other`).catch(() => {});

@@ -10,6 +10,7 @@ const state = {
   mealImageAttachments: [],
   mealImageLoading: false,
   selectedEntriesDay: '',
+  dayCompletenessByDay: new Map(),
   dashboardData: null,
   selectedTrendMacro: 'calories',
   selectedPage: 'today',
@@ -150,6 +151,10 @@ const entriesByDayEl = document.getElementById('entries-by-day');
 const entriesPrevDayBtnEl = document.getElementById('entries-prev-day-btn');
 const entriesNextDayBtnEl = document.getElementById('entries-next-day-btn');
 const entriesDayLabelEl = document.getElementById('entries-day-label');
+const entriesCompletenessEl = document.getElementById('entries-completeness');
+const entriesCompletenessStatusEl = document.getElementById('entries-completeness-status');
+const entriesCompletenessDetailEl = document.getElementById('entries-completeness-detail');
+const entriesCompletenessBtnEl = document.getElementById('entries-completeness-btn');
 const actionBannerEl = document.getElementById('action-banner');
 const profileMenuEl = document.getElementById('profile-menu');
 const profileChipEl = document.getElementById('profile-chip');
@@ -338,10 +343,21 @@ function safeId(value) {
 
 function getLocalIsoDay(dateLike = new Date()) {
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return year + '-' + month + '-' + day;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: getTimezone(),
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(d);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  } catch (_error) {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return year + '-' + month + '-' + day;
+  }
 }
 
 function detectBrowserTimezone() {
@@ -426,9 +442,9 @@ function fromIsoDayLocal(isoDay) {
 }
 
 function shiftIsoDay(isoDay, deltaDays) {
-  const date = fromIsoDayLocal(isoDay);
-  date.setDate(date.getDate() + deltaDays);
-  return getLocalIsoDay(date);
+  const date = new Date(`${isoDay}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + deltaDays);
+  return date.toISOString().slice(0, 10);
 }
 
 function formatIsoDayLabel(isoDay) {
@@ -439,6 +455,120 @@ function formatIsoDayLabel(isoDay) {
     day: 'numeric',
     year: 'numeric'
   });
+}
+
+function normalizeDayCompleteness(record, fallbackDay) {
+  const stateValue = String(record?.state || 'unknown').toLowerCase();
+  const state = ['complete', 'partial'].includes(stateValue) ? stateValue : 'unknown';
+  return {
+    day: record?.day || fallbackDay,
+    state,
+    explicit: state !== 'unknown',
+    eligibleForNutritionAnalysis: state === 'complete',
+    suggestedState: record?.suggestedState || null,
+    suggestionReason: record?.suggestionReason || null,
+    timezone: record?.timezone || getTimezone(),
+    updatedAt: record?.updatedAt || null
+  };
+}
+
+function cacheDayCompletenessRows(rows) {
+  for (const row of rows || []) {
+    if (!row?.day) continue;
+    state.dayCompletenessByDay.set(
+      row.day,
+      normalizeDayCompleteness(row.completeness, row.day)
+    );
+  }
+}
+
+function selectedDayCompleteness() {
+  const day = state.selectedEntriesDay || getLocalIsoDay();
+  return state.dayCompletenessByDay.get(day) || normalizeDayCompleteness(null, day);
+}
+
+function updateCompletenessAcrossState(day, completeness) {
+  const normalized = normalizeDayCompleteness(completeness, day);
+  state.dayCompletenessByDay.set(day, normalized);
+
+  const updateRows = (rows) => (rows || []).map((row) => (
+    row?.day === day ? { ...row, completeness: normalized } : row
+  ));
+  if (state.dashboardData) {
+    if (state.dashboardData.currentDayTotals?.day === day) {
+      state.dashboardData.currentDayTotals = {
+        ...state.dashboardData.currentDayTotals,
+        completeness: normalized
+      };
+    }
+    state.dashboardData.previousDays = updateRows(state.dashboardData.previousDays);
+  }
+  state.macroDailyTotals = updateRows(state.macroDailyTotals);
+}
+
+function renderSelectedDayCompleteness() {
+  if (!entriesCompletenessEl) return;
+  const completeness = selectedDayCompleteness();
+  entriesCompletenessEl.dataset.state = completeness.state;
+
+  let status = 'Not marked complete';
+  let detail = 'Excluded from nutrition coaching and adherence comparisons.';
+  let buttonLabel = 'Mark complete';
+  if (completeness.state === 'complete') {
+    status = 'Day marked complete';
+    detail = 'Included in nutrition coaching and adherence comparisons. You can still edit entries.';
+    buttonLabel = 'Reopen day';
+  } else if (completeness.state === 'partial') {
+    status = 'Day open for more entries';
+    detail = 'Excluded from nutrition coaching and adherence comparisons until you mark it complete.';
+  } else if (completeness.suggestedState === 'complete') {
+    status = 'Not marked complete';
+    detail = completeness.suggestionReason || 'This day may be ready to mark complete.';
+  }
+
+  if (entriesCompletenessStatusEl) entriesCompletenessStatusEl.textContent = status;
+  if (entriesCompletenessDetailEl) entriesCompletenessDetailEl.textContent = detail;
+  if (entriesCompletenessBtnEl) entriesCompletenessBtnEl.textContent = buttonLabel;
+}
+
+async function refreshDayCompleteness(day) {
+  const response = await api(
+    `/api/day-completeness?day=${encodeURIComponent(day)}&tz=${encodeURIComponent(getTimezone())}`
+  );
+  updateCompletenessAcrossState(day, response.completeness);
+  return response.completeness;
+}
+
+async function toggleSelectedDayCompleteness() {
+  if (!state.selectedEntriesDay || !entriesCompletenessBtnEl) return;
+  const day = state.selectedEntriesDay;
+  const current = selectedDayCompleteness();
+  const nextState = current.state === 'complete' ? 'partial' : 'complete';
+  entriesCompletenessBtnEl.disabled = true;
+  try {
+    const response = await api(`/api/day-completeness/${encodeURIComponent(day)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ state: nextState, tz: getTimezone() })
+    });
+    updateCompletenessAcrossState(day, response.completeness);
+    renderDashboard(state.dashboardData);
+    renderAllCoachSlots();
+    setActionBanner(
+      nextState === 'complete'
+        ? 'Day marked complete. Eligible insights now use it.'
+        : 'Day reopened. It is excluded from adherence comparisons.',
+      'success'
+    );
+    await Promise.allSettled([
+      refreshMacroSnapshotData(),
+      refreshWeeklyRecap()
+    ]);
+  } catch (error) {
+    setActionBanner(error.message, 'error');
+  } finally {
+    entriesCompletenessBtnEl.disabled = false;
+    renderSelectedDayCompleteness();
+  }
 }
 
 let actionBannerTimer = null;
@@ -1222,18 +1352,23 @@ if (mealPhotoPreviewWrapEl) {
 }
 
 if (entriesPrevDayBtnEl) {
-  entriesPrevDayBtnEl.addEventListener('click', () => {
+  entriesPrevDayBtnEl.addEventListener('click', async () => {
     if (!state.selectedEntriesDay || !state.dashboardData) {
       return;
     }
 
     state.selectedEntriesDay = shiftIsoDay(state.selectedEntriesDay, -1);
+    try {
+      await refreshDayCompleteness(state.selectedEntriesDay);
+    } catch (_error) {
+      // Dashboard data still provides the best available offline state.
+    }
     renderDashboard(state.dashboardData);
   });
 }
 
 if (entriesNextDayBtnEl) {
-  entriesNextDayBtnEl.addEventListener('click', () => {
+  entriesNextDayBtnEl.addEventListener('click', async () => {
     if (!state.selectedEntriesDay || !state.dashboardData) {
       return;
     }
@@ -1244,8 +1379,17 @@ if (entriesNextDayBtnEl) {
     }
 
     state.selectedEntriesDay = shiftIsoDay(state.selectedEntriesDay, 1);
+    try {
+      await refreshDayCompleteness(state.selectedEntriesDay);
+    } catch (_error) {
+      // Dashboard data still provides the best available offline state.
+    }
     renderDashboard(state.dashboardData);
   });
+}
+
+if (entriesCompletenessBtnEl) {
+  entriesCompletenessBtnEl.addEventListener('click', toggleSelectedDayCompleteness);
 }
 
 function setProfileMenuOpen(isOpen) {
@@ -2371,26 +2515,39 @@ function renderAnalysisReport(record) {
     String(goalAlignment.reason || '')
   ]);
   fillAnalysisList(analysisAdherenceListEl, [
-    `Meal logging: ${toPercent(adherence.mealLoggingPct)}`,
-    adherence.calorieTargetSet
+    `Complete-day coverage: ${toPercent(adherence.completeDayCoveragePct ?? adherence.mealLoggingPct)}`,
+    `Nutrition samples: ${Number(adherence.nutritionSampleCount || 0)} complete · ${Number(adherence.partialDayCount || 0)} partial · ${Number(adherence.unknownDayCount || 0)} unknown`,
+    adherence.calorieTargetSet && adherence.calorieTargetDelta != null
       ? `Calories vs target: ${fmtSigned(adherence.calorieTargetDelta, 1)} cal (${fmtSigned(adherence.calorieTargetDeltaPct, 1)}%)`
-      : 'Calories vs target: No target set',
-    adherence.proteinTargetSet
+      : Number(adherence.nutritionSampleCount || 0) > 0
+        ? 'Calories vs target: No target set for eligible days'
+        : 'Calories vs target: Not enough complete days',
+    adherence.proteinTargetSet && adherence.proteinTargetDelta != null
       ? `Protein vs target: ${fmtSigned(adherence.proteinTargetDelta, 1)}g (${fmtSigned(adherence.proteinTargetDeltaPct, 1)}%)`
-      : 'Protein vs target: No target set',
+      : Number(adherence.nutritionSampleCount || 0) > 0
+        ? 'Protein vs target: No target set for eligible days'
+        : 'Protein vs target: Not enough complete days',
     `Workouts: ${Number(adherence.completedWorkoutCount || 0)} / ${Number(adherence.plannedWorkoutCount || 0)}`
   ]);
   fillAnalysisList(analysisWowListEl, [
     `Weight change delta: ${fmtSigned(wow.weightChangeDelta, 2)}`,
-    `Avg calories delta: ${fmtSigned(wow.avgCaloriesDelta, 1)}`,
-    `Avg protein delta: ${fmtSigned(wow.avgProteinDelta, 1)}g`,
+    wow.avgCaloriesDelta == null
+      ? 'Avg calories delta: Not enough complete days'
+      : `Avg calories delta: ${fmtSigned(wow.avgCaloriesDelta, 1)}`,
+    wow.avgProteinDelta == null
+      ? 'Avg protein delta: Not enough complete days'
+      : `Avg protein delta: ${fmtSigned(wow.avgProteinDelta, 1)}g`,
     `Workout hours delta: ${fmtSigned(wow.workoutHoursDelta, 2)}`
   ]);
   fillAnalysisList(analysisNutritionListEl, [
-    `Protein consistency: ${nutrition.proteinConsistency || 'n/a'}`,
-    `Calorie volatility: ${fmtSigned(nutrition.calorieVolatility, 1)}`,
+    `Protein consistency: ${String(nutrition.proteinConsistency || 'n/a').replaceAll('_', ' ')}`,
+    nutrition.calorieVolatility == null
+      ? 'Calorie volatility: Not enough complete days'
+      : `Calorie volatility: ${fmtSigned(nutrition.calorieVolatility, 1)}`,
     `Late-night eating: ${toPercent(nutrition.lateNightEatingPct)}`,
-    `Weekend calorie drift: ${fmtSigned(nutrition.weekendCalorieDrift, 1)}`
+    nutrition.weekendCalorieDrift == null
+      ? 'Weekend calorie drift: Not enough complete weekday and weekend samples'
+      : `Weekend calorie drift: ${fmtSigned(nutrition.weekendCalorieDrift, 1)}`
   ]);
   fillAnalysisList(analysisConfidenceListEl, [
     `Score: ${Math.round(Number(confidence.score || 0))}/100`,
@@ -2423,7 +2580,12 @@ function renderWeeklyRecap(recap) {
     return;
   }
   const generatedAt = formatDateTimeLabel(recap.generatedAt);
-  weeklyRecapMetaEl.textContent = `Generated ${generatedAt} (${recap.confidence || 'low'} confidence).`;
+  const recapMetrics = recap.metrics || {};
+  weeklyRecapMetaEl.textContent =
+    `Generated ${generatedAt} (${recap.confidence || 'low'} confidence) · ` +
+    `${Number(recapMetrics.completeDays || 0)} complete, ` +
+    `${Number(recapMetrics.partialDays || 0)} partial, ` +
+    `${Number(recapMetrics.unknownDays || 0)} unknown nutrition days.`;
   if (weeklyRecapSummaryEl) {
     weeklyRecapSummaryEl.textContent = String(recap.summary || '');
   }
@@ -3468,6 +3630,7 @@ async function refreshMacroSnapshotData() {
   try {
     const data = await api(`/api/daily-totals?scope=${scope}&tz=${encodeURIComponent(getTimezone())}`);
     state.macroDailyTotals = data.dailyTotals || [];
+    cacheDayCompletenessRows(state.macroDailyTotals);
     if (data.targets) {
       state.dashboardData.targets = data.targets;
     }
@@ -3476,7 +3639,7 @@ async function refreshMacroSnapshotData() {
     }
     drawTrend(state.macroDailyTotals);
     renderSnapshotStats(state.macroDailyTotals, state.dashboardData.targets);
-    renderCoachForPage('macros');
+    renderAllCoachSlots();
   } catch (error) {
     console.error('Failed to refresh macro snapshot:', error);
   }
@@ -3547,13 +3710,20 @@ function renderSnapshotStats(dailyTotals, targets) {
   const numDays = period === 'annual' ? 364 : period === 'monthly' ? 30 : 7;
   const periodLabel = period === 'annual' ? '52 weeks' : `${numDays} days`;
 
-  const daysWithData = (dailyTotals || []).length;
+  const allRows = dailyTotals || [];
+  const eligibleRows = allRows.filter((row) => row?.completeness?.state === 'complete');
+  const daysWithData = eligibleRows.length;
+  const partialDays = allRows.filter((row) => row?.completeness?.state === 'partial').length;
+  const unknownDays = Math.max(
+    0,
+    numDays - daysWithData - partialDays
+  );
   let avgCalories = 0;
   let avgProtein = 0;
   let avgCarbs = 0;
   let avgFat = 0;
   if (daysWithData > 0) {
-    for (const dt of dailyTotals) {
+    for (const dt of eligibleRows) {
       avgCalories += dt.calories;
       avgProtein += dt.protein;
       avgCarbs += dt.carbs;
@@ -3569,7 +3739,7 @@ function renderSnapshotStats(dailyTotals, targets) {
   setText(avgProteinEl, `${fmtNumber(avgProtein)}g`);
   setText(avgCarbsEl, `${fmtNumber(avgCarbs)}g`);
   setText(avgFatEl, `${fmtNumber(avgFat)}g`);
-  const effectiveTargets = averageTargetsForRows(dailyTotals || [], targets || {});
+  const effectiveTargets = averageTargetsForRows(eligibleRows, targets || {});
   renderWeeklyTargets(
     { calories: avgCalories, protein: avgProtein, carbs: avgCarbs, fat: avgFat },
     effectiveTargets
@@ -3577,14 +3747,19 @@ function renderSnapshotStats(dailyTotals, targets) {
   setText(
     weeklyAvgNoteEl,
     daysWithData > 0
-      ? `Based on ${daysWithData} day${daysWithData === 1 ? '' : 's'} with entries in the last ${periodLabel}.`
-      : `No entries in the last ${periodLabel}.`
+      ? `Based on ${daysWithData} explicitly complete day${daysWithData === 1 ? '' : 's'} in the last ${periodLabel}; ${partialDays} partial and ${unknownDays} unknown day${unknownDays === 1 ? '' : 's'} excluded.`
+      : `No explicitly complete nutrition days in the last ${periodLabel}; partial and unknown days are excluded from averages.`
   );
 }
 
 function renderDashboard(data) {
   const compactMobile = isCompactMobileView();
   setSleepTargetFromTargets(data.targets || {});
+  cacheDayCompletenessRows([
+    data.currentDayTotals,
+    ...(data.previousDays || []),
+    ...(state.macroDailyTotals || [])
+  ]);
 
   if (state.macroDailyTotals) {
     drawTrend(state.macroDailyTotals);
@@ -3605,6 +3780,7 @@ function renderDashboard(data) {
   if (entriesNextDayBtnEl) {
     entriesNextDayBtnEl.disabled = state.selectedEntriesDay >= baseDay;
   }
+  renderSelectedDayCompleteness();
 
   const dayItems = data.entries
     .filter((entry) => getLocalIsoDay(entry.consumedAt) === state.selectedEntriesDay)
@@ -4538,6 +4714,7 @@ function hydrateStateFromToday(response) {
       ...(dashboard.previousDays || []),
       dashboard.currentDayTotals
     ].filter(Boolean);
+    cacheDayCompletenessRows(state.macroDailyTotals);
     syncHistoryQuickItems();
   }
 

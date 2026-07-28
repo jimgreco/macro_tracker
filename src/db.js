@@ -2,6 +2,12 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 const { applyFoodCorrectionToItem, canApplyFoodCorrection } = require('./food-correction');
+const {
+  DAY_COMPLETENESS_STATES,
+  normalizeDayCompletenessState,
+  buildDayCompleteness,
+  summarizeDayCompleteness
+} = require('./day-completeness');
 
 const isProduction = process.env.NODE_ENV === 'production';
 const databaseUrl = process.env.DATABASE_URL || (!isProduction ? 'postgres://postgres:postgres@localhost:5432/macro_tracker' : '');
@@ -135,6 +141,19 @@ async function initDb() {
       needs_review BOOLEAN NOT NULL DEFAULT FALSE,
       correction_key TEXT,
       deleted_at TIMESTAMPTZ
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS nutrition_day_completeness (
+      user_id TEXT NOT NULL,
+      local_date DATE NOT NULL,
+      state TEXT NOT NULL,
+      timezone TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, local_date),
+      CHECK (state IN ('complete', 'partial'))
     );
   `);
 
@@ -569,6 +588,8 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_entries_user_consumed ON entries(user_id, consumed_at DESC);
     CREATE INDEX IF NOT EXISTS idx_entries_user_source ON entries(user_id, source);
     CREATE INDEX IF NOT EXISTS idx_entries_user_review ON entries(user_id, needs_review) WHERE deleted_at IS NULL AND needs_review IS TRUE;
+    CREATE INDEX IF NOT EXISTS idx_nutrition_day_completeness_user_date
+      ON nutrition_day_completeness(user_id, local_date DESC);
     CREATE INDEX IF NOT EXISTS idx_saved_items_user_name ON saved_items(user_id, lower(name));
     CREATE INDEX IF NOT EXISTS idx_macro_targets_user ON macro_targets(user_id);
     CREATE INDEX IF NOT EXISTS idx_macro_targets_user_macro_effective ON macro_targets(user_id, macro, effective_date DESC);
@@ -612,6 +633,7 @@ async function initDb() {
   await recordSchemaMigration('2026-06-11_feature_foundations');
   await recordSchemaMigration('2026-07-27_client_mutation_idempotency');
   await recordSchemaMigration('2026-07-27_shared_auth_state');
+  await recordSchemaMigration('2026-07-27_nutrition_day_completeness');
 
   await pool.query('DELETE FROM web_sessions WHERE expires_at <= NOW()');
   await pool.query('DELETE FROM rate_limit_counters WHERE expires_at <= NOW()');
@@ -1276,6 +1298,183 @@ function normalizeTargetEffectiveDate(value, timezone = 'America/New_York') {
     return todayIsoDateInTimezone(timezone);
   }
   return normalizeIsoDateString(raw, 'Effective date');
+}
+
+function normalizeCompletenessDays(days) {
+  return [...new Set(
+    (Array.isArray(days) ? days : [days])
+      .filter((day) => day != null && day !== '')
+      .map((day) => normalizeIsoDateString(day, 'Day'))
+  )].sort();
+}
+
+function isoDaysInRange(startDay, endDay, maxDays = 366) {
+  const start = normalizeIsoDateString(startDay, 'Start day');
+  const end = normalizeIsoDateString(endDay, 'End day');
+  if (end < start) {
+    throw new Error('End day must be on or after start day.');
+  }
+
+  const days = [];
+  const cursor = new Date(`${start}T00:00:00Z`);
+  const endTime = new Date(`${end}T00:00:00Z`).getTime();
+  while (cursor.getTime() <= endTime) {
+    days.push(cursor.toISOString().slice(0, 10));
+    if (days.length > maxDays) {
+      throw new Error(`Day completeness range cannot exceed ${maxDays} days.`);
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return days;
+}
+
+async function getNutritionDayCompletenessForDays(
+  userId,
+  days,
+  timezone = 'America/New_York'
+) {
+  const normalizedDays = normalizeCompletenessDays(days);
+  if (!normalizedDays.length) {
+    return [];
+  }
+
+  const result = await pool.query(
+    `WITH requested_days AS (
+       SELECT unnest($2::date[]) AS day
+     ),
+     entry_stats AS (
+       SELECT
+         (consumed_at AT TIME ZONE $3)::date AS day,
+         COUNT(*)::integer AS entry_count,
+         COUNT(DISTINCT CASE
+           WHEN EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) >= 5
+             AND EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) < 11 THEN 'breakfast'
+           WHEN EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) >= 11
+             AND EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) < 16 THEN 'midday'
+           WHEN EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) >= 16
+             AND EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) < 22 THEN 'evening'
+           ELSE 'overnight'
+         END)::integer AS daypart_count,
+         EXTRACT(EPOCH FROM (
+           MAX(consumed_at AT TIME ZONE $3) - MIN(consumed_at AT TIME ZONE $3)
+         )) / 3600.0 AS span_hours
+       FROM entries
+       WHERE user_id = $1
+         AND deleted_at IS NULL
+         AND (consumed_at AT TIME ZONE $3)::date = ANY($2::date[])
+       GROUP BY day
+     )
+     SELECT
+       requested_days.day::text AS day,
+       completeness.state,
+       COALESCE(completeness.timezone, $3) AS timezone,
+       completeness.updated_at AS "updatedAt",
+       COALESCE(entry_stats.entry_count, 0)::integer AS "entryCount",
+       COALESCE(entry_stats.daypart_count, 0)::integer AS "daypartCount",
+       COALESCE(entry_stats.span_hours, 0)::double precision AS "spanHours"
+     FROM requested_days
+     LEFT JOIN nutrition_day_completeness completeness
+       ON completeness.user_id = $1
+      AND completeness.local_date = requested_days.day
+     LEFT JOIN entry_stats
+       ON entry_stats.day = requested_days.day
+     ORDER BY requested_days.day ASC`,
+    [userId, normalizedDays, timezone]
+  );
+
+  const today = todayIsoDateInTimezone(timezone);
+  return result.rows.map((row) => buildDayCompleteness({
+    day: row.day,
+    state: row.state || DAY_COMPLETENESS_STATES.UNKNOWN,
+    timezone: row.timezone || timezone,
+    updatedAt: row.updatedAt,
+    entryCount: Number(row.entryCount || 0),
+    daypartCount: Number(row.daypartCount || 0),
+    spanHours: Number(row.spanHours || 0),
+    today
+  }));
+}
+
+async function getNutritionDayCompleteness(
+  userId,
+  day,
+  timezone = 'America/New_York'
+) {
+  const [record] = await getNutritionDayCompletenessForDays(userId, [day], timezone);
+  return record;
+}
+
+async function listNutritionDayCompleteness(
+  userId,
+  { startDay, endDay, timezone = 'America/New_York' } = {}
+) {
+  const normalizedEnd = endDay || todayIsoDateInTimezone(timezone);
+  const normalizedStart = startDay || normalizedEnd;
+  return getNutritionDayCompletenessForDays(
+    userId,
+    isoDaysInRange(normalizedStart, normalizedEnd),
+    timezone
+  );
+}
+
+async function setNutritionDayCompleteness(
+  userId,
+  day,
+  state,
+  timezone = 'America/New_York'
+) {
+  const normalizedDay = normalizeIsoDateString(day, 'Day');
+  const normalizedState = normalizeDayCompletenessState(state);
+
+  if (normalizedState === DAY_COMPLETENESS_STATES.UNKNOWN) {
+    await pool.query(
+      `DELETE FROM nutrition_day_completeness
+       WHERE user_id = $1 AND local_date = $2::date`,
+      [userId, normalizedDay]
+    );
+  } else {
+    await pool.query(
+      `INSERT INTO nutrition_day_completeness (
+         user_id,
+         local_date,
+         state,
+         timezone,
+         updated_at
+       )
+       VALUES ($1, $2::date, $3, $4, NOW())
+       ON CONFLICT (user_id, local_date)
+       DO UPDATE SET
+         state = EXCLUDED.state,
+         timezone = EXCLUDED.timezone,
+         updated_at = NOW()`,
+      [userId, normalizedDay, normalizedState, timezone]
+    );
+  }
+
+  return getNutritionDayCompleteness(userId, normalizedDay, timezone);
+}
+
+async function attachNutritionDayCompleteness(
+  userId,
+  rows,
+  timezone = 'America/New_York'
+) {
+  const normalizedRows = Array.isArray(rows) ? rows : [];
+  const records = await getNutritionDayCompletenessForDays(
+    userId,
+    normalizedRows.map((row) => row.day),
+    timezone
+  );
+  const recordsByDay = new Map(records.map((record) => [record.day, record]));
+  return normalizedRows.map((row) => ({
+    ...row,
+    completeness: recordsByDay.get(row.day) || buildDayCompleteness({
+      day: row.day,
+      state: DAY_COMPLETENESS_STATES.UNKNOWN,
+      timezone,
+      today: todayIsoDateInTimezone(timezone)
+    })
+  }));
 }
 
 const ENTRY_SOURCES = new Set([
@@ -2282,16 +2481,33 @@ async function getDashboard(userId, dateInput, options = {}) {
   const offset = Math.max(0, Number(options.offset) || 0);
 
   const dailyTotalsResult = await pool.query(
-    `SELECT
-       (consumed_at AT TIME ZONE $2)::date::text AS day,
-       ROUND(SUM(calories)::numeric, 1) AS calories,
-       ROUND(SUM(protein)::numeric, 1) AS protein,
-       ROUND(SUM(carbs)::numeric, 1) AS carbs,
-       ROUND(SUM(fat)::numeric, 1) AS fat
-     FROM entries
-     WHERE user_id = $1 AND deleted_at IS NULL
-     GROUP BY day
-     ORDER BY day DESC`,
+    `WITH entry_totals AS (
+       SELECT
+         (consumed_at AT TIME ZONE $2)::date AS day,
+         ROUND(SUM(calories)::numeric, 1) AS calories,
+         ROUND(SUM(protein)::numeric, 1) AS protein,
+         ROUND(SUM(carbs)::numeric, 1) AS carbs,
+         ROUND(SUM(fat)::numeric, 1) AS fat
+       FROM entries
+       WHERE user_id = $1 AND deleted_at IS NULL
+       GROUP BY day
+     ),
+     tracked_days AS (
+       SELECT day FROM entry_totals
+       UNION
+       SELECT local_date AS day
+       FROM nutrition_day_completeness
+       WHERE user_id = $1
+     )
+     SELECT
+       tracked_days.day::text AS day,
+       COALESCE(entry_totals.calories, 0) AS calories,
+       COALESCE(entry_totals.protein, 0) AS protein,
+       COALESCE(entry_totals.carbs, 0) AS carbs,
+       COALESCE(entry_totals.fat, 0) AS fat
+     FROM tracked_days
+     LEFT JOIN entry_totals ON entry_totals.day = tracked_days.day
+     ORDER BY tracked_days.day DESC`,
     [userId, timezone]
   );
 
@@ -2303,11 +2519,16 @@ async function getDashboard(userId, dateInput, options = {}) {
     fat: Number(row.fat || 0)
   }));
 
-  const currentDayTotals =
+  const currentDayTotalsRaw =
     allDailyTotals.find((row) => row.day === baseDay) ||
     { day: baseDay, calories: 0, protein: 0, carbs: 0, fat: 0 };
 
-  const previousDays = allDailyTotals.filter((row) => row.day < baseDay).slice(0, 30);
+  const previousDaysRaw = allDailyTotals.filter((row) => row.day < baseDay).slice(0, 30);
+  const [currentDayTotals, ...previousDays] = await attachNutritionDayCompleteness(
+    userId,
+    [currentDayTotalsRaw, ...previousDaysRaw],
+    timezone
+  );
 
   const sevenDayStart = new Date(baseDate);
   sevenDayStart.setDate(sevenDayStart.getDate() - 7);
@@ -2412,24 +2633,42 @@ async function getDailyTotals(userId, scope = 'week', timezone = 'America/New_Yo
   const days = parseScopeDays(scope);
   const [result, targetHistory] = await Promise.all([
     pool.query(
-      `SELECT
-         (consumed_at AT TIME ZONE $3)::date::text AS day,
-         ROUND(SUM(calories)::numeric, 1) AS calories,
-         ROUND(SUM(protein)::numeric, 1) AS protein,
-         ROUND(SUM(carbs)::numeric, 1) AS carbs,
-         ROUND(SUM(fat)::numeric, 1) AS fat
-       FROM entries
-       WHERE user_id = $1 AND deleted_at IS NULL
-         AND consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
-       GROUP BY day
-       ORDER BY day DESC`,
+      `WITH entry_totals AS (
+         SELECT
+           (consumed_at AT TIME ZONE $3)::date AS day,
+           ROUND(SUM(calories)::numeric, 1) AS calories,
+           ROUND(SUM(protein)::numeric, 1) AS protein,
+           ROUND(SUM(carbs)::numeric, 1) AS carbs,
+           ROUND(SUM(fat)::numeric, 1) AS fat
+         FROM entries
+         WHERE user_id = $1 AND deleted_at IS NULL
+           AND consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
+         GROUP BY day
+       ),
+       tracked_days AS (
+         SELECT day FROM entry_totals
+         UNION
+         SELECT local_date AS day
+         FROM nutrition_day_completeness
+         WHERE user_id = $1
+           AND local_date >= (NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval
+       )
+       SELECT
+         tracked_days.day::text AS day,
+         COALESCE(entry_totals.calories, 0) AS calories,
+         COALESCE(entry_totals.protein, 0) AS protein,
+         COALESCE(entry_totals.carbs, 0) AS carbs,
+         COALESCE(entry_totals.fat, 0) AS fat
+       FROM tracked_days
+       LEFT JOIN entry_totals ON entry_totals.day = tracked_days.day
+       ORDER BY tracked_days.day DESC`,
       [userId, String(days), timezone]
     ),
     getMacroTargetHistory(userId, scope, timezone)
   ]);
   const targetsByDay = new Map(targetHistory.map((row) => [row.day, row.targets]));
 
-  return result.rows.map((row) => ({
+  const dailyTotals = result.rows.map((row) => ({
     day: row.day,
     calories: Number(row.calories || 0),
     protein: Number(row.protein || 0),
@@ -2437,6 +2676,7 @@ async function getDailyTotals(userId, scope = 'week', timezone = 'America/New_Yo
     fat: Number(row.fat || 0),
     targets: targetsByDay.get(row.day) || defaultMacroTargets()
   }));
+  return attachNutritionDayCompleteness(userId, dailyTotals, timezone);
 }
 
 function parseScopeDays(scope) {
@@ -3159,40 +3399,89 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
   const [mealDailyResult, topMealsResult, mealTimingResult, workoutDailyResult, workoutTypesResult, weightsResult, sleepResult, targets, targetHistory, weightTarget, weightTargetHistory, dataStartResult] =
     await Promise.all([
       pool.query(
-        `SELECT
-           (consumed_at AT TIME ZONE $3)::date::text AS day,
-           COUNT(*)::integer AS item_count,
-           ROUND(SUM(calories)::numeric, 1) AS calories,
-           ROUND(SUM(protein)::numeric, 1) AS protein,
-           ROUND(SUM(carbs)::numeric, 1) AS carbs,
-           ROUND(SUM(fat)::numeric, 1) AS fat
-         FROM entries
-         WHERE user_id = $1 AND deleted_at IS NULL
-           AND consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
-         GROUP BY day
-         ORDER BY day ASC`,
+        `WITH day_range AS (
+           SELECT generate_series(
+             (NOW() AT TIME ZONE $3)::date - (($2::integer - 1) * INTERVAL '1 day'),
+             (NOW() AT TIME ZONE $3)::date,
+             INTERVAL '1 day'
+           )::date AS day
+         ),
+         meal_totals AS (
+           SELECT
+             (consumed_at AT TIME ZONE $3)::date AS day,
+             COUNT(*)::integer AS item_count,
+             COUNT(DISTINCT CASE
+               WHEN EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) >= 5
+                 AND EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) < 11 THEN 'breakfast'
+               WHEN EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) >= 11
+                 AND EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) < 16 THEN 'midday'
+               WHEN EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) >= 16
+                 AND EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) < 22 THEN 'evening'
+               ELSE 'overnight'
+             END)::integer AS daypart_count,
+             EXTRACT(EPOCH FROM (
+               MAX(consumed_at AT TIME ZONE $3) - MIN(consumed_at AT TIME ZONE $3)
+             )) / 3600.0 AS span_hours,
+             ROUND(SUM(calories)::numeric, 1) AS calories,
+             ROUND(SUM(protein)::numeric, 1) AS protein,
+             ROUND(SUM(carbs)::numeric, 1) AS carbs,
+             ROUND(SUM(fat)::numeric, 1) AS fat
+           FROM entries
+           WHERE user_id = $1 AND deleted_at IS NULL
+             AND consumed_at >= (
+               (NOW() AT TIME ZONE $3)::date - (($2::integer - 1) * INTERVAL '1 day')
+             ) AT TIME ZONE $3
+           GROUP BY day
+         )
+         SELECT
+           day_range.day::text AS day,
+           COALESCE(meal_totals.item_count, 0)::integer AS item_count,
+           COALESCE(meal_totals.daypart_count, 0)::integer AS daypart_count,
+           COALESCE(meal_totals.span_hours, 0)::double precision AS span_hours,
+           COALESCE(meal_totals.calories, 0) AS calories,
+           COALESCE(meal_totals.protein, 0) AS protein,
+           COALESCE(meal_totals.carbs, 0) AS carbs,
+           COALESCE(meal_totals.fat, 0) AS fat,
+           COALESCE(completeness.state, 'unknown') AS completeness_state,
+           COALESCE(completeness.timezone, $3) AS completeness_timezone,
+           completeness.updated_at AS completeness_updated_at
+         FROM day_range
+         LEFT JOIN meal_totals ON meal_totals.day = day_range.day
+         LEFT JOIN nutrition_day_completeness completeness
+           ON completeness.user_id = $1
+          AND completeness.local_date = day_range.day
+         WHERE meal_totals.item_count IS NOT NULL OR completeness.state IS NOT NULL
+         ORDER BY day_range.day ASC`,
         [userId, daysParam, timezone]
       ),
       pool.query(
         `SELECT
-           MIN(item_name) AS item_name,
+           MIN(entries.item_name) AS item_name,
            COUNT(*)::integer AS times_logged,
-           ROUND(SUM(calories)::numeric, 1) AS total_calories
+           ROUND(SUM(entries.calories)::numeric, 1) AS total_calories
          FROM entries
-         WHERE user_id = $1 AND deleted_at IS NULL
-           AND consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
-         GROUP BY lower(item_name)
-         ORDER BY COUNT(*) DESC, SUM(calories) DESC
+         JOIN nutrition_day_completeness completeness
+           ON completeness.user_id = entries.user_id
+          AND completeness.local_date = (entries.consumed_at AT TIME ZONE $3)::date
+          AND completeness.state = 'complete'
+         WHERE entries.user_id = $1 AND entries.deleted_at IS NULL
+           AND entries.consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
+         GROUP BY lower(entries.item_name)
+         ORDER BY COUNT(*) DESC, SUM(entries.calories) DESC
          LIMIT 12`,
         [userId, daysParam, timezone]
       ),
       pool.query(
         `SELECT
            COUNT(*)::integer AS total_entries,
-           SUM(CASE WHEN EXTRACT(HOUR FROM consumed_at AT TIME ZONE $3) >= 21 THEN 1 ELSE 0 END)::integer AS late_night_entries
+           SUM(CASE WHEN EXTRACT(HOUR FROM entries.consumed_at AT TIME ZONE $3) >= 21 THEN 1 ELSE 0 END)::integer AS late_night_entries
          FROM entries
-         WHERE user_id = $1 AND deleted_at IS NULL
-           AND consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3`,
+         JOIN nutrition_day_completeness completeness
+           ON completeness.user_id = entries.user_id
+          AND completeness.local_date = (entries.consumed_at AT TIME ZONE $3)::date
+          AND completeness.state = 'complete'
+         WHERE entries.user_id = $1 AND entries.deleted_at IS NULL
+           AND entries.consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3`,
         [userId, daysParam, timezone]
       ),
       pool.query(
@@ -3260,9 +3549,13 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
            SELECT MIN(logged_at) AS started_at
            FROM weight_entries
            WHERE user_id = $1 AND deleted_at IS NULL
+           UNION ALL
+           SELECT MIN(local_date::timestamp AT TIME ZONE $2) AS started_at
+           FROM nutrition_day_completeness
+           WHERE user_id = $1
          ) timeline
          WHERE started_at IS NOT NULL`,
-        [userId]
+        [userId, timezone]
       )
     ]);
 
@@ -3298,6 +3591,30 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
     }
   }
   const targetsByDay = new Map(targetHistory.map((row) => [row.day, row.targets]));
+  const today = todayIsoDateInTimezone(timezone);
+  const mealDailyTotals = mealDailyResult.rows.map((row) => ({
+    day: row.day,
+    itemCount: Number(row.item_count || 0),
+    calories: Number(row.calories || 0),
+    protein: Number(row.protein || 0),
+    carbs: Number(row.carbs || 0),
+    fat: Number(row.fat || 0),
+    targets: targetsByDay.get(row.day) || defaultMacroTargets(),
+    completeness: buildDayCompleteness({
+      day: row.day,
+      state: row.completeness_state,
+      timezone: row.completeness_timezone || timezone,
+      updatedAt: row.completeness_updated_at,
+      entryCount: Number(row.item_count || 0),
+      daypartCount: Number(row.daypart_count || 0),
+      spanHours: Number(row.span_hours || 0),
+      today
+    })
+  }));
+  const completenessCoverage = summarizeDayCompleteness(
+    mealDailyTotals,
+    effectivePeriodDays
+  );
 
   return {
     requestedPeriodDays: days,
@@ -3306,15 +3623,8 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
     targets,
     targetHistory,
     meals: {
-      dailyTotals: mealDailyResult.rows.map((row) => ({
-        day: row.day,
-        itemCount: Number(row.item_count || 0),
-        calories: Number(row.calories || 0),
-        protein: Number(row.protein || 0),
-        carbs: Number(row.carbs || 0),
-        fat: Number(row.fat || 0),
-        targets: targetsByDay.get(row.day) || defaultMacroTargets()
-      })),
+      dailyTotals: mealDailyTotals,
+      completenessCoverage,
       topItems: topMealsResult.rows.map((row) => ({
         itemName: row.item_name,
         timesLogged: Number(row.times_logged || 0),
@@ -3867,11 +4177,12 @@ async function deleteCoachDismissals(userId) {
 // ── GDPR ──
 
 async function exportUserData(userId) {
-  const [user, identities, entries, savedItems, foodCorrections, macroTargets, weightEntries, workoutEntries, sexualActivityEntries, sleepEntries, weightTarget, weightTargets, analysisReports, usageCounts, coachDismissals, clientDiagnostics] =
+  const [user, identities, entries, dayCompleteness, savedItems, foodCorrections, macroTargets, weightEntries, workoutEntries, sexualActivityEntries, sleepEntries, weightTarget, weightTargets, analysisReports, usageCounts, coachDismissals, clientDiagnostics] =
     await Promise.all([
       pool.query('SELECT id, email, name, provider, timezone, created_at, updated_at FROM users WHERE id = $1', [userId]),
       pool.query('SELECT provider, provider_user_id, created_at, updated_at FROM user_identities WHERE user_id = $1 ORDER BY provider', [userId]),
       pool.query('SELECT id, item_name, quantity, unit, calories, protein, carbs, fat, consumed_at, meal_group, meal_name, meal_quantity, meal_unit, source, source_detail, confidence, needs_review, correction_key, created_at FROM entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY consumed_at DESC', [userId]),
+      pool.query('SELECT local_date, state, timezone, created_at, updated_at FROM nutrition_day_completeness WHERE user_id = $1 ORDER BY local_date DESC', [userId]),
       pool.query('SELECT id, name, quantity, unit, calories, protein, carbs, fat, components, source, source_detail, usage_count, created_at FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL ORDER BY name', [userId]),
       pool.query('SELECT correction_key, item_name, quantity, unit, calories, protein, carbs, fat, source, created_at, updated_at FROM food_corrections WHERE user_id = $1 ORDER BY updated_at DESC', [userId]),
       pool.query('SELECT macro, target, effective_date, updated_at FROM macro_targets WHERE user_id = $1 ORDER BY effective_date DESC, macro', [userId]),
@@ -3892,6 +4203,7 @@ async function exportUserData(userId) {
     user: user.rows[0] || null,
     identities: identities.rows,
     entries: entries.rows,
+    nutritionDayCompleteness: dayCompleteness.rows,
     savedItems: savedItems.rows,
     foodCorrections: foodCorrections.rows,
     macroTargets: macroTargets.rows,
@@ -3914,6 +4226,7 @@ async function deleteUserAccount(userId) {
     await client.query('BEGIN');
     await client.query('DELETE FROM user_identities WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM entries WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM nutrition_day_completeness WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM saved_items WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM food_corrections WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM macro_targets WHERE user_id = $1', [userId]);
@@ -4125,6 +4438,10 @@ module.exports = {
   claimLegacyData,
   getDashboard,
   getDailyTotals,
+  getNutritionDayCompleteness,
+  getNutritionDayCompletenessForDays,
+  listNutritionDayCompleteness,
+  setNutritionDayCompleteness,
   getMacroTargets,
   getMacroTargetHistory,
   setMacroTarget,

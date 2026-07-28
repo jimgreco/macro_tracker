@@ -1364,7 +1364,7 @@ enum CoachCandidateEngine {
     ) -> [CoachSuggestion] {
         var candidates: [CoachSuggestion] = []
         let calendar = easternCalendar
-        let selectedDay = dayString(selectedDate)
+        let selectedDay = dashboard.currentDayTotals.day
         let selectedIsToday = calendar.isDate(selectedDate, inSameDayAs: now)
         let targets = dashboard.targets
 
@@ -1379,7 +1379,7 @@ enum CoachCandidateEngine {
 
         let recentCompleteDays = dashboard.previousDays
             .filter { $0.day != selectedDay }
-            .filter { isCompleteMacroDay($0, targets: targets) }
+            .filter(isCompleteMacroDay)
             .sorted { $0.day > $1.day }
             .prefix(7)
 
@@ -1712,7 +1712,7 @@ enum CoachCandidateEngine {
 
         let completeMacroDays = macroDailyTotals
             .filter { parseDay($0.day) >= addingDays(-28, to: now) }
-            .filter { isCompleteMacroDay($0, targets: macroTargets) }
+            .filter(isCompleteMacroDay)
         guard completeMacroDays.count >= 10 else { return nil }
 
         let highCalorieDays = completeMacroDays.filter { $0.calories > macroTargets.calories * 1.05 }
@@ -2111,7 +2111,10 @@ enum CoachCandidateEngine {
         selectedIsToday: Bool,
         now: Date
     ) -> CoachSuggestion? {
-        guard targets.calories > 0, targets.protein > 0, totals.calories > 0 else {
+        guard isCompleteMacroDay(totals),
+              targets.calories > 0,
+              targets.protein > 0,
+              totals.calories > 0 else {
             return nil
         }
 
@@ -2585,11 +2588,8 @@ enum CoachCandidateEngine {
         )
     }
 
-    private static func isCompleteMacroDay(_ totals: DailyTotals, targets: MacroTargets) -> Bool {
-        if targets.calories > 0 {
-            return totals.calories >= max(300, targets.calories * 0.40)
-        }
-        return totals.calories >= 300
+    private static func isCompleteMacroDay(_ totals: DailyTotals) -> Bool {
+        totals.completeness?.state == .complete
     }
 
     private static func lastSevenWorkoutDays(from dailyCalories: [WorkoutDailyCalories], now: Date) -> Set<String> {

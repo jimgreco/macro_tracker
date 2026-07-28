@@ -120,6 +120,7 @@ private struct MealImageAttachment: Identifiable {
 
 struct MacrosView: View {
     @EnvironmentObject var api: APIClient
+    @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appNavigation: AppNavigationModel
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var dashboard: DashboardResponse?
@@ -149,6 +150,7 @@ struct MacrosView: View {
     @State private var showEditEntry = false
     @State private var showEditParsedItem = false
     @State private var errorMessage: String?
+    @State private var isUpdatingDayCompleteness = false
     @State private var selectedDate = AppClock.now
     @State private var isMealEditing = false
     @State private var selectedEntryIds: Set<Int> = []
@@ -360,16 +362,28 @@ struct MacrosView: View {
         return (matches, false, true)
     }
 
+    private var accountTimeZone: TimeZone {
+        TimeZone(identifier: auth.user?.timezone ?? "") ?? .current
+    }
+
+    private var accountCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = accountTimeZone
+        return calendar
+    }
+
     private var dateString: String {
         let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = TimeZone(identifier: "America/New_York")
+        f.timeZone = accountTimeZone
         return f.string(from: selectedDate)
     }
 
     private var isoTimestamp: String {
         let f = ISO8601DateFormatter()
-        f.timeZone = TimeZone(identifier: "America/New_York")
+        f.timeZone = accountTimeZone
         return f.string(from: consumedAt)
     }
 
@@ -577,7 +591,7 @@ struct MacrosView: View {
     private var datePicker: some View {
         return HStack {
             Button {
-                selectedDate = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate)!
+                selectedDate = accountCalendar.date(byAdding: .day, value: -1, to: selectedDate)!
                 clearMealSelection()
                 Task { await loadDashboard() }
             } label: {
@@ -589,7 +603,7 @@ struct MacrosView: View {
                 .font(.headline)
             Spacer()
             Button {
-                selectedDate = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate)!
+                selectedDate = accountCalendar.date(byAdding: .day, value: 1, to: selectedDate)!
                 clearMealSelection()
                 Task { await loadDashboard() }
             } label: {
@@ -626,10 +640,108 @@ struct MacrosView: View {
             macroRow("Protein", value: totals.protein, target: targets.protein, unit: "g", color: .neonGreen)
             macroRow("Carbs", value: totals.carbs, target: targets.carbs, unit: "g", color: .neonCyan)
             macroRow("Fat", value: totals.fat, target: targets.fat, unit: "g", color: .neonPink)
+
+            dayCompletenessControl(totals)
         }
         .padding()
         .background(Color.panelBg)
         .cornerRadius(14)
+    }
+
+    private func dayCompletenessControl(_ totals: DailyTotals) -> some View {
+        let state = totals.completeness?.state ?? .unknown
+        let isComplete = state == .complete
+        let title = isComplete
+            ? "Day marked complete"
+            : state == .partial ? "Day reopened" : "Completeness not set"
+        let detail: String = {
+            if isComplete {
+                return "Included in nutrition coaching and analysis. You can still edit entries."
+            }
+            if state == .partial {
+                return "Excluded from nutrition comparisons until you mark it complete again."
+            }
+            return totals.completeness?.suggestionReason
+                ?? "Mark complete only when this day’s nutrition log is finished."
+        }()
+
+        return VStack(spacing: 10) {
+            Divider()
+                .overlay(Color.white.opacity(0.08))
+
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: isComplete ? "checkmark.circle.fill" : "circle.dashed")
+                    .foregroundStyle(isComplete ? Color.neonGreen : Color.mutedText)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.caption.bold())
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(Color.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                Button(isComplete ? "Reopen day" : "Mark complete") {
+                    Task {
+                        await updateDayCompleteness(isComplete ? .partial : .complete)
+                    }
+                }
+                .font(.caption.bold())
+                .foregroundStyle(isComplete ? Color.mutedText : Color.neonGreen)
+                .disabled(isUpdatingDayCompleteness)
+                .accessibilityLabel(isComplete ? "Reopen nutrition day" : "Mark nutrition day complete")
+            }
+        }
+    }
+
+    @MainActor
+    private func applyDayCompleteness(_ completeness: DayCompleteness) async {
+        func updatedTotals(_ totals: DailyTotals) -> DailyTotals {
+            guard totals.day == completeness.day else { return totals }
+            return DailyTotals(
+                day: totals.day,
+                calories: totals.calories,
+                protein: totals.protein,
+                carbs: totals.carbs,
+                fat: totals.fat,
+                completeness: completeness
+            )
+        }
+
+        if let current = dashboard {
+            dashboard = DashboardResponse(
+                currentDayTotals: updatedTotals(current.currentDayTotals),
+                previousDays: current.previousDays.map(updatedTotals),
+                sevenDayAverage: current.sevenDayAverage,
+                entries: current.entries,
+                targets: current.targets,
+                pagination: current.pagination
+            )
+        }
+        trendData = trendData.map(updatedTotals)
+        await rebuildCoachSuggestions()
+    }
+
+    private func updateDayCompleteness(_ state: NutritionDayState) async {
+        guard !isUpdatingDayCompleteness else { return }
+        isUpdatingDayCompleteness = true
+        defer { isUpdatingDayCompleteness = false }
+
+        do {
+            let response = try await api.setNutritionDayCompleteness(
+                day: dateString,
+                state: state,
+                timezone: accountTimeZone.identifier
+            )
+            errorMessage = nil
+            await applyDayCompleteness(response.completeness)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func macroRow(_ label: String, value: Double, target: Double, unit: String, color: Color) -> some View {

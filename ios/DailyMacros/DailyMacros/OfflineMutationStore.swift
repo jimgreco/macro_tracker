@@ -7,6 +7,7 @@ enum PendingMutationKind: String, Codable {
     case workout
     case sleep
     case sexualActivity = "sexual_activity"
+    case dayCompleteness = "day_completeness"
 }
 
 struct PendingMutation: Codable, Identifiable {

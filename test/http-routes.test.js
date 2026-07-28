@@ -47,6 +47,8 @@ let weightAddDelayMs = 0;
 const clientMutations = new Map();
 const webSessions = new Map();
 const rateLimits = new Map();
+const dayCompletenessByDay = new Map();
+let analysisSnapshotOverride = null;
 
 function record(name, payload) {
   calls.push({ name, payload });
@@ -213,6 +215,43 @@ const fakeDb = {
     return { currentDayTotals: {}, previousDays: [], sevenDayAverage: {}, entries: [], targets: {}, pagination: {} };
   },
   getDailyTotals: async () => [],
+  getNutritionDayCompleteness: async (_userId, day, timezone) => {
+    record('getNutritionDayCompleteness', { day, timezone });
+    return dayCompletenessByDay.get(day) || {
+      day,
+      state: 'unknown',
+      explicit: false,
+      eligibleForNutritionAnalysis: false,
+      suggestedState: null,
+      suggestionReason: null,
+      timezone,
+      updatedAt: null
+    };
+  },
+  getNutritionDayCompletenessForDays: async (_userId, days, timezone) =>
+    Promise.all(days.map((day) => fakeDb.getNutritionDayCompleteness(_userId, day, timezone))),
+  listNutritionDayCompleteness: async (_userId, { startDay, endDay, timezone }) => {
+    record('listNutritionDayCompleteness', { startDay, endDay, timezone });
+    const keys = [...dayCompletenessByDay.keys()]
+      .filter((day) => (!startDay || day >= startDay) && (!endDay || day <= endDay))
+      .sort();
+    return Promise.all(keys.map((day) => fakeDb.getNutritionDayCompleteness(_userId, day, timezone)));
+  },
+  setNutritionDayCompleteness: async (_userId, day, state, timezone) => {
+    record('setNutritionDayCompleteness', { day, state, timezone });
+    const completeness = {
+      day,
+      state,
+      explicit: state !== 'unknown',
+      eligibleForNutritionAnalysis: state === 'complete',
+      suggestedState: null,
+      suggestionReason: null,
+      timezone,
+      updatedAt: new Date().toISOString()
+    };
+    dayCompletenessByDay.set(day, completeness);
+    return completeness;
+  },
   getMacroTargets: async () => ({}),
   getMacroTargetHistory: async () => [],
   setMacroTarget: async () => ({ macro: 'calories', target: 2000 }),
@@ -257,6 +296,9 @@ const fakeDb = {
   },
   getAnalysisSnapshot: async (_userId, days, timezone) => {
     record('getAnalysisSnapshot', { days, timezone });
+    if (analysisSnapshotOverride) {
+      return analysisSnapshotOverride;
+    }
     return {
       requestedPeriodDays: 14,
       periodDays: 14,
@@ -266,7 +308,12 @@ const fakeDb = {
           day: `2026-06-${String(i + 1).padStart(2, '0')}`,
           itemCount: 3,
           calories: 1950,
-          protein: 155
+          protein: 155,
+          completeness: {
+            state: 'complete',
+            explicit: true,
+            eligibleForNutritionAnalysis: true
+          }
         })),
         timing: { totalEntries: 21, lateNightEntries: 1 }
       },
@@ -398,6 +445,37 @@ test('dashboard route falls back to saved user timezone', routeTestOptions, asyn
 
   assert.equal(res.status, 200);
   assert.equal(latestCall('getDashboard').payload.options.timezone, 'America/Los_Angeles');
+});
+
+test('day completeness can be marked complete and reopened in the saved timezone', routeTestOptions, async () => {
+  resetCalls();
+  dayCompletenessByDay.clear();
+
+  const marked = await request('/api/day-completeness/2026-07-26', {
+    method: 'PUT',
+    body: JSON.stringify({ state: 'complete' })
+  });
+  assert.equal(marked.res.status, 200);
+  assert.equal(marked.body.completeness.state, 'complete');
+  assert.equal(marked.body.completeness.eligibleForNutritionAnalysis, true);
+  assert.deepEqual(latestCall('setNutritionDayCompleteness').payload, {
+    day: '2026-07-26',
+    state: 'complete',
+    timezone: 'America/Los_Angeles'
+  });
+
+  const loaded = await request('/api/day-completeness?day=2026-07-26');
+  assert.equal(loaded.res.status, 200);
+  assert.equal(loaded.body.completeness.state, 'complete');
+
+  const reopened = await request('/api/day-completeness/2026-07-26', {
+    method: 'PUT',
+    body: JSON.stringify({ state: 'partial', tz: 'America/Chicago' })
+  });
+  assert.equal(reopened.res.status, 200);
+  assert.equal(reopened.body.completeness.state, 'partial');
+  assert.equal(reopened.body.completeness.eligibleForNutritionAnalysis, false);
+  assert.equal(latestCall('setNutritionDayCompleteness').payload.timezone, 'America/Chicago');
 });
 
 test('Today route aggregates one bounded cross-surface snapshot in the saved timezone', routeTestOptions, async () => {
@@ -603,4 +681,43 @@ test('weekly recap and diagnostics routes are wired through real middleware', ro
   assert.equal(latestCall('getAnalysisSnapshot').payload.timezone, 'America/Los_Angeles');
   assert.equal(diagnostic.res.status, 200);
   assert.equal(latestCall('logClientDiagnostic').payload.message, 'client failure');
+});
+
+test('weekly recap makes no nutrition shortfall claim from a breakfast-only unknown day', routeTestOptions, async () => {
+  analysisSnapshotOverride = {
+    requestedPeriodDays: 7,
+    periodDays: 7,
+    targets: { calories: 2000, protein: 160, workouts: 0, sleep_hours: 8 },
+    targetHistory: [],
+    meals: {
+      dailyTotals: [{
+        day: '2026-07-26',
+        itemCount: 1,
+        calories: 320,
+        protein: 22,
+        completeness: {
+          state: 'unknown',
+          explicit: false,
+          eligibleForNutritionAnalysis: false
+        }
+      }],
+      timing: { totalEntries: 0, lateNightEntries: 0 }
+    },
+    workouts: { dailyTotals: [] },
+    weight: { entries: [], change: 0, target: {} },
+    sleep: { dailyTotals: [] }
+  };
+
+  try {
+    const { res, body } = await request('/api/coach/weekly-recap');
+    const recap = body.recap;
+    assert.equal(res.status, 200);
+    assert.equal(recap.metrics.completeDays, 0);
+    assert.equal(recap.metrics.nutritionSampleDays, 0);
+    assert.equal(recap.metrics.avgProtein, null);
+    assert.match(recap.summary, /not enough complete days for a protein claim/i);
+    assert.doesNotMatch(JSON.stringify(recap), /protein.*below target/i);
+  } finally {
+    analysisSnapshotOverride = null;
+  }
 });

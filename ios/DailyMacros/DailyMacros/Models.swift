@@ -77,12 +77,46 @@ struct Entry: Codable, Identifiable, Sendable {
     let mealUnit: String?
 }
 
+enum NutritionDayState: String, Codable, Sendable {
+    case complete
+    case partial
+    case unknown
+}
+
+struct DayCompleteness: Codable, Sendable {
+    let day: String
+    let state: NutritionDayState
+    let explicit: Bool
+    let eligibleForNutritionAnalysis: Bool
+    let suggestedState: NutritionDayState?
+    let suggestionReason: String?
+    let timezone: String
+    let updatedAt: String?
+}
+
 struct DailyTotals: Codable, Sendable {
     let day: String
     let calories: Double
     let protein: Double
     let carbs: Double
     let fat: Double
+    let completeness: DayCompleteness?
+
+    init(
+        day: String,
+        calories: Double,
+        protein: Double,
+        carbs: Double,
+        fat: Double,
+        completeness: DayCompleteness? = nil
+    ) {
+        self.day = day
+        self.calories = calories
+        self.protein = protein
+        self.carbs = carbs
+        self.fat = fat
+        self.completeness = completeness
+    }
 }
 
 struct SevenDayAverage: Codable, Sendable {
@@ -430,6 +464,11 @@ struct DailyTotalsResponse: Codable {
     let targets: MacroTargets
 }
 
+struct DayCompletenessResponse: Codable {
+    let ok: Bool?
+    let completeness: DayCompleteness
+}
+
 // MARK: - Analysis
 
 struct AnalysisReport: Codable, Identifiable {
@@ -468,6 +507,11 @@ struct WeekOverWeek: Codable {
 
 struct AnalysisAdherence: Codable {
     let mealLoggingPct: Double?
+    let completeDayCoveragePct: Double?
+    let completeDayCount: Int?
+    let partialDayCount: Int?
+    let unknownDayCount: Int?
+    let nutritionSampleCount: Int?
     let calorieTargetDelta: Double?
     let calorieTargetDeltaPct: Double?
     let proteinTargetDelta: Double?

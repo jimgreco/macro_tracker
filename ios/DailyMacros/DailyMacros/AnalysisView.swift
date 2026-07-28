@@ -154,8 +154,15 @@ struct AnalysisView: View {
             if let adherence = r.adherence {
                 sectionCard("Adherence", icon: "chart.line.uptrend.xyaxis") {
                     VStack(spacing: 8) {
-                        if let rate = adherence.mealLoggingPct {
-                            adherenceRow("Meal Log Rate", value: "\(Int(rate))%")
+                        if let rate = adherence.completeDayCoveragePct ?? adherence.mealLoggingPct {
+                            adherenceRow("Complete-day coverage", value: "\(Int(rate))%")
+                        }
+                        if let complete = adherence.completeDayCount {
+                            adherenceRow("Nutrition sample", value: "\(complete) complete days")
+                        }
+                        if let partial = adherence.partialDayCount,
+                           let unknown = adherence.unknownDayCount {
+                            adherenceRow("Excluded days", value: "\(partial) partial · \(unknown) unknown")
                         }
                         if let completed = adherence.completedWorkoutCount, let planned = adherence.plannedWorkoutCount {
                             adherenceRow("Workouts", value: "\(completed) / \(planned) days")

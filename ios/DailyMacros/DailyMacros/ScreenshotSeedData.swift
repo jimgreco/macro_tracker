@@ -289,6 +289,11 @@ enum ScreenshotSeedData {
                 ),
                 adherence: AnalysisAdherence(
                     mealLoggingPct: 90,
+                    completeDayCoveragePct: 90,
+                    completeDayCount: 27,
+                    partialDayCount: 1,
+                    unknownDayCount: 2,
+                    nutritionSampleCount: 27,
                     calorieTargetDelta: -118,
                     calorieTargetDeltaPct: -5.4,
                     proteinTargetDelta: -19,
@@ -472,33 +477,33 @@ enum ScreenshotSeedData {
     ]
 
     private static let dailyTotals: [DailyTotals] = [
-        DailyTotals(day: "2026-06-11", calories: 2140, protein: 168, carbs: 220, fat: 63),
-        DailyTotals(day: "2026-06-12", calories: 2235, protein: 172, carbs: 236, fat: 68),
-        DailyTotals(day: "2026-06-13", calories: 2055, protein: 158, carbs: 210, fat: 61),
-        DailyTotals(day: "2026-06-14", calories: 2310, protein: 150, carbs: 258, fat: 73),
-        DailyTotals(day: "2026-06-15", calories: 1985, protein: 166, carbs: 202, fat: 59),
-        DailyTotals(day: "2026-06-16", calories: 2090, protein: 154, carbs: 212, fat: 64),
-        DailyTotals(day: referenceDay, calories: 1760, protein: 142, carbs: 185, fat: 52)
+        completeTotals(day: "2026-06-11", calories: 2140, protein: 168, carbs: 220, fat: 63),
+        completeTotals(day: "2026-06-12", calories: 2235, protein: 172, carbs: 236, fat: 68),
+        completeTotals(day: "2026-06-13", calories: 2055, protein: 158, carbs: 210, fat: 61),
+        completeTotals(day: "2026-06-14", calories: 2310, protein: 150, carbs: 258, fat: 73),
+        completeTotals(day: "2026-06-15", calories: 1985, protein: 166, carbs: 202, fat: 59),
+        completeTotals(day: "2026-06-16", calories: 2090, protein: 154, carbs: 212, fat: 64),
+        completeTotals(day: referenceDay, calories: 1760, protein: 142, carbs: 185, fat: 52)
     ]
 
     private static var monthDailyTotals: [DailyTotals] {
         [
-            DailyTotals(day: "2026-05-19", calories: 2290, protein: 151, carbs: 246, fat: 70),
-            DailyTotals(day: "2026-05-22", calories: 2110, protein: 160, carbs: 216, fat: 63),
-            DailyTotals(day: "2026-05-26", calories: 2185, protein: 166, carbs: 222, fat: 65),
-            DailyTotals(day: "2026-05-30", calories: 2075, protein: 157, carbs: 208, fat: 62),
-            DailyTotals(day: "2026-06-03", calories: 2160, protein: 169, carbs: 225, fat: 64),
-            DailyTotals(day: "2026-06-07", calories: 2045, protein: 162, carbs: 198, fat: 61)
+            completeTotals(day: "2026-05-19", calories: 2290, protein: 151, carbs: 246, fat: 70),
+            completeTotals(day: "2026-05-22", calories: 2110, protein: 160, carbs: 216, fat: 63),
+            completeTotals(day: "2026-05-26", calories: 2185, protein: 166, carbs: 222, fat: 65),
+            completeTotals(day: "2026-05-30", calories: 2075, protein: 157, carbs: 208, fat: 62),
+            completeTotals(day: "2026-06-03", calories: 2160, protein: 169, carbs: 225, fat: 64),
+            completeTotals(day: "2026-06-07", calories: 2045, protein: 162, carbs: 198, fat: 61)
         ] + dailyTotals
     }
 
     private static var yearDailyTotals: [DailyTotals] {
         [
-            DailyTotals(day: "2026-01-15", calories: 2350, protein: 145, carbs: 260, fat: 76),
-            DailyTotals(day: "2026-02-15", calories: 2260, protein: 152, carbs: 244, fat: 71),
-            DailyTotals(day: "2026-03-15", calories: 2190, protein: 158, carbs: 232, fat: 67),
-            DailyTotals(day: "2026-04-15", calories: 2140, protein: 163, carbs: 221, fat: 64),
-            DailyTotals(day: "2026-05-15", calories: 2115, protein: 166, carbs: 218, fat: 63)
+            completeTotals(day: "2026-01-15", calories: 2350, protein: 145, carbs: 260, fat: 76),
+            completeTotals(day: "2026-02-15", calories: 2260, protein: 152, carbs: 244, fat: 71),
+            completeTotals(day: "2026-03-15", calories: 2190, protein: 158, carbs: 232, fat: 67),
+            completeTotals(day: "2026-04-15", calories: 2140, protein: 163, carbs: 221, fat: 64),
+            completeTotals(day: "2026-05-15", calories: 2115, protein: 166, carbs: 218, fat: 63)
         ] + monthDailyTotals
     }
 
@@ -562,6 +567,32 @@ enum ScreenshotSeedData {
 
     private static func emptyTotals(for day: String) -> DailyTotals {
         DailyTotals(day: day, calories: 0, protein: 0, carbs: 0, fat: 0)
+    }
+
+    private static func completeTotals(
+        day: String,
+        calories: Double,
+        protein: Double,
+        carbs: Double,
+        fat: Double
+    ) -> DailyTotals {
+        DailyTotals(
+            day: day,
+            calories: calories,
+            protein: protein,
+            carbs: carbs,
+            fat: fat,
+            completeness: DayCompleteness(
+                day: day,
+                state: .complete,
+                explicit: true,
+                eligibleForNutritionAnalysis: true,
+                suggestedState: nil,
+                suggestionReason: nil,
+                timezone: "America/New_York",
+                updatedAt: nil
+            )
+        )
     }
 
     private static func iso(_ day: String, _ time: String) -> String {

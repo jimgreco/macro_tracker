@@ -57,6 +57,9 @@ const {
   claimLegacyData,
   getDashboard,
   getDailyTotals,
+  getNutritionDayCompleteness,
+  listNutritionDayCompleteness,
+  setNutritionDayCompleteness,
   getMacroTargets,
   getMacroTargetHistory,
   setMacroTarget,
@@ -104,6 +107,10 @@ const { parseMealText, parseWorkoutText } = require('./parser');
 const { estimateWorkoutCalories } = require('./workout-calories');
 const { scaleMealUnitRows } = require('./meal-normalizer');
 const { buildTodaySummary } = require('./today-summary');
+const {
+  isExplicitlyCompleteDay,
+  summarizeDayCompleteness
+} = require('./day-completeness');
 const { createClientMutationMiddleware } = require('./idempotency');
 const { PostgresSessionStore } = require('./postgres-session-store');
 const packageJson = require('../package.json');
@@ -1025,6 +1032,15 @@ function stddev(values) {
   return Math.sqrt(Math.max(variance, 0));
 }
 
+function shiftIsoDay(isoDay, deltaDays) {
+  const date = new Date(`${isoDay}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    return isoDay;
+  }
+  date.setUTCDate(date.getUTCDate() + deltaDays);
+  return date.toISOString().slice(0, 10);
+}
+
 function normalizeAnalysisContext(snapshot) {
   const plannedFromTargets = toFinite(snapshot?.targets?.workouts, 5);
   const plannedWorkoutsPerWeek = Math.max(0, Math.min(14, Math.round(plannedFromTargets)));
@@ -1049,14 +1065,15 @@ function inferGoalFromWeightTarget(snapshot) {
 
 function buildAnalysisMetrics(snapshot, context) {
   const periodDays = Math.max(1, toFinite(snapshot?.periodDays, snapshot?.requestedPeriodDays || 90));
-  const targets = snapshot?.targets || {};
-  const mealDays = Array.isArray(snapshot?.meals?.dailyTotals) ? snapshot.meals.dailyTotals : [];
+  const allMealDays = Array.isArray(snapshot?.meals?.dailyTotals) ? snapshot.meals.dailyTotals : [];
+  const mealDays = allMealDays.filter(isExplicitlyCompleteDay);
+  const completenessCoverage = summarizeDayCompleteness(allMealDays, periodDays);
   const workoutDays = Array.isArray(snapshot?.workouts?.dailyTotals) ? snapshot.workouts.dailyTotals : [];
   const weightEntries = Array.isArray(snapshot?.weight?.entries) ? snapshot.weight.entries : [];
   const mealTiming = snapshot?.meals?.timing || {};
 
-  const mealLoggedDays = mealDays.length;
-  const totalLoggedItems = mealDays.reduce((sum, row) => sum + toFinite(row.itemCount), 0);
+  const mealLoggedDays = allMealDays.filter((row) => toFinite(row.itemCount) > 0).length;
+  const totalLoggedItems = allMealDays.reduce((sum, row) => sum + toFinite(row.itemCount), 0);
   // Count distinct days with at least one workout (not total sessions).
   // e.g. target=5 means 5 separate days must have workouts; 2 workouts on one day still counts as 1.
   const workoutSessions = workoutDays.length;
@@ -1073,14 +1090,32 @@ function buildAnalysisMetrics(snapshot, context) {
   const dailyCalories = mealDays.map((row) => toFinite(row.calories));
   const dailyProtein = mealDays.map((row) => toFinite(row.protein));
 
-  const calorieTarget = toFinite(targets.calories);
-  const proteinTarget = toFinite(targets.protein);
   const avgCalories = avg(dailyCalories);
   const avgProtein = avg(dailyProtein);
-  const calorieTargetDelta = calorieTarget > 0 ? avgCalories - calorieTarget : 0;
-  const proteinTargetDelta = proteinTarget > 0 ? avgProtein - proteinTarget : 0;
-  const calorieTargetDeltaPct = calorieTarget > 0 ? (calorieTargetDelta / calorieTarget) * 100 : 0;
-  const proteinTargetDeltaPct = proteinTarget > 0 ? (proteinTargetDelta / proteinTarget) * 100 : 0;
+  const calorieComparisons = mealDays
+    .map((row) => ({
+      value: toFinite(row.calories),
+      target: toFinite(row.targets?.calories, toFinite(snapshot?.targets?.calories))
+    }))
+    .filter((row) => row.target > 0);
+  const proteinComparisons = mealDays
+    .map((row) => ({
+      value: toFinite(row.protein),
+      target: toFinite(row.targets?.protein, toFinite(snapshot?.targets?.protein))
+    }))
+    .filter((row) => row.target > 0);
+  const calorieTargetDelta = calorieComparisons.length
+    ? avg(calorieComparisons.map((row) => row.value - row.target))
+    : null;
+  const proteinTargetDelta = proteinComparisons.length
+    ? avg(proteinComparisons.map((row) => row.value - row.target))
+    : null;
+  const calorieTargetDeltaPct = calorieComparisons.length
+    ? avg(calorieComparisons.map((row) => ((row.value - row.target) / row.target) * 100))
+    : null;
+  const proteinTargetDeltaPct = proteinComparisons.length
+    ? avg(proteinComparisons.map((row) => ((row.value - row.target) / row.target) * 100))
+    : null;
 
   const expectedPlannedSessions = Math.max(
     0,
@@ -1099,7 +1134,9 @@ function buildAnalysisMetrics(snapshot, context) {
     if (day === 0 || day === 6) weekendCalories.push(toFinite(row.calories));
     else weekdayCalories.push(toFinite(row.calories));
   }
-  const weekendDrift = avg(weekendCalories) - avg(weekdayCalories);
+  const weekendDrift = weekendCalories.length && weekdayCalories.length
+    ? avg(weekendCalories) - avg(weekdayCalories)
+    : null;
   const lateNightPct = toFinite(mealTiming.totalEntries) > 0
     ? (toFinite(mealTiming.lateNightEntries) / toFinite(mealTiming.totalEntries)) * 100
     : 0;
@@ -1112,6 +1149,12 @@ function buildAnalysisMetrics(snapshot, context) {
   const prev7AvgCalories = avg(prev7Meals.map((row) => toFinite(row.calories)));
   const last7AvgProtein = avg(last7Meals.map((row) => toFinite(row.protein)));
   const prev7AvgProtein = avg(prev7Meals.map((row) => toFinite(row.protein)));
+  const avgCaloriesDelta = last7Meals.length && prev7Meals.length
+    ? last7AvgCalories - prev7AvgCalories
+    : null;
+  const avgProteinDelta = last7Meals.length && prev7Meals.length
+    ? last7AvgProtein - prev7AvgProtein
+    : null;
   const last7WorkoutHours = last7Workouts.reduce((sum, row) => sum + toFinite(row.durationHours), 0);
   const prev7WorkoutHours = prev7Workouts.reduce((sum, row) => sum + toFinite(row.durationHours), 0);
 
@@ -1162,7 +1205,7 @@ function buildAnalysisMetrics(snapshot, context) {
     }
   }
 
-  const mealCoveragePct = Math.round((mealLoggedDays / periodDays) * 100);
+  const mealCoveragePct = completenessCoverage.coveragePct;
   const workoutCoverage = expectedPlannedSessions > 0 ? workoutSessions / expectedPlannedSessions : 0;
   const weightCoverage = Math.min(1, weightEntries.length / Math.max(2, Math.round(periodDays / 7)));
   const confidenceScore = Math.round(
@@ -1173,6 +1216,9 @@ function buildAnalysisMetrics(snapshot, context) {
     stats: {
       periodDays,
       mealLoggedDays,
+      completeNutritionDays: completenessCoverage.completeDays,
+      partialNutritionDays: completenessCoverage.partialDays,
+      unknownNutritionDays: completenessCoverage.unknownDays,
       totalLoggedItems,
       workoutSessions,
       totalWorkoutHours: Number(totalWorkoutHours.toFixed(2)),
@@ -1191,35 +1237,41 @@ function buildAnalysisMetrics(snapshot, context) {
     },
     adherence: {
       mealLoggingPct: mealCoveragePct,
-      calorieTargetSet: calorieTarget > 0,
-      calorieTargetDelta: Number(calorieTargetDelta.toFixed(1)),
-      calorieTargetDeltaPct: Number(calorieTargetDeltaPct.toFixed(1)),
-      proteinTargetSet: proteinTarget > 0,
-      proteinTargetDelta: Number(proteinTargetDelta.toFixed(1)),
-      proteinTargetDeltaPct: Number(proteinTargetDeltaPct.toFixed(1)),
+      completeDayCoveragePct: completenessCoverage.coveragePct,
+      completeDayCount: completenessCoverage.completeDays,
+      partialDayCount: completenessCoverage.partialDays,
+      unknownDayCount: completenessCoverage.unknownDays,
+      nutritionSampleCount: completenessCoverage.eligibleSampleDays,
+      calorieTargetSet: calorieComparisons.length > 0,
+      calorieTargetDelta: calorieTargetDelta == null ? null : Number(calorieTargetDelta.toFixed(1)),
+      calorieTargetDeltaPct: calorieTargetDeltaPct == null ? null : Number(calorieTargetDeltaPct.toFixed(1)),
+      proteinTargetSet: proteinComparisons.length > 0,
+      proteinTargetDelta: proteinTargetDelta == null ? null : Number(proteinTargetDelta.toFixed(1)),
+      proteinTargetDeltaPct: proteinTargetDeltaPct == null ? null : Number(proteinTargetDeltaPct.toFixed(1)),
       plannedWorkoutCount: expectedPlannedSessions,
       completedWorkoutCount: workoutSessions
     },
     weekOverWeek: {
       weightChangeDelta: Number(weightDeltaWoW.toFixed(2)),
-      avgCaloriesDelta: Number((last7AvgCalories - prev7AvgCalories).toFixed(1)),
-      avgProteinDelta: Number((last7AvgProtein - prev7AvgProtein).toFixed(1)),
+      avgCaloriesDelta: avgCaloriesDelta == null ? null : Number(avgCaloriesDelta.toFixed(1)),
+      avgProteinDelta: avgProteinDelta == null ? null : Number(avgProteinDelta.toFixed(1)),
       workoutHoursDelta: Number((last7WorkoutHours - prev7WorkoutHours).toFixed(2))
     },
     nutritionSignals: {
-      proteinConsistency: proteinCv <= 0.2 ? 'high' : proteinCv <= 0.35 ? 'medium' : 'low',
-      calorieVolatility: Number(calorieVolatility.toFixed(1)),
+      proteinConsistency: mealDays.length < 2
+        ? 'insufficient_data'
+        : proteinCv <= 0.2 ? 'high' : proteinCv <= 0.35 ? 'medium' : 'low',
+      calorieVolatility: mealDays.length < 2 ? null : Number(calorieVolatility.toFixed(1)),
       lateNightEatingPct: Math.round(lateNightPct),
-      weekendCalorieDrift: Number(weekendDrift.toFixed(1))
+      weekendCalorieDrift: weekendDrift == null ? null : Number(weekendDrift.toFixed(1))
     },
     dataConfidence: {
       score: confidenceScore,
-      notes:
-        confidenceScore >= 75
-          ? 'High coverage across meals, workouts, and weight.'
-          : confidenceScore >= 50
-            ? 'Moderate coverage. Some recommendations may be less reliable.'
-            : 'Low coverage. Improve logging consistency for stronger insights.'
+      notes: `${completenessCoverage.completeDays} explicitly complete nutrition day${
+        completenessCoverage.completeDays === 1 ? '' : 's'
+      } used; ${completenessCoverage.partialDays} partial and ${
+        completenessCoverage.unknownDays
+      } unknown day${completenessCoverage.unknownDays === 1 ? '' : 's'} excluded from nutrition comparisons.`
     }
   };
 }
@@ -1227,32 +1279,63 @@ function buildAnalysisMetrics(snapshot, context) {
 function buildFallbackAnalysis(snapshot, context) {
   const metrics = buildAnalysisMetrics(snapshot, context);
   const stats = metrics.stats;
+  const adherence = metrics.adherence;
   const summary = [
     `Analyzed ${stats.periodDays} days.`,
-    `Meal logging ${metrics.adherence.mealLoggingPct}% of days.`,
-    `Workout days: ${stats.workoutSessions} days with workouts vs ${metrics.adherence.plannedWorkoutCount} planned workout days.`,
+    `Nutrition comparisons use ${adherence.completeDayCount} explicitly complete day${adherence.completeDayCount === 1 ? '' : 's'}; ${adherence.partialDayCount} partial and ${adherence.unknownDayCount} unknown days were excluded.`,
+    `Workout days: ${stats.workoutSessions} days with workouts vs ${adherence.plannedWorkoutCount} planned workout days.`,
     `Goal alignment score ${metrics.goalAlignment.score}/100 (${metrics.goalAlignment.status.replace('_', ' ')}).`
   ].join(' ');
 
+  const progress = [
+    `Weight change: ${stats.weightChange > 0 ? '+' : ''}${stats.weightChange.toFixed(1)} over the analysis window.`,
+    `Workout volume: ${stats.totalWorkoutHours.toFixed(1)} hours total.`
+  ];
+  if (adherence.proteinTargetSet && adherence.proteinTargetDelta != null) {
+    progress.splice(
+      1,
+      0,
+      `Across ${adherence.nutritionSampleCount} complete day${adherence.nutritionSampleCount === 1 ? '' : 's'}, average protein is ${adherence.proteinTargetDelta > 0 ? '+' : ''}${adherence.proteinTargetDelta.toFixed(1)}g (${adherence.proteinTargetDeltaPct > 0 ? '+' : ''}${adherence.proteinTargetDeltaPct.toFixed(1)}%) vs the historical target.`
+    );
+  }
+
+  const needsImprovement = [];
+  const nextWeekPlan = [
+    `Complete ${Math.max(3, context.plannedWorkoutsPerWeek)} workouts next week.`,
+    'Log morning weight on at least 4 days with similar conditions.'
+  ];
+  if (adherence.nutritionSampleCount < 4) {
+    needsImprovement.push('More explicitly complete nutrition days are needed before evaluating calorie or protein adherence.');
+    nextWeekPlan.push('Mark at least 4 nutrition days complete after you are confident each log is finished.');
+  } else {
+    if (
+      adherence.proteinTargetSet &&
+      adherence.proteinTargetDelta != null &&
+      adherence.proteinTargetDelta < 0
+    ) {
+      needsImprovement.push(
+        `Protein averaged ${Math.abs(adherence.proteinTargetDelta).toFixed(1)}g below the historical target across ${adherence.nutritionSampleCount} complete days.`
+      );
+      nextWeekPlan.push('Plan one protein-first meal on 5 days next week.');
+    }
+    if (metrics.nutritionSignals.calorieVolatility != null) {
+      needsImprovement.push(
+        `Review calorie consistency across the ${adherence.nutritionSampleCount} complete nutrition days.`
+      );
+    }
+  }
+  if (!needsImprovement.length) {
+    needsImprovement.push('No nutrition shortfall claim was made without enough explicitly complete days.');
+  }
+  if (nextWeekPlan.length < 3) {
+    nextWeekPlan.push('Review the explicitly complete nutrition sample before changing calorie or protein targets.');
+  }
+
   return {
     summary,
-    progress: [
-      `Weight change: ${stats.weightChange > 0 ? '+' : ''}${stats.weightChange.toFixed(1)} over the analysis window.`,
-      metrics.adherence.proteinTargetSet
-        ? `Average protein is ${metrics.adherence.proteinTargetDelta > 0 ? '+' : ''}${metrics.adherence.proteinTargetDelta.toFixed(1)}g (${metrics.adherence.proteinTargetDeltaPct > 0 ? '+' : ''}${metrics.adherence.proteinTargetDeltaPct.toFixed(1)}%) vs target.`
-        : 'Set a protein target to track above/below-target variance.',
-      `Workout volume: ${stats.totalWorkoutHours.toFixed(1)} hours total.`
-    ],
-    needsImprovement: [
-      'Increase meal logging consistency to at least 6 of 7 days.',
-      'Reduce calorie volatility and weekend drift.',
-      'Keep late-night eating to less than 15% of logged meals.'
-    ],
-    nextWeekPlan: [
-      `Complete ${Math.max(3, context.plannedWorkoutsPerWeek)} workouts next week.`,
-      'Hit protein target on at least 5 of 7 days.',
-      'Log morning weight on at least 4 days with similar conditions.'
-    ],
+    progress,
+    needsImprovement,
+    nextWeekPlan,
     confidence: metrics.dataConfidence.score >= 75 ? 'high' : metrics.dataConfidence.score >= 50 ? 'medium' : 'low',
     ...metrics
   };
@@ -1263,48 +1346,79 @@ function buildWeeklyRecap(snapshot) {
   const meals = Array.isArray(snapshot?.meals?.dailyTotals) ? snapshot.meals.dailyTotals : [];
   const workouts = Array.isArray(snapshot?.workouts?.dailyTotals) ? snapshot.workouts.dailyTotals : [];
   const sleep = Array.isArray(snapshot?.sleep?.dailyTotals) ? snapshot.sleep.dailyTotals : [];
-  const last7Meals = meals.slice(-7);
-  const prev7Meals = meals.slice(-14, -7);
-  const last7Workouts = workouts.slice(-7);
-  const prev7Workouts = workouts.slice(-14, -7);
-  const last7Sleep = sleep.slice(-7);
+  const availableDays = [
+    ...(Array.isArray(snapshot?.targetHistory) ? snapshot.targetHistory.map((row) => row.day) : []),
+    ...meals.map((row) => row.day),
+    ...workouts.map((row) => row.day),
+    ...sleep.map((row) => row.day)
+  ].filter(Boolean).sort();
+  const endDay = availableDays[availableDays.length - 1] || new Date().toISOString().slice(0, 10);
+  const startDay = shiftIsoDay(endDay, -6);
+  const previousStartDay = shiftIsoDay(endDay, -13);
+  const previousEndDay = shiftIsoDay(endDay, -7);
+  const last7MealRows = meals.filter((row) => row.day >= startDay && row.day <= endDay);
+  const last7Meals = last7MealRows.filter(isExplicitlyCompleteDay);
+  const prev7Meals = meals.filter(
+    (row) => row.day >= previousStartDay &&
+      row.day <= previousEndDay &&
+      isExplicitlyCompleteDay(row)
+  );
+  const last7Workouts = workouts.filter((row) => row.day >= startDay && row.day <= endDay);
+  const prev7Workouts = workouts.filter((row) => row.day >= previousStartDay && row.day <= previousEndDay);
+  const last7Sleep = sleep.filter((row) => row.day >= startDay && row.day <= endDay);
+  const nutritionCoverage = summarizeDayCompleteness(last7MealRows, 7);
   const avgCalories = avg(last7Meals.map((row) => toFinite(row.calories)));
   const avgProtein = avg(last7Meals.map((row) => toFinite(row.protein)));
   const avgSleep = avg(last7Sleep.map((row) => toFinite(row.totalHours)));
   const workoutDays = last7Workouts.length;
   const prevWorkoutDays = prev7Workouts.length;
-  const proteinTarget = toFinite(snapshot?.targets?.protein);
-  const calorieTarget = toFinite(snapshot?.targets?.calories);
   const sleepTarget = toFinite(snapshot?.targets?.sleep_hours, 8);
   const workoutTarget = Math.max(0, Math.round(toFinite(snapshot?.targets?.workouts, 5)));
+  const proteinComparisons = last7Meals
+    .map((row) => ({
+      value: toFinite(row.protein),
+      target: toFinite(row.targets?.protein, toFinite(snapshot?.targets?.protein))
+    }))
+    .filter((row) => row.target > 0);
+  const calorieComparisons = last7Meals
+    .map((row) => ({
+      value: toFinite(row.calories),
+      target: toFinite(row.targets?.calories, toFinite(snapshot?.targets?.calories))
+    }))
+    .filter((row) => row.target > 0);
 
   const wins = [];
   const focus = [];
   const nextActions = [];
 
-  if (last7Meals.length >= 5) {
-    wins.push(`Logged meals on ${last7Meals.length} of the last 7 days.`);
+  if (nutritionCoverage.completeDays >= 5) {
+    wins.push(`${nutritionCoverage.completeDays} of the last 7 nutrition days were marked complete.`);
   } else {
-    focus.push(`Meal coverage was ${last7Meals.length}/7 days.`);
-    nextActions.push('Log at least one meal on 6 of the next 7 days.');
+    focus.push(
+      `${nutritionCoverage.completeDays}/7 nutrition days were marked complete; ${nutritionCoverage.partialDays} partial and ${nutritionCoverage.unknownDays} unknown days were excluded from adherence comparisons.`
+    );
+    nextActions.push('Mark a day complete after you are confident its nutrition log is finished.');
   }
 
-  if (proteinTarget > 0) {
-    const proteinDelta = avgProtein - proteinTarget;
-    if (avgProtein >= proteinTarget * 0.95) {
-      wins.push(`Average protein was ${fmtSignedNumber(proteinDelta, 0)}g vs target.`);
+  if (proteinComparisons.length >= 4) {
+    const proteinDelta = avg(proteinComparisons.map((row) => row.value - row.target));
+    const avgProteinTarget = avg(proteinComparisons.map((row) => row.target));
+    if (avgProtein >= avgProteinTarget * 0.95) {
+      wins.push(`Average protein was ${fmtSignedNumber(proteinDelta, 0)}g vs target across ${proteinComparisons.length} complete days.`);
     } else {
-      focus.push(`Average protein was ${Math.round(Math.abs(proteinDelta))}g below target.`);
+      focus.push(`Average protein was ${Math.round(Math.abs(proteinDelta))}g below target across ${proteinComparisons.length} complete days.`);
       nextActions.push('Plan one protein-first meal before dinner each day.');
     }
   }
 
-  if (calorieTarget > 0 && last7Meals.length >= 4) {
-    const calorieDeltaPct = ((avgCalories - calorieTarget) / calorieTarget) * 100;
+  if (calorieComparisons.length >= 4) {
+    const calorieDeltaPct = avg(
+      calorieComparisons.map((row) => ((row.value - row.target) / row.target) * 100)
+    );
     if (Math.abs(calorieDeltaPct) <= 8) {
-      wins.push('Average calories stayed near target.');
+      wins.push(`Average calories stayed near target across ${calorieComparisons.length} complete days.`);
     } else {
-      focus.push(`Average calories were ${Math.abs(Math.round(calorieDeltaPct))}% ${calorieDeltaPct > 0 ? 'above' : 'below'} target.`);
+      focus.push(`Average calories were ${Math.abs(Math.round(calorieDeltaPct))}% ${calorieDeltaPct > 0 ? 'above' : 'below'} target across ${calorieComparisons.length} complete days.`);
       nextActions.push('Pre-log one anchor meal on high-variance days.');
     }
   }
@@ -1337,14 +1451,18 @@ function buildWeeklyRecap(snapshot) {
     generatedAt: new Date().toISOString(),
     periodDays: 7,
     confidence: metrics.dataConfidence.score >= 75 ? 'high' : metrics.dataConfidence.score >= 50 ? 'medium' : 'low',
-    summary: `Last 7 days: ${last7Meals.length}/7 meal days, ${workoutDays} workout days, ${avgProtein ? `${Math.round(avgProtein)}g avg protein` : 'limited protein data'}.`,
+    summary: `Last 7 days: ${nutritionCoverage.completeDays}/7 explicitly complete nutrition days, ${workoutDays} workout days, ${proteinComparisons.length >= 4 ? `${Math.round(avgProtein)}g avg protein across eligible days` : 'not enough complete days for a protein claim'}.`,
     wins: wins.slice(0, 4),
     focus: focus.slice(0, 4),
     nextActions: nextActions.slice(0, 4),
     metrics: {
-      mealDays: last7Meals.length,
-      avgCalories: Number(avgCalories.toFixed(1)),
-      avgProtein: Number(avgProtein.toFixed(1)),
+      mealDays: nutritionCoverage.completeDays,
+      completeDays: nutritionCoverage.completeDays,
+      partialDays: nutritionCoverage.partialDays,
+      unknownDays: nutritionCoverage.unknownDays,
+      nutritionSampleDays: last7Meals.length,
+      avgCalories: last7Meals.length ? Number(avgCalories.toFixed(1)) : null,
+      avgProtein: last7Meals.length ? Number(avgProtein.toFixed(1)) : null,
       workoutDays,
       avgSleepHours: Number(avgSleep.toFixed(2)),
       dataConfidenceScore: metrics.dataConfidence.score
@@ -1358,12 +1476,26 @@ function fmtSignedNumber(value, places = 1) {
   return `${number >= 0 ? '+' : ''}${fixed}`;
 }
 
+function buildAnalysisEligibleSnapshot(snapshot) {
+  const dailyTotals = Array.isArray(snapshot?.meals?.dailyTotals)
+    ? snapshot.meals.dailyTotals.filter(isExplicitlyCompleteDay)
+    : [];
+  return {
+    ...snapshot,
+    meals: {
+      ...(snapshot?.meals || {}),
+      dailyTotals
+    }
+  };
+}
+
 async function generateAiAnalysis(snapshot, context) {
   if (!hasOpenAiApiKey()) {
     return buildFallbackAnalysis(snapshot, context);
   }
 
   const baseline = buildAnalysisMetrics(snapshot, context);
+  const eligibleSnapshot = buildAnalysisEligibleSnapshot(snapshot);
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const response = await client.responses.create({
@@ -1372,7 +1504,7 @@ async function generateAiAnalysis(snapshot, context) {
       {
         role: 'system',
         content:
-          'You are a direct fitness and nutrition coach. Be honest, specific, and practical. Use only the data provided. Return strict JSON only. Next-week plan items must be numeric and measurable. IMPORTANT: completedWorkoutCount and plannedWorkoutCount represent distinct days with at least one workout — not total session counts. Two workouts logged on the same day still count as only one workout day. If sleep data is available, incorporate sleep patterns into your analysis and recommendations (e.g. average hours, quality rating, consistency, impact on recovery).'
+          'You are a direct fitness and nutrition coach. Be honest, specific, neutral, and practical. Use only the data provided. Return strict JSON only. Nutrition dailyTotals contains only days the user explicitly marked complete. Never infer calorie or protein adherence from partial or unknown days, never describe missing completeness as failure, and always state the nutrition sample count when making a nutrition claim. Do not create punitive completeness streaks. Next-week plan items must be numeric and measurable. IMPORTANT: completedWorkoutCount and plannedWorkoutCount represent distinct days with at least one workout — not total session counts. Two workouts logged on the same day still count as only one workout day. If sleep data is available, incorporate sleep patterns into your analysis and recommendations.'
       },
       {
         role: 'user',
@@ -1381,7 +1513,7 @@ async function generateAiAnalysis(snapshot, context) {
             type: 'input_text',
             text:
               'Analyze this account data. Include goal alignment score, adherence metrics with target variance (value and percent above/below), week-over-week deltas, nutrition quality signals, data confidence, and a concrete next-week plan with numeric targets.\nData:\n' +
-              JSON.stringify({ snapshot, context, baseline })
+              JSON.stringify({ snapshot: eligibleSnapshot, context, baseline })
           }
         ]
       }
@@ -1428,6 +1560,11 @@ async function generateAiAnalysis(snapshot, context) {
               additionalProperties: false,
               required: [
                 'mealLoggingPct',
+                'completeDayCoveragePct',
+                'completeDayCount',
+                'partialDayCount',
+                'unknownDayCount',
+                'nutritionSampleCount',
                 'calorieTargetSet',
                 'calorieTargetDelta',
                 'calorieTargetDeltaPct',
@@ -1439,12 +1576,17 @@ async function generateAiAnalysis(snapshot, context) {
               ],
               properties: {
                 mealLoggingPct: { type: 'number' },
+                completeDayCoveragePct: { type: 'number' },
+                completeDayCount: { type: 'number' },
+                partialDayCount: { type: 'number' },
+                unknownDayCount: { type: 'number' },
+                nutritionSampleCount: { type: 'number' },
                 calorieTargetSet: { type: 'boolean' },
-                calorieTargetDelta: { type: 'number' },
-                calorieTargetDeltaPct: { type: 'number' },
+                calorieTargetDelta: { type: ['number', 'null'] },
+                calorieTargetDeltaPct: { type: ['number', 'null'] },
                 proteinTargetSet: { type: 'boolean' },
-                proteinTargetDelta: { type: 'number' },
-                proteinTargetDeltaPct: { type: 'number' },
+                proteinTargetDelta: { type: ['number', 'null'] },
+                proteinTargetDeltaPct: { type: ['number', 'null'] },
                 plannedWorkoutCount: { type: 'number' },
                 completedWorkoutCount: { type: 'number' }
               }
@@ -1455,8 +1597,8 @@ async function generateAiAnalysis(snapshot, context) {
               required: ['weightChangeDelta', 'avgCaloriesDelta', 'avgProteinDelta', 'workoutHoursDelta'],
               properties: {
                 weightChangeDelta: { type: 'number' },
-                avgCaloriesDelta: { type: 'number' },
-                avgProteinDelta: { type: 'number' },
+                avgCaloriesDelta: { type: ['number', 'null'] },
+                avgProteinDelta: { type: ['number', 'null'] },
                 workoutHoursDelta: { type: 'number' }
               }
             },
@@ -1465,10 +1607,10 @@ async function generateAiAnalysis(snapshot, context) {
               additionalProperties: false,
               required: ['proteinConsistency', 'calorieVolatility', 'lateNightEatingPct', 'weekendCalorieDrift'],
               properties: {
-                proteinConsistency: { type: 'string', enum: ['high', 'medium', 'low'] },
-                calorieVolatility: { type: 'number' },
+                proteinConsistency: { type: 'string', enum: ['high', 'medium', 'low', 'insufficient_data'] },
+                calorieVolatility: { type: ['number', 'null'] },
                 lateNightEatingPct: { type: 'number' },
-                weekendCalorieDrift: { type: 'number' }
+                weekendCalorieDrift: { type: ['number', 'null'] }
               }
             },
             dataConfidence: {
@@ -1494,23 +1636,33 @@ async function generateAiAnalysis(snapshot, context) {
   }
 
   const fallback = buildFallbackAnalysis(snapshot, context);
+  const hasEnoughNutritionEvidence = baseline.adherence.nutritionSampleCount >= 4;
   return {
-    summary: String(parsed.summary || fallback.summary),
-    progress: Array.isArray(parsed.progress) && parsed.progress.length ? parsed.progress.slice(0, 6) : fallback.progress,
+    summary: hasEnoughNutritionEvidence
+      ? String(parsed.summary || fallback.summary)
+      : fallback.summary,
+    progress:
+      hasEnoughNutritionEvidence && Array.isArray(parsed.progress) && parsed.progress.length
+        ? parsed.progress.slice(0, 6)
+        : fallback.progress,
     needsImprovement:
-      Array.isArray(parsed.needsImprovement) && parsed.needsImprovement.length
+      hasEnoughNutritionEvidence &&
+      Array.isArray(parsed.needsImprovement) &&
+      parsed.needsImprovement.length
         ? parsed.needsImprovement.slice(0, 6)
         : fallback.needsImprovement,
     nextWeekPlan:
-      Array.isArray(parsed.nextWeekPlan) && parsed.nextWeekPlan.length
+      hasEnoughNutritionEvidence &&
+      Array.isArray(parsed.nextWeekPlan) &&
+      parsed.nextWeekPlan.length
         ? parsed.nextWeekPlan.slice(0, 7)
         : fallback.nextWeekPlan,
     confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : fallback.confidence,
-    goalAlignment: parsed.goalAlignment || fallback.goalAlignment,
-    adherence: parsed.adherence || fallback.adherence,
-    weekOverWeek: parsed.weekOverWeek || fallback.weekOverWeek,
-    nutritionSignals: parsed.nutritionSignals || fallback.nutritionSignals,
-    dataConfidence: parsed.dataConfidence || fallback.dataConfidence,
+    goalAlignment: fallback.goalAlignment,
+    adherence: fallback.adherence,
+    weekOverWeek: fallback.weekOverWeek,
+    nutritionSignals: fallback.nutritionSignals,
+    dataConfidence: fallback.dataConfidence,
     stats: fallback.stats
   };
 }
@@ -3439,6 +3591,61 @@ apiRouter.get('/daily-totals', async (req, res) => {
     res.json({ dailyTotals: totals, targets, targetHistory });
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.get('/day-completeness', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    const timezone = requestTimezone(req);
+    const day = req.query.day
+      ? normalizeString(req.query.day, 'day', { maxLength: 10, required: true })
+      : null;
+
+    if (day) {
+      const completeness = await getNutritionDayCompleteness(userId, day, timezone);
+      return res.json({ completeness });
+    }
+
+    const startDay = req.query.start
+      ? normalizeString(req.query.start, 'start', { maxLength: 10, required: true })
+      : undefined;
+    const endDay = req.query.end
+      ? normalizeString(req.query.end, 'end', { maxLength: 10, required: true })
+      : undefined;
+    const days = await listNutritionDayCompleteness(userId, {
+      startDay,
+      endDay,
+      timezone
+    });
+    return res.json({
+      days,
+      coverage: summarizeDayCompleteness(days, days.length)
+    });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to load day completeness.');
+  }
+});
+
+apiRouter.put('/day-completeness/:day', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    const timezone = requestTimezone(req);
+    const day = normalizeString(req.params.day, 'day', { maxLength: 10, required: true });
+    const state = normalizeString(req.body?.state, 'state', { maxLength: 20, required: true });
+    const completeness = await setNutritionDayCompleteness(
+      userId,
+      day,
+      state,
+      timezone
+    );
+    logAudit(userId, 'update', 'nutrition_day_completeness', day, {
+      state: completeness.state,
+      timezone
+    });
+    return res.json({ ok: true, completeness });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to update day completeness.');
   }
 });
 

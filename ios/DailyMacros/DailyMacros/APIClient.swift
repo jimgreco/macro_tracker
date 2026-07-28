@@ -857,6 +857,43 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
+    @discardableResult
+    func setNutritionDayCompleteness(
+        day: String,
+        state: NutritionDayState,
+        timezone: String
+    ) async throws -> DayCompletenessResponse {
+        let payload: [String: Any] = [
+            "state": state.rawValue,
+            "tz": timezone
+        ]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let queuedCompleteness = DayCompleteness(
+            day: day,
+            state: state,
+            explicit: state != .unknown,
+            eligibleForNutritionAnalysis: state == .complete,
+            suggestedState: nil,
+            suggestionReason: nil,
+            timezone: timezone,
+            updatedAt: nil
+        )
+
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return DayCompletenessResponse(ok: true, completeness: queuedCompleteness)
+        }
+        #endif
+
+        return try await performReplayableMutation(
+            path: "/day-completeness/\(day)",
+            method: "PUT",
+            body: body,
+            kind: .dayCompleteness,
+            queuedResponse: DayCompletenessResponse(ok: true, completeness: queuedCompleteness)
+        )
+    }
+
     // MARK: - Macro Targets
 
     func setMacroTarget(macro: String, target: Double) async throws {

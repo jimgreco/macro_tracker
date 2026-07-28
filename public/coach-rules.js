@@ -52,10 +52,14 @@
     return Array.from(rows.values()).sort((a, b) => String(b.day).localeCompare(String(a.day)));
   }
 
+  function isExplicitlyCompleteDay(row) {
+    return row?.completeness?.state === 'complete';
+  }
+
   function recentCompleteMacroDays(context, count = 7) {
     const today = context.today || getLocalIsoDay(context.now || new Date());
     return macroRowsByDay(context)
-      .filter((row) => row.day < today && Number(row.calories || 0) > 0)
+      .filter((row) => row.day < today && isExplicitlyCompleteDay(row))
       .slice(0, count);
   }
 
@@ -600,6 +604,7 @@
     coachEndOfTodayIso,
     daypartForHour,
     getLocalIsoDay,
+    isExplicitlyCompleteDay,
     isSuggestionDismissed,
     shiftIsoDay
   };
