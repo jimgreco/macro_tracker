@@ -150,6 +150,298 @@ body {
   display: none;
 }
 
+.app-page,
+.health-pane,
+.today-dashboard-grid > *,
+.today-primary-metrics > * {
+  min-width: 0;
+}
+
+.today-page-header,
+.health-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.35rem 0 1rem;
+}
+
+.today-page-header h1,
+.health-page-header h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  letter-spacing: -0.04em;
+}
+
+.today-eyebrow {
+  margin: 0 0 0.18rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.today-freshness-card {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(0, 207, 255, 0.18);
+  border-radius: 14px;
+  background: rgba(0, 207, 255, 0.07);
+}
+
+.today-freshness-card[data-tone="success"] {
+  border-color: rgba(5, 255, 161, 0.25);
+  background: rgba(5, 255, 161, 0.07);
+}
+
+.today-freshness-card[data-tone="warning"] {
+  border-color: rgba(255, 202, 40, 0.3);
+  background: rgba(255, 202, 40, 0.08);
+}
+
+.today-freshness-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(0, 207, 255, 0.15);
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.today-freshness-card[data-tone="success"] .today-freshness-icon {
+  background: rgba(5, 255, 161, 0.15);
+  color: var(--primary);
+}
+
+.today-freshness-card[data-tone="warning"] .today-freshness-icon {
+  background: rgba(255, 202, 40, 0.16);
+  color: #ffca28;
+}
+
+.today-freshness-card span:last-child {
+  display: grid;
+  min-width: 0;
+}
+
+.today-freshness-card small {
+  margin-top: 0.08rem;
+  color: var(--muted);
+}
+
+.today-empty-card {
+  margin-bottom: 1rem;
+  border-color: rgba(5, 255, 161, 0.24);
+}
+
+.today-empty-card h2 {
+  margin-top: 0;
+}
+
+.today-empty-card p {
+  color: var(--muted);
+}
+
+.today-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem;
+  align-items: stretch;
+}
+
+.today-dashboard-grid .panel {
+  margin: 0;
+  overflow: hidden;
+}
+
+.today-macro-card {
+  grid-column: span 2;
+  grid-row: span 2;
+}
+
+.today-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.52rem;
+  min-height: 190px;
+}
+
+.today-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.today-card-heading h2 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.today-primary-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.today-primary-metrics p {
+  display: grid;
+  gap: 0.15rem;
+  margin: 0;
+}
+
+.today-primary-metrics strong {
+  color: var(--accent);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: clamp(1.5rem, 4vw, 2.35rem);
+  line-height: 1;
+}
+
+.today-primary-metrics span,
+.today-card-detail,
+.today-card-source {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.today-card-detail,
+.today-card-source {
+  margin: 0;
+}
+
+.today-card-source {
+  margin-bottom: auto;
+}
+
+.today-summary-value {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 1.15rem;
+  line-height: 1.25;
+}
+
+.today-text-action {
+  width: fit-content;
+  margin-top: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.today-text-action:hover {
+  transform: none;
+  filter: none;
+  text-decoration: underline;
+}
+
+.today-macro-bars {
+  display: grid;
+  gap: 0.82rem;
+}
+
+.today-macro-progress {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.today-macro-progress > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.today-macro-progress > span strong {
+  color: var(--text);
+}
+
+.today-macro-progress > div {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.today-macro-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #00cfff, #05ffa1);
+}
+
+.today-quick-panel {
+  margin-top: 0.9rem;
+}
+
+.today-quick-panel h2 {
+  margin-top: 0;
+}
+
+.today-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.health-page-header {
+  align-items: center;
+}
+
+.health-subnav {
+  display: flex;
+  gap: 0.25rem;
+  max-width: 100%;
+  padding: 0.25rem;
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  scrollbar-width: none;
+}
+
+.health-subnav::-webkit-scrollbar {
+  display: none;
+}
+
+.health-subnav-btn {
+  flex: 0 0 auto;
+  padding: 0.38rem 0.95rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.health-subnav-btn:hover {
+  transform: none;
+  filter: none;
+  color: var(--text);
+}
+
+.health-subnav-btn.is-active {
+  background: rgba(0, 207, 255, 0.14);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(0, 207, 255, 0.28);
+}
+
+.health-pane[hidden] {
+  display: none;
+}
+
 .coach-card[hidden] {
   display: none;
 }
@@ -2273,6 +2565,15 @@ button[disabled] {
     grid-template-columns: 1fr;
   }
 
+  .today-dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .today-macro-card {
+    grid-column: span 2;
+    grid-row: auto;
+  }
+
   .topbar {
     grid-template-columns: auto 1fr auto;
     grid-template-rows: auto auto;
@@ -2290,6 +2591,32 @@ button[disabled] {
 }
 
 @media (max-width: 760px) {
+  .today-page-header,
+  .health-page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .health-subnav {
+    width: 100%;
+  }
+
+  .today-dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .today-macro-card {
+    grid-column: auto;
+  }
+
+  .today-summary-card {
+    min-height: 0;
+  }
+
+  .today-quick-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .coach-card {
     grid-template-columns: 1fr;
   }

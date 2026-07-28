@@ -31,6 +31,7 @@
 		A1000022 /* BarcodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000023; };
 		A1000023 /* AICoach.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000024; };
 		A1000024 /* ScreenshotSeedData.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000001; };
+		A1000025 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000025; };
 		U1000001 /* DailyMacrosScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000002; };
 		U1000002 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000003; };
 /* End PBXBuildFile section */
@@ -70,6 +71,7 @@
 		A2000022 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A2000023 /* BarcodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeScannerView.swift; sourceTree = "<group>"; };
 		A2000024 /* AICoach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICoach.swift; sourceTree = "<group>"; };
+		A2000025 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		A3000001 /* DailyMacros.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DailyMacros.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		U2000001 /* ScreenshotSeedData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotSeedData.swift; sourceTree = "<group>"; };
 		U2000002 /* DailyMacrosScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyMacrosScreenshots.swift; sourceTree = "<group>"; };
@@ -105,6 +107,7 @@
 				A2000002 /* APIClient.swift */,
 				A2000003 /* Models.swift */,
 				A2000009 /* MainTabView.swift */,
+				A2000025 /* TodayView.swift */,
 				A2000005 /* LoginView.swift */,
 				A2000006 /* MacrosView.swift */,
 				A2000007 /* WeightView.swift */,
@@ -275,6 +278,7 @@
 				A1000022 /* BarcodeScannerView.swift in Sources */,
 				A1000023 /* AICoach.swift in Sources */,
 				A1000024 /* ScreenshotSeedData.swift in Sources */,
+				A1000025 /* TodayView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

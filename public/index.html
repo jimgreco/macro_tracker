@@ -25,12 +25,11 @@
           <span class="brand-wordmark">DailyMacros</span>
         </div>
         <nav class="main-nav" aria-label="App navigation">
-          <button type="button" class="nav-tab is-active" data-page="macros">Macros</button>
+          <button type="button" class="nav-tab is-active" data-page="today">Today</button>
+          <button type="button" class="nav-tab" data-page="macros">Macros</button>
           <button type="button" class="nav-tab" data-page="workout">Workouts</button>
-          <button type="button" class="nav-tab" data-page="weight">Weight</button>
-          <button type="button" class="nav-tab" data-page="sleep">Sleep</button>
-          <button type="button" class="nav-tab sexual-activity-feature" data-page="sexual-activity" hidden>Sex</button>
-          <button type="button" class="nav-tab" data-page="analysis">Analysis</button>
+          <button type="button" class="nav-tab" data-page="health">Health</button>
+          <button type="button" class="nav-tab" data-page="insights">Insights</button>
         </nav>
         <div class="topbar-right">
           <div id="profile-menu" class="profile-menu" aria-label="Signed in user">
@@ -55,7 +54,104 @@
         </div>
       </header>
 
-      <section id="macros-page" class="app-page is-active">
+      <section id="today-page" class="app-page is-active" aria-labelledby="today-page-heading">
+        <div class="today-page-header">
+          <div>
+            <p class="today-eyebrow">Your daily decision surface</p>
+            <h1 id="today-page-heading">Today</h1>
+          </div>
+          <button id="today-refresh-btn" type="button" class="btn-secondary">Refresh</button>
+        </div>
+
+        <section id="today-freshness-card" class="today-freshness-card" role="status" aria-live="polite">
+          <span id="today-freshness-icon" class="today-freshness-icon" aria-hidden="true">●</span>
+          <span>
+            <strong id="today-freshness">Loading today</strong>
+            <small id="today-freshness-detail">Gathering the latest account facts.</small>
+          </span>
+        </section>
+
+        <section id="today-empty-card" class="panel glass today-empty-card" hidden>
+          <h2>Build your first useful day</h2>
+          <p>Start with what you know. One meal, sleep entry, workout, or baseline weight makes Today useful without requiring a full setup.</p>
+          <button type="button" data-today-action="meal">Log a Meal</button>
+        </section>
+
+        <section id="today-coach" class="coach-card" aria-live="polite" hidden></section>
+
+        <div class="today-dashboard-grid">
+          <section class="panel glass today-macro-card" aria-labelledby="today-macro-heading">
+            <div class="today-card-heading">
+              <h2 id="today-macro-heading">Macro Status</h2>
+              <button type="button" class="today-text-action" data-today-link="macros">Details</button>
+            </div>
+            <div class="today-primary-metrics">
+              <p>
+                <strong id="today-remaining-calories">—</strong>
+                <span>cal remaining</span>
+              </p>
+              <p>
+                <strong id="today-remaining-protein">—</strong>
+                <span>protein remaining</span>
+              </p>
+            </div>
+            <div id="today-macro-bars" class="today-macro-bars"></div>
+            <p id="today-macro-detail" class="today-card-detail">Set targets to see what remains.</p>
+          </section>
+
+          <section class="panel glass today-summary-card" aria-labelledby="today-recovery-heading">
+            <div class="today-card-heading">
+              <h2 id="today-recovery-heading">Recovery</h2>
+              <span aria-hidden="true">☾</span>
+            </div>
+            <strong id="today-recovery-value" class="today-summary-value">—</strong>
+            <p id="today-recovery-detail" class="today-card-detail">No recovery data yet.</p>
+            <p id="today-recovery-source" class="today-card-source">Checking recovery source.</p>
+            <button id="today-recovery-action" type="button" class="today-text-action" data-today-action="sleep">Log Sleep</button>
+          </section>
+
+          <section class="panel glass today-summary-card" aria-labelledby="today-workout-heading">
+            <div class="today-card-heading">
+              <h2 id="today-workout-heading">Workout</h2>
+              <span aria-hidden="true">↗</span>
+            </div>
+            <strong id="today-workout-value" class="today-summary-value">Not logged</strong>
+            <p id="today-workout-detail" class="today-card-detail">No workout logged today.</p>
+            <button id="today-workout-action" type="button" class="today-text-action" data-today-action="workout">Log Workout</button>
+          </section>
+
+          <section class="panel glass today-summary-card" aria-labelledby="today-weight-heading">
+            <div class="today-card-heading">
+              <h2 id="today-weight-heading">Weight Cadence</h2>
+              <span aria-hidden="true">◇</span>
+            </div>
+            <strong id="today-weight-value" class="today-summary-value">No baseline</strong>
+            <p id="today-weight-detail" class="today-card-detail">One weigh-in starts the cadence.</p>
+            <button id="today-weight-action" type="button" class="today-text-action" data-today-action="weight">Log Weight</button>
+          </section>
+
+          <section class="panel glass today-summary-card" aria-labelledby="today-sync-heading">
+            <div class="today-card-heading">
+              <h2 id="today-sync-heading">Sync</h2>
+              <span aria-hidden="true">✓</span>
+            </div>
+            <strong id="today-sync-value" class="today-summary-value">Checking…</strong>
+            <p id="today-sync-detail" class="today-card-detail">Confirming connection status.</p>
+          </section>
+        </div>
+
+        <section class="panel glass today-quick-panel" aria-labelledby="today-quick-heading">
+          <h2 id="today-quick-heading">Quick Log</h2>
+          <div class="today-quick-actions" role="group" aria-label="Quick logging actions">
+            <button type="button" data-today-action="meal">Meal</button>
+            <button type="button" data-today-action="workout">Workout</button>
+            <button type="button" data-today-action="weight">Weight</button>
+            <button type="button" data-today-action="sleep">Sleep</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="macros-page" class="app-page" hidden>
       <section id="macros-coach" class="coach-card" aria-live="polite" hidden></section>
       <section class="grid-main">
         <div class="column-left">
@@ -328,7 +424,20 @@
         </section>
       </section>
 
-      <section id="weight-page" class="app-page" hidden>
+      <section id="health-page" class="app-page" hidden aria-labelledby="health-page-heading">
+        <div class="health-page-header">
+          <div>
+            <p class="today-eyebrow">Trends, recovery, and check-ins</p>
+            <h1 id="health-page-heading">Health</h1>
+          </div>
+          <div class="health-subnav" role="tablist" aria-label="Health sections">
+            <button id="health-tab-weight" type="button" class="health-subnav-btn" role="tab" aria-controls="weight-page" aria-selected="false" tabindex="-1" data-health-page="weight">Weight</button>
+            <button id="health-tab-sleep" type="button" class="health-subnav-btn is-active" role="tab" aria-controls="sleep-page" aria-selected="true" data-health-page="sleep">Sleep</button>
+            <button id="health-tab-sexual-activity" type="button" class="health-subnav-btn sexual-activity-feature" role="tab" aria-controls="sexual-activity-page" aria-selected="false" tabindex="-1" data-health-page="sexual-activity" hidden>Sexual Activity</button>
+          </div>
+        </div>
+
+      <section id="weight-page" class="health-pane" role="tabpanel" aria-labelledby="health-tab-weight" tabindex="0" hidden>
         <section id="weight-coach" class="coach-card" aria-live="polite" hidden></section>
         <section id="weight-log-section" class="panel glass panel-compact">
           <div class="section-head-row">
@@ -376,7 +485,7 @@
 
       </section>
 
-      <section id="sleep-page" class="app-page" hidden>
+      <section id="sleep-page" class="health-pane is-active" role="tabpanel" aria-labelledby="health-tab-sleep" tabindex="0">
         <section id="sleep-coach" class="coach-card" aria-live="polite" hidden></section>
         <section class="panel glass panel-compact">
           <div class="section-head-row">
@@ -434,7 +543,7 @@
         </section>
       </section>
 
-      <section id="sexual-activity-page" class="app-page" hidden>
+      <section id="sexual-activity-page" class="health-pane" role="tabpanel" aria-labelledby="health-tab-sexual-activity" tabindex="0" hidden>
         <h3 class="health-section-divider sexual-activity-feature" hidden>Sexual Activity</h3>
         <section class="panel glass panel-compact sexual-activity-feature" hidden>
           <div class="section-head-row">
@@ -497,8 +606,15 @@
           </div>
         </section>
       </section>
+      </section>
 
-      <section id="analysis-page" class="app-page" hidden>
+      <section id="analysis-page" class="app-page" hidden aria-labelledby="insights-page-heading">
+        <div class="today-page-header">
+          <div>
+            <p class="today-eyebrow">Patterns and next steps</p>
+            <h1 id="insights-page-heading">Insights</h1>
+          </div>
+        </div>
         <section class="panel glass">
           <div class="section-head-row">
             <h2>Weekly Analysis</h2>
@@ -589,6 +705,7 @@
       <a href="/terms">Terms of Service</a>
     </footer>
 
+    <script src="/today-state.js"></script>
     <script src="/coach-rules.js"></script>
     <script src="/script.js"></script>
   </body>

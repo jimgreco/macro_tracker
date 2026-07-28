@@ -120,6 +120,7 @@ private struct MealImageAttachment: Identifiable {
 
 struct MacrosView: View {
     @EnvironmentObject var api: APIClient
+    @EnvironmentObject private var appNavigation: AppNavigationModel
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var dashboard: DashboardResponse?
     @State private var coachSuggestions: [CoachSuggestion] = []
@@ -396,7 +397,9 @@ struct MacrosView: View {
                             AICoachSlot(
                                 dismissals: coachDismissals,
                                 suggestions: coachSuggestions,
-                                onPrimaryAction: handleCoachAction
+                                onPrimaryAction: { _, action in
+                                    handleCoachAction(action)
+                                }
                             )
                         }
 
@@ -428,6 +431,9 @@ struct MacrosView: View {
             .navigationTitle("Macros")
             .toolbar {
                 addMealToolbar
+                ToolbarItem(placement: .primaryAction) {
+                    AccountToolbarButton()
+                }
             }
             .sheet(isPresented: $showAddSheet, onDismiss: {
                 quickMealQueue = []
@@ -451,6 +457,15 @@ struct MacrosView: View {
                 Task { await loadSavedItems(showErrors: false) }
                 await loadDashboard()
                 await loadTrend()
+            }
+            .onAppear {
+                handlePendingQuickAction()
+            }
+            .onChange(of: appNavigation.pendingQuickAction) { _, _ in
+                handlePendingQuickAction()
+            }
+            .onChange(of: appNavigation.coachActionRevision) { _, _ in
+                handlePendingQuickAction()
             }
             .refreshable {
                 await loadDashboard()
@@ -508,6 +523,24 @@ struct MacrosView: View {
         if !hasLoadedSavedItems {
             Task { await loadSavedItems() }
         }
+    }
+
+    private func handlePendingQuickAction() {
+        if let action = appNavigation.consumeCoachAction(
+            for: .macros,
+            matching: [
+                .openLogMeal,
+                .openQuickAdd,
+                .logMealItem,
+                .editTargets
+            ]
+        ) {
+            handleCoachAction(action)
+            return
+        }
+        guard appNavigation.pendingQuickAction == .logMeal else { return }
+        beginLogMeal()
+        appNavigation.consume(.logMeal)
     }
 
     // MARK: - Trash Drop Zone

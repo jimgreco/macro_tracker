@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WorkoutsView: View {
     @EnvironmentObject var api: APIClient
+    @EnvironmentObject private var appNavigation: AppNavigationModel
     @StateObject private var healthKitSync = HealthKitWorkoutSync()
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var workouts: [WorkoutEntry] = []
@@ -55,7 +56,9 @@ struct WorkoutsView: View {
                     AICoachSlot(
                         dismissals: coachDismissals,
                         suggestions: coachSuggestions,
-                        onPrimaryAction: handleCoachAction
+                        onPrimaryAction: { _, action in
+                            handleCoachAction(action)
+                        }
                     )
 
                     scopePicker
@@ -91,6 +94,10 @@ struct WorkoutsView: View {
                     }
                     .accessibilityLabel("Log workout")
                 }
+
+                ToolbarItem(placement: .primaryAction) {
+                    AccountToolbarButton()
+                }
             }
             .sheet(isPresented: $showLogSheet) {
                 logWorkoutSheet
@@ -102,6 +109,15 @@ struct WorkoutsView: View {
                 editWorkoutSheet(workout)
             }
             .task { await loadWorkouts(reset: true) }
+            .onAppear {
+                handlePendingQuickAction()
+            }
+            .onChange(of: appNavigation.pendingQuickAction) { _, _ in
+                handlePendingQuickAction()
+            }
+            .onChange(of: appNavigation.coachActionRevision) { _, _ in
+                handlePendingQuickAction()
+            }
             .refreshable { await loadWorkouts(reset: true) }
             .alert("Workouts", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
@@ -109,6 +125,24 @@ struct WorkoutsView: View {
                 Text(errorMessage ?? "")
             }
         }
+    }
+
+    private func handlePendingQuickAction() {
+        if let action = appNavigation.consumeCoachAction(
+            for: .workouts,
+            matching: [
+                .openLogWorkout,
+                .logWorkoutEntry,
+                .editTargets
+            ]
+        ) {
+            handleCoachAction(action)
+            return
+        }
+        guard appNavigation.pendingQuickAction == .logWorkout else { return }
+        workoutLogDate = Date()
+        showLogSheet = true
+        appNavigation.consume(.logWorkout)
     }
 
     // MARK: - Scope Picker

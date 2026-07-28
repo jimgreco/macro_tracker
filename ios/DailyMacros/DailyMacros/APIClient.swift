@@ -564,6 +564,17 @@ class APIClient: ObservableObject {
 
     // MARK: - Dashboard
 
+    func getToday() async throws -> TodayResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.today()
+        }
+        #endif
+
+        let request = try authorizedRequest(apiURL("/today"))
+        return try await perform(request)
+    }
+
     func getDashboard(date: String? = nil, limit: Int = 100, offset: Int = 0) async throws -> DashboardResponse {
         #if DEBUG
         if ScreenshotSeedData.isEnabled {

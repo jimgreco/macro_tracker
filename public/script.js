@@ -12,7 +12,13 @@ const state = {
   selectedEntriesDay: '',
   dashboardData: null,
   selectedTrendMacro: 'calories',
-  selectedPage: 'macros',
+  selectedPage: 'today',
+  selectedHealthPage: 'sleep',
+  pageScrollPositions: {},
+  healthScrollPositions: {},
+  todayResponse: null,
+  todayLastUpdatedAt: null,
+  todayLoadError: null,
   pendingWorkout: null,
   weightChartRows: [],
   weightTarget: null,
@@ -155,21 +161,49 @@ const accountInfoBtnEl = document.getElementById('account-info-btn');
 const adminPageBtnEl = document.getElementById('admin-page-btn');
 const logoutBtnEl = document.getElementById('logout-btn');
 const pageMenuItems = Array.from(document.querySelectorAll('.nav-tab'));
+const healthPageMenuItems = Array.from(document.querySelectorAll('.health-subnav-btn'));
+const healthPanes = {
+  weight: document.getElementById('weight-page'),
+  sleep: document.getElementById('sleep-page'),
+  'sexual-activity': document.getElementById('sexual-activity-page')
+};
 const sexualActivityFeatureEls = Array.from(document.querySelectorAll('.sexual-activity-feature'));
 const appPages = {
+  today: document.getElementById('today-page'),
   macros: document.getElementById('macros-page'),
-  weight: document.getElementById('weight-page'),
   workout: document.getElementById('workout-page'),
-  sleep: document.getElementById('sleep-page'),
-  'sexual-activity': document.getElementById('sexual-activity-page'),
-  analysis: document.getElementById('analysis-page')
+  health: document.getElementById('health-page'),
+  insights: document.getElementById('analysis-page')
 };
 const coachSlotEls = {
+  today: document.getElementById('today-coach'),
   macros: document.getElementById('macros-coach'),
   workout: document.getElementById('workout-coach'),
   weight: document.getElementById('weight-coach'),
   sleep: document.getElementById('sleep-coach')
 };
+const todayRefreshBtnEl = document.getElementById('today-refresh-btn');
+const todayFreshnessCardEl = document.getElementById('today-freshness-card');
+const todayFreshnessIconEl = document.getElementById('today-freshness-icon');
+const todayFreshnessEl = document.getElementById('today-freshness');
+const todayFreshnessDetailEl = document.getElementById('today-freshness-detail');
+const todayEmptyCardEl = document.getElementById('today-empty-card');
+const todayRemainingCaloriesEl = document.getElementById('today-remaining-calories');
+const todayRemainingProteinEl = document.getElementById('today-remaining-protein');
+const todayMacroBarsEl = document.getElementById('today-macro-bars');
+const todayMacroDetailEl = document.getElementById('today-macro-detail');
+const todayRecoveryValueEl = document.getElementById('today-recovery-value');
+const todayRecoveryDetailEl = document.getElementById('today-recovery-detail');
+const todayRecoverySourceEl = document.getElementById('today-recovery-source');
+const todayRecoveryActionEl = document.getElementById('today-recovery-action');
+const todayWorkoutValueEl = document.getElementById('today-workout-value');
+const todayWorkoutDetailEl = document.getElementById('today-workout-detail');
+const todayWorkoutActionEl = document.getElementById('today-workout-action');
+const todayWeightValueEl = document.getElementById('today-weight-value');
+const todayWeightDetailEl = document.getElementById('today-weight-detail');
+const todayWeightActionEl = document.getElementById('today-weight-action');
+const todaySyncValueEl = document.getElementById('today-sync-value');
+const todaySyncDetailEl = document.getElementById('today-sync-detail');
 const weightLoggedAtEl = document.getElementById('weight-logged-at');
 const weightValueEl = document.getElementById('weight-value');
 const saveWeightBtnEl = document.getElementById('save-weight-btn');
@@ -1261,8 +1295,8 @@ function syncFeatureVisibility() {
   for (const el of sexualActivityFeatureEls) {
     el.hidden = !sexualActivityVisible;
   }
-  if (!sexualActivityVisible && state.selectedPage === 'sexual-activity') {
-    renderActivePage('sleep');
+  if (!sexualActivityVisible && state.selectedHealthPage === 'sexual-activity') {
+    renderHealthPage('sleep');
   }
   if (!sexualActivityVisible) {
     state.healthEntries = [];
@@ -1743,17 +1777,56 @@ function showCoachWhyModal(suggestion) {
   document.getElementById('coach-why-close-btn').addEventListener('click', () => overlay.remove());
 }
 
-function runCoachAction(actionType) {
+async function refreshPageData(pageKey = state.selectedPage) {
+  if (pageKey === 'today') {
+    await refreshTodayData();
+  } else if (pageKey === 'macros') {
+    await refreshDashboard();
+  } else if (pageKey === 'workout') {
+    await refreshWorkoutData();
+  } else if (pageKey === 'health') {
+    if (state.selectedHealthPage === 'weight') {
+      await refreshWeightData();
+    } else if (state.selectedHealthPage === 'sexual-activity') {
+      await refreshHealthData();
+    } else {
+      await refreshSleepData();
+    }
+  } else if (pageKey === 'insights') {
+    await Promise.all([refreshAnalysisData(), refreshWeeklyRecap()]);
+    if (!state.analysisAutoRan && isAnalysisDueWeekly(state.analysisReport)) {
+      state.analysisAutoRan = true;
+      await generateAnalysis();
+    }
+  }
+}
+
+async function navigateToPage(pageKey, options = {}) {
+  renderActivePage(pageKey, {
+    healthPage: options.healthPage,
+    updateRoute: options.updateRoute !== false
+  });
+  if (options.refresh !== false) {
+    await refreshPageData(state.selectedPage);
+  }
+  if (options.focus) {
+    window.requestAnimationFrame(() => {
+      options.focus?.focus();
+    });
+  }
+}
+
+async function runCoachAction(actionType) {
   if (actionType === 'focus-meal') {
-    mealTextEl?.focus();
+    await navigateToPage('macros', { focus: mealTextEl });
   } else if (actionType === 'focus-quick-add') {
-    quickSelectEl?.focus();
+    await navigateToPage('macros', { focus: quickSelectEl });
   } else if (actionType === 'focus-workout') {
-    workoutTextEl?.focus();
+    await navigateToPage('workout', { focus: workoutTextEl });
   } else if (actionType === 'focus-weight') {
-    weightValueEl?.focus();
+    await navigateToPage('health', { healthPage: 'weight', focus: weightValueEl });
   } else if (actionType === 'focus-sleep') {
-    sleepHoursEl?.focus();
+    await navigateToPage('health', { healthPage: 'sleep', focus: sleepHoursEl });
   }
 }
 
@@ -1802,7 +1875,7 @@ function bindCoachSlots() {
         return;
       }
       if (actionType) {
-        runCoachAction(actionType);
+        await runCoachAction(actionType);
         return;
       }
       if (dismissalType) {
@@ -4456,6 +4529,150 @@ function showWorkoutEditModal(entry) {
   });
 }
 
+function hydrateStateFromToday(response) {
+  const context = response?.context || {};
+  const dashboard = context.dashboard;
+  if (dashboard) {
+    state.dashboardData = dashboard;
+    state.macroDailyTotals = [
+      ...(dashboard.previousDays || []),
+      dashboard.currentDayTotals
+    ].filter(Boolean);
+    syncHistoryQuickItems();
+  }
+
+  if (context.workouts) {
+    state.workoutEntries = context.workouts.entries || [];
+    state.workoutOccurrenceRows = context.workouts.dailyCalories || [];
+    state.workoutCalChartRows = (context.workouts.dailyCalories || []).map((row) => ({
+      label: fromIsoDayLocal(row.day).toLocaleDateString(),
+      value: Number(row.calories || 0),
+      targetValue: Number(row.targetCalories || 0) > 0 ? Number(row.targetCalories) / 7 : 0
+    }));
+  }
+
+  if (context.weights) {
+    state.weightEntries = context.weights.entries || [];
+    state.weightChartEntries = context.weights.entries || [];
+    state.weightChartRows = state.weightChartEntries.slice().reverse().map((entry) => ({
+      label: new Date(entry.loggedAt).toLocaleDateString(),
+      value: Number(entry.weight || 0),
+      targetValue: Number(entry.targetWeight || 0),
+      time: new Date(entry.loggedAt).getTime()
+    }));
+  }
+  if (context.weightTarget) {
+    state.weightTargetData = context.weightTarget;
+    const targetWeight = Number(context.weightTarget.targetWeight);
+    state.weightTarget = Number.isFinite(targetWeight) && targetWeight > 0 ? targetWeight : null;
+  }
+
+  if (context.sleep) {
+    state.sleepEntries = context.sleep.entries || [];
+    state.sleepChartRows = (context.sleep.dailyTotals || []).map((row) => ({
+      label: fromIsoDayLocal(row.day).toLocaleDateString(),
+      value: Number(row.totalHours || 0),
+      targetValue: Number(row.targetHours || 0),
+      time: fromIsoDayLocal(row.day).getTime()
+    }));
+    state.sleepTargetHours = Number(response?.summary?.macros?.targets?.sleepHours || 8);
+  }
+}
+
+function renderTodaySummary() {
+  const builder = window.DailyMacrosTodayState?.buildTodayPresentation;
+  if (!builder) {
+    return;
+  }
+  const summary = state.todayResponse?.summary || null;
+  const presentation = builder({
+    summary,
+    online: navigator.onLine !== false,
+    error: state.todayLoadError,
+    lastUpdatedAt: state.todayLastUpdatedAt,
+    now: new Date()
+  });
+
+  if (todayFreshnessCardEl) {
+    todayFreshnessCardEl.dataset.tone = presentation.freshness.tone;
+  }
+  if (todayFreshnessIconEl) {
+    todayFreshnessIconEl.textContent = presentation.freshness.tone === 'success'
+      ? '✓'
+      : presentation.freshness.tone === 'warning'
+        ? '!'
+        : '●';
+  }
+  if (todayFreshnessEl) todayFreshnessEl.textContent = presentation.freshness.title;
+  if (todayFreshnessDetailEl) todayFreshnessDetailEl.textContent = presentation.freshness.detail;
+  if (todayEmptyCardEl) todayEmptyCardEl.hidden = !presentation.empty;
+
+  if (todayRemainingCaloriesEl) todayRemainingCaloriesEl.textContent = presentation.macro.remainingCalories;
+  if (todayRemainingProteinEl) todayRemainingProteinEl.textContent = presentation.macro.remainingProtein;
+  if (todayMacroDetailEl) todayMacroDetailEl.textContent = presentation.macro.detail;
+  if (todayMacroBarsEl) {
+    todayMacroBarsEl.innerHTML = presentation.macro.bars.map((bar) => {
+      const percent = bar.target > 0 ? Math.min(100, Math.max(0, (bar.current / bar.target) * 100)) : 0;
+      const value = bar.target > 0
+        ? `${fmtNumber(bar.current)} / ${fmtNumber(bar.target)} ${bar.unit}`
+        : 'Target not set';
+      return `
+        <div class="today-macro-progress">
+          <span><strong>${escapeHtml(bar.label)}</strong><small>${escapeHtml(value)}</small></span>
+          <div role="progressbar" aria-label="${escapeAttr(bar.label)} progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(percent)}">
+            <i style="width:${percent.toFixed(1)}%"></i>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  if (todayRecoveryValueEl) todayRecoveryValueEl.textContent = presentation.recovery.value;
+  if (todayRecoveryDetailEl) todayRecoveryDetailEl.textContent = presentation.recovery.detail;
+  if (todayRecoverySourceEl) todayRecoverySourceEl.textContent = presentation.recovery.source;
+  if (todayRecoveryActionEl) todayRecoveryActionEl.textContent = presentation.recovery.actionLabel;
+
+  if (todayWorkoutValueEl) todayWorkoutValueEl.textContent = presentation.workout.value;
+  if (todayWorkoutDetailEl) todayWorkoutDetailEl.textContent = presentation.workout.detail;
+  if (todayWorkoutActionEl) todayWorkoutActionEl.textContent = presentation.workout.actionLabel;
+
+  if (todayWeightValueEl) todayWeightValueEl.textContent = presentation.weight.value;
+  if (todayWeightDetailEl) todayWeightDetailEl.textContent = presentation.weight.detail;
+  if (todayWeightActionEl) todayWeightActionEl.textContent = presentation.weight.actionLabel;
+
+  if (todaySyncValueEl) todaySyncValueEl.textContent = presentation.sync.value;
+  if (todaySyncDetailEl) todaySyncDetailEl.textContent = presentation.sync.detail;
+
+  renderCoachForPage('today');
+}
+
+async function refreshTodayData() {
+  if (todayRefreshBtnEl) {
+    todayRefreshBtnEl.disabled = true;
+    todayRefreshBtnEl.textContent = 'Refreshing…';
+  }
+
+  try {
+    await refreshCoachDismissals();
+    const response = await api(`/api/today?tz=${encodeURIComponent(getTimezone())}`);
+    state.todayResponse = response;
+    state.todayLastUpdatedAt = response.generatedAt || new Date().toISOString();
+    state.todayLoadError = null;
+    hydrateStateFromToday(response);
+  } catch (error) {
+    state.todayLoadError = error;
+    if (!state.todayResponse) {
+      setActionBanner(error.message, 'error');
+    }
+  } finally {
+    if (todayRefreshBtnEl) {
+      todayRefreshBtnEl.disabled = false;
+      todayRefreshBtnEl.textContent = 'Refresh';
+    }
+    renderTodaySummary();
+  }
+}
+
 async function refreshDashboard() {
   const tz = encodeURIComponent(getTimezone());
   await refreshCoachDismissals();
@@ -4750,10 +4967,97 @@ entriesByDayEl.addEventListener('click', async (event) => {
 
 
 
-function renderActivePage(pageKey) {
-  if (pageKey === 'sexual-activity' && !(state.features?.sexualActivity && state.sexualActivityPageVisible !== false)) {
+function normalizedAppRoute(pageKey, healthPage) {
+  if (pageKey === 'analysis') {
+    return { page: 'insights', healthPage: null };
+  }
+  if (pageKey === 'weight' || pageKey === 'sleep' || pageKey === 'sexual-activity') {
+    return { page: 'health', healthPage: pageKey };
+  }
+  if (!appPages[pageKey]) {
+    return { page: 'today', healthPage: null };
+  }
+  return { page: pageKey, healthPage: pageKey === 'health' ? healthPage : null };
+}
+
+function routeFromLocation() {
+  const raw = String(window.location.hash || '')
+    .replace(/^#\/?/, '')
+    .toLowerCase();
+  if (!raw) {
+    return { page: 'today', healthPage: null };
+  }
+  const [page, detail] = raw.split('/');
+  if (page === 'health') {
+    return normalizedAppRoute('health', detail || state.selectedHealthPage || 'sleep');
+  }
+  return normalizedAppRoute(page);
+}
+
+function updateLocationRoute(page, healthPage, replace = false) {
+  const hash = page === 'health'
+    ? `#health/${healthPage || state.selectedHealthPage || 'sleep'}`
+    : `#${page}`;
+  if (window.location.hash === hash) {
+    return;
+  }
+  const method = replace ? 'replaceState' : 'pushState';
+  window.history[method]({}, '', hash);
+}
+
+function renderHealthPage(pageKey, options = {}) {
+  const sexualActivityVisible = Boolean(
+    state.features?.sexualActivity && state.sexualActivityPageVisible !== false
+  );
+  if (pageKey === 'sexual-activity' && !sexualActivityVisible) {
     pageKey = 'sleep';
   }
+  if (!healthPanes[pageKey]) {
+    pageKey = 'sleep';
+  }
+
+  const previousPage = state.selectedHealthPage;
+  if (state.selectedPage === 'health' && previousPage && previousPage !== pageKey) {
+    state.healthScrollPositions[previousPage] = window.scrollY;
+  }
+  state.selectedHealthPage = pageKey;
+
+  for (const [key, pane] of Object.entries(healthPanes)) {
+    if (!pane) continue;
+    const active = key === pageKey;
+    pane.hidden = !active;
+    pane.classList.toggle('is-active', active);
+  }
+  for (const item of healthPageMenuItems) {
+    const active = item.dataset.healthPage === pageKey;
+    item.classList.toggle('is-active', active);
+    item.setAttribute('aria-selected', String(active));
+    item.tabIndex = active ? 0 : -1;
+  }
+
+  renderCoachForPage(pageKey);
+
+  if (options.updateRoute !== false && state.selectedPage === 'health') {
+    updateLocationRoute('health', pageKey);
+  }
+  if (options.restoreScroll !== false && state.selectedPage === 'health' && previousPage !== pageKey) {
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: state.healthScrollPositions[pageKey] || 0, behavior: 'auto' });
+    });
+  }
+}
+
+function renderActivePage(pageKey, options = {}) {
+  const route = normalizedAppRoute(pageKey, options.healthPage);
+  pageKey = route.page;
+  const previousPage = state.selectedPage;
+  if (previousPage && previousPage !== pageKey) {
+    state.pageScrollPositions[previousPage] = window.scrollY;
+    if (previousPage === 'health') {
+      state.healthScrollPositions[state.selectedHealthPage] = window.scrollY;
+    }
+  }
+
   state.selectedPage = pageKey;
   for (const [key, section] of Object.entries(appPages)) {
     if (!section) {
@@ -4765,8 +5069,33 @@ function renderActivePage(pageKey) {
   }
   for (const item of pageMenuItems) {
     item.classList.toggle('is-active', item.dataset.page === pageKey);
+    if (item.dataset.page === pageKey) {
+      item.setAttribute('aria-current', 'page');
+    } else {
+      item.removeAttribute('aria-current');
+    }
   }
-  renderCoachForPage(pageKey);
+
+  if (pageKey === 'health') {
+    renderHealthPage(route.healthPage || state.selectedHealthPage || 'sleep', {
+      updateRoute: false,
+      restoreScroll: false
+    });
+  } else {
+    renderCoachForPage(pageKey);
+  }
+
+  if (options.updateRoute !== false) {
+    updateLocationRoute(pageKey, pageKey === 'health' ? state.selectedHealthPage : null);
+  }
+  if (options.restoreScroll !== false && previousPage !== pageKey) {
+    const scrollTop = pageKey === 'health'
+      ? state.healthScrollPositions[state.selectedHealthPage] || state.pageScrollPositions.health || 0
+      : state.pageScrollPositions[pageKey] || 0;
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: scrollTop, behavior: 'auto' });
+    });
+  }
 }
 
 function drawSimpleLineChart(canvasEl, rows, labelKey, valueKey, options = {}) {
@@ -5397,14 +5726,16 @@ function bindPageChartsResize() {
     }
     pageChartsResizeTimer = window.setTimeout(() => {
       pageChartsResizeTimer = null;
-      if (state.selectedPage === 'weight') {
-        renderWeightChart();
-      } else if (state.selectedPage === 'workout') {
+      if (state.selectedPage === 'workout') {
         renderWorkoutChart();
-      } else if (state.selectedPage === 'sleep') {
-        renderSleepChart();
-      } else if (state.selectedPage === 'sexual-activity') {
-        drawHealthOccurrenceChart(state.healthOccurrenceRows || state.healthEntries, state.healthSnapshotPeriod || 'weekly');
+      } else if (state.selectedPage === 'health') {
+        if (state.selectedHealthPage === 'weight') {
+          renderWeightChart();
+        } else if (state.selectedHealthPage === 'sleep') {
+          renderSleepChart();
+        } else if (state.selectedHealthPage === 'sexual-activity') {
+          drawHealthOccurrenceChart(state.healthOccurrenceRows || state.healthEntries, state.healthSnapshotPeriod || 'weekly');
+        }
       }
     }, 80);
   });
@@ -6346,31 +6677,65 @@ for (const item of pageMenuItems) {
     if (!page) {
       return;
     }
-    renderActivePage(page);
-    if (page === 'weight') {
-      await refreshWeightData();
+    await navigateToPage(page);
+  });
+}
+
+for (const item of healthPageMenuItems) {
+  item.addEventListener('click', async () => {
+    const page = item.dataset.healthPage;
+    if (!page) return;
+    renderHealthPage(page);
+    await refreshPageData('health');
+  });
+
+  item.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+      return;
     }
-    if (page === 'workout') {
-      await refreshWorkoutData();
-    }
-    if (page === 'sleep') {
-      await refreshSleepData();
-    }
-    if (page === 'sexual-activity') {
-      if (!(state.features?.sexualActivity && state.sexualActivityPageVisible !== false)) {
-        renderActivePage('sleep');
-        return;
-      }
-      await refreshHealthData();
-    }
-    if (page === 'analysis') {
-      await Promise.all([refreshAnalysisData(), refreshWeeklyRecap()]);
-      if (!state.analysisAutoRan && isAnalysisDueWeekly(state.analysisReport)) {
-        state.analysisAutoRan = true;
-        await generateAnalysis();
-      }
+    event.preventDefault();
+    const visibleItems = healthPageMenuItems.filter((candidate) => !candidate.hidden);
+    const currentIndex = visibleItems.indexOf(item);
+    const delta = event.key === 'ArrowRight' ? 1 : -1;
+    const nextItem = visibleItems[(currentIndex + delta + visibleItems.length) % visibleItems.length];
+    nextItem?.focus();
+    nextItem?.click();
+  });
+}
+
+document.querySelectorAll('[data-today-action]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const action = button.dataset.todayAction;
+    const opensDetailOnly = /^view\b/i.test(button.textContent || '');
+    if (action === 'meal') {
+      await navigateToPage('macros', { focus: mealTextEl });
+    } else if (action === 'workout') {
+      await navigateToPage('workout', { focus: opensDetailOnly ? null : workoutTextEl });
+    } else if (action === 'weight') {
+      await navigateToPage('health', {
+        healthPage: 'weight',
+        focus: opensDetailOnly ? null : weightValueEl
+      });
+    } else if (action === 'sleep') {
+      await navigateToPage('health', {
+        healthPage: 'sleep',
+        focus: opensDetailOnly ? null : sleepHoursEl
+      });
     }
   });
+});
+
+document.querySelectorAll('[data-today-link]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const page = button.dataset.todayLink;
+    if (page) {
+      await navigateToPage(page);
+    }
+  });
+});
+
+if (todayRefreshBtnEl) {
+  todayRefreshBtnEl.addEventListener('click', refreshTodayData);
 }
 
 if (analysisGenerateBtnEl) {
@@ -6728,7 +7093,17 @@ if (workoutQuickListEl) {
   });
 }
 
-renderActivePage('macros');
+const initialRoute = routeFromLocation();
+renderActivePage(initialRoute.page, {
+  healthPage: initialRoute.healthPage,
+  updateRoute: false,
+  restoreScroll: false
+});
+updateLocationRoute(
+  state.selectedPage,
+  state.selectedPage === 'health' ? state.selectedHealthPage : null,
+  true
+);
 bindPageChartsResize();
 bindCoachSlots();
 
@@ -6743,12 +7118,55 @@ loadQuickEntries({ force: true });
     console.error('Failed to refresh profile:', error);
   }
 
+  // Keep the original destination through profile hydration so an optional
+  // Health deep link is not downgraded before its account feature loads.
+  const requestedRoute = initialRoute;
+  renderActivePage(requestedRoute.page, {
+    healthPage: requestedRoute.healthPage,
+    updateRoute: false,
+    restoreScroll: false
+  });
+  updateLocationRoute(
+    state.selectedPage,
+    state.selectedPage === 'health' ? state.selectedHealthPage : null,
+    true
+  );
+
   try {
-    await refreshDashboard();
+    await refreshPageData(state.selectedPage);
   } catch (error) {
     setActionBanner(error.message, 'error');
   }
 })();
+
+async function applyRouteFromLocation() {
+  const route = routeFromLocation();
+  const alreadyActive = route.page === state.selectedPage
+    && (route.page !== 'health' || route.healthPage === state.selectedHealthPage);
+  if (alreadyActive) {
+    return;
+  }
+  renderActivePage(route.page, {
+    healthPage: route.healthPage,
+    updateRoute: false
+  });
+  await refreshPageData(state.selectedPage);
+}
+
+window.addEventListener('popstate', applyRouteFromLocation);
+window.addEventListener('hashchange', applyRouteFromLocation);
+window.addEventListener('offline', renderTodaySummary);
+window.addEventListener('online', () => {
+  renderTodaySummary();
+  if (state.selectedPage === 'today') {
+    refreshTodayData();
+  }
+});
+window.setInterval(() => {
+  if (state.selectedPage === 'today') {
+    renderTodaySummary();
+  }
+}, 60_000);
 
 if (profileChipEl) {
   profileChipEl.addEventListener('click', (event) => {

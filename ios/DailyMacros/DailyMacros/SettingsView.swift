@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var api: APIClient
     @AppStorage("onboarding_complete") private var onboardingComplete = true
@@ -46,6 +47,13 @@ struct SettingsView: View {
                 dangerSection
             }
             .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
             .task {
                 selectedTimezone = currentAccountTimezone
                 await loadSettings()

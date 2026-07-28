@@ -225,8 +225,14 @@ const fakeDb = {
   },
   updateWeightEntry: async () => 1,
   deleteWeightEntry: async () => 1,
-  listWeightEntries: async () => ({ entries: [] }),
-  getWeightTarget: async () => ({ targetWeight: null, targetDate: null }),
+  listWeightEntries: async (userId, options) => {
+    record('listWeightEntries', { userId, options });
+    return { entries: [] };
+  },
+  getWeightTarget: async (userId, effectiveDate, options) => {
+    record('getWeightTarget', { userId, effectiveDate, options });
+    return { targetWeight: null, targetDate: null };
+  },
   setWeightTarget: async () => ({ targetWeight: 180, targetDate: '2026-12-31' }),
   addWorkoutEntry: async (_userId, payload) => {
     record('addWorkoutEntry', payload);
@@ -234,7 +240,10 @@ const fakeDb = {
   },
   updateWorkoutEntry: async () => 1,
   deleteWorkoutEntry: async () => 1,
-  listWorkoutEntries: async () => ({ entries: [], dailyCalories: [] }),
+  listWorkoutEntries: async (userId, options) => {
+    record('listWorkoutEntries', { userId, options });
+    return { entries: [], dailyCalories: [] };
+  },
   addSexualActivityEntry: async () => ({ id: 1, created: true }),
   updateSexualActivityEntry: async () => 1,
   deleteSexualActivityEntry: async () => 1,
@@ -242,7 +251,10 @@ const fakeDb = {
   addSleepEntry: async () => ({ id: 1, created: true }),
   updateSleepEntry: async () => 1,
   deleteSleepEntry: async () => 1,
-  listSleepEntries: async () => ({ entries: [], dailyTotals: [] }),
+  listSleepEntries: async (userId, options) => {
+    record('listSleepEntries', { userId, options });
+    return { entries: [], dailyTotals: [] };
+  },
   getAnalysisSnapshot: async (_userId, days, timezone) => {
     record('getAnalysisSnapshot', { days, timezone });
     return {
@@ -386,6 +398,30 @@ test('dashboard route falls back to saved user timezone', routeTestOptions, asyn
 
   assert.equal(res.status, 200);
   assert.equal(latestCall('getDashboard').payload.options.timezone, 'America/Los_Angeles');
+});
+
+test('Today route aggregates one bounded cross-surface snapshot in the saved timezone', routeTestOptions, async () => {
+  resetCalls();
+  const { res, body } = await request('/api/today');
+
+  assert.equal(res.status, 200);
+  assert.equal(body.summary.empty, true);
+  assert.equal(body.summary.recovery.ouraStatus, 'unavailable');
+  assert.ok(body.generatedAt);
+  assert.deepEqual(Object.keys(body.context).sort(), [
+    'dashboard',
+    'sleep',
+    'weightTarget',
+    'weights',
+    'workouts'
+  ]);
+  assert.equal(latestCall('getDashboard').payload.options.limit, 60);
+  assert.equal(latestCall('getDashboard').payload.options.timezone, 'America/Los_Angeles');
+  assert.equal(latestCall('listWorkoutEntries').payload.options.limit, 30);
+  assert.equal(latestCall('listWorkoutEntries').payload.options.timezone, 'America/Los_Angeles');
+  assert.equal(latestCall('listWeightEntries').payload.options.scope, 'month');
+  assert.equal(latestCall('listSleepEntries').payload.options.scope, 'week');
+  assert.equal(latestCall('getWeightTarget').payload.options.timezone, 'America/Los_Angeles');
 });
 
 test('bulk entries route preserves source metadata and applies corrections', routeTestOptions, async () => {

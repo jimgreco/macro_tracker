@@ -176,7 +176,7 @@ enum CoachModelSource: String, Sendable {
     }
 }
 
-enum CoachActionType: Sendable {
+enum CoachActionType: Sendable, Equatable {
     case openLogMeal
     case openQuickAdd
     case logMealItem
@@ -453,7 +453,8 @@ struct AICoachSlot: View {
     @State private var selectedSuggestionID: String?
 
     let suggestions: [CoachSuggestion]
-    let onPrimaryAction: (CoachAction) -> Void
+    var maximumSuggestions = 3
+    let onPrimaryAction: (CoachSuggestion, CoachAction) -> Void
 
     var body: some View {
         let showsSourceDetails = auth.user?.isAdmin == true
@@ -462,8 +463,11 @@ struct AICoachSlot: View {
             legacyEnabled: legacyCoachEnabled,
             isAdmin: showsSourceDetails
         )
-        let visibleCandidates = dismissals.visibleSuggestions(from: suggestions)
-            .filter { !CoachCategoryPreference.isDisabled($0, rawValue: disabledCategoryIDsRaw) }
+        let visibleCandidates = Array(
+            dismissals.visibleSuggestions(from: suggestions)
+                .filter { !CoachCategoryPreference.isDisabled($0, rawValue: disabledCategoryIDsRaw) }
+                .prefix(max(1, maximumSuggestions))
+        )
         let narrationKey = narrationTaskID(for: visibleCandidates, mode: mode)
         let displayedSuggestions = displayedSuggestions(from: visibleCandidates, mode: mode, narrationKey: narrationKey)
         let isLocalAIProcessing = isLocalAIProcessing(for: visibleCandidates, mode: mode, narrationKey: narrationKey)
@@ -478,7 +482,7 @@ struct AICoachSlot: View {
                         showsSourceDetails: showsSourceDetails,
                         onPrimaryAction: { action in
                             recordCoachEvent("acted_on", suggestion: suggestion, action: action)
-                            onPrimaryAction(action)
+                            onPrimaryAction(suggestion, action)
                         },
                         onDismissForToday: {
                             recordCoachEvent("dismissed_today", suggestion: suggestion)

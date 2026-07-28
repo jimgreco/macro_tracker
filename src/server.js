@@ -103,6 +103,7 @@ const {
 const { parseMealText, parseWorkoutText } = require('./parser');
 const { estimateWorkoutCalories } = require('./workout-calories');
 const { scaleMealUnitRows } = require('./meal-normalizer');
+const { buildTodaySummary } = require('./today-summary');
 const { createClientMutationMiddleware } = require('./idempotency');
 const { PostgresSessionStore } = require('./postgres-session-store');
 const packageJson = require('../package.json');
@@ -3384,6 +3385,47 @@ apiRouter.get('/dashboard', async (req, res) => {
     res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.get('/today', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    const timezone = requestTimezone(req);
+    const generatedAt = new Date();
+    const [dashboard, workouts, weights, weightTarget, sleep] = await Promise.all([
+      getDashboard(userId, undefined, { limit: 60, offset: 0, timezone }),
+      listWorkoutEntries(userId, { limit: 30, offset: 0, scope: 'week', timezone }),
+      listWeightEntries(userId, { limit: 30, offset: 0, scope: 'month', timezone }),
+      getWeightTarget(userId, undefined, { timezone }),
+      listSleepEntries(userId, { limit: 30, offset: 0, scope: 'week', timezone })
+    ]);
+    const summary = buildTodaySummary({
+      dashboard,
+      workouts,
+      weights,
+      weightTarget,
+      sleep,
+      timezone,
+      now: generatedAt,
+      // JIM-51 owns the canonical Oura connection and recovery contract. Consume
+      // it when present without inferring a connection state from fallback sleep.
+      ouraStatus: sleep.ouraStatus ?? sleep.connection?.status
+    });
+
+    return res.json({
+      generatedAt: generatedAt.toISOString(),
+      summary,
+      context: {
+        dashboard,
+        workouts,
+        weights,
+        weightTarget,
+        sleep
+      }
+    });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
   }
 });
 

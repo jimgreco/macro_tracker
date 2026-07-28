@@ -563,6 +563,14 @@
   }
 
   function buildCoachCandidates(pageKey, context = {}) {
+    if (pageKey === 'today') {
+      return [
+        ...buildMacroCoachSuggestions(context),
+        ...buildWorkoutCoachSuggestions(context),
+        ...buildWeightCoachSuggestions(context),
+        ...buildSleepCoachSuggestions(context)
+      ].sort((a, b) => b.priority - a.priority || b.confidence - a.confidence);
+    }
     if (pageKey === 'macros') return buildMacroCoachSuggestions(context);
     if (pageKey === 'workout') return buildWorkoutCoachSuggestions(context);
     if (pageKey === 'weight') return buildWeightCoachSuggestions(context);

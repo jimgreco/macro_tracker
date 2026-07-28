@@ -32,6 +32,7 @@ struct HealthView: View {
 
     @EnvironmentObject var api: APIClient
     @EnvironmentObject var auth: AuthManager
+    @EnvironmentObject private var appNavigation: AppNavigationModel
     @StateObject private var healthKitSync = HealthKitWellnessSync()
     @StateObject private var coachDismissals = CoachDismissalStore.shared
 
@@ -129,6 +130,10 @@ struct HealthView: View {
                     .accessibilityLabel(mode == .sleep ? "Log sleep" : "Log sexual activity")
                     .disabled(mode == .sexualActivity && !sexualActivityEnabled)
                 }
+
+                ToolbarItem(placement: .primaryAction) {
+                    AccountToolbarButton()
+                }
             }
             .sheet(isPresented: $showLogHealth) { logHealthSheet }
             .sheet(isPresented: $showLogSleep) { logSleepSheet }
@@ -137,6 +142,15 @@ struct HealthView: View {
             .sheet(item: $editingSleep) { entry in editSleepSheet(entry) }
             .task {
                 await loadVisibleData()
+            }
+            .onAppear {
+                handlePendingQuickAction()
+            }
+            .onChange(of: appNavigation.pendingQuickAction) { _, _ in
+                handlePendingQuickAction()
+            }
+            .onChange(of: appNavigation.coachActionRevision) { _, _ in
+                handlePendingQuickAction()
             }
             .refreshable {
                 await loadVisibleData()
@@ -489,7 +503,9 @@ struct HealthView: View {
             AICoachSlot(
                 dismissals: coachDismissals,
                 suggestions: sleepCoachSuggestions,
-                onPrimaryAction: handleCoachAction
+                onPrimaryAction: { _, action in
+                    handleCoachAction(action)
+                }
             )
 
             Picker("Scope", selection: $sleepScope) {
@@ -1612,6 +1628,23 @@ struct HealthView: View {
             healthLogDate = Date()
             showLogHealth = true
         }
+    }
+
+    private func handlePendingQuickAction() {
+        if mode == .sleep,
+           let action = appNavigation.consumeCoachAction(
+               for: .sleep,
+               matching: [
+                   .openLogSleep,
+                   .editTargets
+               ]
+           ) {
+            handleCoachAction(action)
+            return
+        }
+        guard mode == .sleep, appNavigation.pendingQuickAction == .logSleep else { return }
+        showLogSheetForMode()
+        appNavigation.consume(.logSleep)
     }
 
     // MARK: - Helpers

@@ -27,7 +27,7 @@ struct AnalysisView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Analysis")
+            .navigationTitle("Insights")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -40,6 +40,10 @@ struct AnalysisView: View {
                         }
                     }
                     .disabled(isGenerating)
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    AccountToolbarButton()
                 }
             }
             .task { await loadLatest() }

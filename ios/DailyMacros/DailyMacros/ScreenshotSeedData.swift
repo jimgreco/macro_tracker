@@ -175,6 +175,80 @@ enum ScreenshotSeedData {
         )
     }
 
+    static func today() -> TodayResponse {
+        let dashboard = dashboard(date: referenceDay, limit: 60, offset: 0)
+        let workouts = workouts(limit: 30, offset: 0, scope: "week")
+        let weights = weights(scope: "month", limit: 30, offset: 0)
+        let weightTarget = weightTarget()
+        let sleep = sleepEntries(scope: "week", limit: 30, offset: 0)
+        let generatedAt = ISO8601DateFormatter().string(from: referenceNow)
+
+        return TodayResponse(
+            generatedAt: generatedAt,
+            summary: TodaySummary(
+                generatedAt: generatedAt,
+                day: referenceDay,
+                macros: TodayMacroSummary(
+                    totals: dashboard.currentDayTotals,
+                    targets: TodayMacroTargets(
+                        calories: targets.calories,
+                        protein: targets.protein,
+                        carbs: targets.carbs,
+                        fat: targets.fat,
+                        workouts: targets.workouts,
+                        workoutCalories: targets.workoutCalories ?? 0,
+                        sleepHours: targets.sleepHours ?? 8
+                    ),
+                    remaining: TodayMacroRemaining(
+                        calories: max(0, targets.calories - dashboard.currentDayTotals.calories),
+                        protein: max(0, targets.protein - dashboard.currentDayTotals.protein),
+                        carbs: max(0, targets.carbs - dashboard.currentDayTotals.carbs),
+                        fat: max(0, targets.fat - dashboard.currentDayTotals.fat)
+                    ),
+                    state: "tracked"
+                ),
+                workout: TodayWorkoutSummary(
+                    state: "logged",
+                    loggedCount: 1,
+                    activeCalories: 360,
+                    latestDescription: "Upper Body Strength",
+                    weeklyActiveDays: 4,
+                    targetPerWeek: targets.workouts
+                ),
+                weight: TodayWeightSummary(
+                    state: "on_cadence",
+                    latestWeight: 184.8,
+                    lastLoggedAt: weightEntries.first?.loggedAt,
+                    daysSinceLast: 0,
+                    cadenceDays: 7,
+                    nextDueAt: "2026-06-24T11:00:00.000Z",
+                    source: weightEntries.first?.source,
+                    targetWeight: weightTarget.targetWeight,
+                    targetDate: weightTarget.targetDate
+                ),
+                recovery: TodayRecoverySummary(
+                    state: "current",
+                    sleepHours: 8.1,
+                    wakeUps: 1,
+                    quality: 4,
+                    lastLoggedAt: sleepLog.first?.loggedAt,
+                    ageHours: 5,
+                    source: sleepLog.first?.source,
+                    sourceLabel: "Manual",
+                    ouraStatus: "disconnected"
+                ),
+                empty: false
+            ),
+            context: TodayContext(
+                dashboard: dashboard,
+                workouts: workouts,
+                weights: weights,
+                weightTarget: weightTarget,
+                sleep: sleep
+            )
+        )
+    }
+
     static func latestAnalysis() -> AnalysisReport {
         AnalysisReport(
             id: 901,

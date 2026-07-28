@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WeightView: View {
     @EnvironmentObject var api: APIClient
+    @EnvironmentObject private var appNavigation: AppNavigationModel
     @StateObject private var healthKitSync = HealthKitWellnessSync()
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var entries: [WeightEntry] = []
@@ -38,7 +39,9 @@ struct WeightView: View {
                     AICoachSlot(
                         dismissals: coachDismissals,
                         suggestions: coachSuggestions,
-                        onPrimaryAction: handleCoachAction
+                        onPrimaryAction: { _, action in
+                            handleCoachAction(action)
+                        }
                     )
 
                     scopePicker
@@ -74,6 +77,10 @@ struct WeightView: View {
                     }
                     .accessibilityLabel("Log weight")
                 }
+
+                ToolbarItem(placement: .primaryAction) {
+                    AccountToolbarButton()
+                }
             }
             .sheet(isPresented: $showAddSheet) {
                 addWeightSheet
@@ -86,7 +93,14 @@ struct WeightView: View {
             }
             .task { await loadData() }
             .onAppear {
+                handlePendingQuickAction()
                 Task { await loadTarget(showErrors: false) }
+            }
+            .onChange(of: appNavigation.pendingQuickAction) { _, _ in
+                handlePendingQuickAction()
+            }
+            .onChange(of: appNavigation.coachActionRevision) { _, _ in
+                handlePendingQuickAction()
             }
             .refreshable { await loadData() }
             .alert("Weight", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -95,6 +109,23 @@ struct WeightView: View {
                 Text(errorMessage ?? "")
             }
         }
+    }
+
+    private func handlePendingQuickAction() {
+        if let action = appNavigation.consumeCoachAction(
+            for: .weight,
+            matching: [
+                .openLogWeight,
+                .editTargets
+            ]
+        ) {
+            handleCoachAction(action)
+            return
+        }
+        guard appNavigation.pendingQuickAction == .logWeight else { return }
+        newWeightDate = Date()
+        showAddSheet = true
+        appNavigation.consume(.logWeight)
     }
 
     // MARK: - Scope Picker

@@ -124,6 +124,87 @@ struct DashboardResponse: Codable, Sendable {
     let pagination: Pagination?
 }
 
+struct TodayResponse: Codable {
+    let generatedAt: String
+    let summary: TodaySummary
+    let context: TodayContext
+}
+
+struct TodayContext: Codable {
+    let dashboard: DashboardResponse
+    let workouts: WorkoutsResponse
+    let weights: WeightEntriesResponse
+    let weightTarget: WeightTarget
+    let sleep: SleepEntriesResponse
+}
+
+struct TodaySummary: Codable {
+    let generatedAt: String
+    let day: String
+    let macros: TodayMacroSummary
+    let workout: TodayWorkoutSummary
+    let weight: TodayWeightSummary
+    let recovery: TodayRecoverySummary
+    let empty: Bool
+}
+
+struct TodayMacroSummary: Codable {
+    let totals: DailyTotals
+    let targets: TodayMacroTargets
+    let remaining: TodayMacroRemaining
+    let state: String
+}
+
+struct TodayMacroTargets: Codable {
+    let calories: Double
+    let protein: Double
+    let carbs: Double
+    let fat: Double
+    let workouts: Double
+    let workoutCalories: Double
+    let sleepHours: Double
+}
+
+struct TodayMacroRemaining: Codable {
+    let calories: Double?
+    let protein: Double?
+    let carbs: Double?
+    let fat: Double?
+}
+
+struct TodayWorkoutSummary: Codable {
+    let state: String
+    let loggedCount: Int
+    let activeCalories: Double
+    let latestDescription: String?
+    let weeklyActiveDays: Int
+    let targetPerWeek: Double
+}
+
+struct TodayWeightSummary: Codable {
+    let state: String
+    let latestWeight: Double?
+    let lastLoggedAt: String?
+    let daysSinceLast: Int?
+    let cadenceDays: Int
+    let nextDueAt: String?
+    let source: String?
+    let targetWeight: Double?
+    let targetDate: String?
+}
+
+struct TodayRecoverySummary: Codable {
+    let state: String
+    let sleepHours: Double?
+    let wakeUps: Double?
+    let quality: Int?
+    let lastLoggedAt: String?
+    let ageHours: Int?
+    let source: String?
+    let sourceLabel: String
+    let ouraStatus: String
+}
+
 struct WeightEntry: Codable, Identifiable, Sendable {
     let id: Int
     let weight: Double
