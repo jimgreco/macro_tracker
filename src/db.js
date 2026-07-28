@@ -80,6 +80,122 @@ async function recordSchemaMigration(name) {
   );
 }
 
+async function deduplicateHealthKitSleepRevisions(queryable = pool) {
+  const result = await queryable.query(`
+    WITH ordered AS (
+      SELECT id,
+             user_id,
+             duration_hours,
+             quality,
+             notes,
+             logged_at,
+             created_at,
+             LAG(logged_at) OVER (
+               PARTITION BY user_id
+               ORDER BY logged_at, id
+             ) AS previous_logged_at,
+             MAX(logged_at + (duration_hours * INTERVAL '1 hour')) OVER (
+               PARTITION BY user_id
+               ORDER BY logged_at, id
+               ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+             ) AS previous_session_end
+      FROM sleep_entries
+      WHERE source = 'healthkit' AND deleted_at IS NULL
+    ),
+    cluster_boundaries AS (
+      SELECT *,
+             CASE
+               WHEN previous_logged_at IS NULL
+                 OR (
+                   logged_at - previous_logged_at > INTERVAL '15 minutes'
+                   AND logged_at >= previous_session_end
+                 )
+               THEN 1
+               ELSE 0
+             END AS starts_new_cluster
+      FROM ordered
+    ),
+    clustered AS (
+      SELECT *,
+             SUM(starts_new_cluster) OVER (
+               PARTITION BY user_id
+               ORDER BY logged_at, id
+             ) AS session_cluster
+      FROM cluster_boundaries
+    ),
+    session_summary AS (
+      SELECT user_id,
+             session_cluster,
+             COUNT(*) AS revision_count,
+             (ARRAY_AGG(id ORDER BY created_at DESC, id DESC))[1] AS canonical_id,
+             (
+               ARRAY_AGG(quality ORDER BY created_at DESC, id DESC)
+               FILTER (WHERE quality IS NOT NULL)
+             )[1] AS preserved_quality,
+             (
+               ARRAY_AGG(notes ORDER BY created_at DESC, id DESC)
+               FILTER (WHERE notes IS NOT NULL)
+             )[1] AS preserved_notes
+      FROM clustered
+      GROUP BY user_id, session_cluster
+    ),
+    assignments AS (
+      SELECT clustered.id,
+             summary.canonical_id,
+             summary.preserved_quality,
+             summary.preserved_notes
+      FROM clustered
+      JOIN session_summary AS summary
+        ON summary.user_id = clustered.user_id
+       AND summary.session_cluster = clustered.session_cluster
+      WHERE summary.revision_count > 1
+    )
+    UPDATE sleep_entries AS entry
+    SET quality = CASE
+          WHEN entry.id = assignments.canonical_id
+          THEN COALESCE(entry.quality, assignments.preserved_quality)
+          ELSE entry.quality
+        END,
+        notes = CASE
+          WHEN entry.id = assignments.canonical_id
+          THEN COALESCE(entry.notes, assignments.preserved_notes)
+          ELSE entry.notes
+        END,
+        deleted_at = CASE
+          WHEN entry.id = assignments.canonical_id
+          THEN NULL
+          ELSE NOW()
+        END
+    FROM assignments
+    WHERE entry.id = assignments.id
+    RETURNING entry.deleted_at
+  `);
+  return result.rows.filter((row) => row.deleted_at != null).length;
+}
+
+async function applyHealthKitSleepRevisionMigration() {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const migration = await client.query(
+      `INSERT INTO schema_migrations (name, applied_at)
+       VALUES ($1, NOW())
+       ON CONFLICT (name) DO NOTHING
+       RETURNING name`,
+      ['2026-07-28_healthkit_sleep_revision_deduplication']
+    );
+    if (migration.rows.length) {
+      await deduplicateHealthKitSleepRevisions(client);
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -634,6 +750,7 @@ async function initDb() {
   await recordSchemaMigration('2026-07-27_client_mutation_idempotency');
   await recordSchemaMigration('2026-07-27_shared_auth_state');
   await recordSchemaMigration('2026-07-27_nutrition_day_completeness');
+  await applyHealthKitSleepRevisionMigration();
 
   await pool.query('DELETE FROM web_sessions WHERE expires_at <= NOW()');
   await pool.query('DELETE FROM rate_limit_counters WHERE expires_at <= NOW()');
@@ -3262,16 +3379,109 @@ async function addSleepEntry(userId, payload) {
   const source = normalizeHealthEntrySource(payload.source, 'Sleep');
   const externalId = normalizeExternalId(payload.externalId ?? payload.external_id, 'Sleep');
 
-  if (externalId) {
-    const existing = await pool.query(
-      `SELECT id
-       FROM sleep_entries
-       WHERE user_id = $1 AND source = $2 AND external_id = $3 AND deleted_at IS NULL
-       LIMIT 1`,
-      [userId, source, externalId]
-    );
-    if (existing.rows.length) {
-      return { id: Number(existing.rows[0].id), created: false };
+  if (source === 'healthkit' && externalId) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+        [`healthkit-sleep:${userId}`]
+      );
+
+      const matching = await client.query(
+        `SELECT id,
+                quality,
+                notes
+         FROM sleep_entries
+         WHERE user_id = $1
+           AND source = 'healthkit'
+           AND deleted_at IS NULL
+           AND (
+             external_id = $2
+             OR ABS(EXTRACT(EPOCH FROM (logged_at - $3::timestamptz))) <= 900
+             OR (
+               logged_at < $3::timestamptz + ($4::double precision * INTERVAL '1 hour')
+               AND logged_at + (duration_hours * INTERVAL '1 hour') > $3::timestamptz
+             )
+           )
+         ORDER BY created_at DESC,
+                  id DESC
+         FOR UPDATE`,
+        [userId, externalId, loggedAt, durationHours]
+      );
+
+      const activeMatches = matching.rows;
+      if (activeMatches.length) {
+        const canonical = activeMatches[0];
+        const duplicateIds = activeMatches
+          .slice(1)
+          .map((row) => Number(row.id));
+
+        if (duplicateIds.length) {
+          await client.query(
+            `UPDATE sleep_entries
+             SET deleted_at = NOW()
+             WHERE user_id = $1
+               AND id = ANY($2::bigint[])
+               AND deleted_at IS NULL`,
+            [userId, duplicateIds]
+          );
+        }
+
+        const preservedQuality =
+          activeMatches.find((row) => row.quality != null)?.quality ?? quality;
+        const preservedNotes =
+          activeMatches.find((row) => row.notes != null)?.notes ?? notes;
+        await client.query(
+          `UPDATE sleep_entries
+           SET duration_hours = $3,
+               wake_ups = $4,
+               logged_at = $5,
+               external_id = $6,
+               quality = $7,
+               notes = $8
+           WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
+          [
+            userId,
+            canonical.id,
+            Number(durationHours.toFixed(2)),
+            wakeUps,
+            loggedAt,
+            externalId,
+            preservedQuality,
+            preservedNotes
+          ]
+        );
+        await client.query('COMMIT');
+        return {
+          id: Number(canonical.id),
+          created: false,
+          updated: true,
+          deduplicatedCount: duplicateIds.length
+        };
+      }
+
+      const inserted = await client.query(
+        `INSERT INTO sleep_entries (user_id, duration_hours, wake_ups, quality, notes, logged_at, source, external_id)
+         VALUES ($1, $2, $3, $4, $5, $6, 'healthkit', $7)
+         RETURNING id`,
+        [
+          userId,
+          Number(durationHours.toFixed(2)),
+          wakeUps,
+          quality,
+          notes,
+          loggedAt,
+          externalId
+        ]
+      );
+      await client.query('COMMIT');
+      return { id: Number(inserted.rows[0].id), created: true };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -4460,6 +4670,7 @@ module.exports = {
   updateSexualActivityEntry,
   deleteSexualActivityEntry,
   listSexualActivityEntries,
+  deduplicateHealthKitSleepRevisions,
   addSleepEntry,
   updateSleepEntry,
   deleteSleepEntry,

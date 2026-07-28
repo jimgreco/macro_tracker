@@ -379,6 +379,210 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     const workouts = await db.listWorkoutEntries(userId, { limit: 100, scope: 'month' });
     assert.equal(workouts.entries.some((entry) => entry.description === 'Integration Run'), false);
 
+    const sleepStart = new Date();
+    sleepStart.setUTCDate(sleepStart.getUTCDate() - 2);
+    sleepStart.setUTCHours(1, 3, 0, 0);
+    const sleepDay = sleepStart.toISOString().slice(0, 10);
+
+    const initialSleep = await db.addSleepEntry(userId, {
+      durationHours: 7.5,
+      wakeUps: 42,
+      loggedAt: sleepStart.toISOString(),
+      source: 'healthkit',
+      externalId: `legacy-sleep-${crypto.randomUUID()}`
+    });
+    assert.equal(initialSleep.created, true);
+
+    const revisedSleep = await db.addSleepEntry(userId, {
+      durationHours: 7.2,
+      wakeUps: 21,
+      loggedAt: sleepStart.toISOString(),
+      source: 'healthkit',
+      externalId: `sleep-v2-${Math.floor(sleepStart.getTime() / 1_800_000)}`
+    });
+    assert.equal(revisedSleep.created, false);
+    assert.equal(revisedSleep.updated, true);
+    assert.equal(revisedSleep.id, initialSleep.id);
+
+    let sleepEntries = await db.listSleepEntries(userId, {
+      limit: 500,
+      scope: 'month',
+      timezone: 'UTC'
+    });
+    let matchingSleepEntries = sleepEntries.entries.filter(
+      (entry) =>
+        entry.source === 'healthkit' &&
+        Math.abs(new Date(entry.loggedAt).getTime() - sleepStart.getTime()) < 1_000
+    );
+    assert.equal(matchingSleepEntries.length, 1);
+    assert.equal(matchingSleepEntries[0].durationHours, 7.2);
+    assert.equal(matchingSleepEntries[0].wakeUps, 21);
+    assert.equal(
+      sleepEntries.dailyTotals.find((row) => row.day === sleepDay)?.totalHours,
+      7.2
+    );
+
+    const napStart = new Date(sleepStart);
+    napStart.setUTCHours(15, 0, 0, 0);
+    const nap = await db.addSleepEntry(userId, {
+      durationHours: 1,
+      wakeUps: 0,
+      loggedAt: napStart.toISOString(),
+      source: 'healthkit',
+      externalId: `sleep-v2-${Math.floor(napStart.getTime() / 1_800_000)}`
+    });
+    assert.equal(nap.created, true);
+
+    sleepEntries = await db.listSleepEntries(userId, {
+      limit: 500,
+      scope: 'month',
+      timezone: 'UTC'
+    });
+    assert.equal(
+      sleepEntries.dailyTotals.find((row) => row.day === sleepDay)?.totalHours,
+      8.2,
+      'a separate daytime nap must remain additive'
+    );
+
+    const concurrentStart = new Date(sleepStart);
+    concurrentStart.setUTCDate(concurrentStart.getUTCDate() - 1);
+    const concurrentRevisions = await Promise.all([
+      db.addSleepEntry(userId, {
+        durationHours: 6.4,
+        wakeUps: 3,
+        loggedAt: concurrentStart.toISOString(),
+        source: 'healthkit',
+        externalId: `concurrent-a-${crypto.randomUUID()}`
+      }),
+      db.addSleepEntry(userId, {
+        durationHours: 6.6,
+        wakeUps: 2,
+        loggedAt: concurrentStart.toISOString(),
+        source: 'healthkit',
+        externalId: `concurrent-b-${crypto.randomUUID()}`
+      })
+    ]);
+    assert.equal(concurrentRevisions.filter((entry) => entry.created).length, 1);
+    assert.equal(new Set(concurrentRevisions.map((entry) => entry.id)).size, 1);
+
+    sleepEntries = await db.listSleepEntries(userId, {
+      limit: 500,
+      scope: 'month',
+      timezone: 'UTC'
+    });
+    matchingSleepEntries = sleepEntries.entries.filter(
+      (entry) =>
+        entry.source === 'healthkit' &&
+        Math.abs(new Date(entry.loggedAt).getTime() - concurrentStart.getTime()) < 1_000
+    );
+    assert.equal(matchingSleepEntries.length, 1);
+    assert.ok([6.4, 6.6].includes(matchingSleepEntries[0].durationHours));
+
+    const annotatedRevisionStart = new Date(sleepStart);
+    annotatedRevisionStart.setUTCDate(annotatedRevisionStart.getUTCDate() - 6);
+    await db.getPool().query(
+      `INSERT INTO sleep_entries (
+         user_id, duration_hours, wake_ups, quality, notes, logged_at, source, external_id, created_at
+       )
+       VALUES
+         ($1, 6.8, 3, 5, NULL, $2, 'healthkit', $3, NOW() - INTERVAL '1 minute'),
+         ($1, 6.9, 2, NULL, 'Keep this note', $2, 'healthkit', $4, NOW())`,
+      [
+        userId,
+        annotatedRevisionStart,
+        `annotated-a-${crypto.randomUUID()}`,
+        `annotated-b-${crypto.randomUUID()}`
+      ]
+    );
+    const annotatedRevision = await db.addSleepEntry(userId, {
+      durationHours: 7,
+      wakeUps: 1,
+      loggedAt: annotatedRevisionStart.toISOString(),
+      source: 'healthkit',
+      externalId: `sleep-v2-${Math.floor(annotatedRevisionStart.getTime() / 1_800_000)}`
+    });
+    assert.equal(annotatedRevision.created, false);
+    assert.equal(annotatedRevision.deduplicatedCount, 1);
+    sleepEntries = await db.listSleepEntries(userId, {
+      limit: 500,
+      scope: 'month',
+      timezone: 'UTC'
+    });
+    matchingSleepEntries = sleepEntries.entries.filter(
+      (entry) =>
+        entry.source === 'healthkit' &&
+        Math.abs(new Date(entry.loggedAt).getTime() - annotatedRevisionStart.getTime()) < 1_000
+    );
+    assert.equal(matchingSleepEntries.length, 1);
+    assert.equal(matchingSleepEntries[0].durationHours, 7);
+    assert.equal(matchingSleepEntries[0].quality, 5);
+    assert.equal(matchingSleepEntries[0].notes, 'Keep this note');
+
+    const legacyCleanupStart = new Date(sleepStart);
+    legacyCleanupStart.setUTCDate(legacyCleanupStart.getUTCDate() - 3);
+    const legacyExternalA = `legacy-cleanup-a-${crypto.randomUUID()}`;
+    const legacyExternalB = `legacy-cleanup-b-${crypto.randomUUID()}`;
+    await db.getPool().query(
+      `INSERT INTO sleep_entries (
+         user_id, duration_hours, wake_ups, quality, notes, logged_at, source, external_id, created_at
+       )
+       VALUES
+         ($1, 7.5, 42, 4, NULL, $2, 'healthkit', $3, NOW() - INTERVAL '1 minute'),
+         ($1, 7.2, 21, NULL, 'Latest note', $2, 'healthkit', $4, NOW())`,
+      [userId, legacyCleanupStart, legacyExternalA, legacyExternalB]
+    );
+
+    const shiftedOverlapStart = new Date(sleepStart);
+    shiftedOverlapStart.setUTCDate(shiftedOverlapStart.getUTCDate() - 4);
+    const shiftedOverlapRevision = new Date(shiftedOverlapStart.getTime() + 2 * 60 * 60 * 1_000);
+    await db.getPool().query(
+      `INSERT INTO sleep_entries (
+         user_id, duration_hours, wake_ups, logged_at, source, external_id, created_at
+       )
+       VALUES
+         ($1, 4, 5, $2, 'healthkit', $3, NOW() - INTERVAL '1 minute'),
+         ($1, 3, 4, $4, 'healthkit', $5, NOW())`,
+      [
+        userId,
+        shiftedOverlapStart,
+        `shifted-overlap-a-${crypto.randomUUID()}`,
+        shiftedOverlapRevision,
+        `shifted-overlap-b-${crypto.randomUUID()}`
+      ]
+    );
+
+    assert.ok((await db.deduplicateHealthKitSleepRevisions()) >= 2);
+    sleepEntries = await db.listSleepEntries(userId, {
+      limit: 500,
+      scope: 'month',
+      timezone: 'UTC'
+    });
+    matchingSleepEntries = sleepEntries.entries.filter(
+      (entry) =>
+        entry.source === 'healthkit' &&
+        Math.abs(new Date(entry.loggedAt).getTime() - legacyCleanupStart.getTime()) < 1_000
+    );
+    assert.equal(matchingSleepEntries.length, 1);
+    assert.equal(matchingSleepEntries[0].durationHours, 7.2);
+    assert.equal(matchingSleepEntries[0].wakeUps, 21);
+    assert.equal(matchingSleepEntries[0].quality, 4);
+    assert.equal(matchingSleepEntries[0].notes, 'Latest note');
+
+    matchingSleepEntries = sleepEntries.entries.filter((entry) => {
+      const entryStart = new Date(entry.loggedAt).getTime();
+      return (
+        entry.source === 'healthkit' &&
+        entryStart >= shiftedOverlapStart.getTime() &&
+        entryStart <= shiftedOverlapRevision.getTime()
+      );
+    });
+    assert.equal(matchingSleepEntries.length, 1);
+    assert.equal(matchingSleepEntries[0].durationHours, 3);
+    assert.equal(
+      new Date(matchingSleepEntries[0].loggedAt).getTime(),
+      shiftedOverlapRevision.getTime()
+    );
+
     await db.logClientDiagnostic(userId, {
       level: 'error',
       category: 'integration',

@@ -297,6 +297,31 @@ test('health metric entries track external sync source ids', () => {
   assert.ok(db.includes("source = normalizeHealthEntrySource(payload.source, 'Sexual activity')"));
 });
 
+test('HealthKit sleep revisions reconcile without double counting', () => {
+  const db = read('src/db.js');
+  const wellnessSync = read('ios/DailyMacros/DailyMacros/HealthKitWellnessSync.swift');
+  const addSleepSection = db.slice(
+    db.indexOf('async function addSleepEntry'),
+    db.indexOf('async function updateSleepEntry')
+  );
+
+  assert.ok(db.includes('async function deduplicateHealthKitSleepRevisions'));
+  assert.ok(db.includes('2026-07-28_healthkit_sleep_revision_deduplication'));
+  assert.ok(addSleepSection.includes("source === 'healthkit' && externalId"));
+  assert.ok(addSleepSection.includes('pg_advisory_xact_lock'));
+  assert.ok(addSleepSection.includes("source = 'healthkit'"));
+  assert.ok(addSleepSection.includes('ABS(EXTRACT(EPOCH FROM (logged_at - $3::timestamptz))) <= 900'));
+  assert.ok(addSleepSection.includes('deduplicatedCount: duplicateIds.length'));
+  assert.match(addSleepSection, /source = 'healthkit'\s+AND deleted_at IS NULL/);
+
+  assert.ok(wellnessSync.includes('return "sleep-v2-\\(thirtyMinuteBucket)"'));
+  assert.ok(wellnessSync.includes('isSameSleepSession'));
+  assert.ok(wellnessSync.includes('sleepEntry(existingHealthKitEntries[existingIndex], matches: session)'));
+  assert.ok(wellnessSync.includes('var currentSessionEnd: Date?'));
+  assert.ok(wellnessSync.includes('let wakeUps = min(mergedIntervals(awakeIntervals).count, 99)'));
+  assert.equal(wellnessSync.includes('externalId = "sleep-\\(Int(start.timeIntervalSince1970))'), false);
+});
+
 test('sleep entries support optional quality ratings and notes', () => {
   const db = read('src/db.js');
   const server = read('src/server.js');

@@ -140,16 +140,18 @@ final class HealthKitWellnessSync: ObservableObject {
         let healthSamples = try await fetchCategorySamples(type: sleepType, since: cutoff)
         let sessions = sleepSessions(from: healthSamples.filter { shouldImport($0, dailyMacrosPrefix: dailyMacrosSleepPrefix) })
         let existingResponse = try await api.getSleepEntries(scope: "month", limit: 500, offset: 0)
-        var existingExternalIds = Set(existingResponse.entries.compactMap { entry in
-            entry.source == "healthkit" ? entry.externalId : nil
-        })
-        var existingSignatures = Set(existingResponse.entries.compactMap(sleepSignature))
+        var existingHealthKitEntries = existingResponse.entries.filter {
+            $0.source?.lowercased() == "healthkit"
+        }
         var importedCount = 0
         var skippedCount = 0
 
         for session in sessions {
-            let signature = sleepSignature(start: session.start, durationHours: session.durationHours)
-            if existingExternalIds.contains(session.externalId) || existingSignatures.contains(signature) {
+            let existingIndex = existingHealthKitEntries.firstIndex {
+                isSameSleepSession($0, as: session)
+            }
+            if let existingIndex,
+               sleepEntry(existingHealthKitEntries[existingIndex], matches: session) {
                 skippedCount += 1
                 continue
             }
@@ -162,8 +164,21 @@ final class HealthKitWellnessSync: ObservableObject {
                 externalId: session.externalId
             )
 
-            existingExternalIds.insert(session.externalId)
-            existingSignatures.insert(signature)
+            let syncedEntry = SleepEntry(
+                id: response.id ?? existingIndex.map { existingHealthKitEntries[$0].id } ?? -1,
+                durationHours: session.durationHours,
+                wakeUps: session.wakeUps,
+                quality: existingIndex.flatMap { existingHealthKitEntries[$0].quality },
+                notes: existingIndex.flatMap { existingHealthKitEntries[$0].notes },
+                loggedAt: isoFormatter.string(from: session.start),
+                source: "healthkit",
+                externalId: session.externalId
+            )
+            if let existingIndex {
+                existingHealthKitEntries[existingIndex] = syncedEntry
+            } else {
+                existingHealthKitEntries.append(syncedEntry)
+            }
             if response.created != false {
                 importedCount += 1
             } else {
@@ -363,33 +378,38 @@ final class HealthKitWellnessSync: ObservableObject {
         let maxSessionGap: TimeInterval = 90 * 60
         var sessions: [SleepSession] = []
         var intervals: [(start: Date, end: Date)] = []
+        var currentSessionEnd: Date?
 
         func finishSession() {
-            guard let first = intervals.first, let last = intervals.last else { return }
+            guard let first = intervals.first else { return }
             let start = first.start
-            let end = intervals.reduce(last.end) { max($0, $1.end) }
+            let end = intervals.reduce(first.end) { max($0, $1.end) }
             let durationHours = mergedDurationHours(intervals)
             guard durationHours > 0 else { return }
 
-            let wakeUps = awakeSamples.filter { overlaps($0, start: start, end: end) }.count
-            let durationMinutes = Int((durationHours * 60).rounded())
-            let externalId = "sleep-\(Int(start.timeIntervalSince1970))-\(Int(end.timeIntervalSince1970))-\(durationMinutes)"
+            let awakeIntervals = awakeSamples.compactMap { sample -> (start: Date, end: Date)? in
+                guard overlaps(sample, start: start, end: end) else { return nil }
+                return (max(sample.startDate, start), min(sample.endDate, end))
+            }
+            let wakeUps = min(mergedIntervals(awakeIntervals).count, 99)
             sessions.append(SleepSession(
                 start: start,
                 end: end,
                 durationHours: min(durationHours, 24),
                 wakeUps: wakeUps,
-                externalId: externalId
+                externalId: sleepSessionExternalId(start: start)
             ))
         }
 
         for sample in asleepSamples {
-            if let lastEnd = intervals.last?.end,
-               sample.startDate.timeIntervalSince(lastEnd) > maxSessionGap {
+            if let sessionEnd = currentSessionEnd,
+               sample.startDate.timeIntervalSince(sessionEnd) > maxSessionGap {
                 finishSession()
                 intervals = []
+                currentSessionEnd = nil
             }
             intervals.append((sample.startDate, sample.endDate))
+            currentSessionEnd = max(currentSessionEnd ?? sample.endDate, sample.endDate)
         }
 
         finishSession()
@@ -397,6 +417,16 @@ final class HealthKitWellnessSync: ObservableObject {
     }
 
     private func mergedDurationHours(_ intervals: [(start: Date, end: Date)]) -> Double {
+        let merged = mergedIntervals(intervals)
+        let seconds = merged.reduce(0.0) { total, interval in
+            total + interval.end.timeIntervalSince(interval.start)
+        }
+        return seconds / 3600
+    }
+
+    private func mergedIntervals(
+        _ intervals: [(start: Date, end: Date)]
+    ) -> [(start: Date, end: Date)] {
         let sorted = intervals.sorted { $0.start < $1.start }
         var merged: [(start: Date, end: Date)] = []
         for interval in sorted {
@@ -407,11 +437,7 @@ final class HealthKitWellnessSync: ObservableObject {
                 merged.append(interval)
             }
         }
-
-        let seconds = merged.reduce(0.0) { total, interval in
-            total + interval.end.timeIntervalSince(interval.start)
-        }
-        return seconds / 3600
+        return merged
     }
 
     private func overlaps(_ sample: HKSample, start: Date, end: Date) -> Bool {
@@ -480,15 +506,31 @@ final class HealthKitWellnessSync: ObservableObject {
         return "\(fiveMinuteBucket)|\(tenths)"
     }
 
-    private func sleepSignature(_ entry: SleepEntry) -> String? {
-        guard let start = parseDate(entry.loggedAt) else { return nil }
-        return sleepSignature(start: start, durationHours: entry.durationHours)
+    private func sleepSessionExternalId(start: Date) -> String {
+        let thirtyMinuteBucket = Int(start.timeIntervalSince1970 / 1800)
+        return "sleep-v2-\(thirtyMinuteBucket)"
     }
 
-    private func sleepSignature(start: Date, durationHours: Double) -> String {
-        let thirtyMinuteBucket = Int(start.timeIntervalSince1970 / 1800)
-        let durationMinutes = Int((durationHours * 60).rounded())
-        return "\(thirtyMinuteBucket)|\(durationMinutes)"
+    private func isSameSleepSession(_ entry: SleepEntry, as session: SleepSession) -> Bool {
+        guard let entryStart = parseDate(entry.loggedAt) else { return false }
+        if entry.externalId == session.externalId {
+            return true
+        }
+        if abs(entryStart.timeIntervalSince(session.start)) <= 15 * 60 {
+            return true
+        }
+        let entryEnd = entryStart.addingTimeInterval(entry.durationHours * 3600)
+        return entryStart < session.end && entryEnd > session.start
+    }
+
+    private func sleepEntry(_ entry: SleepEntry, matches session: SleepSession) -> Bool {
+        guard entry.externalId == session.externalId,
+              let entryStart = parseDate(entry.loggedAt) else {
+            return false
+        }
+        return abs(entryStart.timeIntervalSince(session.start)) < 1
+            && abs(entry.durationHours - session.durationHours) < 0.011
+            && entry.wakeUps == session.wakeUps
     }
 
     private func sexualActivitySignature(_ entry: HealthEntry) -> String? {
