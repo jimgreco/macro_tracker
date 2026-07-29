@@ -209,7 +209,7 @@ When asked to deploy or "push live", always run these steps in order — no skip
 4. **`git commit`** with a clear message describing what changed and why
 5. **`git push origin main`** — GitHub Actions runs all required gates, then deploys to EC2 and uploads TestFlight only after the aggregate succeeds
 
-The orchestrator retains diagnostics for failed gates. The reusable deploy job uses `EC2_SSH_KEY`, `EC2_USER`, and `EC2_HOST`, builds the `macros` service through the remote Compose project, and runs post-deploy `/healthz` and `/version` checks when `PRODUCTION_BASE_URL` is configured. Configure and verify strict main protection only after the `Required Checks` context has completed successfully; see `docs/ci-release-gates.md`.
+The orchestrator retains diagnostics for failed gates. The reusable deploy job uses `EC2_SSH_KEY`, `EC2_USER`, and `EC2_HOST`, builds the `macros` service through the remote Compose project, and runs post-deploy `/healthz` and `/version` checks when `PRODUCTION_BASE_URL` is configured. Configure and verify strict main protection only after the `Required Checks` context has completed successfully; see `docs/ci-release-gates.md`. GitHub only enables `allow_fork_syncing` for a read-only locked branch, so the current writable protected-main policy must keep both `lock_branch` and `allow_fork_syncing` false.
 
 ## Content Security Policy
 

@@ -102,7 +102,7 @@ test('branch-protection automation verifies the latest check and complete policy
     '"allow_deletions": false',
     '"required_conversation_resolution": true',
     '"lock_branch": false',
-    '"allow_fork_syncing": true'
+    '"allow_fork_syncing": false'
   ]) {
     assert.ok(configure.includes(policy), `configuration is missing ${policy}`);
   }
@@ -118,7 +118,7 @@ test('branch-protection automation verifies the latest check and complete policy
     'protection.required_pull_request_reviews == null',
     'protection.restrictions == null',
     'protection.lock_branch?.enabled !== true',
-    'protection.allow_fork_syncing?.enabled === true'
+    'protection.allow_fork_syncing?.enabled !== true'
   ]) {
     assert.ok(verify.includes(responseField), `verification is missing ${responseField}`);
   }

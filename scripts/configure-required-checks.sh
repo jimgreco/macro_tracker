@@ -49,7 +49,7 @@ cat > "$payload" <<JSON
   "allow_deletions": false,
   "required_conversation_resolution": true,
   "lock_branch": false,
-  "allow_fork_syncing": true
+  "allow_fork_syncing": false
 }
 JSON
 
