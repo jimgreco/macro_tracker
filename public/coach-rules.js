@@ -504,7 +504,8 @@
 
   function buildSleepCoachSuggestions(context) {
     const suggestions = [];
-    const target = Number(context.sleepTargetHours || 8);
+    const rawTarget = Number(context.sleepTargetHours);
+    const target = Number.isFinite(rawTarget) ? rawTarget : 8;
     const rows = (context.sleepChartRows || [])
       .slice()
       .filter((row) => Number(row.value || 0) > 0)

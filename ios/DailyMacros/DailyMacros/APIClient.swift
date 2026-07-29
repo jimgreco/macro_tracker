@@ -1007,6 +1007,20 @@ class APIClient: ObservableObject {
         let _: OkResponse = try await perform(request)
     }
 
+    func clearWeightTarget() async throws {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        let payload: [String: Any] = [
+            "effectiveDate": formatter.string(from: Date())
+        ]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let request = try authorizedRequest(apiURL("/weight-target"), method: "DELETE", body: body)
+        let _: OkResponse = try await perform(request)
+    }
+
     // MARK: - Workouts
 
     func getWorkouts(limit: Int = 100, offset: Int = 0, scope: String = "week") async throws -> WorkoutsResponse {

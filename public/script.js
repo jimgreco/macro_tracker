@@ -776,6 +776,8 @@ function showEditTargetsModal() {
       <input id="target-modal-${m}" type="number" step="1" min="0" value="${escapeAttr(val > 0 ? val : '')}" placeholder="No target" />`;
       }).join('\n      ')}
       <div class="combine-modal-actions">
+        <button type="button" class="btn-danger table-action-btn" id="target-modal-clear-btn">Clear Targets</button>
+        <span style="flex:1"></span>
         <button type="button" class="btn-muted table-action-btn" id="target-modal-cancel-btn">Cancel</button>
         <button type="button" class="btn-success table-action-btn" id="target-modal-save-btn">Save</button>
       </div>
@@ -786,6 +788,30 @@ function showEditTargetsModal() {
 
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   document.getElementById('target-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  const clearTargetsButton = document.getElementById('target-modal-clear-btn');
+  clearTargetsButton.disabled = !macros.some((macro) => Number(targets[macro] || 0) > 0);
+
+  clearTargetsButton.addEventListener('click', async () => {
+    const updates = Object.fromEntries(macros.map((macro) => [macro, 0]));
+    overlay.remove();
+    try {
+      for (const macro of macros) {
+        await api(`/api/macro-targets/${macro}`, {
+          method: 'PUT',
+          body: JSON.stringify({ target: 0, effectiveDate: getLocalIsoDay(), tz: getTimezone() })
+        });
+      }
+      if (state.dashboardData) {
+        state.dashboardData.targets = state.dashboardData.targets || {};
+        Object.assign(state.dashboardData.targets, updates);
+        mergeTodayTargets(updates);
+        renderDashboard(state.dashboardData);
+      }
+      setActionBanner('Macro targets cleared.', 'success');
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
 
   document.getElementById('target-modal-save-btn').addEventListener('click', async () => {
     const updates = {};
@@ -914,19 +940,22 @@ function showWorkoutTargetModal() {
 
 function setSleepTargetFromTargets(targets) {
   const targetHours = Number(targets?.sleep_hours);
-  if (Number.isFinite(targetHours) && targetHours > 0) {
+  if (Number.isFinite(targetHours) && targetHours >= 0) {
     state.sleepTargetHours = targetHours;
   }
 }
 
 function getSleepTargetHours() {
   const targetHours = Number(state.sleepTargetHours);
-  return Number.isFinite(targetHours) && targetHours > 0 ? targetHours : 8;
+  return Number.isFinite(targetHours) && targetHours >= 0 ? targetHours : 8;
 }
 
 function renderSleepTargetLegend() {
   const targetHours = getSleepTargetHours();
-  setText(sleepTargetValueEl, `${fmtNumber(targetHours)} hr${targetHours === 1 ? '' : 's'}`);
+  setText(
+    sleepTargetValueEl,
+    targetHours > 0 ? `${fmtNumber(targetHours)} hr${targetHours === 1 ? '' : 's'}` : 'No target'
+  );
 }
 
 function showSleepTargetModal() {
@@ -934,6 +963,7 @@ function showSleepTargetModal() {
   if (overlay) overlay.remove();
 
   const currentTarget = getSleepTargetHours();
+  const currentTargetValue = currentTarget > 0 ? fmtNumber(currentTarget) : '';
   overlay = document.createElement('div');
   overlay.id = 'entry-modal-overlay';
   overlay.className = 'combine-modal-overlay';
@@ -941,8 +971,10 @@ function showSleepTargetModal() {
     <div class="combine-modal entry-modal">
       <h3>Edit Sleep Target</h3>
       <label for="sleep-target-modal-hours">Target hours per night</label>
-      <input id="sleep-target-modal-hours" type="number" min="0.25" max="24" step="0.25" value="${escapeAttr(fmtNumber(currentTarget))}" placeholder="8" />
+      <input id="sleep-target-modal-hours" type="number" min="0.25" max="24" step="0.25" value="${escapeAttr(currentTargetValue)}" placeholder="No target" />
       <div class="combine-modal-actions">
+        <button type="button" class="btn-danger table-action-btn" id="sleep-target-modal-clear-btn">Clear Target</button>
+        <span style="flex:1"></span>
         <button type="button" class="btn-muted table-action-btn" id="sleep-target-modal-cancel-btn">Cancel</button>
         <button type="button" class="btn-success table-action-btn" id="sleep-target-modal-save-btn">Save</button>
       </div>
@@ -955,6 +987,28 @@ function showSleepTargetModal() {
 
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   document.getElementById('sleep-target-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  const clearSleepTargetButton = document.getElementById('sleep-target-modal-clear-btn');
+  clearSleepTargetButton.disabled = currentTarget <= 0;
+
+  clearSleepTargetButton.addEventListener('click', async () => {
+    overlay.remove();
+    try {
+      await api('/api/macro-targets/sleep_hours', {
+        method: 'PUT',
+        body: JSON.stringify({ target: 0, effectiveDate: getLocalIsoDay(), tz: getTimezone() })
+      });
+      state.sleepTargetHours = 0;
+      state.dashboardData = state.dashboardData || {};
+      state.dashboardData.targets = state.dashboardData.targets || {};
+      state.dashboardData.targets.sleep_hours = 0;
+      mergeTodayTargets({ sleep_hours: 0 });
+      renderSleepChart();
+      renderCoachForPage('sleep');
+      setActionBanner('Sleep target cleared.', 'success');
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
 
   document.getElementById('sleep-target-modal-save-btn').addEventListener('click', async () => {
     const raw = input.value.trim();
@@ -6078,6 +6132,8 @@ function showWeightTargetModal() {
       <label for="wt-modal-date">Target Date</label>
       <input id="wt-modal-date" type="date" value="${escapeAttr(currentDate)}" />
       <div class="combine-modal-actions">
+        <button type="button" class="btn-danger table-action-btn" id="wt-modal-clear-btn">Clear Target</button>
+        <span style="flex:1"></span>
         <button type="button" class="btn-muted table-action-btn" id="wt-modal-cancel-btn">Cancel</button>
         <button type="button" class="btn-success table-action-btn" id="wt-modal-save-btn">Save</button>
       </div>
@@ -6088,6 +6144,24 @@ function showWeightTargetModal() {
 
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   document.getElementById('wt-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  const clearWeightTargetButton = document.getElementById('wt-modal-clear-btn');
+  clearWeightTargetButton.disabled = !Number.isFinite(Number(currentWeight)) || Number(currentWeight) <= 0;
+
+  clearWeightTargetButton.addEventListener('click', async () => {
+    overlay.remove();
+    try {
+      const response = await api('/api/weight-target', {
+        method: 'DELETE',
+        body: JSON.stringify({ effectiveDate: getLocalIsoDay(), tz: getTimezone() })
+      });
+      state.weightTargetData = response;
+      state.weightTarget = null;
+      setActionBanner('Weight target cleared.', 'success');
+      await refreshWeightData();
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    }
+  });
 
   document.getElementById('wt-modal-save-btn').addEventListener('click', async () => {
     const targetWeight = parseWeightInputValue(document.getElementById('wt-modal-weight').value);

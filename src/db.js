@@ -389,8 +389,8 @@ async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS weight_targets (
       user_id TEXT NOT NULL,
-      target_weight DOUBLE PRECISION NOT NULL,
-      target_date DATE NOT NULL,
+      target_weight DOUBLE PRECISION,
+      target_date DATE,
       effective_date DATE NOT NULL DEFAULT DATE '1970-01-01',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (user_id, effective_date)
@@ -666,6 +666,8 @@ async function initDb() {
   `);
   await pool.query(`ALTER TABLE weight_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE weight_targets ADD COLUMN IF NOT EXISTS effective_date DATE;`);
+  await pool.query(`ALTER TABLE weight_targets ALTER COLUMN target_weight DROP NOT NULL;`);
+  await pool.query(`ALTER TABLE weight_targets ALTER COLUMN target_date DROP NOT NULL;`);
   await pool.query(`UPDATE weight_targets SET effective_date = DATE '1970-01-01' WHERE effective_date IS NULL;`);
   await pool.query(`ALTER TABLE weight_targets ALTER COLUMN effective_date SET NOT NULL;`);
   await pool.query(`
@@ -3003,9 +3005,9 @@ async function getWeightTarget(userId, effectiveDateInput, options = {}) {
   }
 
   return {
-    targetWeight: Number(row.targetWeight || 0),
-    targetDate: String(row.targetDate || ''),
-    effectiveDate: String(row.effectiveDate || '')
+    targetWeight: row.targetWeight == null ? null : Number(row.targetWeight),
+    targetDate: row.targetDate || null,
+    effectiveDate: row.effectiveDate || null
   };
 }
 
@@ -3068,6 +3070,30 @@ async function setWeightTarget(userId, payload) {
   return {
     targetWeight: normalizedTargetWeight,
     targetDate,
+    effectiveDate
+  };
+}
+
+async function clearWeightTarget(userId, payload = {}) {
+  const effectiveDate = normalizeTargetEffectiveDate(
+    payload?.effectiveDate ?? payload?.effective_date,
+    payload?.tz || 'America/New_York'
+  );
+
+  await pool.query(
+    `INSERT INTO weight_targets (user_id, target_weight, target_date, effective_date, updated_at)
+     VALUES ($1, NULL, NULL, $2::date, NOW())
+     ON CONFLICT (user_id, effective_date)
+     DO UPDATE
+       SET target_weight = NULL,
+           target_date = NULL,
+           updated_at = NOW()`,
+    [userId, effectiveDate]
+  );
+
+  return {
+    targetWeight: null,
+    targetDate: null,
     effectiveDate
   };
 }
@@ -4694,6 +4720,7 @@ module.exports = {
   getWeightTarget,
   getWeightTargetHistory,
   setWeightTarget,
+  clearWeightTarget,
   addWorkoutEntry,
   updateWorkoutEntry,
   deleteWorkoutEntry,

@@ -136,6 +136,7 @@ struct MacrosView: View {
     @State private var showParsed = false
     @State private var showAddSheet = false
     @State private var showEditTargets = false
+    @State private var isSavingTargets = false
     @State private var showEditEntry = false
     @State private var showEditParsedItem = false
     @State private var errorMessage: String?
@@ -626,10 +627,7 @@ struct MacrosView: View {
                 tint: AppVisualSystem.ColorToken.accent
             ) {
                 Button("edit targets") {
-                    editCalories = "\(Int(targets.calories))"
-                    editProtein = "\(Int(targets.protein))"
-                    editCarbs = "\(Int(targets.carbs))"
-                    editFat = "\(Int(targets.fat))"
+                    populateMacroTargetFields(from: targets)
                     showEditTargets = true
                 }
                 .font(.caption)
@@ -753,7 +751,9 @@ struct MacrosView: View {
                 Text(label)
                     .font(.subheadline.bold())
                 Spacer()
-                Text("\(Int(value)) / \(Int(target)) \(unit)")
+                Text(target > 0
+                    ? "\(Int(value)) / \(Int(target)) \(unit)"
+                    : "\(Int(value)) \(unit) · No target")
                     .font(.subheadline)
                     .foregroundStyle(Color.mutedText)
             }
@@ -1913,11 +1913,23 @@ struct MacrosView: View {
                     Button {
                         Task { await saveTargets() }
                     } label: {
-                        Text("Save Targets").font(.headline).frame(maxWidth: .infinity)
+                        if isSavingTargets {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Save Targets").font(.headline).frame(maxWidth: .infinity)
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(canSave ? Color.neonCyan : .gray)
                     .disabled(!canSave)
+
+                    Button(role: .destructive) {
+                        Task { await clearTargets() }
+                    } label: {
+                        Text("Clear Targets").font(.headline).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!hasMacroTargets || isSavingTargets)
 
                     Spacer(minLength: 0)
                 }
@@ -1937,6 +1949,7 @@ struct MacrosView: View {
     }
 
     private var canSaveMacroTargets: Bool {
+        guard !isSavingTargets else { return false }
         guard let targets = dashboard?.targets else { return false }
         guard let calories = Double(editCalories.trimmingCharacters(in: .whitespacesAndNewlines)), calories > 0,
               let protein = Double(editProtein.trimmingCharacters(in: .whitespacesAndNewlines)), protein >= 0,
@@ -1949,6 +1962,22 @@ struct MacrosView: View {
             abs(protein - targets.protein) > 0.001 ||
             abs(carbs - targets.carbs) > 0.001 ||
             abs(fat - targets.fat) > 0.001
+    }
+
+    private var hasMacroTargets: Bool {
+        guard let targets = dashboard?.targets else { return false }
+        return targets.calories > 0 || targets.protein > 0 || targets.carbs > 0 || targets.fat > 0
+    }
+
+    private func populateMacroTargetFields(from targets: MacroTargets) {
+        editCalories = macroTargetEditText(targets.calories)
+        editProtein = macroTargetEditText(targets.protein)
+        editCarbs = macroTargetEditText(targets.carbs)
+        editFat = macroTargetEditText(targets.fat)
+    }
+
+    private func macroTargetEditText(_ target: Double) -> String {
+        target > 0 ? "\(Int(target))" : ""
     }
 
     private func targetField(_ label: String, text: Binding<String>) -> some View {
@@ -3044,10 +3073,7 @@ struct MacrosView: View {
             Task { await logCoachMealItem(mealItem) }
         case .editTargets:
             if let targets = dashboard?.targets {
-                editCalories = "\(Int(targets.calories))"
-                editProtein = "\(Int(targets.protein))"
-                editCarbs = "\(Int(targets.carbs))"
-                editFat = "\(Int(targets.fat))"
+                populateMacroTargetFields(from: targets)
                 showEditTargets = true
             }
         case .openLogWorkout, .logWorkoutEntry, .openLogWeight, .openLogSleep:
@@ -3808,11 +3834,34 @@ struct MacrosView: View {
 
     private func saveTargets() async {
         guard canSaveMacroTargets else { return }
+        isSavingTargets = true
+        defer { isSavingTargets = false }
         do {
             if let cal = Double(editCalories) { try await api.setMacroTarget(macro: "calories", target: cal) }
             if let prot = Double(editProtein) { try await api.setMacroTarget(macro: "protein", target: prot) }
             if let carbs = Double(editCarbs) { try await api.setMacroTarget(macro: "carbs", target: carbs) }
             if let fat = Double(editFat) { try await api.setMacroTarget(macro: "fat", target: fat) }
+            showEditTargets = false
+            await loadDashboard()
+            await loadTrend()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func clearTargets() async {
+        guard hasMacroTargets, !isSavingTargets else { return }
+        isSavingTargets = true
+        defer { isSavingTargets = false }
+
+        do {
+            for macro in ["calories", "protein", "carbs", "fat"] {
+                try await api.setMacroTarget(macro: macro, target: 0)
+            }
+            editCalories = ""
+            editProtein = ""
+            editCarbs = ""
+            editFat = ""
             showEditTargets = false
             await loadDashboard()
             await loadTrend()

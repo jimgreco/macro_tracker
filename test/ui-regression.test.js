@@ -252,6 +252,35 @@ test('iOS target sheets disable unchanged saves', () => {
   assert.equal(health.includes('guard canSaveSleepTarget else { return }'), true);
 });
 
+test('macro, weight, and sleep target setup can clear current targets across web and iOS', () => {
+  const macros = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
+  const weight = read('ios/DailyMacros/DailyMacros/WeightView.swift');
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+  const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  const script = read('public/script.js');
+  const server = read('src/server.js');
+
+  assert.equal(macros.includes('Text("Clear Targets")'), true);
+  assert.equal(macros.includes('private func clearTargets() async'), true);
+  assert.equal(macros.includes('try await api.setMacroTarget(macro: macro, target: 0)'), true);
+  assert.equal(weight.includes('Text("Clear Target")'), true);
+  assert.equal(weight.includes('private func clearTarget() async'), true);
+  assert.equal(weight.includes('try await api.clearWeightTarget()'), true);
+  assert.equal(health.includes('Text("Clear Target")'), true);
+  assert.equal(health.includes('private func clearSleepTarget() async'), true);
+  assert.equal(health.includes('api.setMacroTarget(macro: "sleep_hours", target: 0)'), true);
+  assert.equal(api.includes('func clearWeightTarget() async throws'), true);
+
+  assert.equal(script.includes('id="target-modal-clear-btn"'), true);
+  assert.equal(script.includes('id="wt-modal-clear-btn"'), true);
+  assert.equal(script.includes('id="sleep-target-modal-clear-btn"'), true);
+  assert.equal(script.includes("method: 'DELETE'"), true);
+  assert.equal(script.includes("setActionBanner('Macro targets cleared.'"), true);
+  assert.equal(script.includes("setActionBanner('Weight target cleared.'"), true);
+  assert.equal(script.includes("setActionBanner('Sleep target cleared.'"), true);
+  assert.equal(server.includes("apiRouter.delete('/weight-target'"), true);
+});
+
 test('iOS macro edit sheets use disabled saves and left-side destructive actions', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
   const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
@@ -1067,6 +1096,21 @@ test('iOS workout refresh ignores cancellation errors', () => {
   assert.equal(workouts.includes('NSURLErrorCancelled'), true);
   assert.equal(loadWorkouts.includes('showErrorUnlessCancelled(error)'), true);
   assert.equal(loadWorkouts.includes('errorMessage = error.localizedDescription'), false);
+});
+
+test('iOS weight refresh ignores cancellation errors', () => {
+  const weight = read('ios/DailyMacros/DailyMacros/WeightView.swift');
+  const loadEntries = weight.slice(
+    weight.indexOf('private func loadEntries'),
+    weight.indexOf('private func loadWeightMacroContext')
+  );
+
+  assert.equal(weight.includes('showErrorUnlessCancelled'), true);
+  assert.equal(weight.includes('error is CancellationError'), true);
+  assert.equal(weight.includes('URLError, urlError.code == .cancelled'), true);
+  assert.equal(weight.includes('NSURLErrorCancelled'), true);
+  assert.equal(loadEntries.includes('showErrorUnlessCancelled(error)'), true);
+  assert.equal(loadEntries.includes('errorMessage = error.localizedDescription'), false);
 });
 
 test('iOS workout day stats match the visible occurrence window', () => {

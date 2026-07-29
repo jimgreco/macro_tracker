@@ -69,6 +69,7 @@ const {
   listWeightEntries,
   getWeightTarget,
   setWeightTarget,
+  clearWeightTarget,
   addWorkoutEntry,
   updateWorkoutEntry,
   deleteWorkoutEntry,
@@ -3227,6 +3228,16 @@ apiRouter.put('/weight-target', async (req, res) => {
   try {
     const timezone = requestTimezone(req);
     const target = await setWeightTarget(userIdFromReq(req), { ...(req.body || {}), tz: timezone });
+    res.json({ ok: true, ...target });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+apiRouter.delete('/weight-target', async (req, res) => {
+  try {
+    const timezone = requestTimezone(req);
+    const target = await clearWeightTarget(userIdFromReq(req), { ...(req.body || {}), tz: timezone });
     res.json({ ok: true, ...target });
   } catch (error) {
     res.status(400).json({ error: error.message });

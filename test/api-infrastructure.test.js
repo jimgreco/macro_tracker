@@ -52,6 +52,7 @@ test('db.js exports all required functions', () => {
     'listWeightEntries',
     'getWeightTarget',
     'setWeightTarget',
+    'clearWeightTarget',
     'addWorkoutEntry',
     'updateWorkoutEntry',
     'deleteWorkoutEntry',
@@ -378,7 +379,13 @@ test('weight targets are versioned by effective date', () => {
   assert.ok(db.includes('idx_weight_targets_user_effective'));
   assert.ok(db.includes('getWeightTargetHistory'));
   assert.ok(db.includes('ON CONFLICT (user_id, effective_date)'));
+  assert.ok(db.includes('async function clearWeightTarget'));
+  assert.ok(db.includes('SET target_weight = NULL'));
+  assert.ok(db.includes('ALTER COLUMN target_weight DROP NOT NULL'));
+  assert.ok(db.includes('row.targetWeight == null ? null : Number(row.targetWeight)'));
   assert.ok(server.includes('setWeightTarget(userIdFromReq(req), { ...(req.body || {}), tz: timezone })'));
+  assert.ok(server.includes("apiRouter.delete('/weight-target'"));
+  assert.ok(server.includes('clearWeightTarget(userIdFromReq(req), { ...(req.body || {}), tz: timezone })'));
   assert.ok(script.includes("targetKey: 'targetValue'"));
   assert.ok(script.includes('effectiveDate: getLocalIsoDay()'));
 });

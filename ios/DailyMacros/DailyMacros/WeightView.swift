@@ -18,6 +18,7 @@ struct WeightView: View {
     @State private var editingEntry: WeightEntry?
     @State private var isLoading = false
     @State private var isSyncing = false
+    @State private var isSavingTarget = false
     @State private var weightOffset = 0
     @State private var hasMoreWeightEntries = true
     @State private var isLoadingWeightPage = false
@@ -695,11 +696,23 @@ struct WeightView: View {
                     Button {
                         Task { await saveTarget() }
                     } label: {
-                        Text("Save Target").font(.headline).frame(maxWidth: .infinity)
+                        if isSavingTarget {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Save Target").font(.headline).frame(maxWidth: .infinity)
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(canSave ? .cyan : .gray)
                     .disabled(!canSave)
+
+                    Button(role: .destructive) {
+                        Task { await clearTarget() }
+                    } label: {
+                        Text("Clear Target").font(.headline).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!hasWeightTarget || isSavingTarget)
 
                     Spacer(minLength: 0)
                 }
@@ -719,6 +732,7 @@ struct WeightView: View {
     }
 
     private var canSaveWeightTarget: Bool {
+        guard !isSavingTarget else { return false }
         guard let weight = Double(editTargetWeight.trimmingCharacters(in: .whitespacesAndNewlines)), weight > 0 else {
             return false
         }
@@ -732,6 +746,11 @@ struct WeightView: View {
         let dateChanged = currentDate.map { !Calendar.current.isDate(editTargetDate, inSameDayAs: $0) } ?? true
 
         return weightChanged || dateChanged
+    }
+
+    private var hasWeightTarget: Bool {
+        guard let targetWeight = target?.targetWeight else { return false }
+        return targetWeight > 0
     }
 
     // MARK: - Actions
@@ -754,6 +773,28 @@ struct WeightView: View {
         }
     }
 
+    private func showErrorUnlessCancelled(_ error: Error) {
+        guard !isCancellation(error) else { return }
+        errorMessage = error.localizedDescription
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+
+        if case APIError.networkError(let underlying) = error {
+            return isCancellation(underlying)
+        }
+
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    }
+
     private func loadData() async {
         await loadEntries(reset: true)
         await loadTarget(showErrors: false)
@@ -766,7 +807,7 @@ struct WeightView: View {
             target = try await api.getWeightTarget()
         } catch {
             if showErrors {
-                errorMessage = error.localizedDescription
+                showErrorUnlessCancelled(error)
             }
         }
     }
@@ -788,7 +829,7 @@ struct WeightView: View {
             weightOffset = offset + response.entries.count
             hasMoreWeightEntries = response.entries.count == logPageSize
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
 
         await rebuildCoachSuggestions()
@@ -841,7 +882,7 @@ struct WeightView: View {
             triggerHealthKitExport()
             await loadEntries(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -862,7 +903,7 @@ struct WeightView: View {
             editingEntry = nil
             await loadEntries(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -871,7 +912,7 @@ struct WeightView: View {
             try await api.deleteWeight(id: id)
             await loadEntries(reset: true)
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
         }
     }
 
@@ -888,6 +929,7 @@ struct WeightView: View {
             }
             await loadEntries(reset: true)
         } catch {
+            guard !isCancellation(error) else { return }
             errorMessage = "Apple Health: \(error.localizedDescription)"
         }
     }
@@ -895,6 +937,8 @@ struct WeightView: View {
     private func saveTarget() async {
         guard canSaveWeightTarget else { return }
         guard let weight = Double(editTargetWeight) else { return }
+        isSavingTarget = true
+        defer { isSavingTarget = false }
         do {
             let f = DateFormatter()
             f.dateFormat = "yyyy-MM-dd"
@@ -903,7 +947,24 @@ struct WeightView: View {
             showEditTarget = false
             await loadData()
         } catch {
-            errorMessage = error.localizedDescription
+            showErrorUnlessCancelled(error)
+        }
+    }
+
+    private func clearTarget() async {
+        guard hasWeightTarget, !isSavingTarget else { return }
+        isSavingTarget = true
+        defer { isSavingTarget = false }
+
+        do {
+            try await api.clearWeightTarget()
+            target = WeightTarget(targetWeight: nil, targetDate: nil, effectiveDate: nil)
+            editTargetWeight = ""
+            showEditTarget = false
+            await loadEntries(reset: true)
+            await rebuildCoachSuggestions()
+        } catch {
+            showErrorUnlessCancelled(error)
         }
     }
 

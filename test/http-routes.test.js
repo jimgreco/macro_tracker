@@ -280,6 +280,10 @@ const fakeDb = {
     return { targetWeight: null, targetDate: null };
   },
   setWeightTarget: async () => ({ targetWeight: 180, targetDate: '2026-12-31' }),
+  clearWeightTarget: async (userId, payload) => {
+    record('clearWeightTarget', { userId, payload });
+    return { targetWeight: null, targetDate: null, effectiveDate: payload.effectiveDate };
+  },
   addWorkoutEntry: async (_userId, payload) => {
     record('addWorkoutEntry', payload);
     return workoutAddResult;
@@ -444,6 +448,29 @@ test('account preferences route persists validated timezone', routeTestOptions, 
   assert.equal(res.status, 200);
   assert.equal(body.user.timezone, 'America/Chicago');
   assert.deepEqual(latestCall('updateUserPreferences').payload, { timezone: 'America/Chicago' });
+});
+
+test('weight target clear preserves an effective-date boundary', routeTestOptions, async () => {
+  resetCalls();
+  const { res, body } = await request('/api/weight-target', {
+    method: 'DELETE',
+    body: JSON.stringify({
+      effectiveDate: '2026-07-29',
+      tz: 'America/Los_Angeles'
+    })
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(body.targetWeight, null);
+  assert.equal(body.targetDate, null);
+  assert.equal(body.effectiveDate, '2026-07-29');
+  assert.deepEqual(latestCall('clearWeightTarget').payload, {
+    userId: fakeUser.id,
+    payload: {
+      effectiveDate: '2026-07-29',
+      tz: 'America/Los_Angeles'
+    }
+  });
 });
 
 test('account preferences route persists the optional diagnostics control', routeTestOptions, async () => {

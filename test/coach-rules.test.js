@@ -245,6 +245,12 @@ test('sleep coach requires five nights and uses the target threshold', () => {
     }))
   });
   assert.equal(rules.buildCoachCandidates('sleep', enough).some((s) => s.category === 'sleep-below-target'), true);
+
+  const cleared = baseContext({
+    ...enough,
+    sleepTargetHours: 0
+  });
+  assert.equal(rules.buildCoachCandidates('sleep', cleared).length, 0);
 });
 
 test('sleep coach celebrates meaningful improvement before nudging below-target averages', () => {

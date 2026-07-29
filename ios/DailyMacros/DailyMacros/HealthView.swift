@@ -541,7 +541,7 @@ struct HealthView: View {
             HStack {
                 Spacer()
                 Button("edit targets") {
-                    editSleepTargetHours = formatTargetHours(sleepTargetHours)
+                    editSleepTargetHours = sleepTargetEditText
                     showEditSleepTargets = true
                 }
                 .font(.caption.weight(.semibold))
@@ -570,11 +570,13 @@ struct HealthView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    HStack(spacing: 4) {
-                        Rectangle().fill(.green.opacity(0.5)).frame(width: 16, height: 2)
-                        Text("Target: \(formatTargetHours(sleepTargetHours))h")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    if sleepTargetHours > 0 {
+                        HStack(spacing: 4) {
+                            Rectangle().fill(.green.opacity(0.5)).frame(width: 16, height: 2)
+                            Text("Target: \(formatTargetHours(sleepTargetHours))h")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -637,18 +639,26 @@ struct HealthView: View {
         // Target line
         var targetPath = Path()
         if data.count == 1 {
-            let targetHours = (data[0].targetHours ?? sleepTargetHours) > 0 ? (data[0].targetHours ?? sleepTargetHours) : sleepTargetHours
-            let targetY = yPos(targetHours)
-            targetPath.move(to: CGPoint(x: leftPadding, y: targetY))
-            targetPath.addLine(to: CGPoint(x: leftPadding + chartW, y: targetY))
+            let targetHours = data[0].targetHours ?? sleepTargetHours
+            if targetHours > 0 {
+                let targetY = yPos(targetHours)
+                targetPath.move(to: CGPoint(x: leftPadding, y: targetY))
+                targetPath.addLine(to: CGPoint(x: leftPadding + chartW, y: targetY))
+            }
         } else {
+            var isDrawingTarget = false
             for (i, d) in data.enumerated() {
-                let targetHours = (d.targetHours ?? sleepTargetHours) > 0 ? (d.targetHours ?? sleepTargetHours) : sleepTargetHours
+                let targetHours = d.targetHours ?? sleepTargetHours
+                guard targetHours > 0 else {
+                    isDrawingTarget = false
+                    continue
+                }
                 let point = CGPoint(x: xPos(i), y: yPos(targetHours))
-                if i == 0 {
-                    targetPath.move(to: point)
-                } else {
+                if isDrawingTarget {
                     targetPath.addLine(to: point)
+                } else {
+                    targetPath.move(to: point)
+                    isDrawingTarget = true
                 }
             }
         }
@@ -1061,6 +1071,14 @@ struct HealthView: View {
                     .tint(canSave ? .cyan : .gray)
                     .disabled(!canSave)
 
+                    Button(role: .destructive) {
+                        Task { await clearSleepTarget() }
+                    } label: {
+                        Text("Clear Target").font(.headline).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(sleepTargetHours <= 0 || isSavingSleepTarget)
+
                     Spacer(minLength: 0)
                 }
                 .padding()
@@ -1286,7 +1304,7 @@ struct HealthView: View {
             sleepNotes = ""
             showLogSleep = true
         case .editTargets:
-            editSleepTargetHours = formatTargetHours(sleepTargetHours)
+            editSleepTargetHours = sleepTargetEditText
             showEditSleepTargets = true
         case .openLogMeal, .openQuickAdd, .logMealItem, .openLogWorkout, .logWorkoutEntry, .openLogWeight:
             break
@@ -1521,6 +1539,23 @@ struct HealthView: View {
         }
     }
 
+    private func clearSleepTarget() async {
+        guard sleepTargetHours > 0, !isSavingSleepTarget else { return }
+        isSavingSleepTarget = true
+        defer { isSavingSleepTarget = false }
+
+        do {
+            try await api.setMacroTarget(macro: "sleep_hours", target: 0)
+            sleepTargetHours = 0
+            sleepCoachSuggestions = []
+            editSleepTargetHours = ""
+            showEditSleepTargets = false
+            await loadSleep(reset: true)
+        } catch {
+            showErrorUnlessCancelled(error)
+        }
+    }
+
     private func updateHealth(_ entry: HealthEntry) async {
         guard sexualActivityEnabled else {
             errorMessage = "Sexual activity tracking is not enabled for this account."
@@ -1708,6 +1743,10 @@ struct HealthView: View {
             return "\(Int(rounded))"
         }
         return String(format: "%.1f", hours)
+    }
+
+    private var sleepTargetEditText: String {
+        sleepTargetHours > 0 ? formatTargetHours(sleepTargetHours) : ""
     }
 
     private func sleepQualityValue(from text: String) -> Int? {
