@@ -803,7 +803,8 @@ test('iOS settings expose account timezone picker', () => {
 
   assert.equal(models.includes('let timezone: String?'), true);
   assert.equal(models.includes('struct AccountPreferencesResponse'), true);
-  assert.equal(api.includes('func updateAccountPreferences(timezone: String) async throws -> User?'), true);
+  assert.equal(api.includes('func updateAccountPreferences('), true);
+  assert.equal(api.includes('timezone: String? = nil'), true);
   assert.equal(api.includes('apiURL("/account/preferences"), method: "PATCH"'), true);
   assert.equal(settings.includes('@State private var selectedTimezone = SettingsTimezoneOptions.deviceTimezone'), true);
   assert.equal(settings.includes('Picker("Timezone", selection: $selectedTimezone)'), true);

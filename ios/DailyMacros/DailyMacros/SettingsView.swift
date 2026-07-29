@@ -20,7 +20,9 @@ struct SettingsView: View {
     @State private var isFlushingPending = false
     @State private var isAddingStarterQuickAdds = false
     @State private var isSavingTimezone = false
+    @State private var isSavingOptionalDiagnostics = false
     @State private var selectedTimezone = SettingsTimezoneOptions.deviceTimezone
+    @State private var optionalDiagnosticsEnabled = true
     @State private var remindersEnabled = ReminderScheduler.shared.isEnabled
     @State private var reminderDate = ReminderScheduler.shared.reminderDate
     @State private var errorMessage: String?
@@ -56,10 +58,14 @@ struct SettingsView: View {
             }
             .task {
                 selectedTimezone = currentAccountTimezone
+                optionalDiagnosticsEnabled = auth.user?.optionalDiagnosticsEnabled != false
                 await loadSettings()
             }
             .onChange(of: auth.user?.timezone) { _, _ in
                 selectedTimezone = currentAccountTimezone
+            }
+            .onChange(of: auth.user?.optionalDiagnosticsEnabled) { _, newValue in
+                optionalDiagnosticsEnabled = newValue != false
             }
             .onChange(of: reminderDate) { _, newValue in
                 Task { await updateReminderTime(newValue) }
@@ -143,7 +149,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
-                Text("macrovana stores nutrition, weight, workouts, sleep, sexual activity entries, meal photos submitted for parsing, account details, and beta usage data. You can export a JSON copy of your data or permanently delete your account from this screen.")
+                Text("macrovana stores nutrition, weight, workouts, sleep, sexual activity entries, meal photos submitted for parsing, account details, and beta usage data. Optional browser diagnostics use a strict metadata allowlist and are retained for 30 days. You can stop future optional uploads, export a JSON copy of your data, or permanently delete your account from this screen.")
                     .font(.subheadline)
             }
 
@@ -170,6 +176,14 @@ struct SettingsView: View {
 
     private var preferencesSection: some View {
         Section {
+            Toggle("Share Optional Diagnostics", isOn: $optionalDiagnosticsEnabled)
+                .disabled(isSavingOptionalDiagnostics)
+                .onChange(of: optionalDiagnosticsEnabled) { oldValue, newValue in
+                    guard oldValue != newValue,
+                          newValue != (auth.user?.optionalDiagnosticsEnabled != false) else { return }
+                    Task { await saveOptionalDiagnostics(enabled: newValue, fallback: oldValue) }
+                }
+
             Picker("Timezone", selection: $selectedTimezone) {
                 ForEach(timezoneOptions, id: \.self) { timezone in
                     Text(timezone).tag(timezone)
@@ -205,7 +219,7 @@ struct SettingsView: View {
         } header: {
             Text("Preferences")
         } footer: {
-            Text("Daily totals, meal history, and copy-to-today actions use this timezone.")
+            Text("Optional diagnostics contain generic browser error metadata only. They exclude bodies, meal or health values, tokens, URLs, stacks, and full user agents. Essential security records stay enabled. iOS diagnostics remain on this device until you export them.")
         }
     }
 
@@ -242,6 +256,27 @@ struct SettingsView: View {
             )
             settingsMessage = "Timezone saved."
         } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func saveOptionalDiagnostics(enabled: Bool, fallback: Bool) async {
+        isSavingOptionalDiagnostics = true
+        defer { isSavingOptionalDiagnostics = false }
+
+        do {
+            if let user = try await api.updateAccountPreferences(
+                optionalDiagnosticsEnabled: enabled
+            ) {
+                auth.user = user
+            } else {
+                await auth.refreshUser()
+            }
+            settingsMessage = enabled
+                ? "Optional diagnostics enabled."
+                : "Optional diagnostics disabled."
+        } catch {
+            optionalDiagnosticsEnabled = fallback
             errorMessage = error.localizedDescription
         }
     }

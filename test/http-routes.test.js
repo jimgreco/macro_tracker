@@ -74,6 +74,7 @@ const fakeUser = {
   timezone: 'America/Los_Angeles',
   isDisabled: false,
   sexualActivityEnabled: true,
+  optionalDiagnosticsEnabled: true,
   setupTutorialResetAt: null,
   lastLoginAt: null,
   loginCount: 1,
@@ -101,6 +102,12 @@ const fakeDb = {
     return { id: 42, createdAt: new Date().toISOString() };
   },
   listClientDiagnostics: async () => [],
+  runDataRetentionCleanup: async () => ({
+    completedAt: new Date().toISOString(),
+    inventoryVersion: 'test',
+    deletedTotal: 0,
+    tables: {}
+  }),
   loadWebSession: async (sessionId) => webSessions.get(sessionId) || null,
   saveWebSession: async (sessionId, sessionData, metadata) => {
     const record = { sessionData, ...metadata };
@@ -439,6 +446,20 @@ test('account preferences route persists validated timezone', routeTestOptions, 
   assert.deepEqual(latestCall('updateUserPreferences').payload, { timezone: 'America/Chicago' });
 });
 
+test('account preferences route persists the optional diagnostics control', routeTestOptions, async () => {
+  resetCalls();
+  const { res, body } = await request('/api/account/preferences', {
+    method: 'PATCH',
+    body: JSON.stringify({ optionalDiagnosticsEnabled: false })
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(body.user.optionalDiagnosticsEnabled, false);
+  assert.deepEqual(latestCall('updateUserPreferences').payload, {
+    optionalDiagnosticsEnabled: false
+  });
+});
+
 test('dashboard route falls back to saved user timezone', routeTestOptions, async () => {
   resetCalls();
   const { res } = await request('/api/dashboard');
@@ -670,17 +691,59 @@ test('workout sync does not count a tombstoned external workout as newly synced'
 
 test('weekly recap and diagnostics routes are wired through real middleware', routeTestOptions, async () => {
   resetCalls();
+  const requestId = '029a3f8c-ffb4-4d33-b566-a23eec5081ea';
   const recap = await request('/api/coach/weekly-recap');
   const diagnostic = await request('/api/diagnostics/client', {
     method: 'POST',
-    body: JSON.stringify({ level: 'error', category: 'test', message: 'client failure', details: { path: '/x' } })
+    body: JSON.stringify({
+      level: 'error',
+      category: 'api_error',
+      message: 'secret meal text bearer abc123 https://example.test/private?token=secret',
+      details: {
+        path: '/api/entries/123?token=secret',
+        status: 500,
+        requestId,
+        stack: 'secret stack',
+        mealText: 'private breakfast'
+      },
+      userAgent: 'Private User Agent'
+    })
   });
 
   assert.equal(recap.res.status, 200);
   assert.equal(recap.body.recap.periodDays, 7);
   assert.equal(latestCall('getAnalysisSnapshot').payload.timezone, 'America/Los_Angeles');
   assert.equal(diagnostic.res.status, 200);
-  assert.equal(latestCall('logClientDiagnostic').payload.message, 'client failure');
+  assert.equal(diagnostic.body.accepted, true);
+  assert.deepEqual(latestCall('logClientDiagnostic').payload, {
+    level: 'error',
+    category: 'api_error',
+    message: 'API request failed',
+    details: {
+      routeTemplate: '/api/entries/:id',
+      status: 500,
+      requestId
+    },
+    appPlatform: 'web',
+    appVersion: 'local',
+    requestId
+  });
+});
+
+test('optional diagnostics control stops future client uploads', routeTestOptions, async () => {
+  resetCalls();
+  fakeUser.optionalDiagnosticsEnabled = false;
+  try {
+    const diagnostic = await request('/api/diagnostics/client', {
+      method: 'POST',
+      body: JSON.stringify({ category: 'client_error' })
+    });
+    assert.equal(diagnostic.res.status, 200);
+    assert.equal(diagnostic.body.accepted, false);
+    assert.equal(latestCall('logClientDiagnostic'), undefined);
+  } finally {
+    fakeUser.optionalDiagnosticsEnabled = true;
+  }
 });
 
 test('weekly recap makes no nutrition shortfall claim from a breakfast-only unknown day', routeTestOptions, async () => {

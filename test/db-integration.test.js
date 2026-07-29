@@ -583,22 +583,107 @@ test('database feature foundations persist and read back through PostgreSQL', { 
       shiftedOverlapRevision.getTime()
     );
 
-    await db.logClientDiagnostic(userId, {
+    const oldDiagnosticRequestId = '7ca2d834-a403-4f0a-83aa-0c223041cdb4';
+    const recentDiagnosticRequestId = '1eb8443b-9dda-4e7e-b5c4-89166018a67f';
+    const oldDiagnostic = await db.logClientDiagnostic(userId, {
       level: 'error',
-      category: 'integration',
-      message: 'integration diagnostic',
-      details: { route: '/test' },
-      appPlatform: 'node-test',
+      category: 'api_error',
+      message: 'sensitive integration diagnostic',
+      details: {
+        routeTemplate: '/api/entries/123?token=secret',
+        status: 500,
+        requestId: oldDiagnosticRequestId,
+        token: 'secret'
+      },
+      appPlatform: 'web',
       appVersion: '1.0.0',
-      requestId: 'integration-request'
+      requestId: oldDiagnosticRequestId
     });
+    const recentDiagnostic = await db.logClientDiagnostic(userId, {
+      level: 'error',
+      category: 'api_error',
+      details: {
+        routeTemplate: '/api/entries/456',
+        status: 502,
+        requestId: recentDiagnosticRequestId
+      },
+      appPlatform: 'web',
+      appVersion: '1.0.0',
+      requestId: recentDiagnosticRequestId
+    });
+    const retentionNow = new Date();
+    const oldTimestamp = new Date(retentionNow.getTime() - 400 * 24 * 60 * 60 * 1000);
+    await db.getPool().query(
+      'UPDATE client_diagnostics SET created_at = $1 WHERE id = $2',
+      [oldTimestamp, oldDiagnostic.id]
+    );
+    await db.getPool().query(
+      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, created_at)
+       VALUES ($1, 'retention_old', 'integration', 'old', $2),
+              ($1, 'retention_new', 'integration', 'new', $3)`,
+      [userId, oldTimestamp, retentionNow]
+    );
+    await db.getPool().query(
+      `INSERT INTO daily_usage_counts (user_id, feature, usage_date, count, updated_at)
+       VALUES ($1, 'retention_old', $2::date, 1, $3),
+              ($1, 'retention_new', $4::date, 1, $5)
+       ON CONFLICT (user_id, feature, usage_date) DO UPDATE
+       SET count = EXCLUDED.count, updated_at = EXCLUDED.updated_at`,
+      [
+        userId,
+        oldTimestamp.toISOString(),
+        oldTimestamp,
+        retentionNow.toISOString(),
+        retentionNow
+      ]
+    );
+
+    const cleanup = await db.runDataRetentionCleanup({ now: retentionNow });
+    assert.equal(cleanup.inventoryVersion, '2026-07-28');
+    assert.ok(cleanup.tables.client_diagnostics.deleted >= 1);
+    assert.ok(cleanup.tables.audit_log.deleted >= 1);
+    assert.ok(cleanup.tables.daily_usage_counts.deleted >= 1);
+    const retainedMarkers = await Promise.all([
+      db.getPool().query(
+        'SELECT request_id FROM client_diagnostics WHERE user_id = $1 ORDER BY created_at',
+        [userId]
+      ),
+      db.getPool().query(
+        `SELECT action FROM audit_log
+         WHERE user_id = $1 AND action IN ('retention_old', 'retention_new')
+         ORDER BY action`,
+        [userId]
+      ),
+      db.getPool().query(
+        `SELECT feature FROM daily_usage_counts
+         WHERE user_id = $1 AND feature IN ('retention_old', 'retention_new')
+         ORDER BY feature`,
+        [userId]
+      )
+    ]);
+    assert.deepEqual(retainedMarkers[0].rows.map((row) => row.request_id), [recentDiagnosticRequestId]);
+    assert.deepEqual(retainedMarkers[1].rows.map((row) => row.action), ['retention_new']);
+    assert.deepEqual(retainedMarkers[2].rows.map((row) => row.feature), ['retention_new']);
+
     const diagnostics = await db.listClientDiagnostics(userId);
-    assert.equal(diagnostics[0].message, 'integration diagnostic');
-    assert.deepEqual(diagnostics[0].details, { route: '/test' });
+    assert.equal(diagnostics[0].id, recentDiagnostic.id);
+    assert.equal(diagnostics[0].message, 'API request failed');
+    assert.deepEqual(diagnostics[0].details, {
+      routeTemplate: '/api/entries/:id',
+      status: 502,
+      requestId: recentDiagnosticRequestId
+    });
+    assert.equal(diagnostics[0].userAgent, null);
 
     const exported = await db.exportUserData(userId);
+    assert.equal(exported.dataInventoryVersion, '2026-07-28');
     assert.equal(exported.foodCorrections.length, 1);
     assert.equal(exported.clientDiagnostics.length, 1);
+    assert.equal(exported.clientDiagnostics[0].request_id, recentDiagnosticRequestId);
+    assert.equal(exported.clientDiagnostics[0].user_agent, undefined);
+    assert.equal(exported.apiCredentials[0]?.token_hash, undefined);
+    assert.equal(exported.webSessions[0]?.session_data, undefined);
+    assert.equal(exported.clientMutations[0]?.request_hash, undefined);
     assert.equal(
       exported.nutritionDayCompleteness.some((row) => {
         const localDay = row.local_date instanceof Date
@@ -608,6 +693,18 @@ test('database feature foundations persist and read back through PostgreSQL', { 
       }),
       true
     );
+
+    await db.deleteUserAccount(userId);
+    const { accountDeletionInventory } = require('../src/data-inventory');
+    for (const item of accountDeletionInventory()) {
+      const result = await db.getPool().query(
+        `SELECT COUNT(*)::int AS count
+         FROM ${item.table}
+         WHERE ${item.userColumn} = $1`,
+        [userId]
+      );
+      assert.equal(result.rows[0].count, 0, `${item.table} should be deleted`);
+    }
   } finally {
     await db.deleteUserAccount(userId).catch(() => {});
     await db.deleteUserAccount(`${userId}-other`).catch(() => {});

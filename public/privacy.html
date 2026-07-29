@@ -98,7 +98,7 @@
   <main>
     <article>
       <h1>DailyMacros Privacy Policy</h1>
-      <p class="updated">Last updated July 20, 2026</p>
+      <p class="updated">Last updated July 28, 2026</p>
 
       <p>DailyMacros is a private friends and family beta for nutrition, workout, weight, sleep, and wellness tracking. This policy explains what the app collects, why it is collected, and the controls available to you.</p>
 
@@ -108,8 +108,9 @@
         <li>Nutrition data, saved foods, meal groups, macro targets, meal text, barcode lookups, and meal photos you submit for parsing.</li>
         <li>Workout, weight, sleep, and wellness entries. If you connect Oura, this includes Oura sleep, readiness, activity, stress, resilience, bedtime-guidance, and optional workout aggregates. Sexual activity entries are available only when enabled for an account.</li>
         <li>Subscription and billing state from Stripe when paid features are enabled.</li>
-        <li>Operational records such as API tokens, audit events, request references, build/version metadata, and beta usage limits needed to run and support the service.</li>
-        <li>Diagnostics that you choose to export and share for support. The iOS diagnostic export is stored locally until you share it.</li>
+        <li>Authentication and security records such as API credential metadata, browser-session metadata, audit events, and request references needed to secure and support the service.</li>
+        <li>Operational usage records such as per-feature daily usage limits and replay-safe mutation metadata needed to run the service.</li>
+        <li>Optional diagnostics linked to your account for support and beta reliability. Automatic browser diagnostics use a strict allowlist: generic error category, relative route template, HTTP status, request reference, app platform/version, timestamp, and script filename/line/column when applicable. They do not include raw URLs or query strings, request or response bodies, typed meal or workout text, health values, tokens, cookies, secrets, stack traces, full user agents, or user/device identifiers in the submitted payload. The iOS diagnostic export remains stored locally until you choose to share it.</li>
       </ul>
 
       <h2>Apple Health</h2>
@@ -130,10 +131,10 @@
       <p>Data is used for app functionality, account authentication, syncing across web and iOS, support, security, abuse prevention, beta reliability, billing when enabled, and account export or deletion. DailyMacros does not sell personal data and does not use third-party advertising or cross-app tracking.</p>
 
       <h2>Backups And Retention</h2>
-      <p>Production data is backed up for operational recovery. Account data remains in the active database until you delete your account or request help deleting it. Deleted account data is removed from the active database, while encrypted transport and provider logs or infrastructure backups may remain for a limited operational window before aging out.</p>
+      <p>Production data is backed up for operational recovery. Account data remains in the active database until you delete your account or request help deleting it, except for operational records with shorter limits. Optional browser diagnostics are retained for 30 days, operational usage counters for 90 days, and account audit events for 365 days. A scheduled server cleanup enforces those limits. Deleted account data is removed from the active database; encrypted production backup snapshots currently age out after 7 days, while transport or provider logs follow their providers' limited operational windows.</p>
 
       <h2>Your Controls</h2>
-      <p>You can export a JSON copy of your account data or permanently delete your account from Account &amp; Privacy on the web or Settings on iOS. You can disconnect Oura and delete imported Oura data from either Settings surface, revoke HealthKit access from iOS Settings, and sign out from the app.</p>
+      <p>You can turn future optional browser diagnostic uploads on or off from Account &amp; Privacy on the web or Settings on iOS. Turning them off does not disable essential server-side security records, audit events, abuse controls, or request references. You can export a JSON copy of your account data, including safe diagnostic metadata, or permanently delete your account from those same settings. You can disconnect Oura and delete imported Oura data from either Settings surface, revoke HealthKit access from iOS Settings, and sign out from the app.</p>
 
       <h2>Support</h2>
       <p>For support or privacy requests, contact the person who invited you. Include the request reference shown in any error message and the build information from Settings or Account &amp; Privacy.</p>

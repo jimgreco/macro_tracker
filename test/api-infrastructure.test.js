@@ -71,6 +71,7 @@ test('db.js exports all required functions', () => {
     'deleteCoachDismissals',
     'exportUserData',
     'deleteUserAccount',
+    'runDataRetentionCleanup',
     'getPlanLimits',
     'getSubscription',
     'consumeDailyUsage'
@@ -97,8 +98,12 @@ test('nutrition day completeness is explicit, timezone-aware, exportable, and de
   assert.ok(db.includes('timezone TEXT NOT NULL'));
   assert.ok(db.includes('idx_nutrition_day_completeness_user_date'));
   assert.ok(db.includes("recordSchemaMigration('2026-07-27_nutrition_day_completeness')"));
-  assert.ok(db.includes("DELETE FROM nutrition_day_completeness WHERE user_id = $1"));
-  assert.ok(db.includes('nutritionDayCompleteness: dayCompleteness.rows'));
+  const { accountDeletionInventory, accountExportInventory } = require('../src/data-inventory');
+  assert.ok(accountDeletionInventory().some((item) => item.table === 'nutrition_day_completeness'));
+  assert.ok(accountExportInventory().some((item) => (
+    item.table === 'nutrition_day_completeness' &&
+    item.export.key === 'nutritionDayCompleteness'
+  )));
   assert.ok(db.includes('(consumed_at AT TIME ZONE $3)::date'));
   assert.ok(server.includes("apiRouter.get('/day-completeness'"));
   assert.ok(server.includes("apiRouter.put('/day-completeness/:day'"));
@@ -202,7 +207,8 @@ test('client mutation idempotency ledger is per-user and stores no request paylo
   assert.equal(db.includes('request_body'), false);
   assert.ok(db.includes('async function claimClientMutation'));
   assert.ok(db.includes('async function completeClientMutation'));
-  assert.ok(db.includes("DELETE FROM client_mutations WHERE user_id = $1"));
+  const { accountDeletionInventory } = require('../src/data-inventory');
+  assert.ok(accountDeletionInventory().some((item) => item.table === 'client_mutations'));
   assert.ok(server.includes('createClientMutationMiddleware'));
   assert.ok(server.includes('claimClientMutation'));
   assert.ok(middleware.includes("const CLIENT_MUTATION_HEADER = 'x-client-mutation-id'"));
@@ -340,7 +346,10 @@ test('sleep entries support optional quality ratings and notes', () => {
   assert.ok(db.includes('notes = CASE WHEN $10 THEN $11::text ELSE notes END'));
   assert.ok(db.includes('quality: row.quality == null ? null : Number(row.quality)'));
   assert.ok(db.includes('notes: row.notes || null'));
-  assert.ok(db.includes('SELECT id, duration_hours, wake_ups, quality, notes, logged_at, source, external_id, created_at FROM sleep_entries'));
+  const { accountExportInventory } = require('../src/data-inventory');
+  const sleepExport = accountExportInventory().find((item) => item.table === 'sleep_entries');
+  assert.ok(sleepExport.export.columns.includes('quality'));
+  assert.ok(sleepExport.export.columns.includes('notes'));
   assert.ok(server.includes('avgSleepQuality'));
 });
 
@@ -374,44 +383,49 @@ test('weight targets are versioned by effective date', () => {
   assert.ok(script.includes('effectiveDate: getLocalIsoDay()'));
 });
 
-test('GDPR deleteUserAccount performs hard delete across all tables', () => {
+test('data inventory enumerates every database table and every account table participates in export and deletion', () => {
   const db = read('src/db.js');
-  const tables = [
-    'user_identities',
-    'entries',
-    'saved_items',
-    'macro_targets',
-    'weight_entries',
-    'workout_entries',
-    'sexual_activity_entries',
-    'sleep_entries',
-    'weight_targets',
-    'analysis_reports',
-    'api_tokens',
-    'daily_usage_counts',
-    'coach_dismissals',
-    'audit_log',
-    'users'
-  ];
-  for (const table of tables) {
-    const pattern = `DELETE FROM ${table} WHERE`;
-    assert.ok(db.includes(pattern), `deleteUserAccount must hard-delete from ${table}`);
-  }
+  const {
+    DATA_INVENTORY,
+    accountDataInventory,
+    accountDeletionInventory,
+    accountExportInventory
+  } = require('../src/data-inventory');
+  const schemaTables = [...db.matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z_]+)/g)]
+    .map((match) => match[1])
+    .sort();
+  const inventoryTables = DATA_INVENTORY.map((item) => item.table).sort();
+  assert.deepEqual(inventoryTables, schemaTables);
+  assert.deepEqual(
+    accountDeletionInventory().map((item) => item.table).sort(),
+    accountDataInventory().map((item) => item.table).sort()
+  );
+  assert.deepEqual(
+    accountExportInventory().map((item) => item.table).sort(),
+    accountDataInventory().map((item) => item.table).sort()
+  );
+  assert.ok(db.includes('for (const item of accountDeletionInventory())'));
+  assert.ok(db.includes('async function exportUserData'));
+  assert.ok(db.includes('const inventory = accountExportInventory()'));
 });
 
-test('GDPR exportUserData queries all data tables', () => {
+test('retention inventory sets and enforces explicit operational limits', () => {
   const db = read('src/db.js');
-  assert.ok(db.includes('async function exportUserData'));
-  assert.ok(db.includes('FROM user_identities WHERE user_id = $1'));
-  assert.ok(db.includes("FROM entries WHERE user_id = $1 AND deleted_at IS NULL"));
-  assert.ok(db.includes("FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL"));
-  assert.ok(db.includes("FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL"));
-  assert.ok(db.includes("FROM workout_entries WHERE user_id = $1 AND deleted_at IS NULL"));
-  assert.ok(db.includes("FROM sexual_activity_entries WHERE user_id = $1 AND deleted_at IS NULL"));
-  assert.ok(db.includes("FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL"));
-  assert.ok(db.includes("FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL"));
-  assert.ok(db.includes('FROM daily_usage_counts WHERE user_id = $1'));
-  assert.ok(db.includes('FROM coach_dismissals WHERE user_id = $1'));
+  const server = read('src/server.js');
+  const { retentionInventory } = require('../src/data-inventory');
+  const policy = Object.fromEntries(
+    retentionInventory().map((item) => [item.table, item.retention.days])
+  );
+
+  assert.deepEqual(policy, {
+    audit_log: 365,
+    daily_usage_counts: 90,
+    client_diagnostics: 30
+  });
+  assert.ok(db.includes('async function runDataRetentionCleanup'));
+  assert.ok(server.includes('scheduleDataRetentionCleanup'));
+  assert.ok(server.includes('RETENTION_CLEANUP_INTERVAL_MS'));
+  assert.ok(server.includes('retention: retentionCleanupState'));
 });
 
 test('daily AI usage counters are durable and keyed by user feature and date', () => {
@@ -495,6 +509,7 @@ test('server.js imports all new db functions', () => {
     'consumeRateLimit',
     'exportUserData',
     'deleteUserAccount',
+    'runDataRetentionCleanup',
     'consumeDailyUsage'
   ];
   for (const name of requiredImports) {
@@ -871,9 +886,10 @@ test('db.js defines plan limits for free and pro tiers', () => {
 });
 
 test('db.js deleteUserAccount also cleans up billing data', () => {
-  const db = read('src/db.js');
-  assert.ok(db.includes("DELETE FROM billing_events WHERE user_id = $1"));
-  assert.ok(db.includes("DELETE FROM subscriptions WHERE user_id = $1"));
+  const { accountDeletionInventory } = require('../src/data-inventory');
+  const tables = new Set(accountDeletionInventory().map((item) => item.table));
+  assert.ok(tables.has('billing_events'));
+  assert.ok(tables.has('subscriptions'));
 });
 
 test('server.js imports Stripe and subscription functions', () => {
@@ -1015,6 +1031,8 @@ test('public privacy policy is served before frontend auth guard', () => {
   const privacyHtml = read('public/privacy.html');
   const policy = read('docs/privacy-policy.md');
   const appStoreNotes = read('docs/app-store-privacy.md');
+  const { DISCLOSURE_GROUPS } = require('../src/data-inventory');
+  const disclosureCopy = [privacyHtml, policy, appStoreNotes].join('\n');
 
   assert.ok(server.includes("fs.readFileSync(path.join(process.cwd(), 'public', 'privacy.html')"));
   assert.ok(server.includes("app.get(['/privacy', '/privacy.html']"));
@@ -1027,6 +1045,12 @@ test('public privacy policy is served before frontend auth guard', () => {
   assert.ok(appStoreNotes.includes('Privacy Policy URL'));
   assert.ok(appStoreNotes.includes('Tracking: No.'));
   assert.ok(appStoreNotes.includes('HealthKit permissions are optional'));
+  for (const disclosure of Object.values(DISCLOSURE_GROUPS)) {
+    assert.ok(disclosureCopy.includes(disclosure), `privacy disclosures must cover ${disclosure}`);
+  }
+  assert.ok(disclosureCopy.includes('retained for 30 days'));
+  assert.ok(disclosureCopy.includes('usage counters for 90 days'));
+  assert.ok(disclosureCopy.includes('audit events for 365 days'));
 });
 
 test('barcode lookup uses Open Food Facts with normalized nutrition output', () => {
@@ -1063,6 +1087,8 @@ test('iOS settings exposes support privacy and build metadata', () => {
   assert.ok(settings.includes('Privacy & Support'));
   assert.ok(settings.includes('Text("Sexual Activity")'));
   assert.ok(settings.includes('meal photos submitted for parsing'));
+  assert.ok(settings.includes('Share Optional Diagnostics'));
+  assert.ok(settings.includes('Essential security records stay enabled'));
   assert.ok(settings.includes('appBuildLabel'));
   assert.ok(settings.includes('apiBuildLabel'));
   assert.ok(settings.includes('private enum SettingsBuildLabel'));
@@ -1072,6 +1098,7 @@ test('iOS settings exposes support privacy and build metadata', () => {
   assert.ok(settings.includes('shortBuildIdentifier(version.appBuild)'));
   assert.ok(settings.includes('String(raw.prefix(buildHashDigits))'));
   assert.ok(api.includes('func getVersion()'));
+  assert.ok(api.includes('optionalDiagnosticsEnabled: Bool? = nil'));
   assert.ok(api.includes('token = nil'));
   assert.ok(api.includes('kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly'));
   assert.ok(plist.includes('<key>CFBundleDisplayName</key>'));

@@ -8,6 +8,13 @@ const {
   buildDayCompleteness,
   summarizeDayCompleteness
 } = require('./day-completeness');
+const { sanitizeClientDiagnostic } = require('./client-diagnostics');
+const {
+  DATA_INVENTORY_VERSION,
+  accountDeletionInventory,
+  accountExportInventory,
+  retentionInventory
+} = require('./data-inventory');
 
 const isProduction = process.env.NODE_ENV === 'production';
 const databaseUrl = process.env.DATABASE_URL || (!isProduction ? 'postgres://postgres:postgres@localhost:5432/macro_tracker' : '');
@@ -215,6 +222,7 @@ async function initDb() {
       timezone TEXT NOT NULL DEFAULT 'America/New_York',
       is_disabled BOOLEAN NOT NULL DEFAULT FALSE,
       sexual_activity_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      optional_diagnostics_enabled BOOLEAN NOT NULL DEFAULT TRUE,
       setup_tutorial_reset_at TIMESTAMPTZ,
       last_login_at TIMESTAMPTZ,
       login_count INTEGER NOT NULL DEFAULT 0,
@@ -559,6 +567,7 @@ async function initDb() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/New_York';`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN NOT NULL DEFAULT FALSE;`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sexual_activity_enabled BOOLEAN NOT NULL DEFAULT FALSE;`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS optional_diagnostics_enabled BOOLEAN NOT NULL DEFAULT TRUE;`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_tutorial_reset_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS login_count INTEGER NOT NULL DEFAULT 0;`);
@@ -750,6 +759,7 @@ async function initDb() {
   await recordSchemaMigration('2026-07-27_client_mutation_idempotency');
   await recordSchemaMigration('2026-07-27_shared_auth_state');
   await recordSchemaMigration('2026-07-27_nutrition_day_completeness');
+  await recordSchemaMigration('2026-07-28_data_inventory_and_retention');
   await applyHealthKitSleepRevisionMigration();
 
   await pool.query('DELETE FROM web_sessions WHERE expires_at <= NOW()');
@@ -790,6 +800,7 @@ function rowToPublicUser(row) {
     timezone: row.timezone || 'America/New_York',
     isDisabled: Boolean(row.isDisabled ?? row.is_disabled),
     sexualActivityEnabled: Boolean(row.sexualActivityEnabled ?? row.sexual_activity_enabled),
+    optionalDiagnosticsEnabled: (row.optionalDiagnosticsEnabled ?? row.optional_diagnostics_enabled) !== false,
     setupTutorialResetAt: dateToIso(row.setupTutorialResetAt ?? row.setup_tutorial_reset_at),
     lastLoginAt: dateToIso(row.lastLoginAt ?? row.last_login_at),
     loginCount: Number(row.loginCount ?? row.login_count ?? 0),
@@ -860,6 +871,7 @@ async function upsertUser(user) {
                  timezone,
                  is_disabled AS "isDisabled",
                  sexual_activity_enabled AS "sexualActivityEnabled",
+                 optional_diagnostics_enabled AS "optionalDiagnosticsEnabled",
                  setup_tutorial_reset_at AS "setupTutorialResetAt",
                  last_login_at AS "lastLoginAt",
                  login_count AS "loginCount",
@@ -895,6 +907,7 @@ async function getUserAccountControls(userId) {
     `SELECT id, email, name, picture, provider, timezone,
             is_disabled AS "isDisabled",
             sexual_activity_enabled AS "sexualActivityEnabled",
+            optional_diagnostics_enabled AS "optionalDiagnosticsEnabled",
             setup_tutorial_reset_at AS "setupTutorialResetAt",
             last_login_at AS "lastLoginAt",
             login_count AS "loginCount",
@@ -948,6 +961,7 @@ async function listAdminAccounts({ search = '', limit = 25, offset = 0 } = {}) {
        SELECT u.id, u.email, u.name, u.picture, u.provider, u.timezone,
               u.is_disabled AS "isDisabled",
               u.sexual_activity_enabled AS "sexualActivityEnabled",
+              u.optional_diagnostics_enabled AS "optionalDiagnosticsEnabled",
               u.setup_tutorial_reset_at AS "setupTutorialResetAt",
               u.last_login_at AS "lastLoginAt",
               u.login_count AS "loginCount",
@@ -1143,6 +1157,10 @@ async function updateUserPreferences(userId, preferences = {}) {
     values.push(timezone);
     updates.push(`timezone = $${values.length}`);
   }
+  if (Object.prototype.hasOwnProperty.call(preferences, 'optionalDiagnosticsEnabled')) {
+    values.push(Boolean(preferences.optionalDiagnosticsEnabled));
+    updates.push(`optional_diagnostics_enabled = $${values.length}`);
+  }
 
   if (!updates.length) {
     return getUserAccountControls(normalizedUserId);
@@ -1190,16 +1208,8 @@ async function logAudit(userId, action, entityType, entityId, details) {
 }
 
 async function logClientDiagnostic(userId, diagnostic = {}) {
-  const message = String(diagnostic.message || '').trim();
-  if (!message) {
-    throw new Error('Diagnostic message is required.');
-  }
-  const level = String(diagnostic.level || 'info').trim().toLowerCase();
-  const normalizedLevel = ['debug', 'info', 'warning', 'error', 'fatal'].includes(level) ? level : 'info';
-  const category = String(diagnostic.category || 'client').trim().slice(0, 80) || 'client';
-  const details = diagnostic.details && typeof diagnostic.details === 'object' && !Array.isArray(diagnostic.details)
-    ? JSON.stringify(diagnostic.details)
-    : null;
+  const sanitized = sanitizeClientDiagnostic(diagnostic);
+  const details = sanitized.details ? JSON.stringify(sanitized.details) : null;
 
   const result = await pool.query(
     `INSERT INTO client_diagnostics (
@@ -1209,14 +1219,14 @@ async function logClientDiagnostic(userId, diagnostic = {}) {
      RETURNING id, created_at AS "createdAt"`,
     [
       userId,
-      normalizedLevel,
-      category,
-      message.slice(0, 1000),
+      sanitized.level,
+      sanitized.category,
+      sanitized.message,
       details,
-      String(diagnostic.userAgent || '').slice(0, 512) || null,
-      String(diagnostic.appPlatform || diagnostic.app_platform || '').slice(0, 80) || null,
-      String(diagnostic.appVersion || diagnostic.app_version || '').slice(0, 80) || null,
-      String(diagnostic.requestId || diagnostic.request_id || '').slice(0, 128) || null
+      null,
+      sanitized.appPlatform,
+      sanitized.appVersion,
+      sanitized.requestId
     ]
   );
 
@@ -4160,6 +4170,7 @@ async function validateApiToken(token) {
             u.email, u.name, u.picture, u.provider, u.timezone,
             u.is_disabled AS "isDisabled",
             u.sexual_activity_enabled AS "sexualActivityEnabled",
+            u.optional_diagnostics_enabled AS "optionalDiagnosticsEnabled",
             u.setup_tutorial_reset_at AS "setupTutorialResetAt",
             u.last_login_at AS "lastLoginAt",
             u.login_count AS "loginCount",
@@ -4190,6 +4201,7 @@ async function validateApiToken(token) {
     timezone: row.timezone || 'America/New_York',
     isDisabled: Boolean(row.isDisabled),
     sexualActivityEnabled: Boolean(row.sexualActivityEnabled),
+    optionalDiagnosticsEnabled: row.optionalDiagnosticsEnabled !== false,
     setupTutorialResetAt: dateToIso(row.setupTutorialResetAt),
     lastLoginAt: dateToIso(row.lastLoginAt),
     loginCount: Number(row.loginCount || 0),
@@ -4386,76 +4398,64 @@ async function deleteCoachDismissals(userId) {
 
 // ── GDPR ──
 
-async function exportUserData(userId) {
-  const [user, identities, entries, dayCompleteness, savedItems, foodCorrections, macroTargets, weightEntries, workoutEntries, sexualActivityEntries, sleepEntries, weightTarget, weightTargets, analysisReports, usageCounts, coachDismissals, clientDiagnostics] =
-    await Promise.all([
-      pool.query('SELECT id, email, name, provider, timezone, created_at, updated_at FROM users WHERE id = $1', [userId]),
-      pool.query('SELECT provider, provider_user_id, created_at, updated_at FROM user_identities WHERE user_id = $1 ORDER BY provider', [userId]),
-      pool.query('SELECT id, item_name, quantity, unit, calories, protein, carbs, fat, consumed_at, meal_group, meal_name, meal_quantity, meal_unit, source, source_detail, confidence, needs_review, correction_key, created_at FROM entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY consumed_at DESC', [userId]),
-      pool.query('SELECT local_date, state, timezone, created_at, updated_at FROM nutrition_day_completeness WHERE user_id = $1 ORDER BY local_date DESC', [userId]),
-      pool.query('SELECT id, name, quantity, unit, calories, protein, carbs, fat, components, source, source_detail, usage_count, created_at FROM saved_items WHERE user_id = $1 AND deleted_at IS NULL ORDER BY name', [userId]),
-      pool.query('SELECT correction_key, item_name, quantity, unit, calories, protein, carbs, fat, source, created_at, updated_at FROM food_corrections WHERE user_id = $1 ORDER BY updated_at DESC', [userId]),
-      pool.query('SELECT macro, target, effective_date, updated_at FROM macro_targets WHERE user_id = $1 ORDER BY effective_date DESC, macro', [userId]),
-      pool.query('SELECT id, weight, logged_at, source, external_id, created_at FROM weight_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
-      pool.query('SELECT id, description, intensity, duration_hours, calories_burned, logged_at, source, external_id, created_at FROM workout_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
-      pool.query('SELECT id, type, logged_at, source, external_id, created_at FROM sexual_activity_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
-      pool.query('SELECT id, duration_hours, wake_ups, quality, notes, logged_at, source, external_id, created_at FROM sleep_entries WHERE user_id = $1 AND deleted_at IS NULL ORDER BY logged_at DESC', [userId]),
-      getWeightTarget(userId),
-      pool.query('SELECT target_weight, target_date, effective_date, updated_at FROM weight_targets WHERE user_id = $1 ORDER BY effective_date DESC', [userId]),
-      pool.query('SELECT id, period_days, report_json, created_at FROM analysis_reports WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC', [userId]),
-      pool.query('SELECT feature, usage_date, count, updated_at FROM daily_usage_counts WHERE user_id = $1 ORDER BY usage_date DESC, feature', [userId]),
-      pool.query('SELECT dismissal_type, dismissal_key, dismissed_until, created_at, updated_at FROM coach_dismissals WHERE user_id = $1 ORDER BY updated_at DESC', [userId]),
-      pool.query('SELECT id, level, category, message, details, app_platform, app_version, request_id, created_at FROM client_diagnostics WHERE user_id = $1 ORDER BY created_at DESC LIMIT 500', [userId])
-    ]);
+const INVENTORY_IDENTIFIER_PATTERN = /^[a-z_][a-z0-9_]*$/;
+const INVENTORY_ORDER_PATTERN = /^[a-z0-9_,\s]+$/i;
 
-  return {
+function assertInventoryIdentifier(value, label) {
+  const normalized = String(value || '');
+  if (!INVENTORY_IDENTIFIER_PATTERN.test(normalized)) {
+    throw new Error(`Invalid data inventory ${label}.`);
+  }
+  return normalized;
+}
+
+function inventoryExportQuery(item) {
+  const table = assertInventoryIdentifier(item.table, 'table');
+  const userColumn = assertInventoryIdentifier(item.userColumn, 'user column');
+  const columns = item.export.columns
+    .map((column) => assertInventoryIdentifier(column, 'export column'))
+    .join(', ');
+  if (item.export.orderBy && !INVENTORY_ORDER_PATTERN.test(item.export.orderBy)) {
+    throw new Error('Invalid data inventory order.');
+  }
+  const orderBy = item.export.orderBy ? ` ORDER BY ${item.export.orderBy}` : '';
+  return `SELECT ${columns} FROM ${table} WHERE ${userColumn} = $1${orderBy}`;
+}
+
+async function exportUserData(userId) {
+  const inventory = accountExportInventory();
+  const [results, weightTarget] = await Promise.all([
+    Promise.all(inventory.map((item) => pool.query(inventoryExportQuery(item), [userId]))),
+    getWeightTarget(userId)
+  ]);
+  const retention = Object.fromEntries(
+    retentionInventory().map((item) => [item.table, { days: item.retention.days }])
+  );
+  const exported = {
     exportedAt: new Date().toISOString(),
-    user: user.rows[0] || null,
-    identities: identities.rows,
-    entries: entries.rows,
-    nutritionDayCompleteness: dayCompleteness.rows,
-    savedItems: savedItems.rows,
-    foodCorrections: foodCorrections.rows,
-    macroTargets: macroTargets.rows,
-    weightEntries: weightEntries.rows,
-    workoutEntries: workoutEntries.rows,
-    sexualActivityEntries: sexualActivityEntries.rows,
-    sleepEntries: sleepEntries.rows,
+    dataInventoryVersion: DATA_INVENTORY_VERSION,
+    retention,
     weightTarget,
-    weightTargets: weightTargets.rows,
-    analysisReports: analysisReports.rows,
-    usageCounts: usageCounts.rows,
-    coachDismissals: coachDismissals.rows,
-    clientDiagnostics: clientDiagnostics.rows
   };
+
+  inventory.forEach((item, index) => {
+    exported[item.export.key] = item.export.cardinality === 'one'
+      ? (results[index].rows[0] || null)
+      : results[index].rows;
+  });
+
+  return exported;
 }
 
 async function deleteUserAccount(userId) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('DELETE FROM user_identities WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM entries WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM nutrition_day_completeness WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM saved_items WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM food_corrections WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM macro_targets WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM weight_entries WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM workout_entries WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM sexual_activity_entries WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM sleep_entries WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM weight_targets WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM analysis_reports WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM api_tokens WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM daily_usage_counts WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM coach_dismissals WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM client_diagnostics WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM client_mutations WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM web_sessions WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM billing_events WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM subscriptions WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM audit_log WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM users WHERE id = $1', [userId]);
+    for (const item of accountDeletionInventory()) {
+      const table = assertInventoryIdentifier(item.table, 'table');
+      const userColumn = assertInventoryIdentifier(item.userColumn, 'user column');
+      await client.query(`DELETE FROM ${table} WHERE ${userColumn} = $1`, [userId]);
+    }
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
@@ -4463,6 +4463,38 @@ async function deleteUserAccount(userId) {
   } finally {
     client.release();
   }
+}
+
+async function runDataRetentionCleanup({ now = new Date(), queryable = pool } = {}) {
+  const cleanupAt = now instanceof Date ? now : new Date(now);
+  if (Number.isNaN(cleanupAt.getTime())) {
+    throw new Error('Retention cleanup time must be a valid date.');
+  }
+
+  const tables = {};
+  let deletedTotal = 0;
+  for (const item of retentionInventory()) {
+    const table = assertInventoryIdentifier(item.table, 'table');
+    const column = assertInventoryIdentifier(item.retention.column, 'retention column');
+    const result = await queryable.query(
+      `DELETE FROM ${table}
+       WHERE ${column} < ($1::timestamptz - ($2 * INTERVAL '1 day'))`,
+      [cleanupAt.toISOString(), item.retention.days]
+    );
+    const deleted = Number(result.rowCount || 0);
+    deletedTotal += deleted;
+    tables[table] = {
+      deleted,
+      retentionDays: item.retention.days
+    };
+  }
+
+  return {
+    completedAt: cleanupAt.toISOString(),
+    inventoryVersion: DATA_INVENTORY_VERSION,
+    deletedTotal,
+    tables
+  };
 }
 
 // ── Subscriptions ──
@@ -4691,6 +4723,7 @@ module.exports = {
   deleteCoachDismissals,
   exportUserData,
   deleteUserAccount,
+  runDataRetentionCleanup,
   getPlanLimits,
   getSubscription,
   upsertSubscription,

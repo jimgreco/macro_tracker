@@ -9,6 +9,7 @@ struct User: Codable {
     let picture: String?
     let provider: String?
     let timezone: String?
+    let optionalDiagnosticsEnabled: Bool?
     let isAdmin: Bool?
     let setupTutorialResetAt: String?
     let features: UserFeatures?
@@ -20,6 +21,7 @@ struct User: Codable {
         picture: String?,
         provider: String?,
         timezone: String? = nil,
+        optionalDiagnosticsEnabled: Bool? = nil,
         isAdmin: Bool? = nil,
         setupTutorialResetAt: String? = nil,
         features: UserFeatures? = nil
@@ -30,6 +32,7 @@ struct User: Codable {
         self.picture = picture
         self.provider = provider
         self.timezone = timezone
+        self.optionalDiagnosticsEnabled = optionalDiagnosticsEnabled
         self.isAdmin = isAdmin
         self.setupTutorialResetAt = setupTutorialResetAt
         self.features = features

@@ -481,14 +481,23 @@ class APIClient: ObservableObject {
         )
     }
 
-    func updateAccountPreferences(timezone: String) async throws -> User? {
+    func updateAccountPreferences(
+        timezone: String? = nil,
+        optionalDiagnosticsEnabled: Bool? = nil
+    ) async throws -> User? {
         #if DEBUG
         if ScreenshotSeedData.isEnabled {
             return ScreenshotSeedData.user
         }
         #endif
 
-        let payload: [String: Any] = ["timezone": timezone]
+        var payload: [String: Any] = [:]
+        if let timezone {
+            payload["timezone"] = timezone
+        }
+        if let optionalDiagnosticsEnabled {
+            payload["optionalDiagnosticsEnabled"] = optionalDiagnosticsEnabled
+        }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/account/preferences"), method: "PATCH", body: body)
         let response: AccountPreferencesResponse = try await perform(request)

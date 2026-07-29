@@ -1566,8 +1566,11 @@ async function refreshAppVersion() {
 
 const diagnosticRecentKeys = new Map();
 
-function sendClientDiagnostic(level, category, message, details = {}) {
-  const key = `${level}:${category}:${String(message || '').slice(0, 160)}`;
+function sendClientDiagnostic(category, details = {}) {
+  if (state.currentUser?.optionalDiagnosticsEnabled === false) {
+    return;
+  }
+  const key = `${category}:${String(details.routeTemplate || details.script || details.errorType || '').slice(0, 160)}:${details.status || ''}`;
   const now = Date.now();
   const lastSentAt = diagnosticRecentKeys.get(key) || 0;
   if (now - lastSentAt < 60_000) {
@@ -1575,11 +1578,9 @@ function sendClientDiagnostic(level, category, message, details = {}) {
   }
   diagnosticRecentKeys.set(key, now);
   const payload = {
-    level,
+    level: 'error',
     category,
-    message: String(message || 'Client diagnostic').slice(0, 1000),
     details,
-    userAgent: window.navigator.userAgent,
     appPlatform: 'web',
     appVersion: state.appVersion?.appBuild || 'web'
   };
@@ -1613,8 +1614,8 @@ async function api(path, options = {}) {
     const err = new Error((body.error || fallback) + (requestId ? ` Reference: ${requestId}` : ''));
     err.requestId = requestId;
     if (!String(path).includes('/diagnostics/client')) {
-      sendClientDiagnostic('error', 'api', body.error || fallback, {
-        path: String(path).slice(0, 300),
+      sendClientDiagnostic('api_error', {
+        routeTemplate: String(path).slice(0, 300),
         status: res.status,
         requestId
       });
@@ -1625,8 +1626,8 @@ async function api(path, options = {}) {
 }
 
 window.addEventListener('error', (event) => {
-  sendClientDiagnostic('error', 'window_error', event.message || 'Unhandled browser error', {
-    source: event.filename || '',
+  sendClientDiagnostic('window_error', {
+    script: event.filename || '',
     line: event.lineno || 0,
     column: event.colno || 0
   });
@@ -1634,8 +1635,8 @@ window.addEventListener('error', (event) => {
 
 window.addEventListener('unhandledrejection', (event) => {
   const reason = event.reason;
-  sendClientDiagnostic('error', 'unhandled_rejection', reason?.message || String(reason || 'Unhandled promise rejection'), {
-    stack: String(reason?.stack || '').slice(0, 1000)
+  sendClientDiagnostic('unhandled_rejection', {
+    errorType: String(reason?.name || 'Error')
   });
 });
 
@@ -2270,11 +2271,17 @@ function showAccountPrivacyModal() {
         <p><strong>Support</strong><span>Contact the person who invited you. Include any request reference shown in an error message and the build details below.</span></p>
         <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
         <p><strong>AI processing</strong><span>${escapeHtml(aiProcessingCopy)}</span></p>
-        <p><strong>Controls</strong><span>You can export a JSON copy of your account data or permanently delete your account from here. <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span></p>
+        <p><strong>Diagnostics</strong><span>Optional browser diagnostics contain only a generic error category, route template, status, request reference, app version, and script location. They are retained for 30 days and never include request bodies, meal or health values, tokens, query strings, stacks, or full user agents.</span></p>
+        <p><strong>Controls</strong><span>You can stop future optional diagnostic uploads, export a JSON copy of your account data, or permanently delete your account from here. Essential security and audit records remain enabled. <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span></p>
       </div>
       ${sexualActivityPageControl}
       <fieldset class="account-preference-controls">
         <legend>Preferences</legend>
+        <label class="account-preference-toggle">
+          <input id="account-optional-diagnostics-toggle" type="checkbox"${state.currentUser?.optionalDiagnosticsEnabled !== false ? ' checked' : ''} />
+          <span class="account-setting-label">Share Optional Diagnostics</span>
+          <span class="account-setting-check" aria-hidden="true"></span>
+        </label>
         <div class="account-preference-row">
           <label for="account-timezone-select">Timezone</label>
           <select id="account-timezone-select">
@@ -2349,6 +2356,31 @@ function showAccountPrivacyModal() {
   });
   document.getElementById('account-close-btn').addEventListener('click', () => overlay.remove());
   const timezoneSelectEl = document.getElementById('account-timezone-select');
+  const optionalDiagnosticsToggleEl = document.getElementById('account-optional-diagnostics-toggle');
+  optionalDiagnosticsToggleEl?.addEventListener('change', async () => {
+    const previousValue = state.currentUser?.optionalDiagnosticsEnabled !== false;
+    optionalDiagnosticsToggleEl.disabled = true;
+    try {
+      const response = await api('/api/account/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          optionalDiagnosticsEnabled: optionalDiagnosticsToggleEl.checked
+        })
+      });
+      state.currentUser = response.user || state.currentUser;
+      setActionBanner(
+        optionalDiagnosticsToggleEl.checked
+          ? 'Optional diagnostics enabled.'
+          : 'Optional diagnostics disabled.',
+        'success'
+      );
+    } catch (error) {
+      optionalDiagnosticsToggleEl.checked = previousValue;
+      setActionBanner(error.message, 'error');
+    } finally {
+      optionalDiagnosticsToggleEl.disabled = false;
+    }
+  });
   document.getElementById('account-use-browser-timezone-btn')?.addEventListener('click', () => {
     if (timezoneSelectEl) {
       timezoneSelectEl.value = detectBrowserTimezone();

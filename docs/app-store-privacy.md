@@ -26,6 +26,8 @@ https://<production-domain>/privacy
 - Sensitive Info: sexual activity entries only when that feature is enabled for the account, used for app functionality.
 - User Content: meal text, workout text, saved foods, meal photos submitted for parsing, analysis prompts/results, and diagnostics exported and shared by the user, used for app functionality and support.
 - Purchases: subscription status and billing events from Stripe when paid features are enabled, used for app functionality and billing support.
+- Diagnostics: optional generic browser error category, relative route template, HTTP status, request reference, app platform/version, timestamp, and script location, linked to the account and used for app functionality, support, and beta reliability. Raw URLs, bodies, health or meal values, tokens, stacks, and full user agents are excluded.
+- Usage Data: operational usage records such as per-feature daily counts, used for app functionality and abuse/cost controls.
 
 ## Data Not Used For Tracking
 
@@ -47,6 +49,7 @@ HealthKit permissions are optional and controlled by the user. DailyMacros reads
 
 - Account export: web Account & Privacy and iOS Settings.
 - Account deletion: web Account & Privacy and iOS Settings.
+- Optional diagnostics control: web Account & Privacy and iOS Settings. Disabling it stops future optional browser diagnostic uploads without disabling essential security/audit records. Optional diagnostics are retained for 30 days; usage counters for 90 days; audit events for 365 days.
 - Coach Tony P. controls: web Account & Privacy and iOS Settings support coach mode/category controls and dismissal reset.
 - Support path: contact the inviter with request references and build metadata.
 - Public policy route: `/privacy`.

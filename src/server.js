@@ -96,6 +96,7 @@ const {
   deleteCoachDismissals,
   exportUserData,
   deleteUserAccount,
+  runDataRetentionCleanup,
   getPlanLimits,
   getSubscription,
   upsertSubscription,
@@ -113,6 +114,8 @@ const {
 } = require('./day-completeness');
 const { createClientMutationMiddleware } = require('./idempotency');
 const { PostgresSessionStore } = require('./postgres-session-store');
+const { sanitizeClientDiagnostic } = require('./client-diagnostics');
+const { DATA_INVENTORY_VERSION, retentionInventory } = require('./data-inventory');
 const packageJson = require('../package.json');
 
 const app = express();
@@ -120,6 +123,18 @@ const port = Number(process.env.PORT) || 3000;
 const BUILD_HASH_DIGITS = 7;
 const MAX_MEAL_PARSE_IMAGES = 4;
 const MAX_MEAL_PARSE_IMAGE_BYTES = 6 * 1024 * 1024;
+const RETENTION_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let retentionCleanupTimer = null;
+let retentionCleanupState = {
+  ok: null,
+  inventoryVersion: DATA_INVENTORY_VERSION,
+  lastCompletedAt: null,
+  lastDeletedTotal: null,
+  lastErrorAt: null,
+  policy: Object.fromEntries(
+    retentionInventory().map((item) => [item.table, { days: item.retention.days }])
+  )
+};
 
 function formatBuildIdentifier(build) {
   const value = String(build || '').trim();
@@ -806,6 +821,7 @@ function clientUserPayload(user) {
     picture: user.picture || null,
     provider: user.provider || 'google',
     timezone: user.timezone || 'America/New_York',
+    optionalDiagnosticsEnabled: user.optionalDiagnosticsEnabled !== false,
     isAdmin: isAdminUser(user),
     setupTutorialResetAt: user.setupTutorialResetAt || null,
     features: {
@@ -2370,6 +2386,48 @@ function getVersionPayload() {
   };
 }
 
+async function performDataRetentionCleanup() {
+  try {
+    const result = await runDataRetentionCleanup();
+    retentionCleanupState = {
+      ...retentionCleanupState,
+      ok: true,
+      inventoryVersion: result.inventoryVersion,
+      lastCompletedAt: result.completedAt,
+      lastDeletedTotal: result.deletedTotal,
+      lastErrorAt: null
+    };
+    logJson('info', 'data_retention_cleanup', {
+      inventoryVersion: result.inventoryVersion,
+      deletedTotal: result.deletedTotal,
+      tables: result.tables
+    });
+    return result;
+  } catch (error) {
+    retentionCleanupState = {
+      ...retentionCleanupState,
+      ok: false,
+      lastErrorAt: new Date().toISOString()
+    };
+    logJson('error', 'data_retention_cleanup_failed', {
+      inventoryVersion: DATA_INVENTORY_VERSION,
+      message: safeErrorMessage(error)
+    });
+    return null;
+  }
+}
+
+function scheduleDataRetentionCleanup() {
+  if (retentionCleanupTimer) {
+    return retentionCleanupTimer;
+  }
+  retentionCleanupTimer = setInterval(() => {
+    performDataRetentionCleanup().catch(() => {});
+  }, RETENTION_CLEANUP_INTERVAL_MS);
+  retentionCleanupTimer.unref?.();
+  return retentionCleanupTimer;
+}
+
 app.get('/version', (req, res) => {
   res.json(getVersionPayload());
 });
@@ -2381,6 +2439,7 @@ app.get('/healthz', async (req, res) => {
       ok: true,
       app: 'ok',
       database,
+      retention: retentionCleanupState,
       startedAt: startedAtIso
     });
   } catch (error) {
@@ -2392,6 +2451,7 @@ app.get('/healthz', async (req, res) => {
         ok: false,
         error: 'Database health check failed.'
       },
+      retention: retentionCleanupState,
       requestId: req.requestId,
       startedAt: startedAtIso
     });
@@ -2486,6 +2546,12 @@ apiRouter.patch('/account/preferences', async (req, res) => {
     const preferences = {};
     if (Object.prototype.hasOwnProperty.call(body, 'timezone')) {
       preferences.timezone = normalizeTimezone(body.timezone);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'optionalDiagnosticsEnabled')) {
+      if (typeof body.optionalDiagnosticsEnabled !== 'boolean') {
+        return sendError(req, res, 400, 'optionalDiagnosticsEnabled must be a boolean.');
+      }
+      preferences.optionalDiagnosticsEnabled = body.optionalDiagnosticsEnabled;
     }
 
     const user = await updateUserPreferences(userIdFromReq(req), preferences);
@@ -3716,18 +3782,16 @@ apiRouter.delete('/coach/dismissals', async (req, res) => {
 apiRouter.post('/diagnostics/client', async (req, res) => {
   try {
     const body = requirePlainObject(req.body || {}, 'client diagnostic');
-    const diagnostic = {
-      level: normalizeString(body.level, 'level', { maxLength: 20, fallback: 'info' }),
-      category: normalizeString(body.category, 'category', { maxLength: 80, fallback: 'client' }),
-      message: normalizeString(body.message, 'message', { maxLength: 1000, required: true }),
-      details: body.details && typeof body.details === 'object' && !Array.isArray(body.details) ? body.details : null,
-      userAgent: normalizeString(body.userAgent || req.get('user-agent'), 'userAgent', { maxLength: 512, fallback: '' }),
-      appPlatform: normalizeString(body.appPlatform || 'web', 'appPlatform', { maxLength: 80, fallback: 'web' }),
-      appVersion: normalizeString(body.appVersion || appBuild, 'appVersion', { maxLength: 80, fallback: appBuild }),
-      requestId: normalizeString(body.requestId || req.requestId, 'requestId', { maxLength: 128, fallback: req.requestId || '' })
-    };
+    if (req.user?.optionalDiagnosticsEnabled === false) {
+      return res.json({ ok: true, accepted: false });
+    }
+    const diagnostic = sanitizeClientDiagnostic(body, {
+      appPlatform: 'web',
+      appVersion: appBuild,
+      requestId: req.requestId
+    });
     const saved = await logClientDiagnostic(userIdFromReq(req), diagnostic);
-    return res.json({ ok: true, diagnostic: saved });
+    return res.json({ ok: true, accepted: true, diagnostic: saved });
   } catch (error) {
     return sendError(req, res, 400, error.message || 'Unable to record diagnostic.');
   }
@@ -3989,6 +4053,8 @@ app.use((error, req, res, next) => {
 async function startServer() {
   try {
     await initDb();
+    await performDataRetentionCleanup();
+    scheduleDataRetentionCleanup();
     app.listen(port, () => {
       // eslint-disable-next-line no-console
       console.log(`Macro tracker listening on http://localhost:${port}`);
@@ -4009,5 +4075,6 @@ module.exports = {
   startServer,
   buildWeeklyRecap,
   requestTimezone,
-  normalizeTimezone
+  normalizeTimezone,
+  performDataRetentionCleanup
 };
