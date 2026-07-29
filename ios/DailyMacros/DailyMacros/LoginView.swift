@@ -360,18 +360,18 @@ struct LoginView: View {
 }
 
 private enum LoginPalette {
-    static let background = Color(red: 0.027, green: 0.035, blue: 0.059)
-    static let card = Color(red: 0.051, green: 0.067, blue: 0.118).opacity(0.95)
-    static let line = Color(red: 0, green: 0.81, blue: 1).opacity(0.18)
+    static let background = AppVisualSystem.ColorToken.background
+    static let card = AppVisualSystem.ColorToken.surface.opacity(0.96)
+    static let line = AppVisualSystem.ColorToken.accent.opacity(0.18)
     static let text = Color(red: 0.86, green: 0.91, blue: 1)
-    static let muted = Color(red: 0.35, green: 0.43, blue: 0.54)
-    static let cyan = Color(red: 0, green: 0.81, blue: 1)
-    static let green = Color(red: 0.02, green: 1, blue: 0.63)
+    static let muted = AppVisualSystem.ColorToken.textSecondary
+    static let cyan = AppVisualSystem.ColorToken.accent
+    static let green = AppVisualSystem.ColorToken.success
     static let googleButton = Color(red: 0.055, green: 0.16, blue: 0.22).opacity(0.9)
     static let googleBorder = Color(red: 0.56, green: 0.82, blue: 1).opacity(0.2)
     static let devButton = Color(red: 0.03, green: 0.19, blue: 0.13).opacity(0.9)
     static let devBorder = Color(red: 0.02, green: 1, blue: 0.63).opacity(0.22)
-    static let error = Color(red: 1, green: 0.18, blue: 0.47)
+    static let error = AppVisualSystem.ColorToken.danger
 }
 
 private struct LoginBackground: View {

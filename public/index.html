@@ -25,11 +25,49 @@
           <span class="brand-wordmark">DailyMacros</span>
         </div>
         <nav class="main-nav" aria-label="App navigation">
-          <button type="button" class="nav-tab is-active" data-page="today">Today</button>
-          <button type="button" class="nav-tab" data-page="macros">Macros</button>
-          <button type="button" class="nav-tab" data-page="workout">Workouts</button>
-          <button type="button" class="nav-tab" data-page="health">Health</button>
-          <button type="button" class="nav-tab" data-page="insights">Insights</button>
+          <button type="button" class="nav-tab is-active" data-page="today">
+            <span class="primary-nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <circle cx="12" cy="12" r="3.25"></circle>
+                <path d="M12 3.25v2M12 18.75v2M3.25 12h2M18.75 12h2M5.82 5.82l1.42 1.42M16.76 16.76l1.42 1.42M18.18 5.82l-1.42 1.42M7.24 16.76l-1.42 1.42"></path>
+              </svg>
+            </span>
+            <span class="primary-nav-label">Today</span>
+          </button>
+          <button type="button" class="nav-tab" data-page="macros">
+            <span class="primary-nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <circle cx="12" cy="12" r="8.25"></circle>
+                <path d="M12 3.75V12l6.7 4.8M12 12H3.75"></path>
+              </svg>
+            </span>
+            <span class="primary-nav-label">Macros</span>
+          </button>
+          <button type="button" class="nav-tab" data-page="workout">
+            <span class="primary-nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M6.5 8.25v7.5M17.5 8.25v7.5M3.75 10v4M20.25 10v4M6.5 12h11"></path>
+              </svg>
+            </span>
+            <span class="primary-nav-label">Workouts</span>
+          </button>
+          <button type="button" class="nav-tab" data-page="health">
+            <span class="primary-nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M20.25 8.9c0 5.05-8.25 10.1-8.25 10.1S3.75 13.95 3.75 8.9A4.15 4.15 0 0 1 12 8.15a4.15 4.15 0 0 1 8.25.75Z"></path>
+                <path d="M7.6 12h2.15l1.2-2.35 2.05 4.7 1.25-2.35h2.15"></path>
+              </svg>
+            </span>
+            <span class="primary-nav-label">Health</span>
+          </button>
+          <button type="button" class="nav-tab" data-page="insights">
+            <span class="primary-nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M4.25 19.25h15.5M6.25 16v-4.25M11 16V7.75M15.75 16V10M20 16V5"></path>
+              </svg>
+            </span>
+            <span class="primary-nav-label">Insights</span>
+          </button>
         </nav>
         <div class="topbar-right">
           <div id="profile-menu" class="profile-menu" aria-label="Signed in user">
@@ -55,7 +93,7 @@
       </header>
 
       <section id="today-page" class="app-page is-active" aria-labelledby="today-page-heading">
-        <div class="today-page-header">
+        <div class="today-page-header page-header">
           <div>
             <p class="today-eyebrow">Your daily decision surface</p>
             <h1 id="today-page-heading">Today</h1>
@@ -102,7 +140,11 @@
           <section class="panel glass today-summary-card" aria-labelledby="today-recovery-heading">
             <div class="today-card-heading">
               <h2 id="today-recovery-heading">Recovery</h2>
-              <span aria-hidden="true">☾</span>
+              <span class="today-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M19.2 15.45A7.8 7.8 0 0 1 8.55 4.8 8.25 8.25 0 1 0 19.2 15.45Z"></path>
+                </svg>
+              </span>
             </div>
             <strong id="today-recovery-value" class="today-summary-value">—</strong>
             <p id="today-recovery-detail" class="today-card-detail">No recovery data yet.</p>
@@ -113,7 +155,11 @@
           <section class="panel glass today-summary-card" aria-labelledby="today-workout-heading">
             <div class="today-card-heading">
               <h2 id="today-workout-heading">Workout</h2>
-              <span aria-hidden="true">↗</span>
+              <span class="today-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M6.5 8.25v7.5M17.5 8.25v7.5M3.75 10v4M20.25 10v4M6.5 12h11"></path>
+                </svg>
+              </span>
             </div>
             <strong id="today-workout-value" class="today-summary-value">Not logged</strong>
             <p id="today-workout-detail" class="today-card-detail">No workout logged today.</p>
@@ -123,7 +169,12 @@
           <section class="panel glass today-summary-card" aria-labelledby="today-weight-heading">
             <div class="today-card-heading">
               <h2 id="today-weight-heading">Weight Cadence</h2>
-              <span aria-hidden="true">◇</span>
+              <span class="today-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <rect x="4" y="4.5" width="16" height="15" rx="4"></rect>
+                  <path d="M8.25 9.6a4.8 4.8 0 0 1 7.5 0M12 9.25l1.8-1.8"></path>
+                </svg>
+              </span>
             </div>
             <strong id="today-weight-value" class="today-summary-value">No baseline</strong>
             <p id="today-weight-detail" class="today-card-detail">One weigh-in starts the cadence.</p>
@@ -133,7 +184,12 @@
           <section class="panel glass today-summary-card" aria-labelledby="today-sync-heading">
             <div class="today-card-heading">
               <h2 id="today-sync-heading">Sync</h2>
-              <span aria-hidden="true">✓</span>
+              <span class="today-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M19.5 7.75A8.25 8.25 0 0 0 5.6 6.2L4 8M4.5 16.25a8.25 8.25 0 0 0 13.9 1.55L20 16"></path>
+                  <path d="M4 4.75V8h3.25M20 19.25V16h-3.25"></path>
+                </svg>
+              </span>
             </div>
             <strong id="today-sync-value" class="today-summary-value">Checking…</strong>
             <p id="today-sync-detail" class="today-card-detail">Confirming connection status.</p>
@@ -143,15 +199,43 @@
         <section class="panel glass today-quick-panel" aria-labelledby="today-quick-heading">
           <h2 id="today-quick-heading">Quick Log</h2>
           <div class="today-quick-actions" role="group" aria-label="Quick logging actions">
-            <button type="button" data-today-action="meal">Meal</button>
-            <button type="button" data-today-action="workout">Workout</button>
-            <button type="button" data-today-action="weight">Weight</button>
-            <button type="button" data-today-action="sleep">Sleep</button>
+            <button type="button" data-today-action="meal">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="7.5"></circle>
+                <path d="M8 4.9v5.6M6.75 4.9v3.35A2.25 2.25 0 0 0 9 10.5v8.6M16.5 4.9v14.2M16.5 4.9c-2 1.4-2.3 4.55 0 5.6"></path>
+              </svg>
+              <span>Meal</span>
+            </button>
+            <button type="button" data-today-action="workout">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M6.5 8.25v7.5M17.5 8.25v7.5M3.75 10v4M20.25 10v4M6.5 12h11"></path>
+              </svg>
+              <span>Workout</span>
+            </button>
+            <button type="button" data-today-action="weight">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="4" y="4.5" width="16" height="15" rx="4"></rect>
+                <path d="M8.25 9.6a4.8 4.8 0 0 1 7.5 0M12 9.25l1.8-1.8"></path>
+              </svg>
+              <span>Weight</span>
+            </button>
+            <button type="button" data-today-action="sleep">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M19.2 15.45A7.8 7.8 0 0 1 8.55 4.8 8.25 8.25 0 1 0 19.2 15.45Z"></path>
+              </svg>
+              <span>Sleep</span>
+            </button>
           </div>
         </section>
       </section>
 
-      <section id="macros-page" class="app-page" hidden>
+      <section id="macros-page" class="app-page" hidden aria-labelledby="macros-page-heading">
+      <div class="page-header">
+        <div>
+          <p class="today-eyebrow">Nutrition and meal history</p>
+          <h1 id="macros-page-heading">Macros</h1>
+        </div>
+      </div>
       <section id="macros-coach" class="coach-card" aria-live="polite" hidden></section>
       <section class="grid-main">
         <div class="column-left">
@@ -341,7 +425,13 @@
       </section>
       </section>
 
-      <section id="workout-page" class="app-page" hidden>
+      <section id="workout-page" class="app-page" hidden aria-labelledby="workouts-page-heading">
+        <div class="page-header">
+          <div>
+            <p class="today-eyebrow">Training and active energy</p>
+            <h1 id="workouts-page-heading">Workouts</h1>
+          </div>
+        </div>
         <section id="workout-coach" class="coach-card" aria-live="polite" hidden></section>
         <section class="panel glass">
           <div class="section-head-row">
@@ -432,7 +522,7 @@
       </section>
 
       <section id="health-page" class="app-page" hidden aria-labelledby="health-page-heading">
-        <div class="health-page-header">
+        <div class="health-page-header page-header">
           <div>
             <p class="today-eyebrow">Trends, recovery, and check-ins</p>
             <h1 id="health-page-heading">Health</h1>
@@ -616,7 +706,7 @@
       </section>
 
       <section id="analysis-page" class="app-page" hidden aria-labelledby="insights-page-heading">
-        <div class="today-page-header">
+        <div class="today-page-header page-header">
           <div>
             <p class="today-eyebrow">Patterns and next steps</p>
             <h1 id="insights-page-heading">Insights</h1>

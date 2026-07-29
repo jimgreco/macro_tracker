@@ -52,7 +52,7 @@ struct WorkoutsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(spacing: 16) {
+                LazyVStack(spacing: AppVisualSystem.Spacing.large) {
                     AICoachSlot(
                         dismissals: coachDismissals,
                         suggestions: coachSuggestions,
@@ -70,6 +70,7 @@ struct WorkoutsView: View {
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .top)
             }
+            .appScreenBackground(accent: AppVisualSystem.ColorToken.workout)
             .navigationTitle("Workouts")
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -162,67 +163,54 @@ struct WorkoutsView: View {
     // MARK: - Stats Section
 
     private var statsSection: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Text("Stats")
-                    .font(.subheadline.bold())
-                Spacer()
+        VStack(spacing: AppVisualSystem.Spacing.medium) {
+            AppSectionHeader(
+                title: "Stats",
+                subtitle: "Weekly pace for the selected period",
+                systemImage: "figure.run",
+                tint: AppVisualSystem.ColorToken.workout
+            ) {
                 Button("edit targets") {
                     editWorkoutsPerWeek = "\(Int(workoutsTarget))"
                     editCaloriesPerWeek = "\(Int(caloriesTarget))"
                     showEditTargets = true
                 }
                 .font(.caption)
-                .foregroundStyle(.cyan)
+                .foregroundStyle(AppVisualSystem.ColorToken.accent)
             }
 
-            HStack(spacing: 12) {
-                statChip(
-                    icon: "figure.run",
-                    label: "Active Days/Week",
-                    valueText: activeWorkoutDaysPerWeekText,
-                    targetText: workoutsTarget > 0 ? formatWholeNumber(workoutsTarget) : nil,
-                    color: .cyan
-                )
-                statChip(
-                    icon: "flame",
-                    label: "Active Cal/Week",
-                    valueText: formatWholeNumber(caloriesPerWeek),
-                    targetText: caloriesTarget > 0 ? formatWholeNumber(caloriesTarget) : nil,
-                    color: .orange
-                )
-            }
-        }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
-    }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: AppVisualSystem.Spacing.medium) {
+                    workoutDaysMetric
+                    workoutCaloriesMetric
+                }
 
-    private func statChip(icon: String, label: String, valueText: String, targetText: String?, color: Color) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon)
-                .foregroundStyle(color)
-
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(valueText)
-                    .font(.title3.bold())
-
-                if let targetText {
-                    Text("/ \(targetText)")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                VStack(spacing: AppVisualSystem.Spacing.medium) {
+                    workoutDaysMetric
+                    workoutCaloriesMetric
                 }
             }
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+    }
+
+    private var workoutDaysMetric: some View {
+        AppMetricTile(
+            title: "Active days / week",
+            value: activeWorkoutDaysPerWeekText,
+            detail: workoutsTarget > 0 ? "Target \(formatWholeNumber(workoutsTarget))" : nil,
+            systemImage: "figure.run",
+            tint: AppVisualSystem.ColorToken.workout
+        )
+    }
+
+    private var workoutCaloriesMetric: some View {
+        AppMetricTile(
+            title: "Active cal / week",
+            value: formatWholeNumber(caloriesPerWeek),
+            detail: caloriesTarget > 0 ? "Target \(formatWholeNumber(caloriesTarget))" : nil,
+            systemImage: "flame.fill",
+            tint: AppVisualSystem.ColorToken.warning
+        )
     }
 
     // MARK: - Workout Occurrence
@@ -254,9 +242,7 @@ struct WorkoutsView: View {
 
             occurrenceLabels(points)
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .appSurface(.standard)
     }
 
     private var occurrenceTitle: String {
@@ -519,9 +505,7 @@ struct WorkoutsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding()
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(12)
+            .appSurface(.standard, cornerRadius: 16)
             .contentShape(Rectangle())
             .onTapGesture {
                 beginEditWorkout(workout)
@@ -657,7 +641,7 @@ struct WorkoutsView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .tint(.cyan)
+            .tint(AppVisualSystem.ColorToken.accent)
             .disabled(workoutText.isEmpty || isParsing)
 
             Spacer()
@@ -706,9 +690,7 @@ struct WorkoutsView: View {
                 DatePicker("Logged At", selection: $workoutLogDate)
                     .datePickerStyle(.compact)
             }
-            .padding()
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(12)
+            .appSurface(.standard)
 
             Button {
                 Task { await saveWorkout() }
@@ -720,7 +702,7 @@ struct WorkoutsView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .tint(.cyan)
+            .tint(AppVisualSystem.ColorToken.accent)
             .disabled(isSaving || parsedDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
             Spacer()

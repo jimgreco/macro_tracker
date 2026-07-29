@@ -1189,7 +1189,11 @@ private struct AICoachPageIndicator: View {
                     onSelect(id)
                 } label: {
                     Circle()
-                        .fill(id == selectedID ? Color.cyan : Color.secondary.opacity(0.35))
+                        .fill(
+                            id == selectedID
+                                ? AppVisualSystem.ColorToken.accent
+                                : AppVisualSystem.ColorToken.textTertiary.opacity(0.45)
+                        )
                         .frame(width: id == selectedID ? 8 : 6, height: id == selectedID ? 8 : 6)
                         .frame(width: 28, height: 22)
                         .contentShape(Rectangle())
@@ -1226,7 +1230,11 @@ struct AICoachCard: View {
                         .frame(width: 48, height: 48)
                         .background(
                             LinearGradient(
-                                colors: [.cyan, .purple, .pink],
+                                colors: [
+                                    AppVisualSystem.ColorToken.accent,
+                                    AppVisualSystem.ColorToken.recovery,
+                                    AppVisualSystem.ColorToken.weight
+                                ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             ),
@@ -1309,29 +1317,14 @@ struct AICoachCard: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.cyan)
+                .tint(AppVisualSystem.ColorToken.accent)
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color(.secondarySystemBackground))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(
-                            LinearGradient(
-                                colors: [.cyan.opacity(0.20), .purple.opacity(0.12), .pink.opacity(0.10)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                }
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(.white.opacity(0.12), lineWidth: 1)
-        }
+        .appSurface(
+            .tinted(AppVisualSystem.ColorToken.accent),
+            cornerRadius: AppVisualSystem.Radius.card,
+            padding: 14
+        )
         .sheet(isPresented: $showingWhyDetails) {
             AICoachWhySheet(suggestion: suggestion, showsSourceDetails: showsSourceDetails)
         }

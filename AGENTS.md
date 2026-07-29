@@ -144,12 +144,13 @@ SwiftUI app targeting iOS 17+. Uses token-based auth (either via Sign in with Ap
 
 | File | Purpose |
 |------|---------|
+| `AppVisualSystem.swift` | Shared semantic colors, spacing, radii, surfaces, status pills, metric tiles, and section headers for the iOS visual system |
 | `DailyMacrosApp.swift` | App entry point, auth routing, onboarding routing, pending-log retry, dark mode |
 | `AuthManager.swift` | Auth state, Sign in with Apple, token auth |
 | `APIClient.swift` | Singleton API client, all REST endpoints, Keychain, offline mutation queue flushing |
 | `Models.swift` | Codable response types |
 | `LoginView.swift` | Sign in with Apple + token-based login |
-| `MainTabView.swift` | Tab navigation (Macros, Workouts, Weight, Sleep, optional Sexual Activity, Analysis, Settings) |
+| `MainTabView.swift` | Five-destination navigation for Today, Macros, Workouts, Health, and Insights; settings remains behind the account avatar |
 | `OnboardingView.swift` | First-run target setup and reminder opt-in |
 | `MacrosView.swift` | Meal logging, parsing, barcode lookup, dashboard with macro progress bars |
 | `BarcodeScannerView.swift` | AVFoundation barcode scanner used by meal logging |
@@ -162,6 +163,7 @@ SwiftUI app targeting iOS 17+. Uses token-based auth (either via Sign in with Ap
 | `Diagnostics.swift` | Local diagnostic event log and export text |
 
 The iOS app communicates with the backend via Bearer token auth. Sign in with Apple sends the identity token to `/auth/apple/mobile` which verifies it and returns an API token stored in Keychain.
+iOS visual work should use the semantic primitives in `AppVisualSystem.swift`, reserve macro colors for nutrition data, keep content on restrained solid/material surfaces, and leave platform glass treatments to navigation and controls.
 iOS pending mutations are stored in an excluded-from-backup Application Support file using complete file protection, never in shared `UserDefaults`. Every record owns an account user id and only the currently authenticated matching account can see or flush it. Legacy unowned `pending_mutations_v1` data is discarded rather than assigned. Ordinary sign-out and sign-out-everywhere preserve but hide that account's protected queue; account deletion wipes it before the server delete request.
 iOS Settings exposes the saved account timezone as a native menu picker and saves it through `/api/account/preferences`; do not replace it with free-text timezone entry.
 iOS Quick Add in `MacrosView.swift` queues items locally until the user saves the draft meal with `saveMealEntries(...)`; queued items appear in a screen-level floating tray pinned with the add sheet geometry safe-area inset, not as a scroll/tab section. Quick Add row buttons should remain add affordances: after a tap, show the green check/Added feedback only briefly, then return to the plus button so adding another of the same item still looks available.
@@ -212,6 +214,7 @@ The server sets a strict CSP header. Key constraints for frontend development:
 ## Frontend Notes
 
 - All state lives in the global `state` object in `public/script.js`
+- The shared web visual tokens and component overrides live in the final commercial-app layer of `public/styles.css`. At mobile widths, the existing five-item `.main-nav` becomes the safe-area-aware bottom dock; do not add a second navigation implementation or change the destination data attributes.
 - Web Coach Tony P. cards live in `public/index.html` slots (`macros-coach`, `workout-coach`, `weight-coach`, `sleep-coach`) and are rendered from deterministic local rules in `public/coach-rules.js`; `public/script.js` owns DOM rendering, category controls in Account & Privacy, admin-only source labels in cards and the "Why am I seeing this?" modal, and dismissal sync. Web Coach Tony P. shares `/api/coach/dismissals` today/pattern sync with iOS and must not call OpenAI for routine coaching.
 - Period toggles (weekly/monthly/annual) controlled by `state.macroSnapshotPeriod`, `state.weightSnapshotPeriod`, `state.workoutSnapshotPeriod`. Switching period triggers a server request with `scope` param (e.g. `/api/daily-totals?scope=month`) to fetch the full date range.
 - Charts are drawn on `<canvas>` elements with device pixel ratio scaling. All charts support tooltips on hover/click/touch.

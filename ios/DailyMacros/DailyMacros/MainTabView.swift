@@ -217,11 +217,13 @@ struct AccountToolbarButton: View {
                     fallbackAvatar
                 }
             }
-            .frame(width: 30, height: 30)
+            .frame(width: 32, height: 32)
             .clipShape(Circle())
             .overlay {
-                Circle().stroke(Color.cyan.opacity(0.45), lineWidth: 1)
+                Circle()
+                    .stroke(AppVisualSystem.ColorToken.accent.opacity(0.42), lineWidth: 1)
             }
+            .shadow(color: AppVisualSystem.ColorToken.accent.opacity(0.12), radius: 7)
             .contentShape(Circle())
         }
         .accessibilityLabel("Open Settings")
@@ -232,7 +234,16 @@ struct AccountToolbarButton: View {
         Image(systemName: "person.crop.circle.fill")
             .resizable()
             .scaledToFit()
-            .foregroundStyle(.cyan)
+            .foregroundStyle(
+                LinearGradient(
+                    colors: [
+                        AppVisualSystem.ColorToken.accent,
+                        AppVisualSystem.ColorToken.protein
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
     }
 }
 
@@ -280,7 +291,7 @@ struct MainTabView: View {
         .environment(\.presentSettings) {
             showSettings = true
         }
-        .tint(.cyan)
+        .tint(AppVisualSystem.ColorToken.accent)
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .environmentObject(auth)
@@ -295,7 +306,7 @@ struct MainTabView: View {
             if offlineQueue.pendingCount > 0 {
                 HStack(spacing: 10) {
                     Image(systemName: "checkmark.icloud.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(AppVisualSystem.ColorToken.success)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Saved offline")
@@ -308,9 +319,11 @@ struct MainTabView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 9)
-                .background(.ultraThinMaterial)
+                .background(AppVisualSystem.ColorToken.surfaceRaised.opacity(0.97))
                 .overlay(alignment: .bottom) {
-                    Divider()
+                    Rectangle()
+                        .fill(AppVisualSystem.ColorToken.border)
+                        .frame(height: 1)
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(
@@ -398,7 +411,7 @@ private struct HealthHubView: View {
             .pickerStyle(.segmented)
             .padding(.horizontal, 16)
             .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.bottom, 8)
             .accessibilityLabel("Health section")
 
             Group {
@@ -419,6 +432,7 @@ private struct HealthHubView: View {
              */
             .clipped()
         }
+        .appScreenBackground(accent: AppVisualSystem.ColorToken.recovery)
         .onAppear {
             keepHealthAreaVisible()
         }

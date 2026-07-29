@@ -4,17 +4,6 @@ import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
 
-// MARK: - Neon Color Palette (matches web app)
-private extension Color {
-    static let neonGreen = Color(red: 5/255, green: 255/255, blue: 161/255)      // #05ffa1
-    static let neonCyan = Color(red: 0/255, green: 207/255, blue: 255/255)        // #00cfff
-    static let neonPink = Color(red: 255/255, green: 45/255, blue: 120/255)       // #ff2d78
-    static let neonYellow = Color(red: 255/255, green: 202/255, blue: 40/255)     // #ffca28
-    static let panelBg = Color(red: 13/255, green: 17/255, blue: 30/255)          // #0d111e
-    static let deepBg = Color(red: 7/255, green: 9/255, blue: 15/255)            // #07090f
-    static let mutedText = Color(red: 90/255, green: 110/255, blue: 138/255)      // #5a6e8a
-}
-
 // MARK: - Drag/Drop transferable for entry IDs
 
 struct EntryDragData: Codable, Transferable {
@@ -436,7 +425,7 @@ struct MacrosView: View {
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .top)
                 }
-                .background(Color.deepBg)
+                .appScreenBackground(accent: AppVisualSystem.ColorToken.protein)
 
                 // Trash drop zone
                 if isDragging {
@@ -611,7 +600,16 @@ struct MacrosView: View {
                     .foregroundStyle(Color.neonCyan)
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 14)
+        .frame(minHeight: 48)
+        .background(
+            AppVisualSystem.ColorToken.surface,
+            in: Capsule()
+        )
+        .overlay {
+            Capsule()
+                .stroke(AppVisualSystem.ColorToken.border, lineWidth: 1)
+        }
     }
 
     // MARK: - Macro Summary
@@ -621,10 +619,12 @@ struct MacrosView: View {
         let targets = dash.targets
 
         return VStack(spacing: 12) {
-            HStack {
-                Text("Daily Totals")
-                    .font(.subheadline.bold())
-                Spacer()
+            AppSectionHeader(
+                title: "Daily totals",
+                subtitle: "Progress against your targets",
+                systemImage: "chart.bar.fill",
+                tint: AppVisualSystem.ColorToken.accent
+            ) {
                 Button("edit targets") {
                     editCalories = "\(Int(targets.calories))"
                     editProtein = "\(Int(targets.protein))"
@@ -643,9 +643,10 @@ struct MacrosView: View {
 
             dayCompletenessControl(totals)
         }
-        .padding()
-        .background(Color.panelBg)
-        .cornerRadius(14)
+        .appSurface(
+            .tinted(AppVisualSystem.ColorToken.accent),
+            cornerRadius: AppVisualSystem.Radius.hero
+        )
     }
 
     private func dayCompletenessControl(_ totals: DailyTotals) -> some View {
@@ -768,34 +769,25 @@ struct MacrosView: View {
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.white.opacity(0.10))
+                    .fill(Color.white.opacity(0.08))
                     .overlay {
                         Capsule()
-                            .stroke(Color.white.opacity(0.07), lineWidth: 1)
+                            .stroke(AppVisualSystem.ColorToken.border, lineWidth: 1)
                     }
-                    .shadow(color: .black.opacity(0.22), radius: 4, x: 0, y: 2)
 
                 Capsule()
                     .fill(
                         LinearGradient(
                             colors: [
-                                color.opacity(0.72),
-                                color,
-                                color.opacity(0.92)
+                                color.opacity(0.78),
+                                color
                             ],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
                     .frame(width: fillWidth)
-                    .shadow(color: color.opacity(0.45), radius: 7, x: 0, y: 0)
-                    .overlay(alignment: .top) {
-                        Capsule()
-                            .fill(Color.white.opacity(0.28))
-                            .frame(height: 3)
-                            .padding(.horizontal, 4)
-                            .padding(.top, 1)
-                    }
+                    .shadow(color: color.opacity(0.16), radius: 3)
             }
         }
         .frame(height: 10)
@@ -810,10 +802,12 @@ struct MacrosView: View {
         let orderedKeys = keys.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
 
         return VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Logged Entries")
-                    .font(.headline)
-                Spacer()
+            AppSectionHeader(
+                title: "Logged entries",
+                subtitle: entries.isEmpty ? "Nothing logged for this day" : "\(entries.count) item\(entries.count == 1 ? "" : "s")",
+                systemImage: "list.bullet",
+                tint: AppVisualSystem.ColorToken.accent
+            ) {
                 if !entries.isEmpty {
                     Button(isMealEditing ? "done" : "edit meals") {
                         toggleMealEditing()
@@ -1125,12 +1119,12 @@ struct MacrosView: View {
                 }
             }
         }
-        .background(Color.panelBg)
+        .background(AppVisualSystem.ColorToken.surface)
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(isSelected ? Color.neonCyan.opacity(0.9) : Color.neonGreen.opacity(0.2), lineWidth: isSelected ? 1.5 : 1)
         )
-        .cornerRadius(10)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
@@ -1705,11 +1699,11 @@ struct MacrosView: View {
 
     private var trendSection: some View {
         VStack(spacing: 12) {
-            HStack {
-                Text("Trend")
-                    .font(.headline)
-                Spacer()
-            }
+            AppSectionHeader(
+                "Trend",
+                subtitle: "How your logging changes over time",
+                systemImage: "chart.xyaxis.line"
+            )
 
             Picker("Period", selection: $trendPeriod) {
                 ForEach(trendPeriods, id: \.self) { p in
@@ -1889,9 +1883,7 @@ struct MacrosView: View {
                 }
             }
         }
-        .padding()
-        .background(Color.panelBg)
-        .cornerRadius(14)
+        .appSurface(.standard)
     }
 
     private func legendSwatch(color: Color, dashed: Bool) -> some View {

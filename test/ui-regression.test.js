@@ -148,7 +148,7 @@ test('iOS edit weight save button stays disabled until a value changes', () => {
   assert.equal(editSheet.includes('!isSameDisplayedMinute(editWeightDate, parseISO(entry.loggedAt))'), true);
 });
 
-test('iOS weight history renders intentional outlined entry cards', () => {
+test('iOS weight history renders semantic outlined entry surfaces', () => {
   const swift = read('ios/DailyMacros/DailyMacros/WeightView.swift');
   const entriesList = swift.slice(
     swift.indexOf('private var entriesList'),
@@ -169,8 +169,9 @@ test('iOS weight history renders intentional outlined entry cards', () => {
   assert.equal(entriesList.includes('return "arrow.down.right"'), true);
   assert.ok(entryCard.indexOf('Text(String(format: "%.1f lbs", entry.weight))') < entryCard.indexOf('Text(formatDate(entry.loggedAt))'));
   assert.equal(entryCard.includes('VStack(alignment: .trailing, spacing: 2)'), true);
-  assert.equal(entriesList.includes('RoundedRectangle(cornerRadius: 12)'), true);
-  assert.equal(entriesList.includes('.stroke(.cyan.opacity(0.18), lineWidth: 1)'), true);
+  assert.equal(entryCard.includes('.appSurface('), true);
+  assert.equal(entryCard.includes('.tinted(weightTrendColor(for: entry, previousEntry: previousEntry))'), true);
+  assert.equal(entryCard.includes('cornerRadius: 16'), true);
   assert.equal(entriesList.includes('Text(formatTime(entry.loggedAt))'), true);
   assert.equal(entriesList.includes('.monospacedDigit()'), true);
 });
@@ -700,7 +701,7 @@ test('starter quick adds live in setup/settings, not the web quick add panel', (
   assert.equal(accountSettings.includes('Add Starter Quick Adds'), true);
 });
 
-test('iOS daily totals bars use the richer progress treatment', () => {
+test('iOS daily totals bars use the restrained semantic progress treatment', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
   const progressStart = swift.indexOf('private func macroProgressBar');
   const progressEnd = swift.indexOf('// MARK: - Entries List', progressStart);
@@ -708,9 +709,10 @@ test('iOS daily totals bars use the richer progress treatment', () => {
 
   assert.equal(swift.includes('macroProgressBar(progress: progress, color: color)'), true);
   assert.equal(progressSection.includes('LinearGradient'), true);
-  assert.equal(progressSection.includes('color.opacity(0.45)'), true);
+  assert.equal(progressSection.includes('color.opacity(0.78)'), true);
   assert.equal(progressSection.includes('.frame(height: 10)'), true);
-  assert.equal(progressSection.includes('Color.white.opacity(0.28)'), true);
+  assert.equal(progressSection.includes('AppVisualSystem.ColorToken.border'), true);
+  assert.equal(progressSection.includes('.shadow(color: color.opacity(0.16), radius: 3)'), true);
 });
 
 test('iOS login matches website sign-in layout', () => {
@@ -1078,8 +1080,9 @@ test('iOS workout day stats match the visible occurrence window', () => {
     workouts.indexOf('private var scopeWeeks')
   );
 
-  assert.equal(statsSection.includes('label: "Active Days/Week"'), true);
-  assert.equal(statsSection.includes('valueText: activeWorkoutDaysPerWeekText'), true);
+  assert.equal(statsSection.includes('AppMetricTile('), true);
+  assert.equal(statsSection.includes('title: "Active days / week"'), true);
+  assert.equal(statsSection.includes('value: activeWorkoutDaysPerWeekText'), true);
   assert.equal(statsCalculations.includes('let visibleDays = Set(workoutOccurrencePoints.map(\\.id))'), true);
   assert.equal(statsCalculations.includes('return dailyCalories.filter { visibleDays.contains($0.day) }'), true);
   assert.equal(statsCalculations.includes('let totalCal = visible.reduce(0.0) { $0 + $1.calories }'), true);

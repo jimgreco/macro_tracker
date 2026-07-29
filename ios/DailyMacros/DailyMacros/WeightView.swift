@@ -35,7 +35,7 @@ struct WeightView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(spacing: AppVisualSystem.Spacing.large) {
                     AICoachSlot(
                         dismissals: coachDismissals,
                         suggestions: coachSuggestions,
@@ -54,6 +54,7 @@ struct WeightView: View {
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .top)
             }
+            .appScreenBackground(accent: AppVisualSystem.ColorToken.weight)
             .navigationTitle("Weight")
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -149,12 +150,12 @@ struct WeightView: View {
         Group {
             if let target, let tw = target.targetWeight {
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        Text("Target Weight")
-                            .font(.subheadline.bold())
-
-                        Spacer()
-
+                    AppSectionHeader(
+                        title: "Target Weight",
+                        subtitle: "Your current goal",
+                        systemImage: "target",
+                        tint: AppVisualSystem.ColorToken.weight
+                    ) {
                         Button("edit targets") {
                             editTargetWeight = String(format: "%.1f", tw)
                             if let dateStr = target.targetDate {
@@ -163,24 +164,43 @@ struct WeightView: View {
                             showEditTarget = true
                         }
                         .font(.caption)
-                        .foregroundStyle(.cyan)
+                        .foregroundStyle(AppVisualSystem.ColorToken.accent)
                     }
 
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(String(format: "%.1f lbs", tw))
-                            .font(.title2.bold())
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 18) {
+                            targetMetric(
+                                label: "Goal",
+                                value: String(format: "%.1f lbs", tw)
+                            )
 
-                        Spacer()
+                            Spacer(minLength: 8)
 
-                        if let date = target.targetDate {
-                            Text(formatShortDate(date))
-                                .font(.title3.weight(.semibold))
+                            if let date = target.targetDate {
+                                targetMetric(
+                                    label: "By",
+                                    value: formatShortDate(date),
+                                    alignment: .trailing
+                                )
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            targetMetric(
+                                label: "Goal",
+                                value: String(format: "%.1f lbs", tw)
+                            )
+
+                            if let date = target.targetDate {
+                                targetMetric(label: "By", value: formatShortDate(date))
+                            }
                         }
                     }
                 }
-                .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(12)
+                .appSurface(
+                    .tinted(AppVisualSystem.ColorToken.weight),
+                    cornerRadius: AppVisualSystem.Radius.hero
+                )
             } else {
                 Button {
                     editTargetWeight = ""
@@ -192,13 +212,28 @@ struct WeightView: View {
                         Text("Set Weight Target")
                     }
                     .font(.subheadline)
-                    .foregroundStyle(.cyan)
+                    .foregroundStyle(AppVisualSystem.ColorToken.accent)
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color(.secondarySystemBackground))
-                    .cornerRadius(12)
+                    .appSurface(.tinted(AppVisualSystem.ColorToken.weight))
                 }
             }
+        }
+    }
+
+    private func targetMetric(
+        label: String,
+        value: String,
+        alignment: HorizontalAlignment = .leading
+    ) -> some View {
+        VStack(alignment: alignment, spacing: 2) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppVisualSystem.ColorToken.textTertiary)
+            Text(value)
+                .font(.title3.weight(.bold))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.76)
         }
     }
 
@@ -227,9 +262,7 @@ struct WeightView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
-                .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(12)
+                .appSurface(.standard)
             }
         }
     }
@@ -408,8 +441,11 @@ struct WeightView: View {
 
     private var entriesList: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("History")
-                .font(.headline)
+            AppSectionHeader(
+                "History",
+                subtitle: entries.isEmpty ? "No weigh-ins yet" : "Recent weigh-ins",
+                systemImage: "clock.arrow.circlepath"
+            )
 
             ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                 SwipeToDeleteRow {
@@ -472,13 +508,10 @@ struct WeightView: View {
                     .monospacedDigit()
             }
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(.cyan.opacity(0.18), lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .appSurface(
+            .tinted(weightTrendColor(for: entry, previousEntry: previousEntry)),
+            cornerRadius: 16
+        )
     }
 
     private func previousWeightEntry(after index: Int) -> WeightEntry? {
@@ -499,14 +532,14 @@ struct WeightView: View {
     }
 
     private func weightTrendColor(for entry: WeightEntry, previousEntry: WeightEntry?) -> Color {
-        guard let previousEntry else { return .cyan }
+        guard let previousEntry else { return AppVisualSystem.ColorToken.accent }
         if entry.weight > previousEntry.weight {
-            return .red
+            return AppVisualSystem.ColorToken.danger
         }
         if entry.weight < previousEntry.weight {
-            return .green
+            return AppVisualSystem.ColorToken.success
         }
-        return .cyan
+        return AppVisualSystem.ColorToken.accent
     }
 
     // MARK: - Add Weight Sheet
@@ -532,7 +565,7 @@ struct WeightView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.cyan)
+                    .tint(AppVisualSystem.ColorToken.accent)
                     .disabled(newWeight.isEmpty || isLoading)
 
                     Spacer(minLength: 0)

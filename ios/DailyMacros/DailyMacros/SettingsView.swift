@@ -48,6 +48,9 @@ struct SettingsView: View {
                 buildInfoSection
                 dangerSection
             }
+            .scrollContentBackground(.hidden)
+            .appScreenBackground()
+            .tint(AppVisualSystem.ColorToken.accent)
             .navigationTitle("Settings")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -847,7 +850,7 @@ private struct AccountDetailsView: View {
                 .padding(.top, 32)
                 .padding(.bottom, 40)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .appScreenBackground()
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -899,9 +902,11 @@ private struct AccountDetailsView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 22)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .appSurface(
+            .tinted(AppVisualSystem.ColorToken.accent),
+            cornerRadius: AppVisualSystem.Radius.hero,
+            padding: 22
+        )
     }
 
     private var syncStatusRow: some View {
@@ -943,7 +948,7 @@ private struct AccountDetailsView: View {
             }
             .frame(minHeight: 58)
         }
-        .foregroundStyle(.cyan)
+        .foregroundStyle(AppVisualSystem.ColorToken.accent)
         .disabled(isFlushingPending || api.token == nil)
     }
 
@@ -954,7 +959,7 @@ private struct AccountDetailsView: View {
             HStack(spacing: 14) {
                 Image(systemName: "square.and.arrow.up")
                     .font(.title3)
-                    .foregroundStyle(.cyan)
+                    .foregroundStyle(AppVisualSystem.ColorToken.accent)
                     .frame(width: 28)
 
                 Text("Export All Data")
@@ -1001,7 +1006,7 @@ private struct AccountDetailsView: View {
                 HStack(spacing: 14) {
                     Image(systemName: session.kind == "web" ? "globe" : "iphone")
                         .font(.title3)
-                        .foregroundStyle(.cyan)
+                        .foregroundStyle(AppVisualSystem.ColorToken.accent)
                         .frame(width: 28)
 
                     VStack(alignment: .leading, spacing: 3) {
@@ -1060,7 +1065,14 @@ private struct AccountDetailsView: View {
                     .frame(maxWidth: .infinity, minHeight: 58)
             }
         }
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(
+            AppVisualSystem.ColorToken.surface,
+            in: RoundedRectangle(cornerRadius: AppVisualSystem.Radius.card, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: AppVisualSystem.Radius.card, style: .continuous)
+                .stroke(AppVisualSystem.ColorToken.border, lineWidth: 1)
+        }
     }
 
     private var accountDivider: some View {
@@ -1079,7 +1091,14 @@ private struct AccountDetailsView: View {
             VStack(spacing: 0) {
                 content()
             }
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .background(
+                AppVisualSystem.ColorToken.surface,
+                in: RoundedRectangle(cornerRadius: AppVisualSystem.Radius.card, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: AppVisualSystem.Radius.card, style: .continuous)
+                    .stroke(AppVisualSystem.ColorToken.border, lineWidth: 1)
+            }
         }
     }
 

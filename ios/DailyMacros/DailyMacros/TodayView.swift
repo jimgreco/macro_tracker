@@ -3,6 +3,7 @@ import SwiftUI
 struct TodayView: View {
     @EnvironmentObject private var api: APIClient
     @EnvironmentObject private var navigation: AppNavigationModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var offlineQueue = OfflineMutationStore.shared
     @StateObject private var coachDismissals = CoachDismissalStore.shared
 
@@ -16,10 +17,21 @@ struct TodayView: View {
     @State private var loadGeneration = 0
     @State private var refreshTask: Task<Void, Never>?
 
+    private var summaryColumns: [GridItem] {
+        if dynamicTypeSize.isAccessibilitySize {
+            return [GridItem(.flexible())]
+        }
+        return [GridItem(.adaptive(minimum: 154), spacing: AppVisualSystem.Spacing.medium)]
+    }
+
+    private var summaryMinimumHeight: CGFloat? {
+        dynamicTypeSize.isAccessibilitySize ? nil : 174
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
+                LazyVStack(alignment: .leading, spacing: AppVisualSystem.Spacing.large) {
                     TimelineView(.periodic(from: .now, by: 60)) { _ in
                         freshnessBanner(at: AppClock.now)
                     }
@@ -40,11 +52,8 @@ struct TodayView: View {
                         macroCard(response.summary.macros)
 
                         LazyVGrid(
-                            columns: [
-                                GridItem(.flexible(), spacing: 12),
-                                GridItem(.flexible(), spacing: 12)
-                            ],
-                            spacing: 12
+                            columns: summaryColumns,
+                            spacing: AppVisualSystem.Spacing.medium
                         ) {
                             recoveryCard(response.summary.recovery)
                             workoutCard(response.summary.workout)
@@ -64,6 +73,7 @@ struct TodayView: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .clipped()
+            .appScreenBackground()
             .navigationTitle("Today")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -98,32 +108,56 @@ struct TodayView: View {
         }
     }
 
+    @ViewBuilder
     private func freshnessBanner(at currentTime: Date) -> some View {
         let color = freshnessColor(at: currentTime)
 
-        return HStack(spacing: 10) {
-            Image(systemName: freshnessSymbol(at: currentTime))
-                .foregroundStyle(color)
-                .accessibilityHidden(true)
+        if freshnessNeedsAttention(at: currentTime) {
+            HStack(alignment: .top, spacing: AppVisualSystem.Spacing.medium) {
+                Image(systemName: freshnessSymbol(at: currentTime))
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(color)
+                    .frame(width: 34, height: 34)
+                    .background(color.opacity(0.11), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(freshnessTitle(at: currentTime))
-                    .font(.subheadline.weight(.semibold))
-                Text(freshnessDetail(at: currentTime))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(freshnessTitle(at: currentTime))
+                        .font(.subheadline.weight(.semibold))
+                    Text(freshnessDetail(at: currentTime))
+                        .font(.caption)
+                        .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
             }
+            .appSurface(.tinted(color), cornerRadius: 16, padding: 12)
+            .accessibilityElement(children: .combine)
+        } else {
+            HStack(spacing: AppVisualSystem.Spacing.small) {
+                AppStatusPill(
+                    title: isLoading ? "Updating" : "Up to date",
+                    systemImage: freshnessSymbol(at: currentTime),
+                    tint: color
+                )
 
-            Spacer(minLength: 0)
+                Spacer(minLength: AppVisualSystem.Spacing.small)
+
+                if let lastUpdatedAt {
+                    Text(relativeText(for: lastUpdatedAt, relativeTo: currentTime))
+                        .font(.caption)
+                        .foregroundStyle(AppVisualSystem.ColorToken.textTertiary)
+                        .lineLimit(1)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(freshnessTitle(at: currentTime)). \(freshnessDetail(at: currentTime))")
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(color.opacity(0.24), lineWidth: 1)
-        }
-        .accessibilityElement(children: .combine)
+    }
+
+    private func freshnessNeedsAttention(at currentTime: Date) -> Bool {
+        isOffline || loadMessage != nil || snapshotIsStale(at: currentTime)
     }
 
     private func freshnessTitle(at currentTime: Date) -> String {
@@ -176,9 +210,9 @@ struct TodayView: View {
 
     private func freshnessColor(at currentTime: Date) -> Color {
         if isOffline || loadMessage != nil || snapshotIsStale(at: currentTime) {
-            return .orange
+            return AppVisualSystem.ColorToken.warning
         }
-        return isLoading ? .cyan : .green
+        return isLoading ? AppVisualSystem.ColorToken.accent : AppVisualSystem.ColorToken.success
     }
 
     private func snapshotIsStale(at currentTime: Date) -> Bool {
@@ -197,18 +231,20 @@ struct TodayView: View {
                 navigation.request(.logMeal)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.cyan)
+            .tint(AppVisualSystem.ColorToken.accent)
         }
-        .todayCard()
+        .todayCard(.tinted(AppVisualSystem.ColorToken.accent))
         .accessibilityElement(children: .contain)
     }
 
     private func macroCard(_ macros: TodayMacroSummary) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Label("Macro status", systemImage: "fork.knife")
-                    .font(.headline)
-                Spacer()
+            AppSectionHeader(
+                title: "Macro status",
+                subtitle: "Your nutrition pace for today",
+                systemImage: "fork.knife",
+                tint: AppVisualSystem.ColorToken.accent
+            ) {
                 Button("Details") {
                     navigation.open(.macros)
                 }
@@ -228,12 +264,14 @@ struct TodayView: View {
                     remainingMetric(
                         value: macros.remaining.calories,
                         unit: "cal",
-                        label: "remaining"
+                        label: "remaining",
+                        tint: AppVisualSystem.ColorToken.calories
                     )
                     remainingMetric(
                         value: macros.remaining.protein,
                         unit: "g",
-                        label: "protein remaining"
+                        label: "protein remaining",
+                        tint: AppVisualSystem.ColorToken.protein
                     )
                 }
 
@@ -241,79 +279,123 @@ struct TodayView: View {
                     label: "Calories",
                     current: macros.totals.calories,
                     target: macros.targets.calories,
-                    unit: "cal"
+                    unit: "cal",
+                    tint: AppVisualSystem.ColorToken.calories
                 )
                 macroProgress(
                     label: "Protein",
                     current: macros.totals.protein,
                     target: macros.targets.protein,
-                    unit: "g"
+                    unit: "g",
+                    tint: AppVisualSystem.ColorToken.protein
                 )
 
-                HStack(spacing: 16) {
-                    Text("\(formatNumber(macros.totals.carbs))g carbs")
-                    Text("\(formatNumber(macros.totals.fat))g fat")
+                HStack(spacing: AppVisualSystem.Spacing.small) {
+                    macroTotalPill(
+                        "\(formatNumber(macros.totals.carbs))g carbs",
+                        tint: AppVisualSystem.ColorToken.carbs
+                    )
+                    macroTotalPill(
+                        "\(formatNumber(macros.totals.fat))g fat",
+                        tint: AppVisualSystem.ColorToken.fat
+                    )
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
         }
-        .todayCard()
+        .todayCard(
+            .tinted(AppVisualSystem.ColorToken.accent),
+            cornerRadius: AppVisualSystem.Radius.hero
+        )
     }
 
-    private func remainingMetric(value: Double?, unit: String, label: String) -> some View {
+    private func remainingMetric(value: Double?, unit: String, label: String, tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value.map { "\(formatNumber($0)) \(unit)" } ?? "—")
                 .font(.title2.weight(.bold))
-                .foregroundStyle(.cyan)
+                .foregroundStyle(tint)
+                .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
             Text(label)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
         }
+        .padding(12)
+        .background(
+            AppVisualSystem.ColorToken.surfaceInteractive,
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func macroProgress(label: String, current: Double, target: Double, unit: String) -> some View {
+    private func macroProgress(
+        label: String,
+        current: Double,
+        target: Double,
+        unit: String,
+        tint: Color
+    ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text(label)
                 Spacer()
                 Text("\(formatNumber(current)) / \(formatNumber(target)) \(unit)")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
+                    .monospacedDigit()
             }
             .font(.caption)
             ProgressView(value: target > 0 ? min(current / target, 1) : 0)
-                .tint(.cyan)
+                .tint(tint)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private func macroTotalPill(_ title: String, tint: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(tint)
+                .frame(width: 6, height: 6)
+            Text(title)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(tint.opacity(0.08), in: Capsule())
     }
 
     private func recoveryCard(_ recovery: TodayRecoverySummary) -> some View {
         summaryCard(
             title: "Recovery",
             symbol: "moon.stars.fill",
-            accent: recovery.state == "stale" ? .orange : .indigo
+            accent: recovery.state == "stale"
+                ? AppVisualSystem.ColorToken.warning
+                : AppVisualSystem.ColorToken.recovery
         ) {
             if let hours = recovery.sleepHours {
                 Text("\(formatNumber(hours)) hr")
                     .font(.title3.weight(.bold))
                 Text(recoveryFreshnessText(recovery))
                     .font(.caption)
-                    .foregroundStyle(recovery.state == "stale" ? .orange : .secondary)
+                    .foregroundStyle(
+                        recovery.state == "stale"
+                            ? AppVisualSystem.ColorToken.warning
+                            : AppVisualSystem.ColorToken.textSecondary
+                    )
             } else {
                 Text("No recovery data")
                     .font(.subheadline.weight(.semibold))
                 Text("Log sleep to establish a baseline.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
             }
 
             if recovery.ouraStatus == "disconnected" {
                 Label("Oura not connected", systemImage: "circle.dashed")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppVisualSystem.ColorToken.textTertiary)
             }
 
             Button(recovery.sleepHours == nil ? "Log sleep" : "View sleep") {
@@ -329,20 +411,24 @@ struct TodayView: View {
     }
 
     private func workoutCard(_ workout: TodayWorkoutSummary) -> some View {
-        summaryCard(title: "Workout", symbol: "figure.run", accent: .green) {
+        summaryCard(
+            title: "Workout",
+            symbol: "figure.run",
+            accent: AppVisualSystem.ColorToken.workout
+        ) {
             if workout.state == "logged" {
                 Text(workout.latestDescription ?? "Workout logged")
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(2)
                 Text("\(formatNumber(workout.activeCalories)) active cal today")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
             } else {
                 Text("Not logged today")
                     .font(.subheadline.weight(.semibold))
                 Text("\(workout.weeklyActiveDays) of \(formatNumber(workout.targetPerWeek)) target days this week")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
             }
 
             Button(workout.state == "logged" ? "View workouts" : "Log workout") {
@@ -360,20 +446,26 @@ struct TodayView: View {
         summaryCard(
             title: "Weight cadence",
             symbol: "scalemass.fill",
-            accent: weight.state == "due" ? .orange : .pink
+            accent: weight.state == "due"
+                ? AppVisualSystem.ColorToken.warning
+                : AppVisualSystem.ColorToken.weight
         ) {
             if let latestWeight = weight.latestWeight {
                 Text("\(formatNumber(latestWeight)) lb")
                     .font(.title3.weight(.bold))
                 Text(weightCadenceText(weight))
                     .font(.caption)
-                    .foregroundStyle(weight.state == "due" ? .orange : .secondary)
+                    .foregroundStyle(
+                        weight.state == "due"
+                            ? AppVisualSystem.ColorToken.warning
+                            : AppVisualSystem.ColorToken.textSecondary
+                    )
             } else {
                 Text("No baseline yet")
                     .font(.subheadline.weight(.semibold))
                 Text("One weigh-in starts the cadence.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
             }
 
             Button(weight.state == "due" || weight.state == "empty" ? "Log weight" : "View weight") {
@@ -392,20 +484,22 @@ struct TodayView: View {
         summaryCard(
             title: "Sync",
             symbol: offlineQueue.pendingCount > 0 ? "arrow.triangle.2.circlepath.icloud" : "checkmark.icloud.fill",
-            accent: offlineQueue.pendingCount > 0 ? .orange : .green
+            accent: offlineQueue.pendingCount > 0
+                ? AppVisualSystem.ColorToken.warning
+                : AppVisualSystem.ColorToken.success
         ) {
             if offlineQueue.pendingCount > 0 {
                 Text("\(offlineQueue.pendingCount) pending")
                     .font(.title3.weight(.bold))
                 Text("Saved safely for this account.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
             } else {
                 Text(isOffline ? "Offline" : "All caught up")
                     .font(.subheadline.weight(.semibold))
                 Text(isOffline ? "New logs will wait here." : "No pending changes.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
             }
         }
     }
@@ -417,21 +511,33 @@ struct TodayView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            Label(title, systemImage: symbol)
-                .font(.caption.weight(.semibold))
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(accent)
+                .frame(width: 32, height: 32)
+                .background(
+                    accent.opacity(0.11),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
             content()
             Spacer(minLength: 0)
         }
-        .todayCard()
-        .frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
+        .todayCard(.tinted(accent), padding: 14)
+        .frame(maxWidth: .infinity, minHeight: summaryMinimumHeight, alignment: .topLeading)
         .accessibilityElement(children: .contain)
     }
 
     private var quickActions: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Quick log")
-                .font(.headline)
+            AppSectionHeader(
+                "Quick log",
+                subtitle: "Start with one tap",
+                systemImage: "bolt.fill"
+            )
 
             LazyVGrid(
                 columns: [
@@ -440,25 +546,73 @@ struct TodayView: View {
                 ],
                 spacing: 10
             ) {
-                quickAction("Meal", symbol: "fork.knife", action: .logMeal)
-                quickAction("Workout", symbol: "figure.run", action: .logWorkout)
-                quickAction("Weight", symbol: "scalemass", action: .logWeight)
-                quickAction("Sleep", symbol: "moon.zzz", action: .logSleep)
+                quickAction(
+                    "Meal",
+                    symbol: "fork.knife",
+                    tint: AppVisualSystem.ColorToken.protein,
+                    action: .logMeal
+                )
+                quickAction(
+                    "Workout",
+                    symbol: "figure.run",
+                    tint: AppVisualSystem.ColorToken.workout,
+                    action: .logWorkout
+                )
+                quickAction(
+                    "Weight",
+                    symbol: "scalemass",
+                    tint: AppVisualSystem.ColorToken.weight,
+                    action: .logWeight
+                )
+                quickAction(
+                    "Sleep",
+                    symbol: "moon.zzz",
+                    tint: AppVisualSystem.ColorToken.recovery,
+                    action: .logSleep
+                )
             }
         }
-        .todayCard()
+        .todayCard(.elevated)
     }
 
-    private func quickAction(_ title: String, symbol: String, action: AppQuickAction) -> some View {
+    private func quickAction(
+        _ title: String,
+        symbol: String,
+        tint: Color,
+        action: AppQuickAction
+    ) -> some View {
         Button {
             navigation.request(action)
         } label: {
-            Label(title, systemImage: symbol)
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 44)
+            HStack(spacing: AppVisualSystem.Spacing.small) {
+                Image(systemName: symbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 30, height: 30)
+                    .background(tint.opacity(0.11), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                Spacer(minLength: 4)
+
+                Image(systemName: "plus")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(tint)
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(
+                AppVisualSystem.ColorToken.surfaceInteractive,
+                in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(tint.opacity(0.16), lineWidth: 1)
+            }
         }
-        .buttonStyle(.bordered)
-        .tint(.cyan)
+        .buttonStyle(.plain)
         .accessibilityLabel("Log \(title.lowercased())")
         .accessibilityHint("Opens the \(title.lowercased()) log form")
     }
@@ -468,7 +622,7 @@ struct TodayView: View {
             ProgressView()
             Text("Building today’s snapshot…")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
         }
         .frame(maxWidth: .infinity, minHeight: 220)
         .todayCard()
@@ -646,14 +800,11 @@ struct TodayView: View {
 }
 
 private extension View {
-    func todayCard() -> some View {
-        self
-            .padding(16)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
-            .overlay {
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    func todayCard(
+        _ style: AppSurfaceStyle = .standard,
+        cornerRadius: CGFloat = AppVisualSystem.Radius.card,
+        padding: CGFloat = AppVisualSystem.Spacing.standard
+    ) -> some View {
+        appSurface(style, cornerRadius: cornerRadius, padding: padding)
     }
 }

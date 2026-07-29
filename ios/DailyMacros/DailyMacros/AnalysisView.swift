@@ -13,7 +13,7 @@ struct AnalysisView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(spacing: AppVisualSystem.Spacing.large) {
                     daysPicker
 
                     if isLoading {
@@ -27,6 +27,7 @@ struct AnalysisView: View {
                 }
                 .padding()
             }
+            .appScreenBackground(accent: AppVisualSystem.ColorToken.accent)
             .navigationTitle("Insights")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -103,6 +104,10 @@ struct AnalysisView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            .appSurface(
+                .tinted(AppVisualSystem.ColorToken.accent),
+                cornerRadius: AppVisualSystem.Radius.hero
+            )
 
             // Summary
             if let summary = r.summary {
@@ -199,7 +204,11 @@ struct AnalysisView: View {
 
             // Progress
             if let progress = r.progress, !progress.isEmpty {
-                sectionCard("Progress Highlights", icon: "star") {
+                sectionCard(
+                    "Progress Highlights",
+                    icon: "star",
+                    tint: AppVisualSystem.ColorToken.success
+                ) {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(progress, id: \.self) { item in
                             bulletPoint(item, color: .green)
@@ -210,7 +219,11 @@ struct AnalysisView: View {
 
             // Needs Improvement
             if let improvements = r.needsImprovement, !improvements.isEmpty {
-                sectionCard("Needs Improvement", icon: "exclamationmark.triangle") {
+                sectionCard(
+                    "Needs Improvement",
+                    icon: "exclamationmark.triangle",
+                    tint: AppVisualSystem.ColorToken.warning
+                ) {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(improvements, id: \.self) { item in
                             bulletPoint(item, color: .orange)
@@ -275,24 +288,44 @@ struct AnalysisView: View {
 
     // MARK: - Helpers
 
-    private func sectionCard<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+    private func sectionCard<Content: View>(
+        _ title: String,
+        icon: String,
+        tint: Color = AppVisualSystem.ColorToken.accent,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(title, systemImage: icon)
                 .font(.subheadline.bold())
-                .foregroundStyle(.cyan)
+                .foregroundStyle(tint)
             content()
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .appSurface(.tinted(tint))
     }
 
     private func adherenceRow(_ label: String, value: String) -> some View {
-        HStack {
-            Text(label).font(.subheadline).foregroundStyle(.secondary)
-            Spacer()
-            Text(value).font(.subheadline.bold())
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
+                    .fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 8)
+                Text(value)
+                    .font(.subheadline.bold())
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
+                Text(value)
+                    .font(.subheadline.bold())
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

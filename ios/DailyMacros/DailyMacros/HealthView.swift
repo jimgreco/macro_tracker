@@ -96,15 +96,25 @@ struct HealthView: View {
         auth.user?.sexualActivityEnabled == true
     }
 
+    private var modeAccent: Color {
+        switch mode {
+        case .sleep:
+            return AppVisualSystem.ColorToken.recovery
+        case .sexualActivity:
+            return AppVisualSystem.ColorToken.weight
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(spacing: 24) {
+                LazyVStack(spacing: AppVisualSystem.Spacing.xLarge) {
                     modeContent
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .top)
             }
+            .appScreenBackground(accent: modeAccent)
             .navigationTitle(mode.navigationTitle)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -232,9 +242,7 @@ struct HealthView: View {
 
             activityLegend
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .appSurface(.standard)
     }
 
     private var activityOccurrenceTitle: String {
@@ -438,11 +446,12 @@ struct HealthView: View {
 
     private var healthEntriesList: some View {
         VStack(spacing: 8) {
-            HStack {
-                Text("Recent Entries")
-                    .font(.subheadline.bold())
-                Spacer()
-            }
+            AppSectionHeader(
+                "Recent Entries",
+                subtitle: healthEntries.isEmpty ? "No activity logged" : "Your latest activity",
+                systemImage: "clock.arrow.circlepath",
+                tint: modeAccent
+            )
 
             if healthEntries.isEmpty {
                 if isLoadingHealthPage {
@@ -491,9 +500,10 @@ struct HealthView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(10)
+        .appSurface(
+            .tinted(activityColor(entry.type)),
+            cornerRadius: 16
+        )
     }
 
     // MARK: - Sleep Section
@@ -535,7 +545,7 @@ struct HealthView: View {
                     showEditSleepTargets = true
                 }
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.cyan)
+                .foregroundStyle(AppVisualSystem.ColorToken.accent)
             }
 
             if sleepDailyTotals.isEmpty {
@@ -570,9 +580,7 @@ struct HealthView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
             }
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .appSurface(.standard)
     }
 
     private func drawSleepChart(context: GraphicsContext, size: CGSize) {
@@ -733,11 +741,12 @@ struct HealthView: View {
 
     private var sleepEntriesList: some View {
         VStack(spacing: 8) {
-            HStack {
-                Text("Sleep Log")
-                    .font(.subheadline.bold())
-                Spacer()
-            }
+            AppSectionHeader(
+                "Sleep Log",
+                subtitle: sleepEntries.isEmpty ? "No sleep logged" : "Recent recovery",
+                systemImage: "moon.zzz.fill",
+                tint: AppVisualSystem.ColorToken.recovery
+            )
 
             if sleepEntries.isEmpty {
                 if isLoadingSleepPage {
@@ -807,9 +816,10 @@ struct HealthView: View {
                     .monospacedDigit()
             }
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(10)
+        .appSurface(
+            .tinted(isBadSleepNight(entry) ? AppVisualSystem.ColorToken.warning : AppVisualSystem.ColorToken.recovery),
+            cornerRadius: 16
+        )
     }
 
     private func sleepEntryIcon(_ entry: SleepEntry) -> some View {
@@ -827,7 +837,7 @@ struct HealthView: View {
                 Image(systemName: "exclamationmark.circle.fill")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.orange)
-                    .background(Circle().fill(Color(.secondarySystemBackground)))
+                    .background(Circle().fill(AppVisualSystem.ColorToken.surface))
                     .offset(x: 4, y: -4)
             }
         }
@@ -886,7 +896,7 @@ struct HealthView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.cyan)
+                    .tint(AppVisualSystem.ColorToken.accent)
                     .disabled(isSavingHealth)
 
                     Spacer(minLength: 0)

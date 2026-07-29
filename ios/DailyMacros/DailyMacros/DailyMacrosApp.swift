@@ -39,7 +39,7 @@ struct DailyMacrosApp: App {
                 if auth.isLoading {
                     ProgressView("Loading...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color(.systemBackground))
+                        .appScreenBackground()
                 } else if auth.isAuthenticated, shouldShowOnboarding {
                     OnboardingView(isComplete: $onboardingComplete)
                         .environmentObject(auth)
