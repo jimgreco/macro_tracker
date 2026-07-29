@@ -86,7 +86,13 @@ For a preloaded local preview, run `npm run db:seed:local` after Postgres is up.
 
 ## Production Setup Notes
 
-The production path is the EC2 deploy workflow in `.github/workflows/deploy.yml`. It runs automatically for backend/web deploy inputs on `main`, can be started manually from GitHub Actions, rsyncs this repository to `~/macros`, rebuilds the `macros` service from `~/deploy`, and then runs `scripts/production-smoke.sh` when `PRODUCTION_BASE_URL` is configured.
+The production path is the `Required CI and Release` orchestrator in
+`.github/workflows/ci.yml`. Every `main` push—and any manual run of that
+orchestrator on `main`—must pass the JavaScript, PostgreSQL, Docker,
+browser/accessibility, and iOS gates before it can call the reusable EC2 deploy
+and TestFlight workflows. The EC2 deploy implementation rsyncs this repository
+to `~/macros`, rebuilds the `macros` service from `~/deploy`, and then runs
+`scripts/production-smoke.sh` when `PRODUCTION_BASE_URL` is configured.
 
 Required GitHub Actions secrets for deploy:
 - `EC2_SSH_KEY`

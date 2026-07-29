@@ -60,7 +60,10 @@ const requirements = [
   ],
   [protection.restrictions == null, 'push restrictions were added unexpectedly'],
   [protection.lock_branch?.enabled !== true, 'the branch is locked unexpectedly'],
-  [protection.allow_fork_syncing?.enabled === true, 'fork syncing is not allowed']
+  [
+    protection.allow_fork_syncing?.enabled !== true,
+    'fork syncing is enabled even though the branch is not locked'
+  ]
 ];
 const failures = requirements.filter(([satisfied]) => !satisfied);
 if (failures.length) {

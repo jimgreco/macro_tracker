@@ -17,11 +17,11 @@ longer expose direct `push` or `workflow_dispatch` triggers, so a release cannot
 bypass the orchestrator. A manual run of `Required CI and Release` on `main`
 still reruns all gates before either release job.
 
-## Enable main protection after the workflow lands
+## Main protection
 
 GitHub cannot require a check context until that context has appeared at least
-once. The repository currently has no branch protection or ruleset, so use this
-one-time sequence:
+once. Main protection was enabled after the first successful `Required Checks`
+run. Use this sequence when recreating or changing it:
 
 1. Land the workflow while `main` is still unprotected.
 2. Wait for the `Required Checks` job on that exact SHA to finish successfully.
@@ -45,7 +45,9 @@ one-time sequence:
 
 The setup enables strict/up-to-date required checks, linear history, admin
 enforcement, conversation resolution, and force-push/deletion protection. It
-does not impose an approval-count policy. Review the JSON in
+keeps the branch writable after successful checks, so GitHub correctly reports
+fork syncing as disabled; that setting only applies to read-only locked
+branches. It does not impose an approval-count policy. Review the JSON in
 `scripts/configure-required-checks.sh` before applying if repository governance
 needs a required-review policy too.
 
