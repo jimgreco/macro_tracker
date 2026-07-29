@@ -420,10 +420,12 @@ async function initDb() {
       current_period_start TIMESTAMPTZ,
       current_period_end TIMESTAMPTZ,
       cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+      provider_observed_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await pool.query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS provider_observed_at TIMESTAMPTZ;`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS billing_events (
@@ -432,9 +434,81 @@ async function initDb() {
       stripe_event_id TEXT UNIQUE,
       event_type TEXT NOT NULL,
       payload JSONB NOT NULL,
+      applied_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await pool.query(`ALTER TABLE billing_events ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ;`);
+  // The durable inbox owns the short-lived minimum provider receipt. The
+  // billing ledger needs only event identity/type and application time.
+  await pool.query(`UPDATE billing_events SET payload = '{}'::jsonb WHERE payload <> '{}'::jsonb;`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS webhook_events (
+      id BIGSERIAL PRIMARY KEY,
+      provider TEXT NOT NULL,
+      provider_event_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      delivery_kind TEXT NOT NULL DEFAULT 'webhook'
+        CHECK (delivery_kind IN ('webhook', 'reconciliation')),
+      user_id TEXT,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'received'
+        CHECK (status IN ('received', 'processing', 'processed', 'failed')),
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      max_attempts INTEGER NOT NULL DEFAULT 8 CHECK (max_attempts > 0),
+      next_attempt_at TIMESTAMPTZ,
+      processing_started_at TIMESTAMPTZ,
+      lease_expires_at TIMESTAMPTZ,
+      worker_id TEXT,
+      failure_code TEXT,
+      occurred_at TIMESTAMPTZ,
+      received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_failed_at TIMESTAMPTZ,
+      processed_at TIMESTAMPTZ,
+      purge_after TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (provider, provider_event_id)
+    );
+  `);
+  await pool.query(`ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;`);
+  await pool.query(`
+    DELETE FROM subscriptions AS subscription
+    WHERE NOT EXISTS (
+      SELECT 1 FROM users WHERE users.id = subscription.user_id
+    );
+  `);
+  await pool.query(`
+    DELETE FROM billing_events AS event
+    WHERE event.user_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM users WHERE users.id = event.user_id
+      );
+  `);
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'subscriptions_user_id_fkey'
+          AND conrelid = 'subscriptions'::regclass
+      ) THEN
+        ALTER TABLE subscriptions
+          ADD CONSTRAINT subscriptions_user_id_fkey
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE NOT VALID;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'billing_events_user_id_fkey'
+          AND conrelid = 'billing_events'::regclass
+      ) THEN
+        ALTER TABLE billing_events
+          ADD CONSTRAINT billing_events_user_id_fkey
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE NOT VALID;
+      END IF;
+    END $$;
+  `);
+  await pool.query(`ALTER TABLE subscriptions VALIDATE CONSTRAINT subscriptions_user_id_fkey;`);
+  await pool.query(`ALTER TABLE billing_events VALIDATE CONSTRAINT billing_events_user_id_fkey;`);
 
   // ── API tokens for mobile/external clients ──
   await pool.query(`
@@ -749,6 +823,20 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer ON subscriptions(stripe_customer_id);
     CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id);
     CREATE INDEX IF NOT EXISTS idx_billing_events_stripe ON billing_events(stripe_event_id);
+    CREATE INDEX IF NOT EXISTS idx_webhook_events_claim
+      ON webhook_events(status, next_attempt_at, received_at);
+    CREATE INDEX IF NOT EXISTS idx_webhook_events_lease
+      ON webhook_events(lease_expires_at)
+      WHERE status = 'processing';
+    CREATE INDEX IF NOT EXISTS idx_webhook_events_user
+      ON webhook_events(user_id, received_at DESC)
+      WHERE user_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_webhook_events_processed
+      ON webhook_events(processed_at)
+      WHERE processed_at IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_webhook_events_purge
+      ON webhook_events(purge_after)
+      WHERE purge_after IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_daily_usage_counts_user_date ON daily_usage_counts(user_id, usage_date DESC);
     CREATE INDEX IF NOT EXISTS idx_coach_dismissals_user_updated ON coach_dismissals(user_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_food_corrections_user_updated ON food_corrections(user_id, updated_at DESC);
@@ -762,6 +850,7 @@ async function initDb() {
   await recordSchemaMigration('2026-07-27_shared_auth_state');
   await recordSchemaMigration('2026-07-27_nutrition_day_completeness');
   await recordSchemaMigration('2026-07-28_data_inventory_and_retention');
+  await recordSchemaMigration('2026-07-29_durable_webhook_inbox');
   await applyHealthKitSleepRevisionMigration();
 
   await pool.query('DELETE FROM web_sessions WHERE expires_at <= NOW()');
@@ -4455,7 +4544,16 @@ async function exportUserData(userId) {
     getWeightTarget(userId)
   ]);
   const retention = Object.fromEntries(
-    retentionInventory().map((item) => [item.table, { days: item.retention.days }])
+    retentionInventory().map((item) => [
+      item.table,
+      item.retention.mode === 'deadline'
+        ? {
+            mode: 'deadline',
+            processedDays: item.retention.processedDays,
+            exhaustedDays: item.retention.exhaustedDays
+          }
+        : { days: item.retention.days }
+    ])
   );
   const exported = {
     exportedAt: new Date().toISOString(),
@@ -4502,17 +4600,32 @@ async function runDataRetentionCleanup({ now = new Date(), queryable = pool } = 
   for (const item of retentionInventory()) {
     const table = assertInventoryIdentifier(item.table, 'table');
     const column = assertInventoryIdentifier(item.retention.column, 'retention column');
-    const result = await queryable.query(
-      `DELETE FROM ${table}
-       WHERE ${column} < ($1::timestamptz - ($2 * INTERVAL '1 day'))`,
-      [cleanupAt.toISOString(), item.retention.days]
-    );
+    const deadlineMode = item.retention.mode === 'deadline';
+    const result = deadlineMode
+      ? await queryable.query(
+          `DELETE FROM ${table}
+           WHERE ${column} IS NOT NULL
+             AND ${column} <= $1::timestamptz`,
+          [cleanupAt.toISOString()]
+        )
+      : await queryable.query(
+          `DELETE FROM ${table}
+           WHERE ${column} < ($1::timestamptz - ($2 * INTERVAL '1 day'))`,
+          [cleanupAt.toISOString(), item.retention.days]
+        );
     const deleted = Number(result.rowCount || 0);
     deletedTotal += deleted;
-    tables[table] = {
-      deleted,
-      retentionDays: item.retention.days
-    };
+    tables[table] = deadlineMode
+      ? {
+          deleted,
+          retentionMode: 'deadline',
+          processedDays: item.retention.processedDays,
+          exhaustedDays: item.retention.exhaustedDays
+        }
+      : {
+          deleted,
+          retentionDays: item.retention.days
+        };
   }
 
   return {
@@ -4520,6 +4633,381 @@ async function runDataRetentionCleanup({ now = new Date(), queryable = pool } = 
     inventoryVersion: DATA_INVENTORY_VERSION,
     deletedTotal,
     tables
+  };
+}
+
+// ── Durable provider event inbox ──
+
+function normalizeWebhookEventRow(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    provider: row.provider,
+    providerEventId: row.providerEventId,
+    eventType: row.eventType,
+    deliveryKind: row.deliveryKind,
+    userId: row.userId || null,
+    payload: row.payload || {},
+    status: row.status,
+    attemptCount: Number(row.attemptCount || 0),
+    maxAttempts: Number(row.maxAttempts || 0),
+    nextAttemptAt: row.nextAttemptAt ? new Date(row.nextAttemptAt).toISOString() : null,
+    processingStartedAt: row.processingStartedAt
+      ? new Date(row.processingStartedAt).toISOString()
+      : null,
+    leaseExpiresAt: row.leaseExpiresAt ? new Date(row.leaseExpiresAt).toISOString() : null,
+    workerId: row.workerId || null,
+    failureCode: row.failureCode || null,
+    occurredAt: row.occurredAt ? new Date(row.occurredAt).toISOString() : null,
+    receivedAt: row.receivedAt ? new Date(row.receivedAt).toISOString() : null,
+    lastFailedAt: row.lastFailedAt ? new Date(row.lastFailedAt).toISOString() : null,
+    processedAt: row.processedAt ? new Date(row.processedAt).toISOString() : null,
+    purgeAfter: row.purgeAfter ? new Date(row.purgeAfter).toISOString() : null,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null
+  };
+}
+
+const WEBHOOK_EVENT_COLUMNS = `
+  id,
+  provider,
+  provider_event_id AS "providerEventId",
+  event_type AS "eventType",
+  delivery_kind AS "deliveryKind",
+  user_id AS "userId",
+  payload,
+  status,
+  attempt_count AS "attemptCount",
+  max_attempts AS "maxAttempts",
+  next_attempt_at AS "nextAttemptAt",
+  processing_started_at AS "processingStartedAt",
+  lease_expires_at AS "leaseExpiresAt",
+  worker_id AS "workerId",
+  failure_code AS "failureCode",
+  occurred_at AS "occurredAt",
+  received_at AS "receivedAt",
+  last_failed_at AS "lastFailedAt",
+  processed_at AS "processedAt",
+  purge_after AS "purgeAfter",
+  updated_at AS "updatedAt"
+`;
+
+function normalizedWebhookIdentifier(value, label, { pattern, maxLength = 255 } = {}) {
+  const normalized = String(value || '').trim();
+  if (!normalized || normalized.length > maxLength || (pattern && !pattern.test(normalized))) {
+    throw new Error(`Webhook ${label} is invalid.`);
+  }
+  return normalized;
+}
+
+async function receiveWebhookEvent({
+  provider,
+  providerEventId,
+  eventType,
+  deliveryKind = 'webhook',
+  userId = null,
+  payload = {},
+  occurredAt = null,
+  maxAttempts = 8
+}) {
+  const normalizedProvider = normalizedWebhookIdentifier(provider, 'provider', {
+    pattern: /^[a-z0-9_-]+$/,
+    maxLength: 40
+  });
+  const normalizedEventId = normalizedWebhookIdentifier(providerEventId, 'event id', {
+    maxLength: 500
+  });
+  const normalizedEventType = normalizedWebhookIdentifier(eventType, 'event type', {
+    maxLength: 160
+  });
+  const normalizedDeliveryKind = String(deliveryKind || '').trim();
+  if (!['webhook', 'reconciliation'].includes(normalizedDeliveryKind)) {
+    throw new Error('Webhook delivery kind is invalid.');
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Webhook payload must be an object.');
+  }
+  const normalizedMaxAttempts = Math.max(1, Math.min(50, Math.floor(Number(maxAttempts) || 8)));
+  const normalizedUserId = String(userId || '').trim() || null;
+  const occurred = occurredAt ? new Date(occurredAt) : null;
+  if (occurred && Number.isNaN(occurred.getTime())) {
+    throw new Error('Webhook event time is invalid.');
+  }
+
+  const result = await pool.query(
+    `INSERT INTO webhook_events (
+       provider, provider_event_id, event_type, delivery_kind, user_id, payload,
+       max_attempts, next_attempt_at, occurred_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW(), $8)
+     ON CONFLICT (provider, provider_event_id)
+     DO UPDATE SET
+       user_id = COALESCE(webhook_events.user_id, EXCLUDED.user_id)
+     RETURNING ${WEBHOOK_EVENT_COLUMNS}`,
+    [
+      normalizedProvider,
+      normalizedEventId,
+      normalizedEventType,
+      normalizedDeliveryKind,
+      normalizedUserId,
+      JSON.stringify(payload),
+      normalizedMaxAttempts,
+      occurred
+    ]
+  );
+  return normalizeWebhookEventRow(result.rows[0]);
+}
+
+async function claimWebhookEvents({
+  workerId,
+  limit = 10,
+  leaseMs = 120_000,
+  providers = [],
+  queryable = pool
+}) {
+  const normalizedWorkerId = normalizedWebhookIdentifier(workerId, 'worker id', {
+    maxLength: 160
+  });
+  const normalizedLimit = Math.max(1, Math.min(100, Math.floor(Number(limit) || 10)));
+  const normalizedLeaseMs = Math.max(1_000, Math.min(
+    60 * 60 * 1000,
+    Math.floor(Number(leaseMs) || 120_000)
+  ));
+  const normalizedProviders = [...new Set(
+    (Array.isArray(providers) ? providers : [])
+      .map((provider) => String(provider || '').trim())
+      .filter((provider) => /^[a-z0-9_-]{1,40}$/.test(provider))
+  )];
+  if (!normalizedProviders.length) return [];
+
+  // A worker that died during its final permitted attempt cannot leave a row
+  // stuck in processing forever.
+  await queryable.query(
+    `UPDATE webhook_events
+     SET status = 'failed',
+         next_attempt_at = NULL,
+         worker_id = NULL,
+         lease_expires_at = NULL,
+         failure_code = 'lease_expired_after_final_attempt',
+         last_failed_at = NOW(),
+         purge_after = COALESCE(purge_after, NOW() + INTERVAL '90 days'),
+         updated_at = NOW()
+     WHERE status = 'processing'
+       AND lease_expires_at <= NOW()
+       AND attempt_count >= max_attempts
+       AND provider = ANY($1::text[])`,
+    [normalizedProviders]
+  );
+
+  const result = await queryable.query(
+    `WITH claimable AS (
+       SELECT id AS claim_id
+       FROM webhook_events
+       WHERE provider = ANY($4::text[])
+         AND attempt_count < max_attempts
+         AND (
+           (status = 'received' AND next_attempt_at <= NOW())
+           OR (status = 'failed' AND next_attempt_at IS NOT NULL AND next_attempt_at <= NOW())
+           OR (status = 'processing' AND lease_expires_at <= NOW())
+         )
+       ORDER BY next_attempt_at ASC NULLS FIRST, received_at ASC, id ASC
+       FOR UPDATE SKIP LOCKED
+       LIMIT $1
+     )
+     UPDATE webhook_events AS event
+     SET status = 'processing',
+         attempt_count = event.attempt_count + 1,
+         processing_started_at = NOW(),
+         lease_expires_at = NOW() + ($3::bigint * INTERVAL '1 millisecond'),
+         worker_id = $2,
+         failure_code = NULL,
+         purge_after = NULL,
+         updated_at = NOW()
+     FROM claimable
+     WHERE event.id = claimable.claim_id
+     RETURNING ${WEBHOOK_EVENT_COLUMNS}`,
+    [normalizedLimit, normalizedWorkerId, normalizedLeaseMs, normalizedProviders]
+  );
+  return result.rows.map(normalizeWebhookEventRow);
+}
+
+function webhookLeaseLostError() {
+  const error = new Error('Webhook event lease is no longer owned by this worker.');
+  error.code = 'webhook_lease_lost';
+  return error;
+}
+
+async function markWebhookEventProcessed(eventId, workerId, queryable = pool) {
+  const result = await queryable.query(
+    `UPDATE webhook_events
+     SET status = 'processed',
+         next_attempt_at = NULL,
+         lease_expires_at = NULL,
+         worker_id = NULL,
+         failure_code = NULL,
+         processed_at = NOW(),
+         purge_after = NOW() + INTERVAL '30 days',
+         updated_at = NOW()
+     WHERE id = $1
+       AND status = 'processing'
+       AND worker_id = $2
+     RETURNING ${WEBHOOK_EVENT_COLUMNS}`,
+    [eventId, workerId]
+  );
+  if (!result.rows.length) throw webhookLeaseLostError();
+  return normalizeWebhookEventRow(result.rows[0]);
+}
+
+async function markWebhookEventFailed(eventId, workerId, {
+  errorCode = 'processing_error',
+  retryDelayMs = 1_000
+} = {}, queryable = pool) {
+  const normalizedErrorCode = normalizedWebhookIdentifier(errorCode, 'failure code', {
+    pattern: /^[a-z0-9_:-]+$/,
+    maxLength: 80
+  });
+  const normalizedRetryDelayMs = Math.max(1_000, Math.min(
+    24 * 60 * 60 * 1000,
+    Math.floor(Number(retryDelayMs) || 1_000)
+  ));
+  const result = await queryable.query(
+    `UPDATE webhook_events
+     SET status = 'failed',
+         next_attempt_at = CASE
+           WHEN attempt_count >= max_attempts THEN NULL
+           ELSE NOW() + ($4::bigint * INTERVAL '1 millisecond')
+         END,
+         lease_expires_at = NULL,
+         worker_id = NULL,
+         failure_code = $3,
+         last_failed_at = NOW(),
+         purge_after = CASE
+           WHEN attempt_count >= max_attempts THEN NOW() + INTERVAL '90 days'
+           ELSE NULL
+         END,
+         updated_at = NOW()
+     WHERE id = $1
+       AND status = 'processing'
+       AND worker_id = $2
+     RETURNING ${WEBHOOK_EVENT_COLUMNS}`,
+    [eventId, workerId, normalizedErrorCode, normalizedRetryDelayMs]
+  );
+  if (!result.rows.length) throw webhookLeaseLostError();
+  const event = normalizeWebhookEventRow(result.rows[0]);
+  return {
+    ...event,
+    exhausted: event.nextAttemptAt === null
+  };
+}
+
+async function retryWebhookEvent(eventId) {
+  const normalizedId = Math.floor(Number(eventId));
+  if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
+    throw new Error('Webhook event id is invalid.');
+  }
+  const result = await pool.query(
+    `UPDATE webhook_events
+     SET status = 'received',
+         attempt_count = 0,
+         next_attempt_at = NOW(),
+         processing_started_at = NULL,
+         lease_expires_at = NULL,
+         worker_id = NULL,
+         failure_code = NULL,
+         last_failed_at = NULL,
+         purge_after = NULL,
+         updated_at = NOW()
+     WHERE id = $1
+       AND status = 'failed'
+     RETURNING ${WEBHOOK_EVENT_COLUMNS}`,
+    [normalizedId]
+  );
+  return normalizeWebhookEventRow(result.rows[0]);
+}
+
+async function getWebhookOperationsSummary({ failureLimit = 50 } = {}) {
+  const normalizedLimit = Math.max(1, Math.min(100, Math.floor(Number(failureLimit) || 50)));
+  const [summaryResult, providerResult, failureResult] = await Promise.all([
+    pool.query(`
+      SELECT
+        COUNT(*) FILTER (
+          WHERE status = 'received'
+             OR (status = 'failed' AND next_attempt_at IS NOT NULL)
+             OR (status = 'processing' AND lease_expires_at <= NOW())
+        )::bigint AS "backlogCount",
+        COUNT(*) FILTER (WHERE status = 'processing')::bigint AS "processingCount",
+        COUNT(*) FILTER (WHERE status = 'failed')::bigint AS "failureCount",
+        COUNT(*) FILTER (
+          WHERE status = 'failed' AND next_attempt_at IS NULL
+        )::bigint AS "exhaustedCount",
+        FLOOR(EXTRACT(EPOCH FROM (
+          NOW() - MIN(received_at) FILTER (
+            WHERE status = 'received'
+               OR (status = 'failed' AND next_attempt_at IS NOT NULL)
+               OR (status = 'processing' AND lease_expires_at <= NOW())
+          )
+        )))::bigint AS "oldestBacklogAgeSeconds",
+        MAX(processed_at) AS "lastSuccessAt"
+      FROM webhook_events
+    `),
+    pool.query(`
+      SELECT provider,
+             COUNT(*) FILTER (
+               WHERE status = 'received'
+                  OR (status = 'failed' AND next_attempt_at IS NOT NULL)
+                  OR (status = 'processing' AND lease_expires_at <= NOW())
+             )::bigint AS "backlogCount",
+             COUNT(*) FILTER (WHERE status = 'failed')::bigint AS "failureCount",
+             MAX(processed_at) AS "lastSuccessAt"
+      FROM webhook_events
+      GROUP BY provider
+      ORDER BY provider
+    `),
+    pool.query(
+      `SELECT id,
+              provider,
+              event_type AS "eventType",
+              attempt_count AS "attemptCount",
+              max_attempts AS "maxAttempts",
+              failure_code AS "failureCode",
+              received_at AS "receivedAt",
+              last_failed_at AS "lastFailedAt",
+              next_attempt_at AS "nextAttemptAt"
+       FROM webhook_events
+       WHERE status = 'failed'
+       ORDER BY last_failed_at DESC NULLS LAST, id DESC
+       LIMIT $1`,
+      [normalizedLimit]
+    )
+  ]);
+  const summary = summaryResult.rows[0] || {};
+  return {
+    backlogCount: Number(summary.backlogCount || 0),
+    processingCount: Number(summary.processingCount || 0),
+    failureCount: Number(summary.failureCount || 0),
+    exhaustedCount: Number(summary.exhaustedCount || 0),
+    oldestBacklogAgeSeconds: summary.oldestBacklogAgeSeconds == null
+      ? null
+      : Number(summary.oldestBacklogAgeSeconds),
+    lastSuccessAt: summary.lastSuccessAt
+      ? new Date(summary.lastSuccessAt).toISOString()
+      : null,
+    providers: providerResult.rows.map((row) => ({
+      provider: row.provider,
+      backlogCount: Number(row.backlogCount || 0),
+      failureCount: Number(row.failureCount || 0),
+      lastSuccessAt: row.lastSuccessAt ? new Date(row.lastSuccessAt).toISOString() : null
+    })),
+    failures: failureResult.rows.map((row) => ({
+      id: Number(row.id),
+      provider: row.provider,
+      eventType: row.eventType,
+      attemptCount: Number(row.attemptCount || 0),
+      maxAttempts: Number(row.maxAttempts || 0),
+      failureCode: row.failureCode || null,
+      receivedAt: row.receivedAt ? new Date(row.receivedAt).toISOString() : null,
+      lastFailedAt: row.lastFailedAt ? new Date(row.lastFailedAt).toISOString() : null,
+      nextAttemptAt: row.nextAttemptAt ? new Date(row.nextAttemptAt).toISOString() : null
+    }))
   };
 }
 
@@ -4553,12 +5041,19 @@ async function getSubscription(userId) {
             plan, status, current_period_start AS "currentPeriodStart",
             current_period_end AS "currentPeriodEnd",
             cancel_at_period_end AS "cancelAtPeriodEnd",
+            provider_observed_at AS "providerObservedAt",
             created_at AS "createdAt", updated_at AS "updatedAt"
      FROM subscriptions WHERE user_id = $1`,
     [userId]
   );
   if (!result.rows.length) {
-    return { plan: 'free', status: 'active', stripeCustomerId: null, stripeSubscriptionId: null };
+    return {
+      plan: 'free',
+      status: 'active',
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      providerObservedAt: null
+    };
   }
   const row = result.rows[0];
   return {
@@ -4570,15 +5065,28 @@ async function getSubscription(userId) {
     currentPeriodStart: row.currentPeriodStart ? new Date(row.currentPeriodStart).toISOString() : null,
     currentPeriodEnd: row.currentPeriodEnd ? new Date(row.currentPeriodEnd).toISOString() : null,
     cancelAtPeriodEnd: Boolean(row.cancelAtPeriodEnd),
+    providerObservedAt: row.providerObservedAt
+      ? new Date(row.providerObservedAt).toISOString()
+      : null,
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null
   };
 }
 
-async function upsertSubscription(userId, data) {
-  await pool.query(
-    `INSERT INTO subscriptions (user_id, stripe_customer_id, stripe_subscription_id, plan, status, current_period_start, current_period_end, cancel_at_period_end, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+async function upsertSubscriptionWithQueryable(queryable, userId, data) {
+  const providerObservedAt = data.providerObservedAt
+    ? new Date(data.providerObservedAt)
+    : new Date();
+  if (Number.isNaN(providerObservedAt.getTime())) {
+    throw new Error('Subscription provider observation time is invalid.');
+  }
+  const result = await queryable.query(
+    `INSERT INTO subscriptions (
+       user_id, stripe_customer_id, stripe_subscription_id, plan, status,
+       current_period_start, current_period_end, cancel_at_period_end,
+       provider_observed_at, updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
      ON CONFLICT (user_id) DO UPDATE SET
        stripe_customer_id = COALESCE(EXCLUDED.stripe_customer_id, subscriptions.stripe_customer_id),
        stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, subscriptions.stripe_subscription_id),
@@ -4587,7 +5095,11 @@ async function upsertSubscription(userId, data) {
        current_period_start = COALESCE(EXCLUDED.current_period_start, subscriptions.current_period_start),
        current_period_end = COALESCE(EXCLUDED.current_period_end, subscriptions.current_period_end),
        cancel_at_period_end = EXCLUDED.cancel_at_period_end,
-       updated_at = NOW()`,
+       provider_observed_at = EXCLUDED.provider_observed_at,
+       updated_at = NOW()
+     WHERE subscriptions.provider_observed_at IS NULL
+        OR subscriptions.provider_observed_at < EXCLUDED.provider_observed_at
+     RETURNING user_id`,
     [
       userId,
       data.stripeCustomerId || null,
@@ -4596,9 +5108,15 @@ async function upsertSubscription(userId, data) {
       data.status || 'active',
       data.currentPeriodStart || null,
       data.currentPeriodEnd || null,
-      Boolean(data.cancelAtPeriodEnd)
+      Boolean(data.cancelAtPeriodEnd),
+      providerObservedAt
     ]
   );
+  return { updated: result.rows.length === 1 };
+}
+
+async function upsertSubscription(userId, data) {
+  return upsertSubscriptionWithQueryable(pool, userId, data);
 }
 
 async function getSubscriptionByStripeCustomerId(stripeCustomerId) {
@@ -4610,12 +5128,92 @@ async function getSubscriptionByStripeCustomerId(stripeCustomerId) {
 }
 
 async function saveBillingEvent(userId, stripeEventId, eventType, payload) {
-  await pool.query(
-    `INSERT INTO billing_events (user_id, stripe_event_id, event_type, payload)
-     VALUES ($1, $2, $3, $4::jsonb)
-     ON CONFLICT (stripe_event_id) DO NOTHING`,
-    [userId, stripeEventId, eventType, JSON.stringify(payload)]
+  const result = await pool.query(
+    `INSERT INTO billing_events (user_id, stripe_event_id, event_type, payload, applied_at)
+     VALUES ($1, $2, $3, '{}'::jsonb, NOW())
+     ON CONFLICT (stripe_event_id) DO NOTHING
+     RETURNING id`,
+    [userId, stripeEventId, eventType]
   );
+  return { applied: result.rows.length === 1 };
+}
+
+async function applyStripeBillingEvent(userId, {
+  stripeEventId,
+  eventType,
+  payload,
+  subscription
+}) {
+  const normalizedUserId = String(userId || '').trim();
+  const normalizedEventId = String(stripeEventId || '').trim();
+  const normalizedEventType = String(eventType || '').trim();
+  if (!normalizedUserId || !normalizedEventId || !normalizedEventType) {
+    throw new Error('Stripe billing application is missing required identifiers.');
+  }
+  if (!subscription || typeof subscription !== 'object') {
+    throw new Error('Stripe billing application is missing subscription state.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO billing_events (
+         user_id, stripe_event_id, event_type, payload, applied_at
+       )
+       VALUES ($1, $2, $3, '{}'::jsonb, NULL)
+       ON CONFLICT (stripe_event_id) DO NOTHING`,
+      [normalizedUserId, normalizedEventId, normalizedEventType]
+    );
+    const eventResult = await client.query(
+      `SELECT applied_at AS "appliedAt"
+       FROM billing_events
+       WHERE stripe_event_id = $1
+       FOR UPDATE`,
+      [normalizedEventId]
+    );
+    if (!eventResult.rows.length) {
+      throw new Error('Stripe billing event receipt could not be locked.');
+    }
+    if (eventResult.rows[0].appliedAt) {
+      await client.query('COMMIT');
+      return { applied: false };
+    }
+
+    await upsertSubscriptionWithQueryable(client, normalizedUserId, subscription);
+    await client.query(
+      `UPDATE billing_events
+       SET user_id = $2,
+           event_type = $3,
+           payload = '{}'::jsonb,
+           applied_at = NOW()
+       WHERE stripe_event_id = $1`,
+      [normalizedEventId, normalizedUserId, normalizedEventType]
+    );
+    await client.query('COMMIT');
+    return { applied: true };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function listStripeSubscriptionsForReconciliation({ limit = 500, offset = 0 } = {}) {
+  const normalizedLimit = Math.max(1, Math.min(2_000, Math.floor(Number(limit) || 500)));
+  const normalizedOffset = Math.max(0, Math.floor(Number(offset) || 0));
+  const result = await pool.query(
+    `SELECT user_id AS "userId",
+            stripe_customer_id AS "stripeCustomerId",
+            stripe_subscription_id AS "stripeSubscriptionId"
+     FROM subscriptions
+     WHERE stripe_customer_id IS NOT NULL
+     ORDER BY user_id
+     LIMIT $1 OFFSET $2`,
+    [normalizedLimit, normalizedOffset]
+  );
+  return result.rows;
 }
 
 async function consumeDailyUsage(userId, feature, maxDaily) {
@@ -4751,10 +5349,18 @@ module.exports = {
   exportUserData,
   deleteUserAccount,
   runDataRetentionCleanup,
+  receiveWebhookEvent,
+  claimWebhookEvents,
+  markWebhookEventProcessed,
+  markWebhookEventFailed,
+  retryWebhookEvent,
+  getWebhookOperationsSummary,
   getPlanLimits,
   getSubscription,
   upsertSubscription,
   getSubscriptionByStripeCustomerId,
   saveBillingEvent,
+  applyStripeBillingEvent,
+  listStripeSubscriptionsForReconciliation,
   consumeDailyUsage
 };

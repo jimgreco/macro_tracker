@@ -37,6 +37,9 @@ Debug iOS builds auto-request `/auth/dev/mobile` when pointed at localhost; that
 | `npm run test:check` | Syntax check + tests (no DB needed) |
 | `npm run db:up` / `db:down` | Start/stop PostgreSQL |
 | `npm run db:seed:local` | Seed local preview data |
+| `npm run test:db:integration` | Run PostgreSQL-backed fresh-schema integration tests |
+| `npm run test:db:upgrade` | Run the supported legacy-schema upgrade test |
+| `npm run test:e2e` | Run Chromium product journeys and accessibility checks |
 
 If Docker is unavailable locally but Homebrew Postgres binaries exist, a throwaway smoke DB can be created with `initdb`, started on a high port with `pg_ctl -o "-p 55433 -k /tmp"`, and used via `DATABASE_URL=postgres://postgres@127.0.0.1:55433/postgres`. Stop it with `pg_ctl -D <dir> stop` after the smoke.
 
@@ -92,12 +95,15 @@ Uses Node's built-in `node:test` module.
 - `test/api-infrastructure.test.js` — API infra: soft deletes, pagination, auth, billing, GDPR, release workflow smoke checks
 - `test/http-routes.test.js` — Real Express route coverage with stubbed DB/parser dependencies for timezone prefs, provenance/corrections, templates, weekly recap, and diagnostics
 - `test/db-integration.test.js` — Opt-in PostgreSQL integration test for feature-foundation persistence; runs only when `TEST_DATABASE_URL` is set
+- `test/webhook-inbox-db.test.js` — Opt-in PostgreSQL concurrency, lease recovery, retention, and Stripe atomicity coverage; runs only when `TEST_DATABASE_URL` is set
+- `test/db-upgrade-path.test.js` — Disposable legacy-schema upgrade coverage; runs only when `TEST_UPGRADE_DATABASE_URL` is set
+- `test/e2e/` — Playwright Chromium journeys and focused axe accessibility checks
 - `test/ios-safari-regression.test.js` — Mobile nav regression
 - `test/ui-regression.test.js` — UI component tests
 - `test/workout-parse.test.js` — Workout parsing logic
 
 Run `npm run test:check` for fast syntax + test pass (no database required).
-Run `TEST_DATABASE_URL=postgres://... npm run test:check` before pushing DB/schema-heavy work to include the opt-in integration path.
+Run `TEST_DATABASE_URL=postgres://... npm run test:db:integration` before pushing DB/schema-heavy work, and use a separate empty disposable database with `TEST_UPGRADE_DATABASE_URL=postgres://... npm run test:db:upgrade` for migration changes.
 
 ## Architecture Notes
 
@@ -113,10 +119,11 @@ Run `TEST_DATABASE_URL=postgres://... npm run test:check` before pushing DB/sche
 - **Audit logging**: `audit_log` table. `logAudit()` wraps in try/catch to never break main operations.
 - **GDPR**: `GET /api/v1/account/export` (full data dump), `DELETE /api/v1/account` (hard delete all data).
 - **Pagination**: `getDashboard()` and `listWorkoutEntries()` accept `{ limit, offset }`, responses include `pagination` object.
-- **Stripe billing**: Webhook registered BEFORE `express.json()` for raw body access. Handles `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. Plan gating infrastructure exists but is currently disabled (no upgrade restrictions).
-- **Database**: Schema auto-created on startup. `schema_migrations` records feature/schema markers while legacy startup repair SQL remains in `initDb()`. Tables include `users`, `user_identities`, `entries`, `saved_items`, `food_corrections`, `macro_targets`, `weight_entries`, `workout_entries`, `sexual_activity_entries`, `sleep_entries`, `weight_targets`, `analysis_reports`, `api_tokens`, `web_sessions`, `rate_limit_counters`, `audit_log`, `client_diagnostics`, `client_mutations`, `subscriptions`, `billing_events`, `coach_dismissals`, and `daily_usage_counts`.
+- **Stripe billing**: Webhook signature verification runs against the exact raw bytes before `express.json()`. Verified deliveries persist only a minimal receipt in `webhook_events` before acknowledgment; a database-claimed worker applies current Stripe provider truth idempotently with bounded retries, leases, reconciliation, and graceful shutdown. Checkout writes the app user id into subscription metadata so missed checkout processing can recover the customer mapping. Plan gating infrastructure exists but is currently disabled (no upgrade restrictions).
+- **Database**: Schema auto-created on startup. `schema_migrations` records feature/schema markers while legacy startup repair SQL remains in `initDb()`. Tables include `users`, `user_identities`, `entries`, `saved_items`, `food_corrections`, `macro_targets`, `weight_entries`, `workout_entries`, `sexual_activity_entries`, `sleep_entries`, `weight_targets`, `analysis_reports`, `api_tokens`, `web_sessions`, `rate_limit_counters`, `audit_log`, `client_diagnostics`, `client_mutations`, `subscriptions`, `billing_events`, `webhook_events`, `coach_dismissals`, and `daily_usage_counts`.
 - **API**: REST endpoints under `/api/v1/`. Rate-limited parse endpoints (15 req/min). See `src/server.js` for full route list.
 - **Today and primary navigation**: iOS and web share five primary destinations only: Today, Macros, Workouts, Health, and Insights. Settings / Account & Privacy lives behind the account avatar. Health owns internal Weight, Sleep, and optional Sexual Activity navigation so enabling the feature never creates an iOS More tab. `GET /api/today` returns one bounded, timezone-aware snapshot plus the supporting dashboard/workout/weight/sleep context used by both clients. Today may present source/freshness supplied by the canonical recovery contract, but JIM-51 remains responsible for Oura calculations and connection truth; do not infer an Oura connection state from manual or HealthKit sleep.
+- **Durable provider handoff**: `webhook_events` is the provider-neutral receipt/job boundary for Stripe today and direct Oura when JIM-52 is integrated. Reconciliation and backfill may repair missed provider state but must never clear a durable local tombstone; only a later verified signed provider `create` or `update` delivery may explicitly resurrect that record.
 - **Frontend**: Single HTML page (`public/index.html`) with all state in `public/script.js`.
 - **Modal-based editing**: All editing (entries, meals, quick adds, weight, workouts) uses modal popups (`showEntryModal`, `showCombineModal`, `showWeightEditModal`, `showWorkoutEditModal`). Target editing also uses modals: `showEditTargetsModal` (macro targets), `showWeightTargetModal` (weight target + date), `showWorkoutTargetModal` (workouts/week + calories/week). Each is accessed via "(edit targets)" or "(edit target)" links in the Logged Entries heading of each tab. No inline edit rows remain.
 - **Macro targets**: Stored historically in `macro_targets` by `(user_id, macro, effective_date)`. New edits are effective for the current local date going forward until another target row is set; old dates should compare against the targets effective on those dates. Valid macros: `calories`, `protein`, `carbs`, `fat`, `workouts`, `workout_calories`, `sleep_hours`. Defaults via `getMacroTargets()`.
@@ -177,9 +184,10 @@ Coach Tony P. category controls are local user preferences layered after confide
 
 - Active platform: EC2 host running Docker Compose from `~/deploy`.
 - Production database: shared Docker Postgres container in the remote Compose stack (`shared_db`).
-- Docker build context comes from the synced `~/macros` tree. Keep `.dockerignore` in the deploy workflow trigger and exclude legacy `.elasticbeanstalk` artifacts; stale EB app-version zip files on the EC2 host can otherwise break Docker builds with `no space left on device`.
+- Docker build context comes from the synced `~/macros` tree. The required orchestrator runs for every `main` push, including `.dockerignore` changes; keep legacy `.elasticbeanstalk` artifacts excluded because stale EB app-version zip files on the EC2 host can otherwise break Docker builds with `no space left on device`.
 - Nightly logical database backup: `dailymacros-db-backup.timer` runs `scripts/production-db-backup.sh` before the AWS DLM daily EBS snapshot window; DLM policy `policy-06a5ef1af3cbbc321` retains 7 daily off-host snapshots.
-- Deploy workflow: `.github/workflows/deploy.yml`.
+- Required CI/release orchestrator: `.github/workflows/ci.yml`. It gates JavaScript/HTTP, PostgreSQL fresh and upgrade paths, Docker, browser/accessibility, and iOS simulator tests behind the stable `Required Checks` context.
+- Deploy and TestFlight implementations are reusable workflows in `.github/workflows/deploy.yml` and `.github/workflows/testflight.yml`; neither can run directly and both are called only after `Required Checks` succeeds.
 - Release runbook: `docs/ec2-release-runbook.md`.
 - Health check: `GET /healthz` (performs live DB query).
 - Version check: `GET /version`.
@@ -191,7 +199,7 @@ Coach Tony P. category controls are local user preferences layered after confide
 
 ### Deployment Process
 
-Deployment is automated via GitHub Actions (`.github/workflows/deploy.yml`). Every qualifying push to `main` deploys backend/web assets to the EC2/Docker Compose production service. No manual `eb deploy` step is part of the active path.
+Deployment is automated by `.github/workflows/ci.yml`. Every push to `main` must pass the full `Required Checks` aggregate before the reusable EC2 deploy and TestFlight jobs can run. No direct deploy/TestFlight dispatch or manual `eb deploy` step is part of the active path.
 
 When asked to deploy or "push live", always run these steps in order — no skipping:
 
@@ -199,9 +207,9 @@ When asked to deploy or "push live", always run these steps in order — no skip
 2. **`git add`** all changed files relevant to the work
 3. **Update `AGENTS.md`** if anything was learned (new gotchas, architecture decisions, changed patterns) — then `git add AGENTS.md`
 4. **`git commit`** with a clear message describing what changed and why
-5. **`git push origin main`** — GitHub Actions will automatically deploy when the changed paths match `.github/workflows/deploy.yml`
+5. **`git push origin main`** — GitHub Actions runs all required gates, then deploys to EC2 and uploads TestFlight only after the aggregate succeeds
 
-The workflow uses `EC2_SSH_KEY`, `EC2_USER`, and `EC2_HOST` secrets, builds the `macros` service through the remote Compose project, and runs post-deploy `/healthz` and `/version` checks when `PRODUCTION_BASE_URL` is configured.
+The orchestrator retains diagnostics for failed gates. The reusable deploy job uses `EC2_SSH_KEY`, `EC2_USER`, and `EC2_HOST`, builds the `macros` service through the remote Compose project, and runs post-deploy `/healthz` and `/version` checks when `PRODUCTION_BASE_URL` is configured. Configure and verify strict main protection only after the `Required Checks` context has completed successfully; see `docs/ci-release-gates.md`.
 
 ## Content Security Policy
 

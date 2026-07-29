@@ -73,8 +73,16 @@ test('db.js exports all required functions', () => {
     'exportUserData',
     'deleteUserAccount',
     'runDataRetentionCleanup',
+    'receiveWebhookEvent',
+    'claimWebhookEvents',
+    'markWebhookEventProcessed',
+    'markWebhookEventFailed',
+    'retryWebhookEvent',
+    'getWebhookOperationsSummary',
     'getPlanLimits',
     'getSubscription',
+    'applyStripeBillingEvent',
+    'listStripeSubscriptionsForReconciliation',
     'consumeDailyUsage'
   ];
 
@@ -420,16 +428,28 @@ test('retention inventory sets and enforces explicit operational limits', () => 
   const db = read('src/db.js');
   const server = read('src/server.js');
   const { retentionInventory } = require('../src/data-inventory');
-  const policy = Object.fromEntries(
-    retentionInventory().map((item) => [item.table, item.retention.days])
+  const dayPolicies = Object.fromEntries(
+    retentionInventory()
+      .filter((item) => Number.isInteger(item.retention.days))
+      .map((item) => [item.table, item.retention.days])
   );
 
-  assert.deepEqual(policy, {
+  assert.deepEqual(dayPolicies, {
     audit_log: 365,
     daily_usage_counts: 90,
     client_diagnostics: 30
   });
+  const webhookPolicy = retentionInventory()
+    .find((item) => item.table === 'webhook_events')
+    ?.retention;
+  assert.deepEqual(webhookPolicy, {
+    mode: 'deadline',
+    column: 'purge_after',
+    processedDays: 30,
+    exhaustedDays: 90
+  });
   assert.ok(db.includes('async function runDataRetentionCleanup'));
+  assert.ok(db.includes("item.retention.mode === 'deadline'"));
   assert.ok(server.includes('scheduleDataRetentionCleanup'));
   assert.ok(server.includes('RETENTION_CLEANUP_INTERVAL_MS'));
   assert.ok(server.includes('retention: retentionCleanupState'));
@@ -872,6 +892,25 @@ test('db.js creates subscriptions and billing_events tables', () => {
   assert.ok(db.includes("plan TEXT NOT NULL DEFAULT 'free'"));
   assert.ok(db.includes('CREATE TABLE IF NOT EXISTS billing_events'));
   assert.ok(db.includes('stripe_event_id TEXT UNIQUE'));
+  assert.ok(db.includes('applied_at TIMESTAMPTZ'));
+});
+
+test('durable provider event inbox records leases, retries, and bounded retention', () => {
+  const db = read('src/db.js');
+  const worker = read('src/webhook-inbox.js');
+  const server = read('src/server.js');
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS webhook_events'));
+  assert.ok(db.includes("CHECK (status IN ('received', 'processing', 'processed', 'failed'))"));
+  assert.ok(db.includes('FOR UPDATE SKIP LOCKED'));
+  assert.ok(db.includes('lease_expires_at'));
+  assert.ok(db.includes("NOW() + INTERVAL '30 days'"));
+  assert.ok(db.includes("NOW() + INTERVAL '90 days'"));
+  assert.ok(worker.includes('retryDelayMs'));
+  assert.ok(worker.includes('registeredProviders'));
+  assert.ok(server.includes("apiRouter.get('/admin/webhooks'"));
+  assert.ok(server.includes("apiRouter.post('/admin/webhooks/:eventId/retry'"));
+  assert.ok(server.includes('WEBHOOK_SHUTDOWN_TIMEOUT_MS'));
+  assert.ok(server.includes('await webhookWorker.stop({'));
 });
 
 test('db.js exports subscription functions', () => {
@@ -905,7 +944,8 @@ test('server.js imports Stripe and subscription functions', () => {
   assert.ok(server.includes('getPlanLimits'));
   assert.ok(server.includes('getSubscription'));
   assert.ok(server.includes('upsertSubscription'));
-  assert.ok(server.includes('saveBillingEvent'));
+  assert.ok(server.includes('applyStripeBillingEvent'));
+  assert.ok(server.includes('receiveWebhookEvent'));
 });
 
 test('server.js has Stripe webhook endpoint before express.json()', () => {
@@ -915,16 +955,19 @@ test('server.js has Stripe webhook endpoint before express.json()', () => {
   assert.ok(webhookPos > 0, 'Webhook endpoint must exist');
   assert.ok(jsonPos > 0, 'JSON parser middleware must exist');
   assert.ok(webhookPos < jsonPos, 'Webhook must be registered before express.json()');
-  assert.ok(server.includes("express.raw({ type: 'application/json' })"), 'Webhook must use raw body parser');
+  assert.ok(server.includes("express.raw({ type: 'application/json', limit: '1mb' })"), 'Webhook must use raw body parser');
   assert.ok(server.includes('stripe.webhooks.constructEvent'), 'Webhook must verify signature');
+  assert.ok(server.includes('await receiveWebhookEvent(receipt)'));
 });
 
 test('server.js handles key Stripe webhook events', () => {
-  const server = read('src/server.js');
-  assert.ok(server.includes("'checkout.session.completed'"));
-  assert.ok(server.includes("'customer.subscription.updated'"));
-  assert.ok(server.includes("'customer.subscription.deleted'"));
-  assert.ok(server.includes("'invoice.payment_failed'"));
+  const stripeWebhooks = read('src/stripe-webhooks.js');
+  assert.ok(stripeWebhooks.includes("'checkout.session.completed'"));
+  assert.ok(stripeWebhooks.includes("'customer.subscription.updated'"));
+  assert.ok(stripeWebhooks.includes("'customer.subscription.deleted'"));
+  assert.ok(stripeWebhooks.includes("'invoice.payment_failed'"));
+  assert.ok(stripeWebhooks.includes('fetchCurrentSubscription'));
+  assert.ok(stripeWebhooks.includes('subscriptionMetadataUserId'));
 });
 
 test('server.js has subscription, checkout, and portal endpoints', () => {
@@ -932,6 +975,8 @@ test('server.js has subscription, checkout, and portal endpoints', () => {
   assert.ok(server.includes("apiRouter.get('/subscription'"));
   assert.ok(server.includes("apiRouter.post('/subscription/checkout'"));
   assert.ok(server.includes("apiRouter.post('/subscription/portal'"));
+  assert.ok(server.includes('subscription_data:'));
+  assert.ok(server.includes('app_user_id: userId'));
 });
 
 test('server.js has durable plan-based feature gating infrastructure', () => {
@@ -953,12 +998,9 @@ test('deploy workflow verifies SSH host and smokes production endpoints', () => 
   const workflow = read('.github/workflows/deploy.yml');
   const script = read('scripts/production-smoke.sh');
   assert.ok(workflow.includes('actions/checkout@v5'));
-  assert.ok(workflow.includes('workflow_dispatch:'));
-  assert.ok(workflow.includes('paths:'));
-  assert.ok(workflow.includes("'src/**'"));
-  assert.ok(workflow.includes("'public/**'"));
-  assert.ok(workflow.includes("'.github/workflows/deploy.yml'"));
-  assert.equal(workflow.includes("'ios/**'"), false);
+  assert.ok(workflow.includes('workflow_call:'));
+  assert.equal(workflow.includes('workflow_dispatch:'), false);
+  assert.equal(/^\s{2}push:/m.test(workflow), false);
   assert.ok(workflow.includes('ssh-keyscan -H "$EC2_HOST"'));
   assert.ok(workflow.includes('UserKnownHostsFile=~/.ssh/known_hosts'));
   assert.equal(workflow.includes('StrictHostKeyChecking=no'), false);

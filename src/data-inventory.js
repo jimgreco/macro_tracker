@@ -1,4 +1,4 @@
-const DATA_INVENTORY_VERSION = '2026-07-28';
+const DATA_INVENTORY_VERSION = '2026-07-29';
 
 const DISCLOSURE_GROUPS = Object.freeze({
   account: 'Account details',
@@ -302,6 +302,36 @@ const DATA_INVENTORY = Object.freeze([
     }
   },
   {
+    table: 'webhook_events',
+    scope: 'account',
+    userColumn: 'user_id',
+    disclosureGroup: 'operational',
+    purpose: 'Minimal verified provider event receipts and durable reconciliation jobs',
+    accountDeletion: true,
+    deleteOrder: 195,
+    retention: {
+      mode: 'deadline',
+      column: 'purge_after',
+      processedDays: 30,
+      exhaustedDays: 90
+    },
+    export: {
+      key: 'providerEvents',
+      columns: [
+        'provider',
+        'event_type',
+        'delivery_kind',
+        'status',
+        'attempt_count',
+        'failure_code',
+        'occurred_at',
+        'received_at',
+        'processed_at'
+      ],
+      orderBy: 'received_at DESC, id DESC'
+    }
+  },
+  {
     table: 'api_tokens',
     scope: 'account',
     userColumn: 'user_id',
@@ -448,7 +478,11 @@ function accountExportInventory() {
 }
 
 function retentionInventory() {
-  return DATA_INVENTORY.filter((item) => Number.isInteger(item.retention?.days));
+  return DATA_INVENTORY.filter(
+    (item) =>
+      Number.isInteger(item.retention?.days)
+      || item.retention?.mode === 'deadline'
+  );
 }
 
 module.exports = {

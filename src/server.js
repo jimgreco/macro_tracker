@@ -15,6 +15,7 @@ const appleSignin = require('apple-signin-auth');
 const heicConvert = require('heic-convert');
 const {
   initDb,
+  getPool,
   checkDatabaseHealth,
   upsertUser,
   getUserAccountControls,
@@ -98,11 +99,18 @@ const {
   exportUserData,
   deleteUserAccount,
   runDataRetentionCleanup,
+  receiveWebhookEvent,
+  claimWebhookEvents,
+  markWebhookEventProcessed,
+  markWebhookEventFailed,
+  retryWebhookEvent,
+  getWebhookOperationsSummary,
   getPlanLimits,
   getSubscription,
   upsertSubscription,
   getSubscriptionByStripeCustomerId,
-  saveBillingEvent,
+  applyStripeBillingEvent,
+  listStripeSubscriptionsForReconciliation,
   consumeDailyUsage
 } = require('./db');
 const { parseMealText, parseWorkoutText } = require('./parser');
@@ -117,6 +125,12 @@ const { createClientMutationMiddleware } = require('./idempotency');
 const { PostgresSessionStore } = require('./postgres-session-store');
 const { sanitizeClientDiagnostic } = require('./client-diagnostics');
 const { DATA_INVENTORY_VERSION, retentionInventory } = require('./data-inventory');
+const { createWebhookWorker } = require('./webhook-inbox');
+const {
+  buildStripeWebhookReceipt,
+  createStripeWebhookHandler,
+  subscriptionMetadataUserId
+} = require('./stripe-webhooks');
 const packageJson = require('../package.json');
 
 const app = express();
@@ -133,7 +147,7 @@ let retentionCleanupState = {
   lastDeletedTotal: null,
   lastErrorAt: null,
   policy: Object.fromEntries(
-    retentionInventory().map((item) => [item.table, { days: item.retention.days }])
+    retentionInventory().map((item) => [item.table, { ...item.retention }])
   )
 };
 
@@ -465,95 +479,239 @@ if (googleClientId && googleClientSecret) {
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
 const stripePriceId = process.env.STRIPE_PRO_PRICE_ID || '';
-const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
+const stripeRequestTimeoutMs = parsePositiveIntegerEnv('STRIPE_REQUEST_TIMEOUT_MS', 15_000);
+const webhookShutdownTimeoutMs = parsePositiveIntegerEnv(
+  'WEBHOOK_SHUTDOWN_TIMEOUT_MS',
+  30_000
+);
+const stripe = stripeSecretKey
+  ? new Stripe(stripeSecretKey, {
+      timeout: stripeRequestTimeoutMs,
+      maxNetworkRetries: 1
+    })
+  : null;
+const webhookMaxAttempts = parsePositiveIntegerEnv('WEBHOOK_MAX_ATTEMPTS', 8);
+const stripeReconciliationIntervalMs =
+  parsePositiveIntegerEnv('STRIPE_RECONCILIATION_INTERVAL_HOURS', 24) * 60 * 60 * 1000;
+let stripeReconciliationTimer = null;
+let stripeReconciliationRunning = false;
+let stripeReconciliationPromise = null;
+
+const stripeWebhookHandler = stripe
+  ? createStripeWebhookHandler({
+      stripe,
+      getSubscriptionByStripeCustomerId,
+      getUserAccountControls,
+      applyStripeBillingEvent,
+      upsertSubscription,
+      logAudit
+    })
+  : null;
+const webhookWorker = createWebhookWorker({
+  claimEvents: claimWebhookEvents,
+  markProcessed: markWebhookEventProcessed,
+  markFailed: markWebhookEventFailed,
+  handlers: stripeWebhookHandler ? { stripe: stripeWebhookHandler } : {},
+  leaseMs: parsePositiveIntegerEnv('WEBHOOK_LEASE_MS', 120_000),
+  batchSize: parsePositiveIntegerEnv('WEBHOOK_BATCH_SIZE', 10),
+  pollIntervalMs: parsePositiveIntegerEnv('WEBHOOK_POLL_INTERVAL_MS', 1_000),
+  baseBackoffMs: parsePositiveIntegerEnv('WEBHOOK_BASE_BACKOFF_MS', 1_000),
+  maxBackoffMs: parsePositiveIntegerEnv('WEBHOOK_MAX_BACKOFF_MS', 15 * 60 * 1_000),
+  logger: logJson
+});
 
 // Stripe webhook must be registered BEFORE express.json() — it needs the raw body
 if (stripe && stripeWebhookSecret) {
-  app.post('/api/v1/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
-    let event;
-    try {
-      event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], stripeWebhookSecret);
-    } catch (err) {
-      return res.status(400).json({ error: `Webhook signature verification failed: ${err.message}` });
-    }
-
-    try {
-      const data = event.data.object;
-      let userId = null;
-
-      if (data.customer) {
-        const sub = await getSubscriptionByStripeCustomerId(String(data.customer));
-        if (sub) userId = sub.user_id;
+  app.post(
+    ['/api/v1/webhooks/stripe', '/api/webhooks/stripe'],
+    express.raw({ type: 'application/json', limit: '1mb' }),
+    async (req, res) => {
+      let event;
+      try {
+        event = stripe.webhooks.constructEvent(
+          req.body,
+          req.headers['stripe-signature'],
+          stripeWebhookSecret
+        );
+      } catch (err) {
+        logJson('warn', 'stripe_webhook_verification_failed', {
+          requestId: req.requestId
+        });
+        return res.status(400).json({ error: 'Webhook signature verification failed.' });
       }
 
-      await saveBillingEvent(userId, event.id, event.type, data);
-
-      switch (event.type) {
-        case 'checkout.session.completed': {
-          if (data.mode === 'subscription' && data.client_reference_id) {
-            await upsertSubscription(data.client_reference_id, {
-              stripeCustomerId: String(data.customer),
-              stripeSubscriptionId: String(data.subscription),
-              plan: 'pro',
-              status: 'active'
-            });
-            logAudit(data.client_reference_id, 'subscribe', 'subscription', null, { plan: 'pro' });
-          }
-          break;
-        }
-
-        case 'customer.subscription.updated': {
-          if (userId) {
-            const plan = data.cancel_at_period_end ? 'pro' : (data.status === 'active' ? 'pro' : 'free');
-            await upsertSubscription(userId, {
-              stripeSubscriptionId: String(data.id),
-              plan,
-              status: data.status,
-              currentPeriodStart: data.current_period_start ? new Date(data.current_period_start * 1000) : null,
-              currentPeriodEnd: data.current_period_end ? new Date(data.current_period_end * 1000) : null,
-              cancelAtPeriodEnd: Boolean(data.cancel_at_period_end)
-            });
-          }
-          break;
-        }
-
-        case 'customer.subscription.deleted': {
-          if (userId) {
-            await upsertSubscription(userId, {
-              plan: 'free',
-              status: 'canceled',
-              cancelAtPeriodEnd: false
-            });
-            logAudit(userId, 'cancel', 'subscription', null, { reason: 'subscription_deleted' });
-          }
-          break;
-        }
-
-        case 'invoice.payment_failed': {
-          if (userId) {
-            await upsertSubscription(userId, {
-              status: 'past_due'
-            });
-          }
-          break;
-        }
+      try {
+        const receipt = buildStripeWebhookReceipt(event, {
+          maxAttempts: webhookMaxAttempts
+        });
+        const stored = await receiveWebhookEvent(receipt);
+        return res.json({
+          received: true,
+          eventId: stored.id,
+          status: stored.status
+        });
+      } catch (error) {
+        logServerError(req, error, {
+          status: 503,
+          category: 'stripe_webhook_receipt'
+        });
+        return res.status(503).json({
+          error: 'Webhook receipt is temporarily unavailable.'
+        });
       }
-    } catch (err) {
-      // Log but don't fail — Stripe will retry
-      console.error('Webhook processing error:', err.message);
     }
-
-    res.json({ received: true });
-  });
-
-  // Also mount at /api/ for backward compat
-  app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), (req, res) => {
-    // Forward to v1 handler — reconstruct since express already consumed the body
-    req.app.handle(Object.assign(req, { url: '/api/v1/webhooks/stripe' }), res);
-  });
+  );
 }
 
 app.use(express.json({ limit: '40mb' }));
+
+async function listProviderStripeReconciliationTargets() {
+  if (!stripe?.subscriptions || typeof stripe.subscriptions.list !== 'function') {
+    return [];
+  }
+  const targets = [];
+  let startingAfter = null;
+  for (let page = 0; page < 100; page += 1) {
+    const params = {
+      status: 'all',
+      limit: 100
+    };
+    if (startingAfter) params.starting_after = startingAfter;
+    const response = await stripe.subscriptions.list(params);
+    const subscriptions = Array.isArray(response?.data) ? response.data : [];
+    for (const subscription of subscriptions) {
+      const userId = subscriptionMetadataUserId(subscription);
+      const customerId = typeof subscription.customer === 'string'
+        ? subscription.customer
+        : subscription.customer?.id;
+      if (!userId || !customerId) continue;
+      targets.push({
+        userId,
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: String(subscription.id || '').trim() || null
+      });
+    }
+    if (!response?.has_more || !subscriptions.length) break;
+    startingAfter = String(subscriptions[subscriptions.length - 1]?.id || '').trim();
+    if (!startingAfter) break;
+  }
+  return targets;
+}
+
+async function enqueueStripeReconciliation({ now = new Date(), userId = null } = {}) {
+  if (!stripeWebhookHandler) {
+    return { enqueued: 0, configured: false };
+  }
+  const normalizedNow = now instanceof Date ? now : new Date(now);
+  if (Number.isNaN(normalizedNow.getTime())) {
+    throw new Error('Stripe reconciliation time is invalid.');
+  }
+
+  const requestedUserId = String(userId || '').trim();
+  let subscriptions;
+  if (requestedUserId) {
+    const subscription = await getSubscription(requestedUserId);
+    subscriptions = subscription.stripeCustomerId
+      ? [{
+          userId: requestedUserId,
+          stripeCustomerId: subscription.stripeCustomerId,
+          stripeSubscriptionId: subscription.stripeSubscriptionId
+        }]
+      : [];
+  } else {
+    const targetsByUser = new Map();
+    const pageSize = 500;
+    let offset = 0;
+    while (true) {
+      const page = await listStripeSubscriptionsForReconciliation({
+        limit: pageSize,
+        offset
+      });
+      for (const subscription of page) {
+        targetsByUser.set(subscription.userId, subscription);
+      }
+      if (page.length < pageSize) break;
+      offset += page.length;
+    }
+    // Provider metadata is the recovery anchor when checkout receipt was
+    // missed before the local customer mapping existed.
+    for (const subscription of await listProviderStripeReconciliationTargets()) {
+      targetsByUser.set(subscription.userId, subscription);
+    }
+    subscriptions = [...targetsByUser.values()];
+  }
+
+  const bucket = Math.floor(normalizedNow.getTime() / stripeReconciliationIntervalMs);
+  for (const subscription of subscriptions) {
+    const suffix = requestedUserId ? crypto.randomUUID() : String(bucket);
+    await receiveWebhookEvent({
+      provider: 'stripe',
+      providerEventId: `reconcile:${subscription.userId}:${suffix}`,
+      eventType: 'reconcile.subscription',
+      deliveryKind: 'reconciliation',
+      userId: subscription.userId,
+      payload: {
+        customerId: subscription.stripeCustomerId,
+        subscriptionId: subscription.stripeSubscriptionId || null
+      },
+      occurredAt: normalizedNow,
+      maxAttempts: webhookMaxAttempts
+    });
+  }
+  return {
+    configured: true,
+    enqueued: subscriptions.length
+  };
+}
+
+function performScheduledStripeReconciliation() {
+  if (!stripeWebhookHandler) return Promise.resolve();
+  if (stripeReconciliationRunning) return stripeReconciliationPromise;
+  stripeReconciliationRunning = true;
+  stripeReconciliationPromise = (async () => {
+    try {
+      const result = await enqueueStripeReconciliation();
+      logJson('info', 'stripe_reconciliation_enqueued', {
+        enqueued: result.enqueued
+      });
+    } catch (error) {
+      logJson('error', 'stripe_reconciliation_enqueue_failed', {
+        failureCode: String(error?.code || 'reconciliation_enqueue_error').slice(0, 80)
+      });
+    } finally {
+      stripeReconciliationRunning = false;
+      stripeReconciliationPromise = null;
+    }
+  })();
+  return stripeReconciliationPromise;
+}
+
+function scheduleStripeReconciliation() {
+  if (!stripeWebhookHandler || stripeReconciliationTimer) return;
+  stripeReconciliationTimer = setInterval(
+    performScheduledStripeReconciliation,
+    stripeReconciliationIntervalMs
+  );
+  stripeReconciliationTimer.unref?.();
+}
+
+async function stopStripeReconciliation({ timeoutMs = webhookShutdownTimeoutMs } = {}) {
+  if (stripeReconciliationTimer) {
+    clearInterval(stripeReconciliationTimer);
+    stripeReconciliationTimer = null;
+  }
+  if (!stripeReconciliationPromise) return { drained: true };
+  let drainTimer;
+  const drained = await Promise.race([
+    stripeReconciliationPromise.then(() => true),
+    new Promise((resolve) => {
+      drainTimer = setTimeout(() => resolve(false), timeoutMs);
+    })
+  ]);
+  if (drainTimer) clearTimeout(drainTimer);
+  return { drained };
+}
+
 const sessionTtlMs =
   1000 * 60 * 60 * 24 * parsePositiveIntegerEnv('SESSION_TTL_DAYS', 30);
 const webSessionStore = new PostgresSessionStore({
@@ -2429,6 +2587,13 @@ function scheduleDataRetentionCleanup() {
   return retentionCleanupTimer;
 }
 
+function stopDataRetentionCleanup() {
+  if (retentionCleanupTimer) {
+    clearInterval(retentionCleanupTimer);
+    retentionCleanupTimer = null;
+  }
+}
+
 app.get('/version', (req, res) => {
   res.json(getVersionPayload());
 });
@@ -2633,6 +2798,67 @@ apiRouter.get('/admin/accounts/:userId/diagnostics', requireAdmin, async (req, r
     return res.json({ diagnostics });
   } catch (error) {
     return sendError(req, res, 400, error.message || 'Unable to load diagnostics.');
+  }
+});
+
+apiRouter.get('/admin/webhooks', requireAdmin, async (req, res) => {
+  try {
+    disableConditionalCaching(req, res);
+    const failureLimit = Math.min(normalizeLimit(req.query.failureLimit, 50), 100);
+    return res.json(await getWebhookOperationsSummary({ failureLimit }));
+  } catch (error) {
+    return sendError(req, res, 503, 'Unable to load provider event operations.', error);
+  }
+});
+
+apiRouter.post('/admin/webhooks/:eventId/retry', requireAdmin, async (req, res) => {
+  try {
+    const eventId = normalizeNumber(req.params.eventId, 'eventId', {
+      min: 1,
+      max: Number.MAX_SAFE_INTEGER
+    });
+    const event = await retryWebhookEvent(eventId);
+    if (!event) {
+      return sendError(req, res, 409, 'Only failed provider events can be retried.');
+    }
+    await logAudit(userIdFromReq(req), 'retry', 'webhook_event', String(event.id), {
+      provider: event.provider,
+      eventType: event.eventType
+    });
+    return res.status(202).json({
+      ok: true,
+      event: {
+        id: event.id,
+        provider: event.provider,
+        eventType: event.eventType,
+        status: event.status,
+        nextAttemptAt: event.nextAttemptAt
+      }
+    });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to retry provider event.');
+  }
+});
+
+apiRouter.post('/admin/webhooks/stripe/reconcile/:userId', requireAdmin, async (req, res) => {
+  try {
+    const targetUserId = normalizeString(req.params.userId, 'userId', {
+      maxLength: 255,
+      required: true
+    });
+    const result = await enqueueStripeReconciliation({ userId: targetUserId });
+    if (!result.configured) {
+      return sendError(req, res, 503, 'Stripe reconciliation is not configured.');
+    }
+    if (!result.enqueued) {
+      return sendError(req, res, 404, 'No Stripe billing account was found.');
+    }
+    await logAudit(userIdFromReq(req), 'reconcile', 'subscription', targetUserId, {
+      provider: 'stripe'
+    });
+    return res.status(202).json({ ok: true, enqueued: result.enqueued });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to enqueue Stripe reconciliation.');
   }
 });
 
@@ -3983,7 +4209,12 @@ apiRouter.post('/subscription/checkout', async (req, res) => {
       line_items: [{ price: stripePriceId, quantity: 1 }],
       success_url: `${appBaseUrl}/?checkout=success`,
       cancel_url: `${appBaseUrl}/?checkout=cancel`,
-      client_reference_id: userId
+      client_reference_id: userId,
+      subscription_data: {
+        metadata: {
+          app_user_id: userId
+        }
+      }
     };
 
     // Reuse existing Stripe customer if available
@@ -4061,31 +4292,98 @@ app.use((error, req, res, next) => {
   return res.status(500).type('text').send(`Request failed. Reference: ${req.requestId || 'unknown'}`);
 });
 
+let activeHttpServer = null;
+let shutdownPromise = null;
+
 async function startServer() {
+  await initDb();
+  await performDataRetentionCleanup();
+  scheduleDataRetentionCleanup();
+  if (stripeWebhookHandler) {
+    webhookWorker.start();
+  }
+
   try {
-    await initDb();
-    await performDataRetentionCleanup();
-    scheduleDataRetentionCleanup();
-    app.listen(port, () => {
-      // eslint-disable-next-line no-console
-      console.log(`Macro tracker listening on http://localhost:${port}`);
+    activeHttpServer = await new Promise((resolve, reject) => {
+      const server = app.listen(port);
+      server.once('listening', () => resolve(server));
+      server.once('error', reject);
     });
-  } catch (error) {
+    scheduleStripeReconciliation();
+    performScheduledStripeReconciliation();
     // eslint-disable-next-line no-console
-    console.error('Failed to initialize Postgres:', error);
-    process.exit(1);
+    console.log(`Macro tracker listening on http://localhost:${port}`);
+    return activeHttpServer;
+  } catch (error) {
+    stopDataRetentionCleanup();
+    await stopStripeReconciliation({ timeoutMs: webhookShutdownTimeoutMs });
+    await webhookWorker.stop({ timeoutMs: webhookShutdownTimeoutMs });
+    await getPool().end();
+    throw error;
   }
 }
 
+async function stopServer() {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    stopDataRetentionCleanup();
+    const closingServer = activeHttpServer
+      ? new Promise((resolve, reject) => {
+          activeHttpServer.close((error) => {
+            if (error) reject(error);
+            else resolve();
+          });
+        })
+      : Promise.resolve();
+    const reconciliationDrain = await stopStripeReconciliation({
+      timeoutMs: webhookShutdownTimeoutMs
+    });
+    if (!reconciliationDrain.drained) {
+      logJson('warn', 'stripe_reconciliation_shutdown_timeout', {
+        timeoutMs: webhookShutdownTimeoutMs
+      });
+    }
+    const workerDrain = await webhookWorker.stop({
+      timeoutMs: webhookShutdownTimeoutMs
+    });
+    if (!workerDrain.drained) {
+      logJson('warn', 'webhook_worker_shutdown_timeout', {
+        timeoutMs: webhookShutdownTimeoutMs
+      });
+    }
+    await closingServer;
+    activeHttpServer = null;
+    await getPool().end();
+  })();
+  return shutdownPromise;
+}
+
 if (require.main === module) {
-  startServer();
+  startServer()
+    .then(() => {
+      for (const signal of ['SIGTERM', 'SIGINT']) {
+        process.once(signal, () => {
+          stopServer().catch((error) => {
+            console.error('Graceful shutdown failed:', error);
+            process.exitCode = 1;
+          });
+        });
+      }
+    })
+    .catch((error) => {
+      // eslint-disable-next-line no-console
+      console.error('Failed to initialize Postgres:', error);
+      process.exitCode = 1;
+    });
 }
 
 module.exports = {
   app,
   startServer,
+  stopServer,
   buildWeeklyRecap,
   requestTimezone,
   normalizeTimezone,
-  performDataRetentionCleanup
+  performDataRetentionCleanup,
+  enqueueStripeReconciliation
 };

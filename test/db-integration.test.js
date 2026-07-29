@@ -639,7 +639,7 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     );
 
     const cleanup = await db.runDataRetentionCleanup({ now: retentionNow });
-    assert.equal(cleanup.inventoryVersion, '2026-07-28');
+    assert.equal(cleanup.inventoryVersion, '2026-07-29');
     assert.ok(cleanup.tables.client_diagnostics.deleted >= 1);
     assert.ok(cleanup.tables.audit_log.deleted >= 1);
     assert.ok(cleanup.tables.daily_usage_counts.deleted >= 1);
@@ -676,7 +676,12 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     assert.equal(diagnostics[0].userAgent, null);
 
     const exported = await db.exportUserData(userId);
-    assert.equal(exported.dataInventoryVersion, '2026-07-28');
+    assert.equal(exported.dataInventoryVersion, '2026-07-29');
+    assert.deepEqual(exported.retention.webhook_events, {
+      mode: 'deadline',
+      processedDays: 30,
+      exhaustedDays: 90
+    });
     assert.equal(exported.foodCorrections.length, 1);
     assert.equal(exported.clientDiagnostics.length, 1);
     assert.equal(exported.clientDiagnostics[0].request_id, recentDiagnosticRequestId);

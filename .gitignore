@@ -21,6 +21,9 @@ fastlane/screenshots/
 fastlane/report.xml
 fastlane/README.md
 
+# Local/CI test artifacts
+output/
+
 # Runtime data
 data/
 certs/*.p8

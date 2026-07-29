@@ -34,12 +34,23 @@
 		A1000025 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000025; };
 		A1000026 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = A2000026; };
 		A1000027 /* AppVisualSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000027; };
+		B1000001 /* OfflineMutationStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001; };
+		B1000002 /* CoachCandidateEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002; };
+		B1000003 /* TargetHistoryDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003; };
+		B1000004 /* OuraAPIContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000004; };
 		U1000001 /* DailyMacrosScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000002; };
 		U1000002 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000003; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
 		U5000003 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A8000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A5000001;
+			remoteInfo = DailyMacros;
+		};
+		B5000003 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A8000001 /* Project object */;
 			proxyType = 1;
@@ -77,6 +88,11 @@
 		A2000026 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		A2000027 /* AppVisualSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVisualSystem.swift; sourceTree = "<group>"; };
 		A3000001 /* DailyMacros.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DailyMacros.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2000001 /* OfflineMutationStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineMutationStoreTests.swift; sourceTree = "<group>"; };
+		B2000002 /* CoachCandidateEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachCandidateEngineTests.swift; sourceTree = "<group>"; };
+		B2000003 /* TargetHistoryDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetHistoryDecodingTests.swift; sourceTree = "<group>"; };
+		B2000004 /* OuraAPIContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OuraAPIContractTests.swift; sourceTree = "<group>"; };
+		B3000001 /* DailyMacrosTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DailyMacrosTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		U2000001 /* ScreenshotSeedData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotSeedData.swift; sourceTree = "<group>"; };
 		U2000002 /* DailyMacrosScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyMacrosScreenshots.swift; sourceTree = "<group>"; };
 		U2000003 /* SnapshotHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotHelper.swift; sourceTree = "<group>"; };
@@ -91,6 +107,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B7000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -98,6 +121,7 @@
 			isa = PBXGroup;
 			children = (
 				A4000002 /* DailyMacros */,
+				B4000001 /* DailyMacrosTests */,
 				U4000001 /* DailyMacrosScreenshots */,
 				A4000003 /* Products */,
 			);
@@ -142,9 +166,21 @@
 			isa = PBXGroup;
 			children = (
 				A3000001 /* DailyMacros.app */,
+				B3000001 /* DailyMacrosTests.xctest */,
 				U3000001 /* DailyMacrosScreenshots.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B4000001 /* DailyMacrosTests */ = {
+			isa = PBXGroup;
+			children = (
+				B2000001 /* OfflineMutationStoreTests.swift */,
+				B2000002 /* CoachCandidateEngineTests.swift */,
+				B2000003 /* TargetHistoryDecodingTests.swift */,
+				B2000004 /* OuraAPIContractTests.swift */,
+			);
+			path = DailyMacrosTests;
 			sourceTree = "<group>";
 		};
 		U4000001 /* DailyMacrosScreenshots */ = {
@@ -174,6 +210,24 @@
 			productName = DailyMacros;
 			productReference = A3000001;
 			productType = "com.apple.product-type.application";
+		};
+		B5000001 /* DailyMacrosTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B6000001 /* Build configuration list for PBXNativeTarget "DailyMacrosTests" */;
+			buildPhases = (
+				B7000001 /* Sources */,
+				B7000002 /* Frameworks */,
+				B7000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B5000002 /* PBXTargetDependency */,
+			);
+			name = DailyMacrosTests;
+			productName = DailyMacrosTests;
+			productReference = B3000001 /* DailyMacrosTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		U5000001 /* DailyMacrosScreenshots */ = {
 			isa = PBXNativeTarget;
@@ -213,6 +267,10 @@
 							};
 						};
 					};
+					B5000001 = {
+						CreatedOnToolsVersion = 15.4;
+						TestTargetID = A5000001;
+					};
 					U5000001 = {
 						CreatedOnToolsVersion = 15.4;
 						TestTargetID = A5000001;
@@ -233,6 +291,7 @@
 			projectRoot = "";
 			targets = (
 				A5000001 /* DailyMacros */,
+				B5000001 /* DailyMacrosTests */,
 				U5000001 /* DailyMacrosScreenshots */,
 			);
 		};
@@ -249,6 +308,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		U7000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B7000003 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -290,6 +356,17 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B7000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1000001 /* OfflineMutationStoreTests.swift in Sources */,
+				B1000002 /* CoachCandidateEngineTests.swift in Sources */,
+				B1000003 /* TargetHistoryDecodingTests.swift in Sources */,
+				B1000004 /* OuraAPIContractTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		U7000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -306,6 +383,11 @@
 			isa = PBXTargetDependency;
 			target = A5000001 /* DailyMacros */;
 			targetProxy = U5000003 /* PBXContainerItemProxy */;
+		};
+		B5000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A5000001 /* DailyMacros */;
+			targetProxy = B5000003 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -422,6 +504,53 @@
 			};
 			name = Release;
 		};
+		B9000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dailymacros.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DailyMacros.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DailyMacros";
+			};
+			name = Debug;
+		};
+		B9000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dailymacros.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DailyMacros.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DailyMacros";
+			};
+			name = Release;
+		};
 		U9000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -486,6 +615,15 @@
 			buildConfigurations = (
 				A9000003 /* Debug */,
 				A9000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B6000001 /* Build configuration list for PBXNativeTarget "DailyMacrosTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B9000001 /* Debug */,
+				B9000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

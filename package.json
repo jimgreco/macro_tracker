@@ -14,6 +14,10 @@
     "db:logs": "docker compose logs -f db",
     "db:seed:local": "node scripts/load-local-test-data.js",
     "test": "node --test test/*.test.js",
+    "test:db:integration": "node --test --test-concurrency=1 test/db-integration.test.js test/webhook-inbox-db.test.js",
+    "test:db:upgrade": "node --test test/db-upgrade-path.test.js",
+    "test:e2e": "playwright test --config playwright.config.js",
+    "test:e2e:accessibility": "playwright test --config playwright.config.js test/e2e/accessibility.spec.js",
     "test:check": "node --check public/login.js && node --check public/today-state.js && node --check public/coach-rules.js && node --check public/script.js && node --check src/today-summary.js && node --check src/server.js && npm test"
   },
   "dependencies": {
@@ -30,5 +34,10 @@
   },
   "overrides": {
     "path-to-regexp": "0.1.13"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@playwright/test": "1.61.1",
+    "playwright-core": "1.61.1"
   }
 }

@@ -52,6 +52,15 @@ Set these on the remote compose environment for the `macros` service:
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRO_PRICE_ID`
+- `STRIPE_REQUEST_TIMEOUT_MS` (optional; defaults to `15000`)
+- `WEBHOOK_MAX_ATTEMPTS` (optional; defaults to `8`)
+- `WEBHOOK_LEASE_MS` (optional; defaults to `120000`)
+- `WEBHOOK_BATCH_SIZE` (optional; defaults to `10`)
+- `WEBHOOK_POLL_INTERVAL_MS` (optional; defaults to `1000`)
+- `WEBHOOK_BASE_BACKOFF_MS` (optional; defaults to `1000`)
+- `WEBHOOK_MAX_BACKOFF_MS` (optional; defaults to `900000`)
+- `WEBHOOK_SHUTDOWN_TIMEOUT_MS` (optional; defaults to `30000`)
+- `STRIPE_RECONCILIATION_INTERVAL_HOURS` (optional; defaults to `24`)
 - `INTERNAL_SYNC_SECRET`
 - `WORKOUT_API_URL`
 
@@ -136,6 +145,53 @@ If the database migration is the suspected cause, stop and restore from the late
 ## Incident Notes
 - Every API error response includes a `requestId`; ask beta users for that reference.
 - Server logs are JSON lines with `requestId`, method, path, status, duration, and user id when available.
+- Verified Stripe deliveries are acknowledged only after the minimized event is committed to `webhook_events`. Processing is leased from PostgreSQL and resumes after a process restart or stale lease.
+- Graceful shutdown stops new provider-event claims, drains the active reconciliation/worker attempt for up to `WEBHOOK_SHUTDOWN_TIMEOUT_MS`, then closes the database pool. An attempt still running at the bound leaves its database lease behind; the next process recovers it after `WEBHOOK_LEASE_MS`.
 - Deploy and `.github/workflows/production-smoke.yml` run `scripts/production-smoke.sh`; both include authenticated checks when `PRODUCTION_SMOKE_API_TOKEN` is set.
 - Treat `/healthz` failures and sustained 5xx spikes as beta-stopping incidents.
 - The public privacy policy is served at `/privacy` and the repo copy lives in `docs/privacy-policy.md`.
+
+## Provider Event Operations
+
+Use an API token belonging to an account on `ADMIN_EMAILS` or `ADMIN_USER_IDS`.
+The operations response contains counts and fixed failure codes, never retained
+provider payloads:
+
+```bash
+BASE_URL=https://your-production-domain
+ADMIN_API_TOKEN=<admin-api-token>
+curl --fail --show-error \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+  "$BASE_URL/api/v1/admin/webhooks"
+```
+
+Inspect `backlogCount`, `oldestBacklogAgeSeconds`, `failureCount`,
+`exhaustedCount`, provider-level `lastSuccessAt`, and the bounded `failures`
+list. A failed event can be reset only while it is still in `failed` state:
+
+```bash
+EVENT_ID=<failed-event-id>
+curl --fail --show-error -X POST \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+  "$BASE_URL/api/v1/admin/webhooks/$EVENT_ID/retry"
+```
+
+To repair one account from canonical Stripe state, enqueue a durable
+reconciliation job:
+
+```bash
+USER_ID=<canonical-user-id>
+curl --fail --show-error -X POST \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+  "$BASE_URL/api/v1/admin/webhooks/stripe/reconcile/$USER_ID"
+```
+
+The server also scans current Stripe subscriptions once after startup and every
+`STRIPE_RECONCILIATION_INTERVAL_HOURS`. Checkout-created subscriptions carry
+the canonical app user id in Stripe metadata, allowing this scan and an
+out-of-order subscription webhook to recover a missing local customer mapping.
+
+Processed minimized receipts are deleted after 30 days. Retry-exhausted poison
+receipts are retained for 90 days for incident analysis, then deleted. Pending
+or actively leased receipts have no purge deadline: deleting one would violate
+the durable-acknowledgment guarantee.

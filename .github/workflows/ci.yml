@@ -1,0 +1,286 @@
+name: Required CI and Release
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: required-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  javascript:
+    name: JavaScript and HTTP
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax, unit, HTTP, and source regressions
+        run: |
+          set -o pipefail
+          mkdir -p output/ci
+          npm run test:check 2>&1 | tee output/ci/javascript.log
+
+      - name: Upload JavaScript diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: javascript-diagnostics
+          path: output/ci/javascript.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  postgres:
+    name: PostgreSQL 16
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create isolated fresh and upgrade databases
+        env:
+          CI_POSTGRES_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: |
+          node --check scripts/ci-create-test-databases.js
+          node scripts/ci-create-test-databases.js macro_tracker_fresh_ci macro_tracker_upgrade_ci
+
+      - name: Fresh-schema integration
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/macro_tracker_fresh_ci
+        run: |
+          set -o pipefail
+          mkdir -p output/ci
+          npm run test:db:integration 2>&1 | tee output/ci/postgres-fresh.log
+          grep -Eq '^# skipped 0$' output/ci/postgres-fresh.log
+
+      - name: Supported upgrade path
+        env:
+          TEST_UPGRADE_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/macro_tracker_upgrade_ci
+        run: |
+          set -o pipefail
+          npm run test:db:upgrade 2>&1 | tee output/ci/postgres-upgrade.log
+          grep -Eq '^# skipped 0$' output/ci/postgres-upgrade.log
+
+      - name: Upload PostgreSQL diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-diagnostics
+          path: output/ci/postgres-*.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  docker:
+    name: Production Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build production image
+        run: |
+          set -o pipefail
+          mkdir -p output/ci
+          docker build --tag "macro-tracker-ci:${GITHUB_SHA}" . 2>&1 | tee output/ci/docker-build.log
+          docker image inspect "macro-tracker-ci:${GITHUB_SHA}" > output/ci/docker-image.json
+
+      - name: Upload Docker diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-diagnostics
+          path: |
+            output/ci/docker-build.log
+            output/ci/docker-image.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  browser:
+    name: Browser journeys and accessibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: macro_tracker_e2e
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d macro_tracker_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies and Chromium
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run critical browser journeys and accessibility checks
+        env:
+          CI: "true"
+          PLAYWRIGHT_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/macro_tracker_e2e
+        run: |
+          set -o pipefail
+          mkdir -p output/ci
+          npm run test:e2e 2>&1 | tee output/ci/browser.log
+
+      - name: Upload browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-diagnostics
+          path: |
+            output/ci/browser.log
+            output/playwright
+          if-no-files-found: warn
+          retention-days: 14
+
+  ios:
+    name: iOS simulator build and unit tests
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Select Xcode 26
+        run: |
+          set -euo pipefail
+          for path in /Applications/Xcode_26.4.app /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app /Applications/Xcode_26.1.app /Applications/Xcode_26.0.app /Applications/Xcode_26.app /Applications/Xcode-26.app /Applications/Xcode.app; do
+            if [ -d "$path" ]; then
+              sudo xcode-select -s "$path/Contents/Developer"
+              echo "Selected: $path"
+              break
+            fi
+          done
+          xcodebuild -version
+
+      - name: Run executable Swift unit tests
+        run: |
+          set -euo pipefail
+          mkdir -p output/ci output/xcode
+          simulator_id="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /(Shutdown|Booted)/ { print $2; exit }')"
+          if [ -z "$simulator_id" ]; then
+            echo "No available iPhone simulator was found."
+            exit 1
+          fi
+          xcodebuild test \
+            -project ios/DailyMacros/DailyMacros.xcodeproj \
+            -scheme DailyMacros \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            -resultBundlePath output/xcode/DailyMacrosTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee output/ci/ios-tests.log
+
+      - name: Upload iOS diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-diagnostics
+          path: |
+            output/ci/ios-tests.log
+            output/xcode/DailyMacrosTests.xcresult
+          if-no-files-found: warn
+          retention-days: 14
+
+  required:
+    name: Required Checks
+    if: always()
+    needs:
+      - javascript
+      - postgres
+      - docker
+      - browser
+      - ios
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every CI surface
+        env:
+          JAVASCRIPT_RESULT: ${{ needs.javascript.result }}
+          POSTGRES_RESULT: ${{ needs.postgres.result }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+          IOS_RESULT: ${{ needs.ios.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+          for result in \
+            "$JAVASCRIPT_RESULT" \
+            "$POSTGRES_RESULT" \
+            "$DOCKER_RESULT" \
+            "$BROWSER_RESULT" \
+            "$IOS_RESULT"; do
+            if [ "$result" != "success" ]; then
+              failed=1
+            fi
+          done
+          {
+            echo "### Required CI results"
+            echo
+            echo "- JavaScript and HTTP: $JAVASCRIPT_RESULT"
+            echo "- PostgreSQL 16: $POSTGRES_RESULT"
+            echo "- Production Docker: $DOCKER_RESULT"
+            echo "- Browser and accessibility: $BROWSER_RESULT"
+            echo "- iOS simulator tests: $IOS_RESULT"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$failed"
+
+  deploy:
+    name: Deploy to EC2
+    if: needs.required.result == 'success' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: required
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit
+
+  testflight:
+    name: TestFlight
+    if: needs.required.result == 'success' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: required
+    uses: ./.github/workflows/testflight.yml
+    secrets: inherit
