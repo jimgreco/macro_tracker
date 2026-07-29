@@ -32,6 +32,7 @@
 		A1000023 /* AICoach.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000024; };
 		A1000024 /* ScreenshotSeedData.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000001; };
 		A1000025 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000025; };
+		A1000026 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = A2000026; };
 		U1000001 /* DailyMacrosScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000002; };
 		U1000002 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000003; };
 /* End PBXBuildFile section */
@@ -72,6 +73,7 @@
 		A2000023 /* BarcodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeScannerView.swift; sourceTree = "<group>"; };
 		A2000024 /* AICoach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICoach.swift; sourceTree = "<group>"; };
 		A2000025 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
+		A2000026 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		A3000001 /* DailyMacros.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DailyMacros.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		U2000001 /* ScreenshotSeedData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotSeedData.swift; sourceTree = "<group>"; };
 		U2000002 /* DailyMacrosScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyMacrosScreenshots.swift; sourceTree = "<group>"; };
@@ -127,6 +129,7 @@
 				A2000023 /* BarcodeScannerView.swift */,
 				U2000001 /* ScreenshotSeedData.swift */,
 				A2000014 /* DailyMacros.entitlements */,
+				A2000026 /* AppIcon.icon */,
 				A2000010 /* Assets.xcassets */,
 			);
 			path = DailyMacros;
@@ -237,6 +240,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1000026 /* AppIcon.icon in Resources */,
 				A1000010 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
