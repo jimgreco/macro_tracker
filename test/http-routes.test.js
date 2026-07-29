@@ -719,6 +719,12 @@ test('workout sync does not count a tombstoned external workout as newly synced'
 test('weekly recap and diagnostics routes are wired through real middleware', routeTestOptions, async () => {
   resetCalls();
   const requestId = '029a3f8c-ffb4-4d33-b566-a23eec5081ea';
+  const configuredBuild = String(
+    process.env.APP_BUILD || process.env.GITHUB_SHA || 'local'
+  ).trim();
+  const expectedAppVersion = /^[0-9a-f]{8,40}$/i.test(configuredBuild)
+    ? configuredBuild.slice(0, 7)
+    : configuredBuild;
   const recap = await request('/api/coach/weekly-recap');
   const diagnostic = await request('/api/diagnostics/client', {
     method: 'POST',
@@ -752,7 +758,7 @@ test('weekly recap and diagnostics routes are wired through real middleware', ro
       requestId
     },
     appPlatform: 'web',
-    appVersion: 'local',
+    appVersion: expectedAppVersion,
     requestId
   });
 });
