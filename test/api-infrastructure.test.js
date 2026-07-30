@@ -1006,6 +1006,9 @@ test('deploy workflow verifies SSH host and smokes production endpoints', () => 
   assert.equal(workflow.includes('StrictHostKeyChecking=no'), false);
   assert.ok(workflow.includes('docker-compose.macros-build.yml'));
   assert.ok(workflow.includes('APP_BUILD: \\${APP_BUILD}'));
+  assert.ok(workflow.includes('APP_BASE_URL: \\"https://macrovana.com\\"'));
+  assert.ok(workflow.includes('GOOGLE_CALLBACK_URL: \\"https://macrovana.com/auth/google/callback\\"'));
+  assert.ok(workflow.includes('APPLE_REDIRECT_URI: \\"https://macrovana.com/auth/apple/callback\\"'));
   assert.ok(workflow.includes('SHORT_GITHUB_SHA="${GITHUB_SHA::7}"'));
   assert.ok(workflow.includes('APP_BUILD=$SHORT_GITHUB_SHA docker-compose'));
   assert.ok(workflow.includes('docker-compose -f docker-compose.yml -f docker-compose.macros-build.yml up -d macros'));
@@ -1116,10 +1119,10 @@ test('barcode lookup uses Open Food Facts with normalized nutrition output', () 
   assert.ok(server.includes("nutriments['energy-kcal_100g']"));
 });
 
-test('TestFlight workflow rejects placeholder API base URLs and passes build metadata', () => {
+test('TestFlight workflow requires the canonical Macrovana API origin and passes build metadata', () => {
   const workflow = read('.github/workflows/testflight.yml');
-  assert.ok(workflow.includes('IOS_API_BASE_URL must be a real HTTPS production origin'));
-  assert.ok(workflow.includes('IOS_API_BASE_URL must start with https://'));
+  assert.ok(workflow.includes('if [ "$IOS_API_BASE_URL" != "https://macrovana.com" ]'));
+  assert.ok(workflow.includes('IOS_API_BASE_URL must be exactly https://macrovana.com.'));
   assert.ok(workflow.includes('openssl pkcs12 -legacy -in "$RUNNER_TEMP/cert.p12"'));
   assert.ok(workflow.includes('openssl pkcs12 verification: OK (legacy provider)'));
   assert.ok(workflow.indexOf('/Applications/Xcode_26.2.app') < workflow.indexOf('/Applications/Xcode_26.app'));

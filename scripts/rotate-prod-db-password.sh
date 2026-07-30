@@ -10,7 +10,7 @@ DB_HOST="${DB_HOST:-macro-tracker-1.cxiuc24oixo3.us-east-2.rds.amazonaws.com}"
 DB_PORT="${DB_PORT:-5432}"
 DB_NAME="${DB_NAME:-postgres}"
 DB_USER="${DB_USER:-postgres}"
-APP_BASE_URL="${APP_BASE_URL:-https://macro-tracker.jim-greco.com}"
+APP_BASE_URL="${APP_BASE_URL:-https://macrovana.com}"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then

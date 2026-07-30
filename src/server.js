@@ -2075,7 +2075,7 @@ async function lookupOpenFoodFactsBarcode(barcode) {
       method: 'GET',
       headers: {
         Accept: 'application/json',
-        'User-Agent': process.env.OPEN_FOOD_FACTS_USER_AGENT || 'DailyMacros/1.0 (https://macro-tracker.jim-greco.com)'
+        'User-Agent': process.env.OPEN_FOOD_FACTS_USER_AGENT || 'Macrovana/1.0 (https://macrovana.com)'
       },
       signal: controller.signal
     });
