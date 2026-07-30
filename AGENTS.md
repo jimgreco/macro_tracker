@@ -188,6 +188,7 @@ Coach Tony P. category controls are local user preferences layered after confide
 - Nightly logical database backup: `dailymacros-db-backup.timer` runs `scripts/production-db-backup.sh` before the AWS DLM daily EBS snapshot window; DLM policy `policy-06a5ef1af3cbbc321` retains 7 daily off-host snapshots.
 - Required CI/release orchestrator: `.github/workflows/ci.yml`. It gates JavaScript/HTTP, PostgreSQL fresh and upgrade paths, Docker, browser/accessibility, and iOS simulator tests behind the stable `Required Checks` context.
 - Deploy and TestFlight implementations are reusable workflows in `.github/workflows/deploy.yml` and `.github/workflows/testflight.yml`; neither can run directly and both are called only after `Required Checks` succeeds.
+- Canonical production auth routing is `APP_BASE_URL=https://macrovana.com`, `GOOGLE_CALLBACK_URL=https://macrovana.com/auth/google/callback`, and `APPLE_REDIRECT_URI=https://macrovana.com/auth/apple/callback`. The EC2 deploy override pins these values, and TestFlight must reject an `IOS_API_BASE_URL` other than `https://macrovana.com`.
 - Release runbook: `docs/ec2-release-runbook.md`.
 - Health check: `GET /healthz` (performs live DB query).
 - Version check: `GET /version`.

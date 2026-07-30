@@ -23,7 +23,7 @@ This is the production release path for the friends and family beta.
 Set these on the remote compose environment for the `macros` service:
 - `NODE_ENV=production`
 - `PORT`
-- `APP_BASE_URL`
+- `APP_BASE_URL=https://macrovana.com`
 - `APP_BUILD` or `GITHUB_SHA`
 - `ADMIN_EMAILS` or `ADMIN_USER_IDS`
 - `SESSION_SECRET`
@@ -34,20 +34,20 @@ Set these on the remote compose environment for the `macros` service:
 - `PGSSL=false`
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`
-- `OPEN_FOOD_FACTS_USER_AGENT` (optional; identifies barcode lookup traffic)
+- `OPEN_FOOD_FACTS_USER_AGENT` (optional; identifies barcode lookup traffic; use `Macrovana/1.0 (https://macrovana.com)`)
 - `AI_DAILY_MEAL_PARSE_LIMIT`
 - `AI_DAILY_WORKOUT_PARSE_LIMIT`
 - `AI_DAILY_PHOTO_PARSE_LIMIT`
 - `AI_DAILY_ANALYSIS_LIMIT`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_CALLBACK_URL`
+- `GOOGLE_CALLBACK_URL=https://macrovana.com/auth/google/callback`
 - `GOOGLE_IOS_CLIENT_ID`
 - `APPLE_CLIENT_ID`
 - `APPLE_TEAM_ID`
 - `APPLE_KEY_ID`
 - `APPLE_PRIVATE_KEY`
-- `APPLE_REDIRECT_URI`
+- `APPLE_REDIRECT_URI=https://macrovana.com/auth/apple/callback`
 - `APPLE_BUNDLE_ID`
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
