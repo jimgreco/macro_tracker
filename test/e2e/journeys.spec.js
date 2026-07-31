@@ -246,7 +246,9 @@ test.describe.serial('critical web journeys', () => {
       await expect(accessDialog).toBeVisible();
       await expect(page.locator('#action-banner')).toContainText('Choose which data');
       await expect(accessDialog.getByRole('checkbox', { name: 'Write Sleep to Oura Ring' })).toBeDisabled();
-      await accessDialog.getByRole('checkbox', { name: 'Read Sleep from Oura Ring' }).check();
+      const readSleep = accessDialog.getByRole('checkbox', { name: 'Read Sleep from Oura Ring' });
+      await accessDialog.getByText('Allow DailyMacros to import sleep from Oura Ring.').click();
+      await expect(readSleep).toBeChecked();
       await accessDialog.getByRole('button', { name: 'Save Data Access' }).click();
 
       await expect(page.locator('#action-banner')).toContainText('Oura Ring data access saved.');
