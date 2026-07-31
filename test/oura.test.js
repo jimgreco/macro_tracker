@@ -265,6 +265,35 @@ test('Oura authorization stores only opaque identity and encrypted rotating cred
   assert.notEqual(db.getStoredConnection().accessTokenEncrypted, 'oura-access-token');
 });
 
+test('Oura authorization accepts form-encoded scope separators from the callback', async () => {
+  const db = makeFakeDb();
+  const fetchImpl = async (input) => {
+    const url = String(input);
+    if (url === 'https://api.ouraring.com/oauth/token') {
+      return jsonResponse({
+        access_token: 'oura-access-token',
+        refresh_token: 'oura-refresh-token',
+        expires_in: 3600
+      });
+    }
+    if (url === 'https://api.ouraring.com/v2/usercollection/personal_info') {
+      return jsonResponse({ id: 'oura-user-123' });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  const service = createOuraService({ db, env: configuredEnv(), fetchImpl });
+  const authorization = await service.createAuthorization('daily-user-1', 'ios');
+  const state = new URL(authorization.authorizationUrl).searchParams.get('state');
+
+  const result = await service.completeAuthorization({
+    code: 'authorization-code',
+    state,
+    scope: 'daily+personal'
+  });
+
+  assert.deepEqual(result.grantedScopes, ['daily', 'personal']);
+});
+
 test('same-account Oura reauthorization preserves completed access choices', async () => {
   const db = makeFakeDb();
   await db.upsertOuraConnection('daily-user-1', {

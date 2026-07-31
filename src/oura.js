@@ -237,7 +237,10 @@ function buildOuraWebhookReceipt(payload, {
 }
 
 function normalizeScopes(value) {
-  const input = Array.isArray(value) ? value : String(value || '').split(/[\s,]+/);
+  // OAuth query values normally decode `+` to a space, but some callback
+  // paths preserve the form-encoded separator. Accept it here so a valid
+  // `daily+personal` grant is not mistaken for one unknown scope.
+  const input = Array.isArray(value) ? value : String(value || '').split(/[+\s,]+/);
   return [...new Set(input.map((scope) => String(scope || '').trim()).filter(Boolean))];
 }
 

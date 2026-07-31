@@ -907,7 +907,8 @@ struct SettingsView: View {
             let result = components?.queryItems?.first(where: { $0.name == "oura" })?.value
             if result == "error" {
                 let message = components?.queryItems?.first(where: { $0.name == "message" })?.value
-                throw APIError.serverError(message ?? "Oura connection failed.")
+                let readableMessage = message?.replacingOccurrences(of: "+", with: " ")
+                throw APIError.serverError(readableMessage ?? "Oura connection failed.")
             }
 
             await loadOuraStatus()
