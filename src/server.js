@@ -96,6 +96,21 @@ const {
   listCoachDismissals,
   upsertCoachDismissals,
   deleteCoachDismissals,
+  createOuraOauthState,
+  consumeOuraOauthState,
+  getOuraConnection,
+  getOuraConnectionByProviderUserId,
+  upsertOuraConnection,
+  rotateOuraConnectionTokens,
+  updateOuraConnection,
+  listActiveOuraConnections,
+  upsertOuraDocument,
+  deleteOuraDocument,
+  reconcileOuraDocuments,
+  listOuraDocuments,
+  upsertOuraWebhookSubscription,
+  listOuraWebhookSubscriptions,
+  deleteOuraConnection,
   exportUserData,
   deleteUserAccount,
   runDataRetentionCleanup,
@@ -131,6 +146,7 @@ const {
   createStripeWebhookHandler,
   subscriptionMetadataUserId
 } = require('./stripe-webhooks');
+const { buildOuraWebhookReceipt, createOuraService } = require('./oura');
 const packageJson = require('../package.json');
 
 const app = express();
@@ -314,6 +330,27 @@ function sendError(req, res, status, message, error) {
   }
   return res.status(status).json(body);
 }
+
+const ouraService = createOuraService({
+  db: {
+    createOuraOauthState,
+    consumeOuraOauthState,
+    getOuraConnection,
+    getOuraConnectionByProviderUserId,
+    upsertOuraConnection,
+    rotateOuraConnectionTokens,
+    updateOuraConnection,
+    listActiveOuraConnections,
+    upsertOuraDocument,
+    deleteOuraDocument,
+    reconcileOuraDocuments,
+    listOuraDocuments,
+    upsertOuraWebhookSubscription,
+    listOuraWebhookSubscriptions,
+    deleteOuraConnection
+  },
+  logger: logJson
+});
 
 app.use((req, res, next) => {
   const incoming = String(req.get('x-request-id') || '').trim();
@@ -507,11 +544,17 @@ const stripeWebhookHandler = stripe
       logAudit
     })
   : null;
+const ouraWebhookHandler = ouraService.oauthConfigured
+  ? ouraService.processWebhookEvent
+  : null;
 const webhookWorker = createWebhookWorker({
   claimEvents: claimWebhookEvents,
   markProcessed: markWebhookEventProcessed,
   markFailed: markWebhookEventFailed,
-  handlers: stripeWebhookHandler ? { stripe: stripeWebhookHandler } : {},
+  handlers: {
+    ...(stripeWebhookHandler ? { stripe: stripeWebhookHandler } : {}),
+    ...(ouraWebhookHandler ? { oura: ouraWebhookHandler } : {})
+  },
   leaseMs: parsePositiveIntegerEnv('WEBHOOK_LEASE_MS', 120_000),
   batchSize: parsePositiveIntegerEnv('WEBHOOK_BATCH_SIZE', 10),
   pollIntervalMs: parsePositiveIntegerEnv('WEBHOOK_POLL_INTERVAL_MS', 1_000),
@@ -562,6 +605,61 @@ if (stripe && stripeWebhookSecret) {
     }
   );
 }
+
+// Oura verifies this public callback with a GET challenge, then signs each
+// notification over the timestamp plus the exact JSON bytes. Keep POST raw.
+app.get('/webhooks/oura', (req, res) => {
+  if (!ouraService.verifyChallenge(req.query.verification_token)) {
+    return res.status(401).json({ error: 'Invalid Oura webhook verification token.' });
+  }
+  return res.json({ challenge: String(req.query.challenge || '') });
+});
+
+app.post('/webhooks/oura', express.raw({ type: 'application/json', limit: '256kb' }), async (req, res) => {
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
+  const verified = ouraService.verifyWebhook({
+    timestamp: req.get('x-oura-timestamp'),
+    signature: req.get('x-oura-signature'),
+    rawBody
+  });
+  if (!verified) {
+    return res.status(401).json({ error: 'Invalid Oura webhook signature.' });
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(rawBody.toString('utf8'));
+  } catch (_error) {
+    return res.status(400).json({ error: 'Invalid Oura webhook payload.' });
+  }
+
+  try {
+    const connection = await getOuraConnectionByProviderUserId(String(payload?.user_id || ''));
+    const receipt = buildOuraWebhookReceipt(payload, {
+      timestamp: req.get('x-oura-timestamp'),
+      rawBody,
+      userId: connection?.userId || null,
+      maxAttempts: webhookMaxAttempts
+    });
+    const stored = await receiveWebhookEvent(receipt);
+    return res.json({
+      received: true,
+      eventId: stored.id,
+      status: stored.status
+    });
+  } catch (error) {
+    if (error?.code === 'invalid_oura_webhook') {
+      return res.status(400).json({ error: 'Invalid Oura webhook payload.' });
+    }
+    logServerError(req, error, {
+      status: 503,
+      category: 'oura_webhook_receipt'
+    });
+    return res.status(503).json({
+      error: 'Webhook receipt is temporarily unavailable.'
+    });
+  }
+});
 
 app.use(express.json({ limit: '40mb' }));
 
@@ -1101,6 +1199,18 @@ function normalizeString(value, fieldName, { maxLength = 255, fallback = '', req
     throw new Error(`${fieldName} must be ${maxLength} characters or less.`);
   }
   return normalized || fallback;
+}
+
+function normalizeIsoDay(value, fieldName = 'date') {
+  const normalized = normalizeString(value, fieldName, { maxLength: 10, required: true });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw new Error(`${fieldName} must use YYYY-MM-DD.`);
+  }
+  const parsed = new Date(`${normalized}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== normalized) {
+    throw new Error(`${fieldName} must be a valid date.`);
+  }
+  return normalized;
 }
 
 function normalizeNumber(value, fieldName, { min = 0, max = Number.MAX_SAFE_INTEGER, fallback = 0, required = false } = {}) {
@@ -2180,6 +2290,44 @@ app.get(['/favicon.svg', '/logo-mark.svg'], (req, res) => {
 
 app.use('/auth', createRateLimiter({ windowMs: 15 * 60 * 1000, maxRequests: 30 }));
 
+function redirectAfterOuraAuthorization(res, returnTo, result) {
+  const params = new URLSearchParams(result);
+  if (returnTo === 'ios') {
+    return res.redirect(`dailymacros://oura/callback?${params.toString()}`);
+  }
+  return res.redirect(`/?${params.toString()}`);
+}
+
+app.get('/auth/oura/callback', async (req, res) => {
+  try {
+    const result = await ouraService.completeAuthorization({
+      code: req.query.code,
+      state: req.query.state,
+      error: req.query.error,
+      scope: req.query.scope
+    });
+    await logAudit(result.userId, 'connect', 'oura_connection', null, {
+      scopes: result.grantedScopes
+    });
+
+    setImmediate(() => {
+      ouraService.initializeConnection(result.userId).catch((error) => {
+        logJson('error', 'oura_initial_sync_failed', {
+          userId: result.userId,
+          message: safeErrorMessage(error)
+        });
+      });
+    });
+    return redirectAfterOuraAuthorization(res, result.returnTo, { oura: 'connected' });
+  } catch (error) {
+    logJson('warn', 'oura_authorization_failed', { message: safeErrorMessage(error) });
+    return redirectAfterOuraAuthorization(res, error.returnTo, {
+      oura: 'error',
+      message: safeErrorMessage(error)
+    });
+  }
+});
+
 app.get('/auth/google', async (req, res, next) => {
   if (localAuthBypassUser) {
     // Web auth bypass can also satisfy the legacy mobile Google redirect path.
@@ -2685,6 +2833,7 @@ apiRouter.use('/parse-meal', createRateLimiter({ windowMs: 60 * 1000, maxRequest
 apiRouter.use('/parse-workout', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30 }));
 apiRouter.use('/analysis', createRateLimiter({ windowMs: 10 * 60 * 1000, maxRequests: 5 }));
 apiRouter.use('/barcode', createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30 }));
+apiRouter.use('/oura/sync', createRateLimiter({ windowMs: 5 * 60 * 1000, maxRequests: 5 }));
 
 
 apiRouter.get('/me', (req, res) => {
@@ -2729,6 +2878,69 @@ apiRouter.patch('/account/preferences', async (req, res) => {
     return res.json({ ok: true, user: clientUserPayload(req.user) });
   } catch (error) {
     return sendError(req, res, 400, error.message || 'Unable to update account preferences.');
+  }
+});
+
+// ── Oura Cloud connection and normalized data ──
+
+apiRouter.get('/oura/status', async (req, res) => {
+  try {
+    disableConditionalCaching(req, res);
+    return res.json(await ouraService.getStatus(userIdFromReq(req)));
+  } catch (error) {
+    return sendError(req, res, 500, 'Unable to load Oura connection status.', error);
+  }
+});
+
+apiRouter.post('/oura/connect', async (req, res) => {
+  try {
+    const returnTo = req.body?.returnTo === 'ios' ? 'ios' : 'web';
+    const result = await ouraService.createAuthorization(userIdFromReq(req), returnTo);
+    await logAudit(userIdFromReq(req), 'authorize', 'oura_connection', null, { returnTo });
+    return res.json(result);
+  } catch (error) {
+    const status = /not configured/i.test(error.message || '') ? 503 : 400;
+    return sendError(req, res, status, error.message || 'Unable to start Oura authorization.', error);
+  }
+});
+
+apiRouter.post('/oura/sync', async (req, res) => {
+  try {
+    const days = Math.min(Math.max(Number(req.body?.days) || 14, 1), 90);
+    const result = await ouraService.syncUser(userIdFromReq(req), { days });
+    await logAudit(userIdFromReq(req), 'sync', 'oura_connection', null, { days });
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to sync Oura data.');
+  }
+});
+
+apiRouter.get('/oura/documents', async (req, res) => {
+  try {
+    const options = {
+      dataType: req.query.dataType ? normalizeString(req.query.dataType, 'dataType', { maxLength: 64 }) : null,
+      startDate: req.query.startDate ? normalizeIsoDay(req.query.startDate, 'startDate') : null,
+      endDate: req.query.endDate ? normalizeIsoDay(req.query.endDate, 'endDate') : null,
+      limit: Math.min(normalizeLimit(req.query.limit, 500), 2000)
+    };
+    if (options.startDate && options.endDate && options.startDate > options.endDate) {
+      return sendError(req, res, 400, 'startDate must be on or before endDate.');
+    }
+    disableConditionalCaching(req, res);
+    const documents = await ouraService.listDocuments(userIdFromReq(req), options);
+    return res.json({ documents });
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to load Oura data.');
+  }
+});
+
+apiRouter.delete('/oura/connection', async (req, res) => {
+  try {
+    const result = await ouraService.disconnectUser(userIdFromReq(req));
+    await logAudit(userIdFromReq(req), 'disconnect', 'oura_connection', null, { deleteData: true });
+    return res.json(result);
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to disconnect Oura.');
   }
 });
 
@@ -4171,6 +4383,15 @@ apiRouter.delete('/account', async (req, res) => {
   try {
     const userId = userIdFromReq(req);
     logAudit(userId, 'delete', 'account');
+    try {
+      await ouraService.disconnectUser(userId);
+    } catch (error) {
+      // Account deletion remains authoritative even if Oura revocation is unavailable.
+      logJson('warn', 'oura_account_delete_disconnect_failed', {
+        userId,
+        message: safeErrorMessage(error)
+      });
+    }
     await deleteUserAccount(userId);
     req.logout(() => {
       req.session.destroy(() => {
@@ -4299,9 +4520,10 @@ async function startServer() {
   await initDb();
   await performDataRetentionCleanup();
   scheduleDataRetentionCleanup();
-  if (stripeWebhookHandler) {
+  if (stripeWebhookHandler || ouraWebhookHandler) {
     webhookWorker.start();
   }
+  ouraService.startBackgroundJobs();
 
   try {
     activeHttpServer = await new Promise((resolve, reject) => {
@@ -4316,6 +4538,7 @@ async function startServer() {
     return activeHttpServer;
   } catch (error) {
     stopDataRetentionCleanup();
+    await ouraService.stopBackgroundJobs({ timeoutMs: webhookShutdownTimeoutMs });
     await stopStripeReconciliation({ timeoutMs: webhookShutdownTimeoutMs });
     await webhookWorker.stop({ timeoutMs: webhookShutdownTimeoutMs });
     await getPool().end();
@@ -4335,6 +4558,14 @@ async function stopServer() {
           });
         })
       : Promise.resolve();
+    const ouraDrain = await ouraService.stopBackgroundJobs({
+      timeoutMs: webhookShutdownTimeoutMs
+    });
+    if (!ouraDrain.drained) {
+      logJson('warn', 'oura_background_shutdown_timeout', {
+        timeoutMs: webhookShutdownTimeoutMs
+      });
+    }
     const reconciliationDrain = await stopStripeReconciliation({
       timeoutMs: webhookShutdownTimeoutMs
     });

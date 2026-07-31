@@ -38,7 +38,13 @@ const originalEnv = {
   LOCAL_DEV_USER_NAME: process.env.LOCAL_DEV_USER_NAME,
   SESSION_SECRET: process.env.SESSION_SECRET,
   INTERNAL_SYNC_SECRET: process.env.INTERNAL_SYNC_SECRET,
-  WORKOUT_API_URL: process.env.WORKOUT_API_URL
+  WORKOUT_API_URL: process.env.WORKOUT_API_URL,
+  OURA_CLIENT_ID: process.env.OURA_CLIENT_ID,
+  OURA_CLIENT_SECRET: process.env.OURA_CLIENT_SECRET,
+  OURA_REDIRECT_URI: process.env.OURA_REDIRECT_URI,
+  OURA_TOKEN_ENCRYPTION_KEY: process.env.OURA_TOKEN_ENCRYPTION_KEY,
+  OURA_WEBHOOK_VERIFICATION_TOKEN: process.env.OURA_WEBHOOK_VERIFICATION_TOKEN,
+  OURA_WEBHOOK_URL: process.env.OURA_WEBHOOK_URL
 };
 const originalLoad = Module._load;
 const calls = [];
@@ -363,6 +369,21 @@ const fakeDb = {
   listCoachDismissals: async () => [],
   upsertCoachDismissals: async () => [],
   deleteCoachDismissals: async () => 0,
+  createOuraOauthState: async () => {},
+  consumeOuraOauthState: async () => null,
+  getOuraConnection: async () => null,
+  getOuraConnectionByProviderUserId: async () => null,
+  upsertOuraConnection: async () => null,
+  rotateOuraConnectionTokens: async () => null,
+  updateOuraConnection: async () => null,
+  listActiveOuraConnections: async () => [],
+  upsertOuraDocument: async () => null,
+  deleteOuraDocument: async () => {},
+  reconcileOuraDocuments: async () => 0,
+  listOuraDocuments: async () => [],
+  upsertOuraWebhookSubscription: async () => null,
+  listOuraWebhookSubscriptions: async () => [],
+  deleteOuraConnection: async () => {},
   exportUserData: async () => ({}),
   deleteUserAccount: async () => {},
   getPlanLimits: () => ({ dailyParses: 100, mealParsesPerDay: 100, workoutParsesPerDay: 100, analysisPerDay: 100 }),
@@ -393,6 +414,12 @@ test.before(async () => {
   process.env.LOCAL_DEV_USER_EMAIL = fakeUser.email;
   process.env.LOCAL_DEV_USER_NAME = fakeUser.name;
   process.env.SESSION_SECRET = 'test-session-secret';
+  delete process.env.OURA_CLIENT_ID;
+  delete process.env.OURA_CLIENT_SECRET;
+  delete process.env.OURA_REDIRECT_URI;
+  delete process.env.OURA_TOKEN_ENCRYPTION_KEY;
+  delete process.env.OURA_WEBHOOK_VERIFICATION_TOKEN;
+  delete process.env.OURA_WEBHOOK_URL;
 
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === './db' && parent?.filename === serverPath) {
@@ -485,6 +512,29 @@ test('account preferences route persists the optional diagnostics control', rout
   assert.deepEqual(latestCall('updateUserPreferences').payload, {
     optionalDiagnosticsEnabled: false
   });
+});
+
+test('Oura status is explicit when server credentials are not configured', routeTestOptions, async () => {
+  const { res, body } = await request('/api/oura/status');
+
+  assert.equal(res.status, 200);
+  assert.equal(body.configured, false);
+  assert.equal(body.connected, false);
+  assert.equal(body.state, 'not_configured');
+  assert.ok(body.missingConfiguration.includes('OURA_CLIENT_ID'));
+});
+
+test('Oura routes reject unavailable authorization and invalid document dates clearly', routeTestOptions, async () => {
+  const connect = await request('/api/oura/connect', {
+    method: 'POST',
+    body: JSON.stringify({ returnTo: 'web' })
+  });
+  const invalidDate = await request('/api/oura/documents?startDate=2026-02-31');
+
+  assert.equal(connect.res.status, 503);
+  assert.match(connect.body.error, /not configured/i);
+  assert.equal(invalidDate.res.status, 400);
+  assert.match(invalidDate.body.error, /valid date/i);
 });
 
 test('dashboard route falls back to saved user timezone', routeTestOptions, async () => {

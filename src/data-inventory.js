@@ -1,4 +1,4 @@
-const DATA_INVENTORY_VERSION = '2026-07-29';
+const DATA_INVENTORY_VERSION = '2026-07-31';
 
 const DISCLOSURE_GROUPS = Object.freeze({
   account: 'Account details',
@@ -255,6 +255,65 @@ const DATA_INVENTORY = Object.freeze([
     }
   },
   {
+    table: 'oura_oauth_states',
+    scope: 'account',
+    userColumn: 'user_id',
+    disclosureGroup: 'authentication',
+    purpose: 'Short-lived hashed OAuth authorization state',
+    accountDeletion: true,
+    deleteOrder: 112,
+    export: {
+      key: 'ouraOauthStates',
+      columns: ['return_to', 'expires_at', 'created_at'],
+      orderBy: 'created_at DESC'
+    }
+  },
+  {
+    table: 'oura_documents',
+    scope: 'account',
+    userColumn: 'user_id',
+    disclosureGroup: 'health',
+    accountDeletion: true,
+    deleteOrder: 113,
+    export: {
+      key: 'ouraDocuments',
+      columns: [
+        'data_type',
+        'provider_document_id',
+        'day',
+        'recorded_at',
+        'normalized_data',
+        'synced_at',
+        'created_at',
+        'updated_at',
+        'deleted_at'
+      ],
+      orderBy: 'day DESC, recorded_at DESC, data_type'
+    }
+  },
+  {
+    table: 'oura_connections',
+    scope: 'account',
+    userColumn: 'user_id',
+    disclosureGroup: 'health',
+    accountDeletion: true,
+    deleteOrder: 114,
+    export: {
+      key: 'ouraConnection',
+      cardinality: 'one',
+      columns: [
+        'oura_user_id',
+        'scopes',
+        'status',
+        'last_synced_at',
+        'last_webhook_at',
+        'last_error',
+        'created_at',
+        'updated_at'
+      ]
+    }
+  },
+  {
     table: 'analysis_reports',
     scope: 'account',
     userColumn: 'user_id',
@@ -330,6 +389,12 @@ const DATA_INVENTORY = Object.freeze([
       ],
       orderBy: 'received_at DESC, id DESC'
     }
+  },
+  {
+    table: 'oura_webhook_subscriptions',
+    scope: 'system',
+    disclosureGroup: 'operational',
+    purpose: 'App-level Oura webhook subscription renewal metadata'
   },
   {
     table: 'api_tokens',

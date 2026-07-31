@@ -639,7 +639,7 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     );
 
     const cleanup = await db.runDataRetentionCleanup({ now: retentionNow });
-    assert.equal(cleanup.inventoryVersion, '2026-07-29');
+    assert.equal(cleanup.inventoryVersion, '2026-07-31');
     assert.ok(cleanup.tables.client_diagnostics.deleted >= 1);
     assert.ok(cleanup.tables.audit_log.deleted >= 1);
     assert.ok(cleanup.tables.daily_usage_counts.deleted >= 1);
@@ -675,8 +675,50 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     });
     assert.equal(diagnostics[0].userAgent, null);
 
+    const ouraStateHash = crypto.createHash('sha256').update('integration-state').digest('hex');
+    await db.createOuraOauthState(
+      ouraStateHash,
+      userId,
+      'ios',
+      new Date(Date.now() + 60_000)
+    );
+    const consumedOuraState = await db.consumeOuraOauthState(ouraStateHash);
+    assert.equal(consumedOuraState.userId, userId);
+    assert.equal(consumedOuraState.returnTo, 'ios');
+    assert.equal(await db.consumeOuraOauthState(ouraStateHash), null);
+
+    await db.upsertOuraConnection(userId, {
+      ouraUserId: `oura-${crypto.randomUUID()}`,
+      accessTokenEncrypted: 'encrypted-access-v1',
+      refreshTokenEncrypted: 'encrypted-refresh-v1',
+      tokenExpiresAt: new Date(Date.now() + 60_000),
+      scopes: ['personal', 'daily'],
+      status: 'connected'
+    });
+    const rotatedOura = await db.rotateOuraConnectionTokens(userId, async () => ({
+      accessTokenEncrypted: 'encrypted-access-v2',
+      refreshTokenEncrypted: 'encrypted-refresh-v2',
+      tokenExpiresAt: new Date(Date.now() + 120_000),
+      scopes: ['personal', 'daily']
+    }));
+    assert.equal(rotatedOura.accessTokenEncrypted, 'encrypted-access-v2');
+
+    const ouraDocument = {
+      providerDocumentId: 'integration-daily-sleep',
+      day: '2026-06-11',
+      recordedAt: '2026-06-11T08:00:00.000Z',
+      data: { score: 88, contributors: { deepSleep: 90 } }
+    };
+    await db.upsertOuraDocument(userId, 'daily_sleep', ouraDocument, { resurrect: false });
+    assert.equal((await db.listOuraDocuments(userId)).length, 1);
+    await db.deleteOuraDocument(userId, 'daily_sleep', ouraDocument.providerDocumentId);
+    await db.upsertOuraDocument(userId, 'daily_sleep', ouraDocument, { resurrect: false });
+    assert.equal((await db.listOuraDocuments(userId)).length, 0);
+    await db.upsertOuraDocument(userId, 'daily_sleep', ouraDocument, { resurrect: true });
+    assert.equal((await db.listOuraDocuments(userId))[0].data.score, 88);
+
     const exported = await db.exportUserData(userId);
-    assert.equal(exported.dataInventoryVersion, '2026-07-29');
+    assert.equal(exported.dataInventoryVersion, '2026-07-31');
     assert.deepEqual(exported.retention.webhook_events, {
       mode: 'deadline',
       processedDays: 30,
@@ -698,6 +740,20 @@ test('database feature foundations persist and read back through PostgreSQL', { 
       }),
       true
     );
+
+    assert.equal(exported.ouraConnection.oura_user_id.startsWith('oura-'), true);
+    assert.equal(Object.hasOwn(exported.ouraConnection, 'access_token_encrypted'), false);
+    assert.equal(exported.ouraDocuments[0].normalized_data.score, 88);
+
+    await db.upsertOuraConnection(userId, {
+      ouraUserId: `oura-replacement-${crypto.randomUUID()}`,
+      accessTokenEncrypted: 'replacement-access',
+      refreshTokenEncrypted: 'replacement-refresh',
+      tokenExpiresAt: new Date(Date.now() + 60_000),
+      scopes: ['personal', 'daily'],
+      status: 'connected'
+    });
+    assert.equal((await db.listOuraDocuments(userId)).length, 0);
 
     await db.deleteUserAccount(userId);
     const { accountDeletionInventory } = require('../src/data-inventory');
