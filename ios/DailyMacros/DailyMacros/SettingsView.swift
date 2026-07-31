@@ -1,4 +1,5 @@
 import SwiftUI
+import AuthenticationServices
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
@@ -28,12 +29,17 @@ struct SettingsView: View {
     @State private var errorMessage: String?
     @State private var settingsMessage: String?
     @State private var showAccountDetails = false
+    @State private var ouraStatus: OuraStatusResponse?
+    @State private var isLoadingOura = false
+    @State private var ouraAuthenticationSession: ASWebAuthenticationSession?
+    @State private var showOuraDisconnectConfirm = false
 
     var body: some View {
         NavigationStack {
             List {
                 accountSection
                 supportPrivacySection
+                ouraSection
                 preferencesSection
                 if auth.user?.sexualActivityEnabled == true {
                     sexualActivitySection
@@ -90,6 +96,14 @@ struct SettingsView: View {
                 }
             } message: {
                 Text("This permanently deletes your account, server data, and any protected pending work on this device. This cannot be undone.")
+            }
+            .alert("Disconnect Oura", isPresented: $showOuraDisconnectConfirm) {
+                Button("Cancel", role: .cancel) { }
+                Button("Disconnect & Delete Data", role: .destructive) {
+                    Task { await disconnectOura() }
+                }
+            } message: {
+                Text("This revokes DailyMacros access and permanently deletes imported Oura data from DailyMacros.")
             }
             .sheet(isPresented: $showAccountDetails) {
                 AccountDetailsView()
@@ -152,7 +166,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
-                Text("macrovana stores nutrition, weight, workouts, sleep, sexual activity entries, meal photos submitted for parsing, account details, and beta usage data. Optional browser diagnostics use a strict metadata allowlist and are retained for 30 days. You can stop future optional uploads, export a JSON copy of your data, or permanently delete your account from this screen.")
+                Text("macrovana stores nutrition, weight, workouts, sleep, optional Oura aggregate metrics, sexual activity entries, meal photos submitted for parsing, account details, and beta usage data. Optional browser diagnostics use a strict metadata allowlist and are retained for 30 days. You can stop future optional uploads, export a JSON copy of your data, or permanently delete your account from this screen.")
                     .font(.subheadline)
             }
 
@@ -175,6 +189,122 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    private var ouraSection: some View {
+        Section {
+            if let status = ouraStatus {
+                HStack {
+                    Text("Connection")
+                    Spacer()
+                    Text(ouraConnectionLabel(status))
+                        .foregroundStyle(ouraConnectionColor(status))
+                }
+
+                if let lastSyncedAt = status.lastSyncedAt {
+                    HStack {
+                        Text("Last Data Sync")
+                        Spacer()
+                        Text(formatOuraTimestamp(lastSyncedAt))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let lastWebhookAt = status.lastWebhookAt {
+                    HStack {
+                        Text("Last Oura Update")
+                        Spacer()
+                        Text(formatOuraTimestamp(lastWebhookAt))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let lastError = status.lastError, !lastError.isEmpty {
+                    Text(lastError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                if !status.configured {
+                    Text("The Oura integration still needs server credentials before it can be connected.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else if !status.connected {
+                    Button("Connect Oura") {
+                        Task { await connectOura() }
+                    }
+                    .disabled(isLoadingOura)
+                } else {
+                    if status.state == "reauthorization_required" || status.state == "error" {
+                        Button("Reconnect Oura") {
+                            Task { await connectOura() }
+                        }
+                        .disabled(isLoadingOura)
+                    }
+
+                    Button {
+                        Task { await syncOura() }
+                    } label: {
+                        HStack {
+                            Text("Sync Now")
+                            Spacer()
+                            if isLoadingOura {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                            }
+                        }
+                    }
+                    .disabled(isLoadingOura)
+
+                    Button("Disconnect & Delete Oura Data", role: .destructive) {
+                        showOuraDisconnectConfirm = true
+                    }
+                    .disabled(isLoadingOura)
+                }
+            } else if isLoadingOura {
+                ProgressView()
+            } else {
+                Button("Load Oura Status") {
+                    Task { await loadOuraStatus(showErrors: true) }
+                }
+            }
+        } header: {
+            Text("Oura Ring")
+        } footer: {
+            if ouraStatus?.connected != true {
+                Text("By connecting, you authorize DailyMacros to import 90 days of Oura sleep, readiness, activity, stress, resilience, and bedtime aggregates and combine them with your app history for deterministic trends and coaching. Oura API data is never provided to AI models. The personal scope is used only for Oura's opaque routing ID; other profile fields are discarded. Imported records remain until you disconnect Oura or delete your account.")
+            } else if ouraStatus?.updateMode == "webhook" {
+                Text("After your ring syncs to Oura, new cloud data should reach DailyMacros in about 30 seconds. Imported records remain until you disconnect Oura or delete your account and may be combined with your app history for deterministic trends and coaching, never AI-model input.")
+            } else {
+                Text("Signed webhook delivery is not active, so scheduled reconciliation is being used. Raw sample arrays are not stored; imported records remain until you disconnect Oura or delete your account and may be combined with your app history for deterministic trends and coaching, never AI-model input.")
+            }
+        }
+    }
+
+    private func ouraConnectionLabel(_ status: OuraStatusResponse) -> String {
+        if !status.configured { return "Not Configured" }
+        if !status.connected { return "Not Connected" }
+        switch status.state {
+        case "syncing": return "Syncing"
+        case "reauthorization_required": return "Reconnect Required"
+        case "error": return "Needs Attention"
+        default: return "Connected"
+        }
+    }
+
+    private func ouraConnectionColor(_ status: OuraStatusResponse) -> Color {
+        switch status.state {
+        case "connected": return .green
+        case "syncing": return .cyan
+        case "error", "reauthorization_required": return .red
+        default: return .secondary
+        }
+    }
+
+    private func formatOuraTimestamp(_ value: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: value) else { return value }
+        return date.formatted(date: .abbreviated, time: .shortened)
     }
 
     private var preferencesSection: some View {
@@ -660,6 +790,93 @@ struct SettingsView: View {
     private func loadSettings() async {
         await loadSubscription()
         await loadVersion()
+        await loadOuraStatus()
+    }
+
+    private func loadOuraStatus(showErrors: Bool = false) async {
+        isLoadingOura = true
+        defer { isLoadingOura = false }
+        do {
+            ouraStatus = try await api.getOuraStatus()
+        } catch {
+            if showErrors {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func connectOura() async {
+        isLoadingOura = true
+        defer { isLoadingOura = false }
+
+        do {
+            let authorizationURL = try await api.createOuraAuthorization(returnTo: "ios")
+            let callbackURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                let session = ASWebAuthenticationSession(
+                    url: authorizationURL,
+                    callbackURLScheme: "dailymacros"
+                ) { callbackURL, error in
+                    self.ouraAuthenticationSession = nil
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else if let callbackURL {
+                        continuation.resume(returning: callbackURL)
+                    } else {
+                        continuation.resume(throwing: APIError.serverError("Oura connection failed."))
+                    }
+                }
+                session.prefersEphemeralWebBrowserSession = false
+                session.presentationContextProvider = OuraAuthenticationContextProvider.shared
+                self.ouraAuthenticationSession = session
+                if !session.start() {
+                    self.ouraAuthenticationSession = nil
+                    continuation.resume(throwing: APIError.serverError("Unable to open Oura authorization."))
+                }
+            }
+
+            let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
+            let result = components?.queryItems?.first(where: { $0.name == "oura" })?.value
+            if result == "error" {
+                let message = components?.queryItems?.first(where: { $0.name == "message" })?.value
+                throw APIError.serverError(message ?? "Oura connection failed.")
+            }
+
+            await loadOuraStatus()
+            settingsMessage = "Oura connected. The initial 90-day sync is running."
+            Diagnostics.shared.record(category: "oura", message: "Connected Oura")
+        } catch {
+            if (error as NSError).domain == "com.apple.AuthenticationServices.WebAuthenticationSession",
+               (error as NSError).code == 1 {
+                return
+            }
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func syncOura() async {
+        isLoadingOura = true
+        defer { isLoadingOura = false }
+        do {
+            _ = try await api.syncOura(days: 14)
+            ouraStatus = try await api.getOuraStatus()
+            settingsMessage = "Oura data synced."
+            Diagnostics.shared.record(category: "oura", message: "Synced Oura data")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func disconnectOura() async {
+        isLoadingOura = true
+        defer { isLoadingOura = false }
+        do {
+            try await api.disconnectOura()
+            ouraStatus = try await api.getOuraStatus()
+            settingsMessage = "Oura disconnected and imported data deleted."
+            Diagnostics.shared.record(category: "oura", message: "Disconnected Oura and deleted imported data")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func loadSubscription() async {
@@ -1380,5 +1597,17 @@ private enum SettingsBuildLabel {
             return nil
         }
         return raw
+    }
+}
+
+private final class OuraAuthenticationContextProvider: NSObject, ASWebAuthenticationPresentationContextProviding {
+    static let shared = OuraAuthenticationContextProvider()
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = scene.windows.first else {
+            return ASPresentationAnchor()
+        }
+        return window
     }
 }

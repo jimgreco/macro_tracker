@@ -49,6 +49,14 @@ Set these on the remote compose environment for the `macros` service:
 - `APPLE_PRIVATE_KEY`
 - `APPLE_REDIRECT_URI=https://macrovana.com/auth/apple/callback`
 - `APPLE_BUNDLE_ID`
+- `OURA_CLIENT_ID`
+- `OURA_CLIENT_SECRET`
+- `OURA_REDIRECT_URI`
+- `OURA_TOKEN_ENCRYPTION_KEY`
+- `OURA_WEBHOOK_URL`
+- `OURA_WEBHOOK_VERIFICATION_TOKEN`
+- `OURA_INCLUDE_WORKOUTS=false` (optional; keep off until direct/HealthKit workout reconciliation is enabled)
+- `OURA_RECONCILIATION_MINUTES=60` (optional)
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRO_PRICE_ID`
@@ -63,6 +71,16 @@ Set these on the remote compose environment for the `macros` service:
 - `STRIPE_RECONCILIATION_INTERVAL_HOURS` (optional; defaults to `24`)
 - `INTERNAL_SYNC_SECRET`
 - `WORKOUT_API_URL`
+
+## Oura API Setup
+
+1. Register the production OAuth redirect exactly as `https://<production-domain>/auth/oura/callback` in the Oura developer application.
+2. Set `OURA_WEBHOOK_URL` to `https://<production-domain>/webhooks/oura`. The app creates and renews create/update/delete subscriptions for each enabled data type.
+3. Generate separate high-entropy values for `OURA_TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`) and `OURA_WEBHOOK_VERIFICATION_TOKEN` (`openssl rand -hex 32`). Never reuse the Oura client secret for token encryption.
+4. Confirm the Oura application is approved for the intended user count; unapproved applications have a small development-user limit.
+5. After deploy, connect a test account from Settings, confirm the 90-day backfill completes, and check that `/api/v1/oura/status` reports `updateMode: webhook` and active subscriptions.
+
+The integration requests `personal` only to obtain Oura's opaque user id for webhook routing; age, height, weight, biological sex, and Oura email are discarded. Stored Oura records contain allowlisted aggregate metrics and omit raw heart-rate, HRV, movement, phase, and MET sample arrays. Imported records remain until the user disconnects Oura or deletes the DailyMacros account. Oura aggregates may be combined with other app history only for deterministic in-app trends and coaching. Oura API data and derived values must remain outside OpenAI, Apple Foundation Models, and every other AI/ML model.
 
 ## Pre-Deploy Checks
 Run locally before merging to `main`:

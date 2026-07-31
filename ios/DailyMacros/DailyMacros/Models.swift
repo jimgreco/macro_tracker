@@ -414,6 +414,77 @@ struct OkResponse: Codable {
     let ok: Bool
 }
 
+struct OuraStatusResponse: Codable, Sendable {
+    let configured: Bool
+    let connected: Bool
+    let state: String
+    let requestedScopes: [String]
+    let grantedScopes: [String]
+    let lastSyncedAt: String?
+    let lastWebhookAt: String?
+    let lastError: String?
+    let updateMode: String
+    let expectedUpdateDelaySeconds: Int?
+    let webhookSubscriptions: Int
+    let missingConfiguration: [String]
+}
+
+struct OuraAuthorizationResponse: Codable {
+    let authorizationUrl: String
+}
+
+struct OuraSyncResponse: Codable {
+    let ok: Bool
+    let syncedAt: String
+    let counts: [String: Int]
+}
+
+struct OuraDocument: Codable, Sendable {
+    let dataType: String
+    let providerDocumentId: String
+    let day: String?
+    let recordedAt: String?
+    let data: [String: JSONValue]
+    let syncedAt: String
+    let updatedAt: String
+}
+
+struct OuraDocumentsResponse: Codable, Sendable {
+    let documents: [OuraDocument]
+}
+
+enum JSONValue: Codable, Sendable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case object([String: JSONValue])
+    case array([JSONValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() { self = .null }
+        else if let value = try? container.decode(Bool.self) { self = .bool(value) }
+        else if let value = try? container.decode(Double.self) { self = .number(value) }
+        else if let value = try? container.decode(String.self) { self = .string(value) }
+        else if let value = try? container.decode([String: JSONValue].self) { self = .object(value) }
+        else if let value = try? container.decode([JSONValue].self) { self = .array(value) }
+        else { throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported JSON value") }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value): try container.encode(value)
+        case .number(let value): try container.encode(value)
+        case .bool(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
+        case .null: try container.encodeNil()
+        }
+    }
+}
+
 struct StarterQuickAddsResponse: Codable {
     let ok: Bool
     let addedCount: Int

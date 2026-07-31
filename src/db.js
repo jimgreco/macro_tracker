@@ -637,6 +637,66 @@ async function initDb() {
     );
   `);
 
+  // ── Direct Oura Cloud integration ──
+  // OAuth credentials are encrypted by the application before they reach Postgres.
+  // Oura documents contain only allowlisted aggregate fields, never raw sample arrays.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS oura_oauth_states (
+      state_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      return_to TEXT NOT NULL DEFAULT 'web',
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK (return_to IN ('web', 'ios'))
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS oura_connections (
+      user_id TEXT PRIMARY KEY,
+      oura_user_id TEXT NOT NULL UNIQUE,
+      access_token_encrypted TEXT NOT NULL,
+      refresh_token_encrypted TEXT NOT NULL,
+      token_expires_at TIMESTAMPTZ NOT NULL,
+      scopes TEXT[] NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'connected',
+      last_synced_at TIMESTAMPTZ,
+      last_webhook_at TIMESTAMPTZ,
+      last_error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS oura_documents (
+      user_id TEXT NOT NULL,
+      data_type TEXT NOT NULL,
+      provider_document_id TEXT NOT NULL,
+      day DATE,
+      recorded_at TIMESTAMPTZ,
+      normalized_data JSONB NOT NULL DEFAULT '{}',
+      synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, data_type, provider_document_id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS oura_webhook_subscriptions (
+      id TEXT PRIMARY KEY,
+      callback_url TEXT NOT NULL,
+      data_type TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      expiration_time TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (callback_url, data_type, event_type)
+    );
+  `);
+
   // ── Migrations for existing databases ──
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/New_York';`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN NOT NULL DEFAULT FALSE;`);
@@ -843,14 +903,22 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_client_diagnostics_user_created ON client_diagnostics(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_client_diagnostics_level_created ON client_diagnostics(level, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_client_mutations_completed ON client_mutations(completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_oura_oauth_states_expires ON oura_oauth_states(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_oura_connections_status ON oura_connections(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_oura_documents_user_day ON oura_documents(user_id, day DESC, data_type)
+      WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_oura_documents_provider_id ON oura_documents(provider_document_id, data_type);
+    CREATE INDEX IF NOT EXISTS idx_oura_webhook_subscriptions_expiration ON oura_webhook_subscriptions(expiration_time);
   `);
 
   await recordSchemaMigration('2026-06-11_feature_foundations');
+  await recordSchemaMigration('2026-07-20_direct_oura_integration');
   await recordSchemaMigration('2026-07-27_client_mutation_idempotency');
   await recordSchemaMigration('2026-07-27_shared_auth_state');
   await recordSchemaMigration('2026-07-27_nutrition_day_completeness');
   await recordSchemaMigration('2026-07-28_data_inventory_and_retention');
   await recordSchemaMigration('2026-07-29_durable_webhook_inbox');
+  await recordSchemaMigration('2026-07-31_durable_oura_webhooks');
   await applyHealthKitSleepRevisionMigration();
 
   await pool.query('DELETE FROM web_sessions WHERE expires_at <= NOW()');
@@ -4511,6 +4579,359 @@ async function deleteCoachDismissals(userId) {
   return result.rowCount || 0;
 }
 
+// ── Oura Cloud ──
+
+function rowToOuraConnection(row) {
+  if (!row) return null;
+  return {
+    userId: row.user_id,
+    ouraUserId: row.oura_user_id,
+    accessTokenEncrypted: row.access_token_encrypted,
+    refreshTokenEncrypted: row.refresh_token_encrypted,
+    tokenExpiresAt: dateToIso(row.token_expires_at),
+    scopes: Array.isArray(row.scopes) ? row.scopes : [],
+    status: row.status,
+    lastSyncedAt: dateToIso(row.last_synced_at),
+    lastWebhookAt: dateToIso(row.last_webhook_at),
+    lastError: row.last_error || null,
+    createdAt: dateToIso(row.created_at),
+    updatedAt: dateToIso(row.updated_at)
+  };
+}
+
+async function createOuraOauthState(stateHash, userId, returnTo, expiresAt) {
+  await pool.query('DELETE FROM oura_oauth_states WHERE expires_at <= NOW() OR user_id = $1', [userId]);
+  await pool.query(
+    `INSERT INTO oura_oauth_states (state_hash, user_id, return_to, expires_at)
+     VALUES ($1, $2, $3, $4)`,
+    [stateHash, userId, returnTo, expiresAt]
+  );
+}
+
+async function consumeOuraOauthState(stateHash) {
+  const result = await pool.query(
+    `DELETE FROM oura_oauth_states
+     WHERE state_hash = $1 AND expires_at > NOW()
+     RETURNING user_id, return_to, expires_at`,
+    [stateHash]
+  );
+  const row = result.rows[0];
+  return row
+    ? { userId: row.user_id, returnTo: row.return_to, expiresAt: dateToIso(row.expires_at) }
+    : null;
+}
+
+async function getOuraConnection(userId) {
+  const result = await pool.query(
+    'SELECT * FROM oura_connections WHERE user_id = $1',
+    [userId]
+  );
+  return rowToOuraConnection(result.rows[0]);
+}
+
+async function getOuraConnectionByProviderUserId(ouraUserId) {
+  const result = await pool.query(
+    'SELECT * FROM oura_connections WHERE oura_user_id = $1',
+    [ouraUserId]
+  );
+  return rowToOuraConnection(result.rows[0]);
+}
+
+async function upsertOuraConnection(userId, connection) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const previousResult = await client.query(
+      'SELECT oura_user_id FROM oura_connections WHERE user_id = $1 FOR UPDATE',
+      [userId]
+    );
+    const previousOuraUserId = previousResult.rows[0]?.oura_user_id || null;
+    if (previousOuraUserId && previousOuraUserId !== connection.ouraUserId) {
+      // Never blend aggregates from two provider accounts when a DailyMacros
+      // user intentionally connects a different Oura account.
+      await client.query('DELETE FROM oura_documents WHERE user_id = $1', [userId]);
+    }
+
+    const result = await client.query(
+      `INSERT INTO oura_connections (
+         user_id, oura_user_id, access_token_encrypted, refresh_token_encrypted,
+         token_expires_at, scopes, status, last_error, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6::text[], $7, NULL, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         oura_user_id = EXCLUDED.oura_user_id,
+         access_token_encrypted = EXCLUDED.access_token_encrypted,
+         refresh_token_encrypted = EXCLUDED.refresh_token_encrypted,
+         token_expires_at = EXCLUDED.token_expires_at,
+         scopes = EXCLUDED.scopes,
+         status = EXCLUDED.status,
+         last_error = NULL,
+         updated_at = NOW()
+       RETURNING *`,
+      [
+        userId,
+        connection.ouraUserId,
+        connection.accessTokenEncrypted,
+        connection.refreshTokenEncrypted,
+        connection.tokenExpiresAt,
+        connection.scopes || [],
+        connection.status || 'connected'
+      ]
+    );
+    await client.query('COMMIT');
+    return rowToOuraConnection(result.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function rotateOuraConnectionTokens(userId, rotate) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const currentResult = await client.query(
+      'SELECT * FROM oura_connections WHERE user_id = $1 FOR UPDATE',
+      [userId]
+    );
+    const current = rowToOuraConnection(currentResult.rows[0]);
+    if (!current) throw new Error('Oura is not connected.');
+
+    const next = await rotate(current);
+    if (!next) {
+      await client.query('COMMIT');
+      return current;
+    }
+
+    const result = await client.query(
+      `UPDATE oura_connections
+       SET access_token_encrypted = $2,
+           refresh_token_encrypted = $3,
+           token_expires_at = $4,
+           scopes = $5::text[],
+           status = 'connected',
+           last_error = NULL,
+           updated_at = NOW()
+       WHERE user_id = $1
+       RETURNING *`,
+      [
+        userId,
+        next.accessTokenEncrypted,
+        next.refreshTokenEncrypted,
+        next.tokenExpiresAt,
+        next.scopes || current.scopes
+      ]
+    );
+    await client.query('COMMIT');
+    return rowToOuraConnection(result.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function updateOuraConnection(userId, updates = {}) {
+  const columnMap = {
+    status: 'status',
+    lastSyncedAt: 'last_synced_at',
+    lastWebhookAt: 'last_webhook_at',
+    lastError: 'last_error'
+  };
+  const assignments = [];
+  const values = [userId];
+  for (const [key, column] of Object.entries(columnMap)) {
+    if (!Object.prototype.hasOwnProperty.call(updates, key)) continue;
+    values.push(updates[key]);
+    assignments.push(`${column} = $${values.length}`);
+  }
+  if (!assignments.length) return getOuraConnection(userId);
+  assignments.push('updated_at = NOW()');
+  const result = await pool.query(
+    `UPDATE oura_connections SET ${assignments.join(', ')} WHERE user_id = $1 RETURNING *`,
+    values
+  );
+  return rowToOuraConnection(result.rows[0]);
+}
+
+async function listActiveOuraConnections() {
+  const result = await pool.query(
+    `SELECT * FROM oura_connections
+     WHERE status <> 'reauthorization_required'
+     ORDER BY COALESCE(last_synced_at, created_at) ASC`
+  );
+  return result.rows.map(rowToOuraConnection);
+}
+
+async function upsertOuraDocument(userId, dataType, document, options = {}) {
+  const resurrect = options.resurrect === true;
+  const result = await pool.query(
+    `INSERT INTO oura_documents (
+       user_id, data_type, provider_document_id, day, recorded_at, normalized_data,
+       synced_at, updated_at, deleted_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW(), NULL)
+     ON CONFLICT (user_id, data_type, provider_document_id) DO UPDATE SET
+       day = CASE
+         WHEN oura_documents.deleted_at IS NOT NULL AND NOT $7 THEN oura_documents.day
+         ELSE EXCLUDED.day
+       END,
+       recorded_at = CASE
+         WHEN oura_documents.deleted_at IS NOT NULL AND NOT $7 THEN oura_documents.recorded_at
+         ELSE EXCLUDED.recorded_at
+       END,
+       normalized_data = CASE
+         WHEN oura_documents.deleted_at IS NOT NULL AND NOT $7 THEN oura_documents.normalized_data
+         ELSE EXCLUDED.normalized_data
+       END,
+       synced_at = NOW(),
+       updated_at = NOW(),
+       deleted_at = CASE WHEN $7 THEN NULL ELSE oura_documents.deleted_at END
+     RETURNING *`,
+    [
+      userId,
+      dataType,
+      document.providerDocumentId,
+      document.day || null,
+      document.recordedAt || null,
+      JSON.stringify(document.data || {}),
+      resurrect
+    ]
+  );
+  return result.rows[0];
+}
+
+async function deleteOuraDocument(userId, dataType, providerDocumentId) {
+  await pool.query(
+    `INSERT INTO oura_documents (
+       user_id, data_type, provider_document_id, normalized_data, synced_at, updated_at, deleted_at
+     )
+     VALUES ($1, $2, $3, '{}'::jsonb, NOW(), NOW(), NOW())
+     ON CONFLICT (user_id, data_type, provider_document_id) DO UPDATE SET
+       synced_at = NOW(),
+       updated_at = NOW(),
+       deleted_at = NOW()`,
+    [userId, dataType, providerDocumentId]
+  );
+}
+
+async function reconcileOuraDocuments(userId, dataType, startDate, endDate, seenIds, reconciliationStartedAt = new Date()) {
+  const ids = Array.isArray(seenIds) ? seenIds : [];
+  const result = await pool.query(
+    `UPDATE oura_documents
+     SET deleted_at = NOW(), synced_at = NOW(), updated_at = NOW()
+     WHERE user_id = $1
+       AND data_type = $2
+       AND day >= $3::date
+       AND day <= $4::date
+       AND deleted_at IS NULL
+       AND updated_at <= $6
+       AND NOT (provider_document_id = ANY($5::text[]))`,
+    [userId, dataType, startDate, endDate, ids, reconciliationStartedAt]
+  );
+  return result.rowCount || 0;
+}
+
+async function listOuraDocuments(userId, options = {}) {
+  const conditions = ['user_id = $1', 'deleted_at IS NULL'];
+  const values = [userId];
+  if (options.dataType) {
+    values.push(String(options.dataType));
+    conditions.push(`data_type = $${values.length}`);
+  }
+  if (options.startDate) {
+    values.push(String(options.startDate));
+    conditions.push(`day >= $${values.length}::date`);
+  }
+  if (options.endDate) {
+    values.push(String(options.endDate));
+    conditions.push(`day <= $${values.length}::date`);
+  }
+  const limit = Math.min(Math.max(Number(options.limit) || 500, 1), 2000);
+  values.push(limit);
+  const result = await pool.query(
+    `SELECT
+       data_type AS "dataType",
+       provider_document_id AS "providerDocumentId",
+       day::text AS day,
+       recorded_at AS "recordedAt",
+       normalized_data AS data,
+       synced_at AS "syncedAt",
+       updated_at AS "updatedAt"
+     FROM oura_documents
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY day DESC NULLS LAST, recorded_at DESC NULLS LAST, data_type
+     LIMIT $${values.length}`,
+    values
+  );
+  return result.rows;
+}
+
+async function upsertOuraWebhookSubscription(subscription) {
+  await pool.query(
+    `DELETE FROM oura_webhook_subscriptions
+     WHERE callback_url = $1 AND data_type = $2 AND event_type = $3 AND id <> $4`,
+    [subscription.callback_url, subscription.data_type, subscription.event_type, subscription.id]
+  );
+  const result = await pool.query(
+    `INSERT INTO oura_webhook_subscriptions (
+       id, callback_url, data_type, event_type, expiration_time, updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (id) DO UPDATE SET
+       callback_url = EXCLUDED.callback_url,
+       data_type = EXCLUDED.data_type,
+       event_type = EXCLUDED.event_type,
+       expiration_time = EXCLUDED.expiration_time,
+       updated_at = NOW()
+     RETURNING *`,
+    [
+      subscription.id,
+      subscription.callback_url,
+      subscription.data_type,
+      subscription.event_type,
+      subscription.expiration_time
+    ]
+  );
+  return result.rows[0];
+}
+
+async function listOuraWebhookSubscriptions(callbackUrl = null) {
+  const values = [];
+  const callbackCondition = callbackUrl ? 'AND callback_url = $1' : '';
+  if (callbackUrl) values.push(callbackUrl);
+  const result = await pool.query(
+    `SELECT id, callback_url, data_type, event_type, expiration_time, updated_at
+     FROM oura_webhook_subscriptions
+     WHERE expiration_time > NOW()
+       ${callbackCondition}
+     ORDER BY data_type, event_type`,
+    values
+  );
+  return result.rows;
+}
+
+async function deleteOuraConnection(userId, options = {}) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM oura_oauth_states WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM oura_connections WHERE user_id = $1', [userId]);
+    if (options.deleteData !== false) {
+      await client.query('DELETE FROM oura_documents WHERE user_id = $1', [userId]);
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 // ── GDPR ──
 
 const INVENTORY_IDENTIFIER_PATTERN = /^[a-z_][a-z0-9_]*$/;
@@ -4559,7 +4980,7 @@ async function exportUserData(userId) {
     exportedAt: new Date().toISOString(),
     dataInventoryVersion: DATA_INVENTORY_VERSION,
     retention,
-    weightTarget,
+    weightTarget
   };
 
   inventory.forEach((item, index) => {
@@ -5346,6 +5767,21 @@ module.exports = {
   listCoachDismissals,
   upsertCoachDismissals,
   deleteCoachDismissals,
+  createOuraOauthState,
+  consumeOuraOauthState,
+  getOuraConnection,
+  getOuraConnectionByProviderUserId,
+  upsertOuraConnection,
+  rotateOuraConnectionTokens,
+  updateOuraConnection,
+  listActiveOuraConnections,
+  upsertOuraDocument,
+  deleteOuraDocument,
+  reconcileOuraDocuments,
+  listOuraDocuments,
+  upsertOuraWebhookSubscription,
+  listOuraWebhookSubscriptions,
+  deleteOuraConnection,
   exportUserData,
   deleteUserAccount,
   runDataRetentionCleanup,

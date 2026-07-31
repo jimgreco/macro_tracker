@@ -46,7 +46,6 @@
       "layers" : [
         {
           "image-name" : "01-background-sweep.svg",
-          "is-glass" : false,
           "name" : "Background sweep",
           "opacity" : 0.72,
           "position" : {
@@ -84,7 +83,6 @@
       "layers" : [
         {
           "image-name" : "02-plate.svg",
-          "is-glass" : true,
           "name" : "Plate and base",
           "position" : {
             "scale" : 1,
@@ -121,7 +119,6 @@
       "layers" : [
         {
           "image-name" : "03-macro-bars.svg",
-          "is-glass" : true,
           "name" : "Macro bars",
           "position" : {
             "scale" : 1,
@@ -158,7 +155,6 @@
       "layers" : [
         {
           "image-name" : "04-accent-dot.svg",
-          "is-glass" : true,
           "name" : "Accent dot",
           "position" : {
             "scale" : 1,
