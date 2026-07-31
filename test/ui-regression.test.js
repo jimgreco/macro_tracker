@@ -827,6 +827,37 @@ test('web account menu surfaces privacy support export delete and build info', (
   assert.equal(styles.includes('.account-preference-row select'), true);
 });
 
+test('web integration access is provider-neutral, explicit, and available after Oura connection', () => {
+  const script = read('public/script.js');
+  const styles = read('public/styles.css');
+  const accessSection = script.slice(
+    script.indexOf('function webIntegrationAccessSources'),
+    script.indexOf('function ouraConnectionLabel')
+  );
+  const initSection = script.slice(
+    script.indexOf('(async function initApp()'),
+    script.indexOf('async function applyRouteFromLocation')
+  );
+
+  assert.equal(accessSection.includes("api('/api/integrations/access')"), true);
+  assert.equal(accessSection.includes("method: 'PUT'"), true);
+  assert.equal(accessSection.includes('dataTypes: selections'), true);
+  assert.equal(accessSection.includes("String(source.id).trim().toLowerCase() !== 'healthkit'"), true);
+  assert.equal(accessSection.includes('source?.configurationRequired === true'), true);
+  assert.equal(accessSection.includes('role="dialog"'), true);
+  assert.equal(accessSection.includes('aria-modal="true"'), true);
+  assert.equal(accessSection.includes('capability.disabledReason'), true);
+  assert.equal(accessSection.includes("?.checked === true"), true);
+  assert.equal(script.includes('id="account-integration-access-list"'), true);
+  assert.equal(script.includes('data-manage-integration-access'), true);
+  assert.equal(script.includes("status.state === 'permissions_required'"), true);
+  assert.equal(initSection.includes("callbackParams.get('access') === 'required'"), true);
+  assert.equal(initSection.includes('requiredWebIntegrationAccessSource'), true);
+  assert.equal(initSection.includes('initial 90-day sync is running'), false);
+  assert.equal(styles.includes('.integration-access-modal'), true);
+  assert.equal(styles.includes('.integration-access-direction input:checked'), true);
+});
+
 test('iOS settings expose account timezone picker', () => {
   const settings = read('ios/DailyMacros/DailyMacros/SettingsView.swift');
   const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
@@ -1144,20 +1175,30 @@ test('iOS HealthKit auto-sync registers background delivery and exports after lo
 
   assert.equal(app.includes('@StateObject private var healthKitAutoSync = HealthKitAutoSync()'), true);
   assert.equal(app.includes('await healthKitAutoSync.start('), true);
+  assert.equal(app.includes('accessPlan: accessPlan'), true);
   assert.equal(app.includes('@Environment(\\.scenePhase) private var scenePhase'), true);
   assert.equal(app.includes('.onChange(of: scenePhase)'), true);
   assert.equal(app.includes('guard phase == .active, auth.isAuthenticated else { return }'), true);
   assert.equal(autoSync.includes('HKObserverQuery'), true);
   assert.equal(autoSync.includes('enableBackgroundDelivery(for: sampleType, frequency: .hourly)'), true);
-  assert.equal(autoSync.includes('syncRecentWorkouts(api: api)'), true);
-  assert.equal(autoSync.includes('syncRecentWeight(api: api)'), true);
-  assert.equal(autoSync.includes('syncRecentSleep(api: api)'), true);
-  assert.equal(autoSync.includes('syncRecentSexualActivity(api: api)'), true);
+  assert.equal(autoSync.includes('requestAuthorization(accessPlan: effectivePlan)'), true);
+  assert.equal(autoSync.includes('registerObservers(accessPlan: effectivePlan)'), true);
+  assert.equal(autoSync.includes('if accessPlan.workouts.readEnabled'), true);
+  assert.equal(autoSync.includes('syncRecentWorkouts(api: api, access: accessPlan.workouts)'), true);
+  assert.equal(autoSync.includes('if accessPlan.weight.readEnabled'), true);
+  assert.equal(autoSync.includes('syncRecentWeight(api: api, access: accessPlan.weight)'), true);
+  assert.equal(autoSync.includes('if accessPlan.sleep.readEnabled'), true);
+  assert.equal(autoSync.includes('syncRecentSleep(api: api, access: accessPlan.sleep)'), true);
+  assert.equal(autoSync.includes('access: accessPlan.sexualActivity'), true);
   assert.equal(entitlements.includes('com.apple.developer.healthkit.background-delivery'), true);
-  assert.equal(workouts.includes('triggerHealthKitExport()'), true);
-  assert.equal(weight.includes('triggerHealthKitExport()'), true);
-  assert.equal(health.includes('triggerSleepHealthKitExport()'), true);
-  assert.equal(health.includes('triggerSexualActivityHealthKitExport()'), true);
+  assert.equal(workouts.includes('triggerHealthKitExport(WorkoutEntry('), true);
+  assert.equal(workouts.includes('healthKitSync.exportWorkout(workout, access: access)'), true);
+  assert.equal(weight.includes('triggerHealthKitExport(WeightEntry('), true);
+  assert.equal(weight.includes('healthKitSync.exportWeight(entry, access: access)'), true);
+  assert.equal(health.includes('triggerSleepHealthKitExport(SleepEntry('), true);
+  assert.equal(health.includes('healthKitSync.exportSleep(entry, access: access)'), true);
+  assert.equal(health.includes('triggerSexualActivityHealthKitExport(HealthEntry('), true);
+  assert.equal(health.includes('healthKitSync.exportSexualActivity(entry, access: access)'), true);
 });
 
 test('iOS workouts annual occurrence graph renders 365 wrapped daily dots', () => {

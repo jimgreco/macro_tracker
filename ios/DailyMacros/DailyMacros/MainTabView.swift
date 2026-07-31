@@ -250,6 +250,7 @@ struct AccountToolbarButton: View {
 struct MainTabView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject private var api: APIClient
+    @EnvironmentObject private var integrationDataAccess: IntegrationDataAccessStore
     @StateObject private var offlineQueue = OfflineMutationStore.shared
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @StateObject private var navigation = AppNavigationModel()
@@ -295,6 +296,7 @@ struct MainTabView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .environmentObject(auth)
+                .environmentObject(integrationDataAccess)
         }
         .onOpenURL { url in
             navigation.handle(url: url)

@@ -1,4 +1,10 @@
 const crypto = require('crypto');
+const {
+  SOURCE_IDS,
+  enabledOuraProviderDataTypes,
+  sourceCatalog,
+  sourceConfigurationRequired
+} = require('./integration-access');
 
 const OURA_AUTHORIZE_URL = 'https://cloud.ouraring.com/oauth/authorize';
 const OURA_TOKEN_URL = 'https://api.ouraring.com/oauth/token';
@@ -478,6 +484,30 @@ function createOuraService({ db, env = process.env, fetchImpl = globalThis.fetch
   const inFlightSyncs = new Map();
   let backgroundJobs = null;
 
+  async function loadAccessPermissions(userId) {
+    if (typeof db.listIntegrationDataPermissions !== 'function') return [];
+    return db.listIntegrationDataPermissions(userId, SOURCE_IDS.OURA);
+  }
+
+  async function getAccessPlan(userId, { workoutsEnabled = includeWorkouts } = {}) {
+    const permissions = await loadAccessPermissions(userId);
+    const ouraWorkoutsEnabled = includeWorkouts && workoutsEnabled;
+    const catalog = sourceCatalog(SOURCE_IDS.OURA, { ouraWorkoutsEnabled });
+    return {
+      permissions,
+      configurationRequired: sourceConfigurationRequired(catalog, permissions, { connected: true }),
+      enabledProviderDataTypes: enabledOuraProviderDataTypes(permissions, {
+        includeWorkouts: ouraWorkoutsEnabled
+      })
+    };
+  }
+
+  function accessRequiredError() {
+    const error = new Error('Choose which Oura data Macrovana may read before syncing.');
+    error.code = 'integration_access_required';
+    return error;
+  }
+
   const missingConfiguration = [];
   if (!clientId) missingConfiguration.push('OURA_CLIENT_ID');
   if (!clientSecret) missingConfiguration.push('OURA_CLIENT_SECRET');
@@ -671,8 +701,18 @@ function createOuraService({ db, env = process.env, fetchImpl = globalThis.fetch
       const previousConnection = await db.getOuraConnection(oauthState.userId);
       const existingConnection = await db.getOuraConnectionByProviderUserId(ouraUserId);
       if (existingConnection && existingConnection.userId !== oauthState.userId) {
-        throw new Error('This Oura account is already connected to another DailyMacros account.');
+        throw new Error('This Oura account is already connected to another Macrovana account.');
       }
+
+      const isNewOrDifferentConnection = !previousConnection || previousConnection.ouraUserId !== ouraUserId;
+      if (isNewOrDifferentConnection && typeof db.deleteIntegrationDataPermissions === 'function') {
+        await db.deleteIntegrationDataPermissions(oauthState.userId, SOURCE_IDS.OURA);
+      }
+      const accessPlan = isNewOrDifferentConnection
+        ? { configurationRequired: true }
+        : await getAccessPlan(oauthState.userId, {
+          workoutsEnabled: grantedScopes.includes('workout')
+        });
 
       await db.upsertOuraConnection(oauthState.userId, {
         ouraUserId,
@@ -680,7 +720,7 @@ function createOuraService({ db, env = process.env, fetchImpl = globalThis.fetch
         refreshTokenEncrypted: encryptSecret(tokenPayload.refresh_token, encryptionKey),
         tokenExpiresAt: tokenExpiration(tokenPayload),
         scopes: grantedScopes,
-        status: 'syncing'
+        status: accessPlan.configurationRequired ? 'permissions_required' : 'syncing'
       });
       connectionStored = true;
 
@@ -698,7 +738,9 @@ function createOuraService({ db, env = process.env, fetchImpl = globalThis.fetch
       return {
         userId: oauthState.userId,
         returnTo: oauthState.returnTo,
-        grantedScopes
+        grantedScopes,
+        configurationRequired: accessPlan.configurationRequired,
+        shouldInitialize: !accessPlan.configurationRequired
       };
     } catch (error) {
       if (issuedAccessToken && !connectionStored) {
@@ -758,14 +800,21 @@ function createOuraService({ db, env = process.env, fetchImpl = globalThis.fetch
     const normalizedDays = Math.min(Math.max(Number(days) || OURA_DEFAULT_RECONCILIATION_DAYS, 1), OURA_DEFAULT_BACKFILL_DAYS);
     const startDate = isoDayOffset(-(normalizedDays - 1));
     const endDate = isoDayOffset(1);
+    const connection = await db.getOuraConnection(userId);
+    if (!connection) throw new Error('Oura is not connected.');
+    const accessPlan = await getAccessPlan(userId, {
+      workoutsEnabled: connection.scopes.includes('workout')
+    });
+    if (accessPlan.configurationRequired) {
+      await db.updateOuraConnection(userId, { status: 'permissions_required', lastError: null });
+      throw accessRequiredError();
+    }
     await db.updateOuraConnection(userId, { status: 'syncing', lastError: null });
 
     try {
-      const connection = await db.getOuraConnection(userId);
-      if (!connection) throw new Error('Oura is not connected.');
-      const enabledDataTypes = includeWorkouts && connection.scopes.includes('workout')
-        ? [...BASE_DATA_TYPES, 'workout']
-        : [...BASE_DATA_TYPES];
+      const enabledDataTypes = accessPlan.enabledProviderDataTypes.filter((dataType) =>
+        dataType !== 'workout' || (includeWorkouts && connection.scopes.includes('workout'))
+      );
       const counts = {};
       for (const dataType of enabledDataTypes) {
         counts[dataType] = await fetchDocumentCollection(userId, dataType, startDate, endDate);
@@ -778,6 +827,7 @@ function createOuraService({ db, env = process.env, fetchImpl = globalThis.fetch
       });
       return { syncedAt: syncedAt.toISOString(), counts };
     } catch (error) {
+      if (error?.code === 'integration_access_required') throw error;
       const status = requiresOuraReauthorization(error) ? 'reauthorization_required' : 'error';
       await db.updateOuraConnection(userId, { status, lastError: safeErrorMessage(error) });
       throw error;
@@ -840,6 +890,15 @@ function createOuraService({ db, env = process.env, fetchImpl = globalThis.fetch
     if (connection.ouraUserId !== ouraUserId) return { ignored: true };
     if (dataType === 'workout' && !connection.scopes.includes('workout')) {
       return { ignored: true };
+    }
+    const accessPlan = await getAccessPlan(connection.userId, {
+      workoutsEnabled: connection.scopes.includes('workout')
+    });
+    if (
+      accessPlan.configurationRequired
+      || !accessPlan.enabledProviderDataTypes.includes(dataType)
+    ) {
+      return { ignored: true, reason: 'access_disabled' };
     }
     const receivedAt = event?.receivedAt ? new Date(event.receivedAt) : new Date();
     await db.updateOuraConnection(connection.userId, { lastWebhookAt: receivedAt });
@@ -1012,10 +1071,12 @@ function createOuraService({ db, env = process.env, fetchImpl = globalThis.fetch
             try {
               await syncUser(connection.userId, { days: OURA_DEFAULT_RECONCILIATION_DAYS });
             } catch (error) {
-              logger('warn', 'oura_reconciliation_failed', {
-                userId: connection.userId,
-                message: safeErrorMessage(error)
-              });
+              if (error?.code !== 'integration_access_required') {
+                logger('warn', 'oura_reconciliation_failed', {
+                  userId: connection.userId,
+                  message: safeErrorMessage(error)
+                });
+              }
             }
           }
         } catch (error) {

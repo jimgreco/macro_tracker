@@ -34,10 +34,12 @@
 		A1000025 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000025; };
 		A1000026 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = A2000026; };
 		A1000027 /* AppVisualSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000027; };
+		A1000028 /* IntegrationDataAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000028; };
 		B1000001 /* OfflineMutationStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001; };
 		B1000002 /* CoachCandidateEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002; };
 		B1000003 /* TargetHistoryDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003; };
 		B1000004 /* OuraAPIContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000004; };
+		B1000005 /* IntegrationDataAccessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000005; };
 		U1000001 /* DailyMacrosScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000002; };
 		U1000002 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000003; };
 /* End PBXBuildFile section */
@@ -87,11 +89,13 @@
 		A2000025 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		A2000026 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		A2000027 /* AppVisualSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVisualSystem.swift; sourceTree = "<group>"; };
+		A2000028 /* IntegrationDataAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationDataAccess.swift; sourceTree = "<group>"; };
 		A3000001 /* DailyMacros.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DailyMacros.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B2000001 /* OfflineMutationStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineMutationStoreTests.swift; sourceTree = "<group>"; };
 		B2000002 /* CoachCandidateEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachCandidateEngineTests.swift; sourceTree = "<group>"; };
 		B2000003 /* TargetHistoryDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetHistoryDecodingTests.swift; sourceTree = "<group>"; };
 		B2000004 /* OuraAPIContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OuraAPIContractTests.swift; sourceTree = "<group>"; };
+		B2000005 /* IntegrationDataAccessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationDataAccessTests.swift; sourceTree = "<group>"; };
 		B3000001 /* DailyMacrosTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DailyMacrosTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		U2000001 /* ScreenshotSeedData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotSeedData.swift; sourceTree = "<group>"; };
 		U2000002 /* DailyMacrosScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyMacrosScreenshots.swift; sourceTree = "<group>"; };
@@ -135,6 +139,7 @@
 				A2000002 /* APIClient.swift */,
 				A2000003 /* Models.swift */,
 				A2000027 /* AppVisualSystem.swift */,
+				A2000028 /* IntegrationDataAccess.swift */,
 				A2000009 /* MainTabView.swift */,
 				A2000025 /* TodayView.swift */,
 				A2000005 /* LoginView.swift */,
@@ -179,6 +184,7 @@
 				B2000002 /* CoachCandidateEngineTests.swift */,
 				B2000003 /* TargetHistoryDecodingTests.swift */,
 				B2000004 /* OuraAPIContractTests.swift */,
+				B2000005 /* IntegrationDataAccessTests.swift */,
 			);
 			path = DailyMacrosTests;
 			sourceTree = "<group>";
@@ -353,6 +359,7 @@
 				A1000024 /* ScreenshotSeedData.swift in Sources */,
 				A1000025 /* TodayView.swift in Sources */,
 				A1000027 /* AppVisualSystem.swift in Sources */,
+				A1000028 /* IntegrationDataAccess.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -364,6 +371,7 @@
 				B1000002 /* CoachCandidateEngineTests.swift in Sources */,
 				B1000003 /* TargetHistoryDecodingTests.swift in Sources */,
 				B1000004 /* OuraAPIContractTests.swift in Sources */,
+				B1000005 /* IntegrationDataAccessTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

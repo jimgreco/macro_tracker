@@ -70,6 +70,10 @@ test('db.js exports all required functions', () => {
     'listCoachDismissals',
     'upsertCoachDismissals',
     'deleteCoachDismissals',
+    'listIntegrationDataPermissions',
+    'replaceIntegrationDataPermissions',
+    'deleteIntegrationDataPermissions',
+    'isIntegrationDataAccessEnabled',
     'createOuraOauthState',
     'consumeOuraOauthState',
     'getOuraConnection',
@@ -277,6 +281,31 @@ test('direct Oura integration persists encrypted connections and normalized tomb
   const analysisSnapshot = db.slice(analysisStart, analysisEnd);
   assert.equal(analysisSnapshot.includes('oura_documents'), false);
   assert.equal(analysisSnapshot.includes('oura_connections'), false);
+});
+
+test('integration access is provider-neutral, exportable, default-denied, and enforced at provider reads', () => {
+  const db = read('src/db.js');
+  const server = read('src/server.js');
+  const oura = read('src/oura.js');
+  const access = read('src/integration-access.js');
+  const { accountDeletionInventory, accountExportInventory } = require('../src/data-inventory');
+
+  assert.ok(db.includes('CREATE TABLE IF NOT EXISTS integration_data_permissions'));
+  assert.ok(db.includes('PRIMARY KEY (user_id, source, data_type)'));
+  assert.ok(db.includes("recordSchemaMigration('2026-07-31_integration_data_access')"));
+  assert.ok(accountDeletionInventory().some((item) => item.table === 'integration_data_permissions'));
+  assert.ok(accountExportInventory().some((item) => item.table === 'integration_data_permissions'));
+  assert.ok(server.includes("apiRouter.get('/integrations/access'"));
+  assert.ok(server.includes("apiRouter.put('/integrations/:source/access'"));
+  assert.ok(server.includes('sourceId === SOURCE_IDS.OURA && current.available'));
+  assert.ok(server.includes('healthKitImportIsDisabled'));
+  assert.ok(server.includes("SOURCE_IDS.WORKOUT_PLANNER"));
+  assert.ok(oura.includes("error.code = 'integration_access_required'"));
+  assert.ok(oura.includes("reason: 'access_disabled'"));
+  assert.ok(access.includes("HEALTHKIT: 'healthkit'"));
+  assert.ok(access.includes("OURA: 'oura'"));
+  assert.ok(access.includes("WORKOUT_PLANNER: 'workout_planner'"));
+  assert.ok(access.includes('if (!selection) return false'));
 });
 
 test('all data tables have deleted_at column', () => {

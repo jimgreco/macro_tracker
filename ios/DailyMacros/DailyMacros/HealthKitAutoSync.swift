@@ -10,16 +10,24 @@ final class HealthKitAutoSync: ObservableObject {
     private var observerQueries: [HKObserverQuery] = []
     private var api: APIClient?
     private var includeSexualActivity = false
+    private var accessPlan = HealthKitAccessPlan.denied
     private var isConfigured = false
     private var isSyncing = false
     private var lastSyncAt: Date?
     private let minimumSyncInterval: TimeInterval = 10 * 60
 
-    func start(api: APIClient, includeSexualActivity: Bool) async {
+    func start(
+        api: APIClient,
+        includeSexualActivity: Bool,
+        accessPlan: HealthKitAccessPlan
+    ) async {
         guard HKHealthStore.isHealthDataAvailable(), api.token != nil else { return }
 
         self.api = api
-        if isConfigured, self.includeSexualActivity == includeSexualActivity {
+        let effectivePlan = accessPlan.includingSexualActivity(includeSexualActivity)
+        if isConfigured,
+           self.includeSexualActivity == includeSexualActivity,
+           self.accessPlan == effectivePlan {
             await syncAll(reason: "foreground", respectThrottle: true)
             return
         }
@@ -27,14 +35,22 @@ final class HealthKitAutoSync: ObservableObject {
         stop()
         self.api = api
         self.includeSexualActivity = includeSexualActivity
+        self.accessPlan = effectivePlan
+
+        guard effectivePlan.hasAnyAccess else { return }
 
         do {
-            try await requestAuthorization(includeSexualActivity: includeSexualActivity)
-            try await registerObservers(includeSexualActivity: includeSexualActivity)
+            try await requestAuthorization(accessPlan: effectivePlan)
+            try await registerObservers(accessPlan: effectivePlan)
             isConfigured = true
-            await syncAll(reason: "startup", respectThrottle: true)
+            await syncAll(reason: "startup", respectThrottle: false)
         } catch {
             isConfigured = false
+            Diagnostics.shared.record(
+                level: "warning",
+                category: "healthkit",
+                message: "Apple Health access setup failed"
+            )
         }
     }
 
@@ -44,11 +60,12 @@ final class HealthKitAutoSync: ObservableObject {
         }
         observerQueries = []
         api = nil
+        accessPlan = .denied
         isConfigured = false
         isSyncing = false
     }
 
-    private func requestAuthorization(includeSexualActivity: Bool) async throws {
+    private func requestAuthorization(accessPlan: HealthKitAccessPlan) async throws {
         guard let activeEnergyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned),
               let bodyMassType = HKQuantityType.quantityType(forIdentifier: .bodyMass),
               let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else {
@@ -56,28 +73,44 @@ final class HealthKitAutoSync: ObservableObject {
         }
 
         let workoutType = HKObjectType.workoutType()
-        var shareTypes: Set<HKSampleType> = [workoutType, activeEnergyType, bodyMassType, sleepType]
-        var readTypes: Set<HKObjectType> = [workoutType, activeEnergyType, bodyMassType, sleepType]
+        var shareTypes: Set<HKSampleType> = []
+        var readTypes: Set<HKObjectType> = []
 
-        if includeSexualActivity,
+        if accessPlan.workouts.writeEnabled {
+            shareTypes.formUnion([workoutType, activeEnergyType])
+        }
+        if accessPlan.workouts.readEnabled {
+            readTypes.formUnion([workoutType, activeEnergyType])
+        }
+        if accessPlan.weight.writeEnabled { shareTypes.insert(bodyMassType) }
+        if accessPlan.weight.readEnabled { readTypes.insert(bodyMassType) }
+        if accessPlan.sleep.writeEnabled { shareTypes.insert(sleepType) }
+        if accessPlan.sleep.readEnabled { readTypes.insert(sleepType) }
+
+        if (accessPlan.sexualActivity.readEnabled || accessPlan.sexualActivity.writeEnabled),
            let sexualActivityType = HKCategoryType.categoryType(forIdentifier: .sexualActivity) {
-            shareTypes.insert(sexualActivityType)
-            readTypes.insert(sexualActivityType)
+            if accessPlan.sexualActivity.writeEnabled { shareTypes.insert(sexualActivityType) }
+            if accessPlan.sexualActivity.readEnabled { readTypes.insert(sexualActivityType) }
         }
 
         try await healthStore.requestAuthorization(toShare: shareTypes, read: readTypes)
     }
 
-    private func registerObservers(includeSexualActivity: Bool) async throws {
-        var sampleTypes: [HKSampleType] = [HKObjectType.workoutType()]
+    private func registerObservers(accessPlan: HealthKitAccessPlan) async throws {
+        var sampleTypes: [HKSampleType] = []
 
-        if let bodyMassType = HKQuantityType.quantityType(forIdentifier: .bodyMass) {
+        if accessPlan.workouts.readEnabled {
+            sampleTypes.append(HKObjectType.workoutType())
+        }
+        if accessPlan.weight.readEnabled,
+           let bodyMassType = HKQuantityType.quantityType(forIdentifier: .bodyMass) {
             sampleTypes.append(bodyMassType)
         }
-        if let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) {
+        if accessPlan.sleep.readEnabled,
+           let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) {
             sampleTypes.append(sleepType)
         }
-        if includeSexualActivity,
+        if accessPlan.sexualActivity.readEnabled,
            let sexualActivityType = HKCategoryType.categoryType(forIdentifier: .sexualActivity) {
             sampleTypes.append(sexualActivityType)
         }
@@ -130,11 +163,20 @@ final class HealthKitAutoSync: ObservableObject {
             lastSyncAt = Date()
         }
 
-        _ = try? await workoutSync.syncRecentWorkouts(api: api)
-        _ = try? await wellnessSync.syncRecentWeight(api: api)
-        _ = try? await wellnessSync.syncRecentSleep(api: api)
-        if includeSexualActivity {
-            _ = try? await wellnessSync.syncRecentSexualActivity(api: api)
+        if accessPlan.workouts.readEnabled {
+            _ = try? await workoutSync.syncRecentWorkouts(api: api, access: accessPlan.workouts)
+        }
+        if accessPlan.weight.readEnabled {
+            _ = try? await wellnessSync.syncRecentWeight(api: api, access: accessPlan.weight)
+        }
+        if accessPlan.sleep.readEnabled {
+            _ = try? await wellnessSync.syncRecentSleep(api: api, access: accessPlan.sleep)
+        }
+        if includeSexualActivity, accessPlan.sexualActivity.readEnabled {
+            _ = try? await wellnessSync.syncRecentSexualActivity(
+                api: api,
+                access: accessPlan.sexualActivity
+            )
         }
     }
 }

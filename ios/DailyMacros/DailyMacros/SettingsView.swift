@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var api: APIClient
+    @EnvironmentObject private var integrationDataAccess: IntegrationDataAccessStore
     @AppStorage("onboarding_complete") private var onboardingComplete = true
     @AppStorage(CoachSettingKeys.enabled) private var legacyAICoachEnabled = true
     @AppStorage(CoachSettingKeys.mode) private var aiCoachModeRaw = CoachMode.localModelWithTemplates.rawValue
@@ -33,12 +34,14 @@ struct SettingsView: View {
     @State private var isLoadingOura = false
     @State private var ouraAuthenticationSession: ASWebAuthenticationSession?
     @State private var showOuraDisconnectConfirm = false
+    @State private var showOuraDataAccess = false
 
     var body: some View {
         NavigationStack {
             List {
                 accountSection
                 supportPrivacySection
+                dataSourcesSection
                 ouraSection
                 preferencesSection
                 if auth.user?.sexualActivityEnabled == true {
@@ -103,12 +106,24 @@ struct SettingsView: View {
                     Task { await disconnectOura() }
                 }
             } message: {
-                Text("This revokes DailyMacros access and permanently deletes imported Oura data from DailyMacros.")
+                Text("This revokes macrovana access and permanently deletes imported Oura data from macrovana.")
             }
             .sheet(isPresented: $showAccountDetails) {
                 AccountDetailsView()
                     .environmentObject(auth)
                     .environmentObject(api)
+            }
+            .fullScreenCover(isPresented: $showOuraDataAccess) {
+                NavigationStack {
+                    IntegrationDataAccessView(sourceID: "oura", isRequired: true)
+                }
+                .environmentObject(api)
+            }
+            .onChange(of: ouraNeedsDataAccess) { _, needsAccess in
+                if !needsAccess {
+                    showOuraDataAccess = false
+                    integrationDataAccess.endPresentation(for: "oura")
+                }
             }
         }
     }
@@ -242,6 +257,13 @@ struct SettingsView: View {
                         .disabled(isLoadingOura)
                     }
 
+                    if ouraNeedsDataAccess {
+                        Button("Choose Oura Data Access") {
+                            presentOuraDataAccess()
+                        }
+                        .disabled(isLoadingOura)
+                    }
+
                     Button {
                         Task { await syncOura() }
                     } label: {
@@ -255,7 +277,7 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    .disabled(isLoadingOura)
+                    .disabled(isLoadingOura || !ouraAccessConfigured)
 
                     Button("Disconnect & Delete Oura Data", role: .destructive) {
                         showOuraDisconnectConfirm = true
@@ -273,12 +295,53 @@ struct SettingsView: View {
             Text("Oura Ring")
         } footer: {
             if ouraStatus?.connected != true {
-                Text("By connecting, you authorize DailyMacros to import 90 days of Oura sleep, readiness, activity, stress, resilience, and bedtime aggregates and combine them with your app history for deterministic trends and coaching. Oura API data is never provided to AI models. The personal scope is used only for Oura's opaque routing ID; other profile fields are discarded. Imported records remain until you disconnect Oura or delete your account.")
+                Text("After connecting, macrovana will ask which Oura data types it may read. Oura does not support writing these records. Oura API data is never provided to AI models. The personal scope is used only for Oura's opaque routing ID; other profile fields are discarded.")
             } else if ouraStatus?.updateMode == "webhook" {
-                Text("After your ring syncs to Oura, new cloud data should reach DailyMacros in about 30 seconds. Imported records remain until you disconnect Oura or delete your account and may be combined with your app history for deterministic trends and coaching, never AI-model input.")
+                Text("For data types you allow macrovana to read, new cloud data should arrive about 30 seconds after your ring syncs to Oura. Imported records remain until you disconnect Oura or delete your account and may be combined with your app history for deterministic trends and coaching, never AI-model input.")
             } else {
-                Text("Signed webhook delivery is not active, so scheduled reconciliation is being used. Raw sample arrays are not stored; imported records remain until you disconnect Oura or delete your account and may be combined with your app history for deterministic trends and coaching, never AI-model input.")
+                Text("For data types you allow macrovana to read, scheduled reconciliation is used while signed webhook delivery is unavailable. Raw sample arrays are not stored; imported records remain until you disconnect Oura or delete your account and are never AI-model input.")
             }
+        }
+    }
+
+    private var dataSourcesSection: some View {
+        Section {
+            if integrationDataAccess.sources.isEmpty {
+                switch integrationDataAccess.loadState {
+                case .idle, .loading:
+                    HStack {
+                        Text("Loading Data Sources")
+                        Spacer()
+                        ProgressView()
+                    }
+                case .failed(let message):
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Data access is unavailable", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Retry") {
+                            Task { await refreshIntegrationDataAccess() }
+                        }
+                    }
+                case .loaded:
+                    Text("No data sources are available for this account.")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                ForEach(integrationDataAccess.sources) { source in
+                    NavigationLink {
+                        IntegrationDataAccessView(sourceID: source.id, isRequired: false)
+                    } label: {
+                        IntegrationDataSourceRow(source: source)
+                    }
+                }
+            }
+        } header: {
+            Text("Data Sources")
+        } footer: {
+            Text("Choose what macrovana may read from or write to each connected source. Provider and device limitations are shown for each data type.")
         }
     }
 
@@ -287,6 +350,7 @@ struct SettingsView: View {
         if !status.connected { return "Not Connected" }
         switch status.state {
         case "syncing": return "Syncing"
+        case "permissions_required": return "Data Choices Required"
         case "reauthorization_required": return "Reconnect Required"
         case "error": return "Needs Attention"
         default: return "Connected"
@@ -297,6 +361,7 @@ struct SettingsView: View {
         switch status.state {
         case "connected": return .green
         case "syncing": return .cyan
+        case "permissions_required": return .orange
         case "error", "reauthorization_required": return .red
         default: return .secondary
         }
@@ -788,6 +853,10 @@ struct SettingsView: View {
     // MARK: - Actions
 
     private func loadSettings() async {
+        await integrationDataAccess.loadIfNeeded(
+            api: api,
+            userID: auth.user?.id ?? ""
+        )
         await loadSubscription()
         await loadVersion()
         await loadOuraStatus()
@@ -842,7 +911,21 @@ struct SettingsView: View {
             }
 
             await loadOuraStatus()
-            settingsMessage = "Oura connected. The initial 90-day sync is running."
+            integrationDataAccess.beginPresentation(for: "oura")
+            await integrationDataAccess.refresh(
+                api: api,
+                userID: auth.user?.id ?? "",
+                prioritizing: "oura"
+            )
+            if ouraNeedsDataAccess {
+                showOuraDataAccess = true
+            } else {
+                integrationDataAccess.endPresentation(for: "oura")
+                if let accessError = integrationDataAccess.errorMessage {
+                    throw APIError.serverError(accessError)
+                }
+                settingsMessage = "Oura connected."
+            }
             Diagnostics.shared.record(category: "oura", message: "Connected Oura")
         } catch {
             if (error as NSError).domain == "com.apple.AuthenticationServices.WebAuthenticationSession",
@@ -854,6 +937,10 @@ struct SettingsView: View {
     }
 
     private func syncOura() async {
+        guard ouraAccessConfigured else {
+            errorMessage = "Choose Oura data access before syncing."
+            return
+        }
         isLoadingOura = true
         defer { isLoadingOura = false }
         do {
@@ -872,11 +959,37 @@ struct SettingsView: View {
         do {
             try await api.disconnectOura()
             ouraStatus = try await api.getOuraStatus()
+            await refreshIntegrationDataAccess()
             settingsMessage = "Oura disconnected and imported data deleted."
             Diagnostics.shared.record(category: "oura", message: "Disconnected Oura and deleted imported data")
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func refreshIntegrationDataAccess() async {
+        await integrationDataAccess.refresh(
+            api: api,
+            userID: auth.user?.id ?? ""
+        )
+    }
+
+    private var ouraNeedsDataAccess: Bool {
+        integrationDataAccess.source(id: "oura")?.needsAccessConfiguration == true
+    }
+
+    private var ouraAccessConfigured: Bool {
+        guard let source = integrationDataAccess.source(id: "oura") else { return false }
+        return source.connected && !source.needsAccessConfiguration
+    }
+
+    private func presentOuraDataAccess() {
+        guard integrationDataAccess.source(id: "oura") != nil else {
+            Task { await refreshIntegrationDataAccess() }
+            return
+        }
+        integrationDataAccess.beginPresentation(for: "oura")
+        showOuraDataAccess = true
     }
 
     private func loadSubscription() async {

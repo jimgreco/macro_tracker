@@ -28,11 +28,25 @@ function makeFakeDb() {
   let disconnectOptions = null;
   const documents = [];
   const deletions = [];
+  let integrationPermissions = [
+    'sleep',
+    'readiness',
+    'activity',
+    'stress',
+    'resilience',
+    'bedtime'
+  ].map((dataType) => ({
+    source: 'oura',
+    dataType,
+    readEnabled: true,
+    writeEnabled: false
+  }));
   return {
     documents,
     deletions,
     getStoredConnection() { return connection; },
     getDisconnectOptions() { return disconnectOptions; },
+    getIntegrationPermissions() { return integrationPermissions; },
     async createOuraOauthState(stateHash, userId, returnTo, expiresAt) {
       oauthState = { stateHash, userId, returnTo, expiresAt };
     },
@@ -85,6 +99,16 @@ function makeFakeDb() {
     async deleteOuraConnection(_userId, options) {
       disconnectOptions = options;
       connection = null;
+    },
+    async listIntegrationDataPermissions(_userId, source) {
+      return integrationPermissions.filter((permission) => !source || permission.source === source);
+    },
+    async replaceIntegrationDataPermissions(_userId, source, permissions) {
+      integrationPermissions = permissions.map((permission) => ({ source, ...permission }));
+      return integrationPermissions;
+    },
+    async deleteIntegrationDataPermissions(_userId, source) {
+      integrationPermissions = integrationPermissions.filter((permission) => permission.source !== source);
     }
   };
 }
@@ -229,13 +253,187 @@ test('Oura authorization stores only opaque identity and encrypted rotating cred
   const status = await service.getStatus('daily-user-1');
 
   assert.equal(result.returnTo, 'ios');
+  assert.equal(result.configurationRequired, true);
+  assert.equal(result.shouldInitialize, false);
   assert.equal(status.connected, true);
+  assert.equal(status.state, 'permissions_required');
   assert.deepEqual(status.grantedScopes, ['personal', 'daily']);
   assert.equal(requests.length, 2);
   assert.equal(requests[1].options.headers.Authorization, 'Bearer oura-access-token');
   assert.equal(db.getStoredConnection().ouraUserId, 'oura-user-123');
   assert.equal(JSON.stringify(db.getStoredConnection()).includes('discard@example.com'), false);
   assert.notEqual(db.getStoredConnection().accessTokenEncrypted, 'oura-access-token');
+});
+
+test('same-account Oura reauthorization preserves completed access choices', async () => {
+  const db = makeFakeDb();
+  await db.upsertOuraConnection('daily-user-1', {
+    ouraUserId: 'oura-user-123',
+    accessTokenEncrypted: encryptSecret('old-access', encryptionKey),
+    refreshTokenEncrypted: encryptSecret('old-refresh', encryptionKey),
+    tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    scopes: ['personal', 'daily'],
+    status: 'reauthorization_required'
+  });
+  const service = createOuraService({
+    db,
+    env: configuredEnv(),
+    fetchImpl: async (input) => {
+      if (String(input) === 'https://api.ouraring.com/oauth/token') {
+        return jsonResponse({
+          access_token: 'new-access',
+          refresh_token: 'new-refresh',
+          expires_in: 3600,
+          scope: 'personal daily'
+        });
+      }
+      if (String(input) === 'https://api.ouraring.com/v2/usercollection/personal_info') {
+        return jsonResponse({ id: 'oura-user-123' });
+      }
+      throw new Error(`Unexpected request: ${input}`);
+    }
+  });
+
+  const authorization = await service.createAuthorization('daily-user-1', 'web');
+  const state = new URL(authorization.authorizationUrl).searchParams.get('state');
+  const result = await service.completeAuthorization({ code: 'new-code', state });
+
+  assert.equal(result.configurationRequired, false);
+  assert.equal(result.shouldInitialize, true);
+  assert.equal(db.getIntegrationPermissions().length, 6);
+  assert.equal(db.getStoredConnection().status, 'syncing');
+});
+
+test('Oura sync reads only explicitly enabled logical data types', async () => {
+  const db = makeFakeDb();
+  await db.upsertOuraConnection('daily-user-1', {
+    ouraUserId: 'oura-user-123',
+    accessTokenEncrypted: encryptSecret('valid-access', encryptionKey),
+    refreshTokenEncrypted: encryptSecret('valid-refresh', encryptionKey),
+    tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    scopes: ['personal', 'daily'],
+    status: 'connected'
+  });
+  await db.replaceIntegrationDataPermissions('daily-user-1', 'oura', [
+    { dataType: 'sleep', readEnabled: false, writeEnabled: false },
+    { dataType: 'readiness', readEnabled: true, writeEnabled: false },
+    { dataType: 'activity', readEnabled: false, writeEnabled: false },
+    { dataType: 'stress', readEnabled: false, writeEnabled: false },
+    { dataType: 'resilience', readEnabled: false, writeEnabled: false },
+    { dataType: 'bedtime', readEnabled: false, writeEnabled: false }
+  ]);
+  const requests = [];
+  const service = createOuraService({
+    db,
+    env: configuredEnv(),
+    fetchImpl: async (input) => {
+      requests.push(String(input));
+      return jsonResponse({ data: [], next_token: null });
+    }
+  });
+
+  const result = await service.syncUser('daily-user-1', { days: 7 });
+
+  assert.deepEqual(Object.keys(result.counts), ['daily_readiness']);
+  assert.equal(requests.length, 1);
+  assert.match(requests[0], /\/usercollection\/daily_readiness\?/);
+});
+
+test('Oura workout choices are not required when the connected account did not grant workout scope', async () => {
+  const db = makeFakeDb();
+  await db.upsertOuraConnection('daily-user-1', {
+    ouraUserId: 'oura-user-123',
+    accessTokenEncrypted: encryptSecret('valid-access', encryptionKey),
+    refreshTokenEncrypted: encryptSecret('valid-refresh', encryptionKey),
+    tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    scopes: ['personal', 'daily'],
+    status: 'connected'
+  });
+  const requests = [];
+  const service = createOuraService({
+    db,
+    env: configuredEnv({ OURA_INCLUDE_WORKOUTS: 'true' }),
+    fetchImpl: async (input) => {
+      requests.push(String(input));
+      return jsonResponse({ data: [], next_token: null });
+    }
+  });
+
+  const result = await service.syncUser('daily-user-1', { days: 7 });
+
+  assert.equal(Object.hasOwn(result.counts, 'workout'), false);
+  assert.equal(requests.some((url) => /\/usercollection\/workout(?:\?|$)/.test(url)), false);
+  assert.equal(db.getStoredConnection().status, 'connected');
+});
+
+test('Oura sync is default-denied until every access choice is recorded', async () => {
+  const db = makeFakeDb();
+  await db.upsertOuraConnection('daily-user-1', {
+    ouraUserId: 'oura-user-123',
+    accessTokenEncrypted: encryptSecret('valid-access', encryptionKey),
+    refreshTokenEncrypted: encryptSecret('valid-refresh', encryptionKey),
+    tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    scopes: ['personal', 'daily'],
+    status: 'connected'
+  });
+  await db.deleteIntegrationDataPermissions('daily-user-1', 'oura');
+  let providerCalls = 0;
+  const service = createOuraService({
+    db,
+    env: configuredEnv(),
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return jsonResponse({ data: [], next_token: null });
+    }
+  });
+
+  await assert.rejects(
+    service.syncUser('daily-user-1', { days: 7 }),
+    (error) => error?.code === 'integration_access_required'
+  );
+  assert.equal(providerCalls, 0);
+  assert.equal(db.getStoredConnection().status, 'permissions_required');
+});
+
+test('Oura webhooks do not fetch provider documents when access is disabled', async () => {
+  const db = makeFakeDb();
+  await db.upsertOuraConnection('daily-user-1', {
+    ouraUserId: 'oura-user-123',
+    accessTokenEncrypted: encryptSecret('valid-access', encryptionKey),
+    refreshTokenEncrypted: encryptSecret('valid-refresh', encryptionKey),
+    tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    scopes: ['personal', 'daily'],
+    status: 'connected'
+  });
+  await db.replaceIntegrationDataPermissions(
+    'daily-user-1',
+    'oura',
+    db.getIntegrationPermissions().map((permission) => ({
+      dataType: permission.dataType,
+      readEnabled: false,
+      writeEnabled: false
+    }))
+  );
+  let providerCalls = 0;
+  const service = createOuraService({
+    db,
+    env: configuredEnv(),
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return jsonResponse({});
+    }
+  });
+
+  const result = await service.processWebhook({
+    event_type: 'update',
+    data_type: 'daily_sleep',
+    object_id: 'daily-sleep-1',
+    user_id: 'oura-user-123'
+  });
+
+  assert.deepEqual(result, { ignored: true, reason: 'access_disabled' });
+  assert.equal(providerCalls, 0);
+  assert.equal(db.documents.length, 0);
 });
 
 test('Oura disconnect always revokes access and deletes imported data', async () => {

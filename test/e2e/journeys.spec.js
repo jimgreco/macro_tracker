@@ -176,6 +176,98 @@ test.describe.serial('critical web journeys', () => {
     });
   });
 
+  test('Oura connection requires explicit per-type data access and can be managed later', async ({ page }) => {
+    let savedPayload = null;
+    let saved = false;
+    const sourcePayload = () => ({
+      id: 'oura',
+      displayName: 'Oura Ring',
+      connected: true,
+      available: true,
+      configurationRequired: !saved,
+      dataTypes: [
+        {
+          id: 'sleep',
+          displayName: 'Sleep',
+          detail: 'Import Oura sleep sessions and daily sleep scores.',
+          read: { supported: true },
+          write: {
+            supported: false,
+            disabledReason: 'DailyMacros does not write health data to Oura.'
+          },
+          ...(saved ? { selection: { readEnabled: true, writeEnabled: false } } : {})
+        },
+        {
+          id: 'readiness',
+          displayName: 'Readiness',
+          detail: 'Import Oura readiness scores.',
+          read: { supported: true },
+          write: {
+            supported: false,
+            disabledReason: 'DailyMacros does not write health data to Oura.'
+          },
+          ...(saved ? { selection: { readEnabled: false, writeEnabled: false } } : {})
+        }
+      ]
+    });
+
+    await page.route('**/api/integrations/access', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ sources: [sourcePayload()] })
+      });
+    });
+    await page.route('**/api/integrations/oura/access', async (route) => {
+      savedPayload = route.request().postDataJSON();
+      saved = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(sourcePayload())
+      });
+    });
+    await page.route('**/api/oura/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          configured: true,
+          connected: true,
+          state: 'connected',
+          updateMode: 'reconciliation'
+        })
+      });
+    });
+
+    await expectHealthyPage(page, async () => {
+      await page.goto('/?oura=connected&access=required');
+      const accessDialog = page.getByRole('dialog', { name: 'Data Access' });
+      await expect(accessDialog).toBeVisible();
+      await expect(page.locator('#action-banner')).toContainText('Choose which data');
+      await expect(accessDialog.getByRole('checkbox', { name: 'Write Sleep to Oura Ring' })).toBeDisabled();
+      await accessDialog.getByRole('checkbox', { name: 'Read Sleep from Oura Ring' }).check();
+      await accessDialog.getByRole('button', { name: 'Save Data Access' }).click();
+
+      await expect(page.locator('#action-banner')).toContainText('Oura Ring data access saved.');
+      expect(savedPayload).toEqual({
+        dataTypes: [
+          { id: 'sleep', readEnabled: true, writeEnabled: false },
+          { id: 'readiness', readEnabled: false, writeEnabled: false }
+        ]
+      });
+
+      await page.locator('#profile-chip').click();
+      await page.locator('#account-info-btn').click();
+      const accountModal = page.locator('.account-privacy-modal');
+      const manageAccessButton = accountModal.locator('[data-manage-integration-access="oura"]');
+      await expect(manageAccessButton).toHaveText('Manage Data Access');
+      await manageAccessButton.click();
+      await expect(accessDialog).toBeVisible();
+      await expect(accessDialog.getByRole('checkbox', { name: 'Read Sleep from Oura Ring' })).toBeChecked();
+    });
+  });
+
   test('Today reports the current Oura connection status', async ({ page }) => {
     await expectHealthyPage(page, async () => {
       const todayResponse = page.waitForResponse((response) =>

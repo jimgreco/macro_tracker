@@ -9,9 +9,10 @@ struct DailyMacrosApp: App {
     @StateObject private var auth = AuthManager()
     @StateObject private var api = APIClient.shared
     @StateObject private var healthKitAutoSync = HealthKitAutoSync()
+    @StateObject private var integrationDataAccess = IntegrationDataAccessStore.shared
 
     private var autoSyncKey: String {
-        "\(auth.isAuthenticated)-\(shouldIncludeSexualActivity)"
+        "\(auth.isAuthenticated)-\(shouldIncludeSexualActivity)-\(integrationDataAccess.revision)"
     }
 
     private var shouldIncludeSexualActivity: Bool {
@@ -48,21 +49,35 @@ struct DailyMacrosApp: App {
                             Diagnostics.shared.record(category: "app", message: "Showing onboarding")
                         }
                 } else if auth.isAuthenticated {
-                    MainTabView()
+                    IntegrationDataAccessGate(
+                        store: integrationDataAccess,
+                        userID: auth.user?.id ?? ""
+                    ) {
+                        MainTabView()
+                            .task(id: autoSyncKey) {
+                                #if DEBUG
+                                if ScreenshotSeedData.isEnabled {
+                                    return
+                                }
+                                #endif
+
+                                let accessPlan = integrationDataAccess.healthKitAccessPlan(
+                                    includeSexualActivity: shouldIncludeSexualActivity
+                                )
+                                guard accessPlan.hasAnyAccess else {
+                                    healthKitAutoSync.stop()
+                                    return
+                                }
+                                await healthKitAutoSync.start(
+                                    api: api,
+                                    includeSexualActivity: shouldIncludeSexualActivity,
+                                    accessPlan: accessPlan
+                                )
+                            }
+                    }
                         .environmentObject(auth)
                         .environmentObject(api)
-                        .task(id: autoSyncKey) {
-                            #if DEBUG
-                            if ScreenshotSeedData.isEnabled {
-                                return
-                            }
-                            #endif
-
-                            await healthKitAutoSync.start(
-                                api: api,
-                                includeSexualActivity: shouldIncludeSexualActivity
-                            )
-                        }
+                        .environmentObject(integrationDataAccess)
                 } else {
                     LoginView()
                         .environmentObject(auth)
@@ -72,6 +87,7 @@ struct DailyMacrosApp: App {
             .onChange(of: auth.isAuthenticated) { _, isAuthenticated in
                 if !isAuthenticated {
                     healthKitAutoSync.stop()
+                    integrationDataAccess.reset()
                 } else {
                     completeLocalDevOnboardingIfNeeded()
                     Diagnostics.shared.record(category: "auth", message: "Authenticated")
@@ -99,9 +115,17 @@ struct DailyMacrosApp: App {
                         applySetupTutorialReset(auth.user?.setupTutorialResetAt)
                     }
                     try? await api.flushPendingMutations()
+                    let accessPlan = integrationDataAccess.healthKitAccessPlan(
+                        includeSexualActivity: shouldIncludeSexualActivity
+                    )
+                    guard accessPlan.hasAnyAccess else {
+                        healthKitAutoSync.stop()
+                        return
+                    }
                     await healthKitAutoSync.start(
                         api: api,
-                        includeSexualActivity: shouldIncludeSexualActivity
+                        includeSexualActivity: shouldIncludeSexualActivity,
+                        accessPlan: accessPlan
                     )
                 }
             }

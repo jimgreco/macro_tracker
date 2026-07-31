@@ -47,6 +47,137 @@ enum ScreenshotSeedData {
         )
     }
 
+    static func integrationDataAccess() -> IntegrationDataAccessResponse {
+        IntegrationDataAccessResponse(sources: [
+            healthKitIntegrationSource,
+            ouraIntegrationSource,
+            workoutPlannerIntegrationSource
+        ])
+    }
+
+    static func integrationDataSource(
+        id: String,
+        selections: [IntegrationDataTypeUpdate]
+    ) -> IntegrationDataSource {
+        let source = integrationDataAccess().sources.first(where: { $0.id == id })
+            ?? IntegrationDataSource(
+                id: id,
+                displayName: id,
+                connected: true,
+                available: true,
+                unavailableReason: nil,
+                configurationRequired: false,
+                dataTypes: []
+            )
+        let selectionByID = Dictionary(uniqueKeysWithValues: selections.map { ($0.id, $0) })
+        return IntegrationDataSource(
+            id: source.id,
+            displayName: source.displayName,
+            connected: source.connected,
+            available: source.available,
+            unavailableReason: source.unavailableReason,
+            configurationRequired: false,
+            dataTypes: source.dataTypes.map { dataType in
+                let update = selectionByID[dataType.id]
+                return IntegrationDataType(
+                    id: dataType.id,
+                    displayName: dataType.displayName,
+                    detail: dataType.detail,
+                    read: dataType.read,
+                    write: dataType.write,
+                    selection: IntegrationDirectionSelection(
+                        readEnabled: update?.readEnabled ?? false,
+                        writeEnabled: update?.writeEnabled ?? false
+                    )
+                )
+            }
+        )
+    }
+
+    private static var healthKitIntegrationSource: IntegrationDataSource {
+        let supported = IntegrationDirectionCapability(supported: true, disabledReason: nil)
+        return IntegrationDataSource(
+            id: "healthkit",
+            displayName: "Apple Health",
+            connected: true,
+            available: true,
+            unavailableReason: nil,
+            configurationRequired: false,
+            dataTypes: [
+                integrationDataType(id: "workouts", name: "Workouts", detail: "Workout sessions and active energy", read: supported, write: supported),
+                integrationDataType(id: "weight", name: "Weight", detail: "Body mass measurements", read: supported, write: supported),
+                integrationDataType(id: "sleep", name: "Sleep", detail: "Sleep sessions and wake-ups", read: supported, write: supported),
+                integrationDataType(id: "sexual_activity", name: "Sexual Activity", detail: "Optional sexual activity records", read: supported, write: supported)
+            ]
+        )
+    }
+
+    private static var ouraIntegrationSource: IntegrationDataSource {
+        let read = IntegrationDirectionCapability(supported: true, disabledReason: nil)
+        let write = IntegrationDirectionCapability(
+            supported: false,
+            disabledReason: "Oura does not accept writes for this data type."
+        )
+        return IntegrationDataSource(
+            id: "oura",
+            displayName: "Oura Ring",
+            connected: false,
+            available: true,
+            unavailableReason: nil,
+            configurationRequired: false,
+            dataTypes: [
+                integrationDataType(id: "sleep", name: "Sleep", detail: "Import Oura sleep sessions and daily sleep scores.", read: read, write: write),
+                integrationDataType(id: "readiness", name: "Readiness", detail: "Import Oura readiness scores and aggregate contributors.", read: read, write: write),
+                integrationDataType(id: "activity", name: "Activity", detail: "Import Oura daily activity aggregates.", read: read, write: write),
+                integrationDataType(id: "stress", name: "Stress", detail: "Import Oura daily stress and recovery aggregates.", read: read, write: write),
+                integrationDataType(id: "resilience", name: "Resilience", detail: "Import Oura resilience levels and aggregate contributors.", read: read, write: write),
+                integrationDataType(id: "bedtime", name: "Bedtime", detail: "Import Oura bedtime recommendations.", read: read, write: write)
+            ]
+        )
+    }
+
+    private static var workoutPlannerIntegrationSource: IntegrationDataSource {
+        let read = IntegrationDirectionCapability(supported: true, disabledReason: nil)
+        let write = IntegrationDirectionCapability(
+            supported: false,
+            disabledReason: "macrovana does not write workouts to Workout Planner."
+        )
+        return IntegrationDataSource(
+            id: "workout_planner",
+            displayName: "Workout Planner",
+            connected: false,
+            available: false,
+            unavailableReason: "Workout Planner requires a linked Google account.",
+            configurationRequired: false,
+            dataTypes: [
+                integrationDataType(
+                    id: "workouts",
+                    name: "Workouts",
+                    detail: "Import completed workouts from Workout Planner.",
+                    read: read,
+                    write: write
+                )
+            ]
+        )
+    }
+
+    private static func integrationDataType(
+        id: String,
+        name: String,
+        detail: String,
+        read: IntegrationDirectionCapability,
+        write: IntegrationDirectionCapability
+    ) -> IntegrationDataType {
+        IntegrationDataType(
+            id: id,
+            displayName: name,
+            detail: detail,
+            read: read,
+            write: write,
+            selection: .denied
+        )
+    }
+
     static func prepareRuntimeStateIfNeeded() {
         guard isEnabled else { return }
 

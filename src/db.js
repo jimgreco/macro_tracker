@@ -637,6 +637,22 @@ async function initDb() {
     );
   `);
 
+  // ── Provider-neutral integration access choices ──
+  // A stored false/false row is an explicit choice. A missing row remains
+  // distinguishable so clients can require a first-time access review.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS integration_data_permissions (
+      user_id TEXT NOT NULL,
+      source TEXT NOT NULL,
+      data_type TEXT NOT NULL,
+      read_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      write_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      configured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, source, data_type)
+    );
+  `);
+
   // ── Direct Oura Cloud integration ──
   // OAuth credentials are encrypted by the application before they reach Postgres.
   // Oura documents contain only allowlisted aggregate fields, never raw sample arrays.
@@ -919,6 +935,7 @@ async function initDb() {
   await recordSchemaMigration('2026-07-28_data_inventory_and_retention');
   await recordSchemaMigration('2026-07-29_durable_webhook_inbox');
   await recordSchemaMigration('2026-07-31_durable_oura_webhooks');
+  await recordSchemaMigration('2026-07-31_integration_data_access');
   await applyHealthKitSleepRevisionMigration();
 
   await pool.query('DELETE FROM web_sessions WHERE expires_at <= NOW()');
@@ -4579,6 +4596,128 @@ async function deleteCoachDismissals(userId) {
   return result.rowCount || 0;
 }
 
+// ── Provider-neutral integration access ──
+
+function normalizeIntegrationAccessIdentifier(value, label) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!/^[a-z][a-z0-9_]{0,63}$/.test(normalized)) {
+    throw new Error(`Invalid integration ${label}.`);
+  }
+  return normalized;
+}
+
+function rowToIntegrationDataPermission(row) {
+  return {
+    source: row.source,
+    dataType: row.data_type,
+    readEnabled: row.read_enabled === true,
+    writeEnabled: row.write_enabled === true,
+    configuredAt: dateToIso(row.configured_at),
+    updatedAt: dateToIso(row.updated_at)
+  };
+}
+
+async function listIntegrationDataPermissions(userId, source = null) {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) throw new Error('User id is required.');
+  const values = [normalizedUserId];
+  let sourceCondition = '';
+  if (source != null) {
+    values.push(normalizeIntegrationAccessIdentifier(source, 'source'));
+    sourceCondition = 'AND source = $2';
+  }
+  const result = await pool.query(
+    `SELECT source, data_type, read_enabled, write_enabled, configured_at, updated_at
+     FROM integration_data_permissions
+     WHERE user_id = $1
+       ${sourceCondition}
+     ORDER BY source, data_type`,
+    values
+  );
+  return result.rows.map(rowToIntegrationDataPermission);
+}
+
+async function replaceIntegrationDataPermissions(userId, source, permissions = []) {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) throw new Error('User id is required.');
+  const normalizedSource = normalizeIntegrationAccessIdentifier(source, 'source');
+  if (!Array.isArray(permissions)) throw new Error('Integration permissions must be an array.');
+  const normalized = permissions.map((permission) => ({
+    dataType: normalizeIntegrationAccessIdentifier(permission?.dataType, 'data type'),
+    readEnabled: permission?.readEnabled === true,
+    writeEnabled: permission?.writeEnabled === true
+  }));
+  if (new Set(normalized.map((permission) => permission.dataType)).size !== normalized.length) {
+    throw new Error('Integration permissions contain duplicate data types.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const dataTypes = normalized.map((permission) => permission.dataType);
+    await client.query(
+      `DELETE FROM integration_data_permissions
+       WHERE user_id = $1
+         AND source = $2
+         AND NOT (data_type = ANY($3::text[]))`,
+      [normalizedUserId, normalizedSource, dataTypes]
+    );
+    for (const permission of normalized) {
+      await client.query(
+        `INSERT INTO integration_data_permissions (
+           user_id, source, data_type, read_enabled, write_enabled, configured_at, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+         ON CONFLICT (user_id, source, data_type) DO UPDATE SET
+           read_enabled = EXCLUDED.read_enabled,
+           write_enabled = EXCLUDED.write_enabled,
+           updated_at = NOW()`,
+        [
+          normalizedUserId,
+          normalizedSource,
+          permission.dataType,
+          permission.readEnabled,
+          permission.writeEnabled
+        ]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+  return listIntegrationDataPermissions(normalizedUserId, normalizedSource);
+}
+
+async function deleteIntegrationDataPermissions(userId, source) {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) throw new Error('User id is required.');
+  const normalizedSource = normalizeIntegrationAccessIdentifier(source, 'source');
+  const result = await pool.query(
+    `DELETE FROM integration_data_permissions WHERE user_id = $1 AND source = $2`,
+    [normalizedUserId, normalizedSource]
+  );
+  return result.rowCount || 0;
+}
+
+async function isIntegrationDataAccessEnabled(userId, source, dataType, direction) {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) return false;
+  const normalizedSource = normalizeIntegrationAccessIdentifier(source, 'source');
+  const normalizedDataType = normalizeIntegrationAccessIdentifier(dataType, 'data type');
+  if (!['read', 'write'].includes(direction)) throw new Error('Invalid integration access direction.');
+  const column = direction === 'read' ? 'read_enabled' : 'write_enabled';
+  const result = await pool.query(
+    `SELECT ${column} AS enabled
+     FROM integration_data_permissions
+     WHERE user_id = $1 AND source = $2 AND data_type = $3`,
+    [normalizedUserId, normalizedSource, normalizedDataType]
+  );
+  return result.rows[0]?.enabled === true;
+}
+
 // ── Oura Cloud ──
 
 function rowToOuraConnection(row) {
@@ -4760,7 +4899,7 @@ async function updateOuraConnection(userId, updates = {}) {
 async function listActiveOuraConnections() {
   const result = await pool.query(
     `SELECT * FROM oura_connections
-     WHERE status <> 'reauthorization_required'
+     WHERE status NOT IN ('reauthorization_required', 'permissions_required')
      ORDER BY COALESCE(last_synced_at, created_at) ASC`
   );
   return result.rows.map(rowToOuraConnection);
@@ -4919,6 +5058,10 @@ async function deleteOuraConnection(userId, options = {}) {
   try {
     await client.query('BEGIN');
     await client.query('DELETE FROM oura_oauth_states WHERE user_id = $1', [userId]);
+    await client.query(
+      `DELETE FROM integration_data_permissions WHERE user_id = $1 AND source = 'oura'`,
+      [userId]
+    );
     await client.query('DELETE FROM oura_connections WHERE user_id = $1', [userId]);
     if (options.deleteData !== false) {
       await client.query('DELETE FROM oura_documents WHERE user_id = $1', [userId]);
@@ -5767,6 +5910,10 @@ module.exports = {
   listCoachDismissals,
   upsertCoachDismissals,
   deleteCoachDismissals,
+  listIntegrationDataPermissions,
+  replaceIntegrationDataPermissions,
+  deleteIntegrationDataPermissions,
+  isIntegrationDataAccessEnabled,
   createOuraOauthState,
   consumeOuraOauthState,
   getOuraConnection,

@@ -63,6 +63,54 @@ struct AccountPreferencesResponse: Codable {
     let user: User?
 }
 
+struct IntegrationDataAccessResponse: Codable, Equatable, Sendable {
+    let sources: [IntegrationDataSource]
+}
+
+struct IntegrationDataSource: Codable, Equatable, Identifiable, Sendable {
+    let id: String
+    let displayName: String
+    let connected: Bool
+    let available: Bool
+    let unavailableReason: String?
+    let configurationRequired: Bool
+    let dataTypes: [IntegrationDataType]
+}
+
+struct IntegrationDataType: Codable, Equatable, Identifiable, Sendable {
+    let id: String
+    let displayName: String
+    let detail: String?
+    let read: IntegrationDirectionCapability
+    let write: IntegrationDirectionCapability
+    let selection: IntegrationDirectionSelection?
+}
+
+struct IntegrationDirectionCapability: Codable, Equatable, Sendable {
+    let supported: Bool
+    let disabledReason: String?
+}
+
+struct IntegrationDirectionSelection: Codable, Equatable, Sendable {
+    let readEnabled: Bool
+    let writeEnabled: Bool
+
+    static let denied = IntegrationDirectionSelection(
+        readEnabled: false,
+        writeEnabled: false
+    )
+}
+
+struct IntegrationDataAccessUpdate: Codable, Equatable, Sendable {
+    let dataTypes: [IntegrationDataTypeUpdate]
+}
+
+struct IntegrationDataTypeUpdate: Codable, Equatable, Sendable {
+    let id: String
+    let readEnabled: Bool
+    let writeEnabled: Bool
+}
+
 struct Entry: Codable, Identifiable, Sendable {
     let id: Int
     let itemName: String

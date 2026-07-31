@@ -74,6 +74,46 @@ test('Account & Privacy modal has no critical accessibility violations', async (
   expect(formatViolations(violations)).toEqual([]);
 });
 
+test('Integration Data Access modal has no critical accessibility violations', async ({
+  page
+}, testInfo) => {
+  await page.route('**/api/integrations/access', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        sources: [{
+          id: 'oura',
+          displayName: 'Oura Ring',
+          connected: true,
+          available: true,
+          configurationRequired: true,
+          dataTypes: [{
+            id: 'sleep',
+            displayName: 'Sleep',
+            detail: 'Import Oura sleep sessions and daily sleep scores.',
+            read: { supported: true },
+            write: {
+              supported: false,
+              disabledReason: 'DailyMacros does not write health data to Oura.'
+            }
+          }]
+        }]
+      })
+    });
+  });
+
+  await page.goto('/?oura=connected&access=required');
+  const modal = page.getByRole('dialog', { name: 'Data Access' });
+  await expect(modal).toBeVisible();
+  const violations = await criticalViolations(page, '#integration-access-modal-overlay');
+  await testInfo.attach('axe-integration-data-access.json', {
+    body: JSON.stringify(formatViolations(violations), null, 2),
+    contentType: 'application/json'
+  });
+  expect(formatViolations(violations)).toEqual([]);
+});
+
 test('mobile navigation retains visible labels and 44 point tap targets', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');

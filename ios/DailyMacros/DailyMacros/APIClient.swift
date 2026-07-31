@@ -1300,6 +1300,49 @@ class APIClient: ObservableObject {
         return response.url
     }
 
+    // MARK: - Integration data access
+
+    func getIntegrationDataAccess() async throws -> IntegrationDataAccessResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.integrationDataAccess()
+        }
+        #endif
+
+        let request = try authorizedRequest(apiURL("/integrations/access"))
+        return try await perform(request)
+    }
+
+    func updateIntegrationDataAccess(
+        sourceID: String,
+        dataTypes: [IntegrationDataTypeUpdate]
+    ) async throws -> IntegrationDataSource {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.integrationDataSource(
+                id: sourceID,
+                selections: dataTypes
+            )
+        }
+        #endif
+
+        guard sourceID.range(
+            of: "^[A-Za-z0-9._-]+$",
+            options: .regularExpression
+        ) != nil else {
+            throw APIError.serverError("The data source identifier is invalid.")
+        }
+
+        let payload = IntegrationDataAccessUpdate(dataTypes: dataTypes)
+        let body = try JSONEncoder().encode(payload)
+        let request = try authorizedRequest(
+            apiURL("/integrations/\(sourceID)/access"),
+            method: "PUT",
+            body: body
+        )
+        return try await perform(request)
+    }
+
     // MARK: - Oura
 
     func getOuraStatus() async throws -> OuraStatusResponse {

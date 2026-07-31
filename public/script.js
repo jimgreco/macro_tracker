@@ -57,6 +57,7 @@ const state = {
   editingEntries: false,
   appVersion: null,
   currentUser: null,
+  integrationAccessSources: [],
   features: {
     sexualActivity: false
   },
@@ -2276,9 +2277,284 @@ function buildCopyMealToTodayHandler(mealGroup, mealEntry) {
   };
 }
 
+function webIntegrationAccessSources(payload) {
+  const candidates = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.sources)
+      ? payload.sources
+      : payload?.source && typeof payload.source === 'object'
+        ? [payload.source]
+        : payload?.id && typeof payload === 'object'
+          ? [payload]
+          : [];
+  return candidates.filter((source) => (
+    source
+    && typeof source === 'object'
+    && String(source.id || '').trim()
+    // Apple Health is device-local. The iOS client owns its add/setup prompt;
+    // the web must never infer that HealthKit is connected for this browser.
+    && String(source.id).trim().toLowerCase() !== 'healthkit'
+  ));
+}
+
+function integrationAccessSource(sourceId) {
+  const normalizedId = String(sourceId || '').trim().toLowerCase();
+  return state.integrationAccessSources.find(
+    (source) => String(source?.id || '').trim().toLowerCase() === normalizedId
+  ) || null;
+}
+
+function storeIntegrationAccessSource(source) {
+  if (!source?.id || String(source.id).trim().toLowerCase() === 'healthkit') return;
+  const normalizedId = String(source.id).trim().toLowerCase();
+  const nextSources = state.integrationAccessSources.filter(
+    (candidate) => String(candidate?.id || '').trim().toLowerCase() !== normalizedId
+  );
+  nextSources.push(source);
+  state.integrationAccessSources = nextSources;
+}
+
+function renderAccountIntegrationAccessControls(overlay) {
+  const list = overlay?.querySelector('#account-integration-access-list');
+  if (!list) return;
+  const connectedSources = state.integrationAccessSources.filter((source) => source?.connected === true);
+  if (!connectedSources.length) {
+    list.innerHTML = '<p class="account-integration-access-empty">Connect an integration to choose its data access.</p>';
+    return;
+  }
+
+  list.innerHTML = connectedSources.map((source) => {
+    const sourceName = source.displayName || source.id || 'Integration';
+    const requiresConfiguration = source.configurationRequired === true;
+    const unavailable = source.available === false;
+    return `
+      <div class="account-integration-access-row">
+        <span class="account-integration-access-copy">
+          <strong>${escapeHtml(sourceName)}</strong>
+          <small>${escapeHtml(
+            unavailable
+              ? (source.unavailableReason || 'Unavailable')
+              : requiresConfiguration
+                ? 'Data access choices required'
+                : 'Data access saved'
+          )}</small>
+        </span>
+        <button
+          type="button"
+          class="${requiresConfiguration ? 'btn-success' : 'btn-secondary'} table-action-btn"
+          data-manage-integration-access="${escapeAttr(source.id)}"
+          ${unavailable ? 'disabled' : ''}
+        >${requiresConfiguration ? 'Choose Data Access' : 'Manage Data Access'}</button>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('[data-manage-integration-access]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const sourceId = button.dataset.manageIntegrationAccess;
+      overlay.remove();
+      openIntegrationAccessModal(sourceId);
+    });
+  });
+}
+
+async function loadIntegrationAccessSources() {
+  const payload = await api('/api/integrations/access');
+  state.integrationAccessSources = webIntegrationAccessSources(payload);
+  return state.integrationAccessSources;
+}
+
+function requiredWebIntegrationAccessSource(sources, preferredSourceId = null) {
+  const requiredSources = (Array.isArray(sources) ? sources : []).filter((source) => (
+    String(source?.id || '').trim().toLowerCase() !== 'healthkit'
+    && source?.connected === true
+    && source?.available !== false
+    && source?.configurationRequired === true
+  ));
+  const preferredId = String(preferredSourceId || '').trim().toLowerCase();
+  return requiredSources.find(
+    (source) => String(source.id || '').trim().toLowerCase() === preferredId
+  ) || requiredSources[0] || null;
+}
+
+function integrationAccessDirectionControl(source, dataType, direction, index) {
+  const directionName = direction === 'read' ? 'Read' : 'Write';
+  const capability = dataType?.[direction] || {};
+  const supported = capability.supported === true;
+  const selectionKey = direction === 'read' ? 'readEnabled' : 'writeEnabled';
+  const checked = supported && dataType?.selection?.[selectionKey] === true;
+  const inputId = `integration-access-${String(source.id || 'source').replace(/[^a-z0-9_-]/gi, '-')}-${index}-${direction}`;
+  const sourceName = source.displayName || source.id || 'integration';
+  const dataTypeName = dataType.displayName || dataType.id || 'data';
+  const disabledReason = String(capability.disabledReason || '').trim();
+  const actionCopy = direction === 'read'
+    ? `Allow DailyMacros to import ${dataTypeName.toLowerCase()} from ${sourceName}.`
+    : `Allow DailyMacros to add ${dataTypeName.toLowerCase()} to ${sourceName}.`;
+
+  return `
+    <div class="integration-access-direction-wrap">
+      <label class="integration-access-direction${supported ? '' : ' is-disabled'}" for="${escapeAttr(inputId)}">
+        <input
+          id="${escapeAttr(inputId)}"
+          type="checkbox"
+          data-integration-access-direction="${direction}"
+          aria-label="${escapeAttr(`${directionName} ${dataTypeName} ${direction === 'read' ? 'from' : 'to'} ${sourceName}`)}"
+          ${checked ? 'checked' : ''}
+          ${supported ? '' : 'disabled'}
+        />
+        <span class="integration-access-direction-copy">
+          <strong>${directionName}</strong>
+          <small>${escapeHtml(supported ? actionCopy : (disabledReason || `${directionName} is not supported.`))}</small>
+        </span>
+        <span class="account-setting-check" aria-hidden="true"></span>
+      </label>
+    </div>
+  `;
+}
+
+function showIntegrationAccessModal(source) {
+  if (!source?.id || String(source.id).trim().toLowerCase() === 'healthkit') return;
+  document.getElementById('integration-access-modal-overlay')?.remove();
+
+  const previousFocus = document.activeElement;
+  const sourceName = source.displayName || source.id || 'Integration';
+  const dataTypes = Array.isArray(source.dataTypes) ? source.dataTypes : [];
+  const headingId = 'integration-access-modal-heading';
+  const overlay = document.createElement('div');
+  overlay.id = 'integration-access-modal-overlay';
+  overlay.className = 'combine-modal-overlay integration-access-modal-overlay';
+  overlay.innerHTML = `
+    <div
+      class="combine-modal entry-modal account-privacy-modal integration-access-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="${headingId}"
+    >
+      <div class="integration-access-header">
+        <span class="integration-access-eyebrow">${escapeHtml(sourceName)}</span>
+        <h3 id="${headingId}" tabindex="-1">Data Access</h3>
+        <p>Choose what DailyMacros may read from or write to this data source. These choices can be changed later in Account &amp; Privacy.</p>
+      </div>
+      <div class="integration-access-data-types">
+        ${dataTypes.map((dataType, index) => `
+          <fieldset
+            class="integration-access-data-type"
+            data-integration-access-data-type="${escapeAttr(dataType.id || '')}"
+          >
+            <legend>${escapeHtml(dataType.displayName || dataType.id || 'Data')}</legend>
+            ${dataType.detail ? `<p class="integration-access-data-type-detail">${escapeHtml(dataType.detail)}</p>` : ''}
+            <div class="integration-access-directions">
+              ${integrationAccessDirectionControl(source, dataType, 'read', index)}
+              ${integrationAccessDirectionControl(source, dataType, 'write', index)}
+            </div>
+          </fieldset>
+        `).join('')}
+      </div>
+      ${source.available === false && source.unavailableReason
+        ? `<p class="integration-access-notice" role="status">${escapeHtml(source.unavailableReason)}</p>`
+        : ''}
+      <p class="integration-access-retention-note">Turning access off stops future reads or writes. Data already imported into DailyMacros remains until it is deleted under that integration's existing controls.</p>
+      <div class="combine-modal-actions integration-access-actions">
+        <button type="button" class="btn-success table-action-btn" id="integration-access-save-btn">Save Data Access</button>
+        <button type="button" class="btn-muted table-action-btn" id="integration-access-cancel-btn">${source.configurationRequired ? 'Not Now' : 'Cancel'}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    overlay.remove();
+    if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+      previousFocus.focus();
+    }
+  };
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      close();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(overlay.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter((element) => !element.hidden);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const heading = overlay.querySelector(`#${headingId}`);
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === heading)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+  overlay.querySelector('#integration-access-cancel-btn')?.addEventListener('click', close);
+  overlay.querySelector('#integration-access-save-btn')?.addEventListener('click', async (event) => {
+    const saveButton = event.currentTarget;
+    const selections = Array.from(overlay.querySelectorAll('[data-integration-access-data-type]')).map((row) => ({
+      id: row.dataset.integrationAccessDataType,
+      readEnabled: row.querySelector('[data-integration-access-direction="read"]')?.checked === true,
+      writeEnabled: row.querySelector('[data-integration-access-direction="write"]')?.checked === true
+    }));
+
+    saveButton.disabled = true;
+    overlay.querySelector('.integration-access-modal')?.setAttribute('aria-busy', 'true');
+    try {
+      const response = await api(`/api/integrations/${encodeURIComponent(source.id)}/access`, {
+        method: 'PUT',
+        body: JSON.stringify({ dataTypes: selections })
+      });
+      const savedSource = webIntegrationAccessSources(response)[0] || {
+        ...source,
+        configurationRequired: false,
+        dataTypes: dataTypes.map((dataType) => {
+          const savedSelection = selections.find((selection) => selection.id === dataType.id);
+          return savedSelection ? { ...dataType, selection: savedSelection } : dataType;
+        })
+      };
+      storeIntegrationAccessSource(savedSource);
+      close();
+      setActionBanner(
+        selections.some((selection) => selection.readEnabled || selection.writeEnabled)
+          ? `${sourceName} data access saved.`
+          : `${sourceName} data access saved. No read or write access is enabled.`,
+        'success'
+      );
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+    } finally {
+      if (saveButton.isConnected) saveButton.disabled = false;
+      overlay.querySelector('.integration-access-modal')?.removeAttribute('aria-busy');
+    }
+  });
+
+  window.requestAnimationFrame(() => {
+    overlay.querySelector(`#${headingId}`)?.focus();
+  });
+}
+
+async function openIntegrationAccessModal(sourceId) {
+  try {
+    let source = integrationAccessSource(sourceId);
+    if (!source) {
+      await loadIntegrationAccessSources();
+      source = integrationAccessSource(sourceId);
+    }
+    if (!source) throw new Error('Data access settings are not available for this integration.');
+    showIntegrationAccessModal(source);
+  } catch (error) {
+    setActionBanner(error.message, 'error');
+  }
+}
+
 function ouraConnectionLabel(status) {
   if (!status?.configured) return 'Not configured';
   if (!status.connected) return 'Not connected';
+  if (status.state === 'permissions_required') return 'Choose data access';
   if (status.state === 'syncing') return 'Syncing';
   if (status.state === 'reauthorization_required') return 'Reconnect required';
   if (status.state === 'error') return 'Needs attention';
@@ -2295,10 +2571,13 @@ function renderOuraAccountControls(overlay, status) {
 
   statusEl.textContent = ouraConnectionLabel(status);
   statusEl.dataset.state = status?.state || 'unknown';
+  const accessSource = integrationAccessSource('oura');
+  const accessRequired = status?.state === 'permissions_required'
+    || accessSource?.configurationRequired === true;
   const canReconnect = status?.state === 'reauthorization_required' || status?.state === 'error';
   connectButton.hidden = !status?.configured || (status.connected && !canReconnect);
   connectButton.textContent = status?.connected ? 'Reconnect Oura' : 'Connect Oura';
-  syncButton.hidden = !status?.connected;
+  syncButton.hidden = !status?.connected || accessRequired;
   disconnectButton.hidden = !status?.connected;
 
   if (!status?.configured) {
@@ -2306,7 +2585,11 @@ function renderOuraAccountControls(overlay, status) {
     return;
   }
   if (!status.connected) {
-    detailEl.textContent = 'By connecting, you authorize DailyMacros to import 90 days of Oura aggregates and combine them with your app history for deterministic trends and coaching. Oura API data is never provided to AI models. Imported records remain until you disconnect Oura or delete your account.';
+    detailEl.textContent = 'Connect Oura, then choose which sleep, readiness, activity, stress, resilience, bedtime, and optional workout data DailyMacros may read. No Oura data is imported until those choices are saved. Oura API data is never provided to AI models.';
+    return;
+  }
+  if (accessRequired) {
+    detailEl.textContent = 'Your Oura account is connected. Choose which data types DailyMacros may read before the first sync. DailyMacros does not write health data to Oura.';
     return;
   }
 
@@ -2316,7 +2599,7 @@ function renderOuraAccountControls(overlay, status) {
   details.push(status.updateMode === 'webhook'
     ? 'New cloud data should arrive about 30 seconds after Oura syncs.'
     : 'Webhook delivery is not configured; scheduled reconciliation is active.');
-  details.push('Imported records remain until you disconnect Oura or delete your account and may be combined with your app history for deterministic trends and coaching, never AI-model input.');
+  details.push('Only the data types enabled in Data Access are read from Oura. Imported records remain until you disconnect Oura or delete your account and may be combined with your app history for deterministic trends and coaching, never AI-model input.');
   if (status.lastError) details.push(status.lastError);
   detailEl.textContent = details.join(' · ');
 }
@@ -2324,7 +2607,15 @@ function renderOuraAccountControls(overlay, status) {
 async function loadOuraAccountControls(overlay) {
   try {
     const status = await api('/api/oura/status');
-    if (overlay.isConnected) renderOuraAccountControls(overlay, status);
+    try {
+      await loadIntegrationAccessSources();
+    } catch (error) {
+      console.warn('Failed to load integration data access:', error);
+    }
+    if (overlay.isConnected) {
+      renderOuraAccountControls(overlay, status);
+      renderAccountIntegrationAccessControls(overlay);
+    }
   } catch (error) {
     const detailEl = overlay.querySelector('#account-oura-detail');
     if (detailEl) detailEl.textContent = error.message;
@@ -2393,6 +2684,12 @@ function showAccountPrivacyModal() {
           <button type="button" class="btn-success table-action-btn" id="account-oura-connect-btn" hidden>Connect Oura</button>
           <button type="button" class="btn-secondary table-action-btn" id="account-oura-sync-btn" hidden>Sync Now</button>
           <button type="button" class="btn-danger table-action-btn" id="account-oura-disconnect-btn" hidden>Disconnect &amp; Delete Oura Data</button>
+        </div>
+      </fieldset>
+      <fieldset class="account-preference-controls">
+        <legend>Integration Data Access</legend>
+        <div id="account-integration-access-list" class="account-integration-access-list" aria-live="polite">
+          <p class="account-integration-access-empty">Loading integration data access…</p>
         </div>
       </fieldset>
       ${sexualActivityPageControl}
@@ -7505,13 +7802,21 @@ loadQuickEntries({ force: true });
 
 (async function initApp() {
   const callbackParams = new URLSearchParams(window.location.search);
+  const ouraConnectedFromCallback = callbackParams.get('oura') === 'connected';
+  const accessRequiredFromCallback = callbackParams.get('access') === 'required';
   if (callbackParams.get('oura') === 'connected') {
-    setActionBanner('Oura connected. The initial 90-day sync is running.', 'success');
+    setActionBanner(
+      accessRequiredFromCallback
+        ? 'Oura connected. Choose which data DailyMacros may read before syncing.'
+        : 'Oura connected. Your saved data access choices will be used for syncing.',
+      'success'
+    );
   } else if (callbackParams.get('oura') === 'error') {
     setActionBanner(callbackParams.get('message') || 'Oura connection failed.', 'error');
   }
   if (callbackParams.has('oura')) {
     callbackParams.delete('oura');
+    callbackParams.delete('access');
     callbackParams.delete('message');
     const cleanedQuery = callbackParams.toString();
     window.history.replaceState({}, '', `${window.location.pathname}${cleanedQuery ? `?${cleanedQuery}` : ''}${window.location.hash}`);
@@ -7541,6 +7846,20 @@ loadQuickEntries({ force: true });
     await refreshPageData(state.selectedPage);
   } catch (error) {
     setActionBanner(error.message, 'error');
+  }
+
+  try {
+    const sources = await loadIntegrationAccessSources();
+    const requiredSource = requiredWebIntegrationAccessSource(
+      sources,
+      ouraConnectedFromCallback ? 'oura' : null
+    );
+    if (requiredSource) showIntegrationAccessModal(requiredSource);
+  } catch (error) {
+    console.warn('Failed to check integration data access:', error);
+    if (ouraConnectedFromCallback && accessRequiredFromCallback) {
+      setActionBanner('Oura connected, but Data Access settings could not be loaded. Open Account & Privacy to retry.', 'error');
+    }
   }
 })();
 
