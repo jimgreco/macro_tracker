@@ -705,7 +705,21 @@ function createOuraService({ db, env = process.env, fetchImpl = globalThis.fetch
       }
       if (!grantedScopes.includes('personal')) grantedScopes.push('personal');
       if (!grantedScopes.includes('daily')) {
-        throw new Error('Oura daily access is required for this integration.');
+        const probeDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        try {
+          // As with `personal`, Oura may omit `daily` from grant metadata.
+          // A bounded collection read verifies the capability without storing
+          // or importing any provider data during authorization.
+          await apiRequestWithToken(tokenPayload.access_token, '/usercollection/daily_readiness', {
+            query: { start_date: probeDate, end_date: probeDate }
+          });
+        } catch (error) {
+          if (error instanceof OuraApiError && error.status === 403) {
+            throw new Error('Oura daily access is required for this integration.');
+          }
+          throw error;
+        }
+        grantedScopes.push('daily');
       }
 
       const ouraUserId = String(personalInfo?.id || '').trim();
