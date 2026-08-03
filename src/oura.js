@@ -690,12 +690,24 @@ function createOuraService({ db, env = process.env, fetchImpl = globalThis.fetch
       }
 
       const grantedScopes = normalizeScopes(tokenPayload.scope || scope);
-      for (const requiredScope of ['personal', 'daily']) {
-        if (grantedScopes.includes(requiredScope)) continue;
-        throw new Error(`Oura ${requiredScope} access is required for this integration.`);
+      let personalInfo;
+      try {
+        // Oura does not consistently echo `personal` in token/callback scope
+        // metadata. This endpoint is required for the opaque routing id, so a
+        // successful response is authoritative proof that the token has the
+        // capability even when the metadata omits it.
+        personalInfo = await apiRequestWithToken(tokenPayload.access_token, '/usercollection/personal_info');
+      } catch (error) {
+        if (error instanceof OuraApiError && error.status === 403) {
+          throw new Error('Oura personal access is required for this integration.');
+        }
+        throw error;
+      }
+      if (!grantedScopes.includes('personal')) grantedScopes.push('personal');
+      if (!grantedScopes.includes('daily')) {
+        throw new Error('Oura daily access is required for this integration.');
       }
 
-      const personalInfo = await apiRequestWithToken(tokenPayload.access_token, '/usercollection/personal_info');
       const ouraUserId = String(personalInfo?.id || '').trim();
       if (!ouraUserId) {
         throw new Error('Oura did not return a user identifier.');
