@@ -294,7 +294,7 @@ test('Oura authorization accepts form-encoded scope separators from the callback
   assert.deepEqual(result.grantedScopes, ['daily', 'personal']);
 });
 
-test('Oura authorization verifies personal capability when grant metadata omits it', async () => {
+test('Oura authorization verifies required capabilities when grant metadata omits them', async () => {
   const db = makeFakeDb();
   const fetchImpl = async (input) => {
     const url = String(input);
@@ -302,12 +302,14 @@ test('Oura authorization verifies personal capability when grant metadata omits 
       return jsonResponse({
         access_token: 'oura-access-token',
         refresh_token: 'oura-refresh-token',
-        expires_in: 3600,
-        scope: 'daily'
+        expires_in: 3600
       });
     }
     if (url === 'https://api.ouraring.com/v2/usercollection/personal_info') {
       return jsonResponse({ id: 'oura-user-123' });
+    }
+    if (url.startsWith('https://api.ouraring.com/v2/usercollection/daily_readiness?')) {
+      return jsonResponse({ data: [] });
     }
     throw new Error(`Unexpected request: ${url}`);
   };
@@ -317,8 +319,8 @@ test('Oura authorization verifies personal capability when grant metadata omits 
 
   const result = await service.completeAuthorization({ code: 'authorization-code', state });
 
-  assert.deepEqual(result.grantedScopes, ['daily', 'personal']);
-  assert.deepEqual(db.getStoredConnection().scopes, ['daily', 'personal']);
+  assert.deepEqual(result.grantedScopes, ['personal', 'daily']);
+  assert.deepEqual(db.getStoredConnection().scopes, ['personal', 'daily']);
 });
 
 test('Oura authorization still fails closed when personal capability is denied', async () => {
@@ -350,6 +352,43 @@ test('Oura authorization still fails closed when personal capability is denied',
   await assert.rejects(
     service.completeAuthorization({ code: 'authorization-code', state }),
     /Oura personal access is required/
+  );
+  assert.equal(db.getStoredConnection(), null);
+  assert.equal(revoked, true);
+});
+
+test('Oura authorization still fails closed when daily capability is denied', async () => {
+  const db = makeFakeDb();
+  let revoked = false;
+  const fetchImpl = async (input) => {
+    const url = String(input);
+    if (url === 'https://api.ouraring.com/oauth/token') {
+      return jsonResponse({
+        access_token: 'oura-access-token',
+        refresh_token: 'oura-refresh-token',
+        expires_in: 3600,
+        scope: 'personal'
+      });
+    }
+    if (url === 'https://api.ouraring.com/v2/usercollection/personal_info') {
+      return jsonResponse({ id: 'oura-user-123' });
+    }
+    if (url.startsWith('https://api.ouraring.com/v2/usercollection/daily_readiness?')) {
+      return jsonResponse({ detail: 'Forbidden' }, 403);
+    }
+    if (url.startsWith('https://api.ouraring.com/oauth/revoke?')) {
+      revoked = true;
+      return jsonResponse(null);
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  const service = createOuraService({ db, env: configuredEnv(), fetchImpl });
+  const authorization = await service.createAuthorization('daily-user-1', 'ios');
+  const state = new URL(authorization.authorizationUrl).searchParams.get('state');
+
+  await assert.rejects(
+    service.completeAuthorization({ code: 'authorization-code', state }),
+    /Oura daily access is required/
   );
   assert.equal(db.getStoredConnection(), null);
   assert.equal(revoked, true);
