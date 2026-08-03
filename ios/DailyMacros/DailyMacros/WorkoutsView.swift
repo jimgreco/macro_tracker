@@ -4,6 +4,7 @@ struct WorkoutsView: View {
     @EnvironmentObject var api: APIClient
     @EnvironmentObject private var appNavigation: AppNavigationModel
     @StateObject private var healthKitSync = HealthKitWorkoutSync()
+    @ObservedObject private var integrationDataAccess = IntegrationDataAccessStore.shared
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var workouts: [WorkoutEntry] = []
     @State private var dailyCalories: [WorkoutDailyCalories] = []
@@ -886,14 +887,27 @@ struct WorkoutsView: View {
         formatter.timeZone = TimeZone(identifier: "America/New_York")
 
         do {
-            try await api.addWorkout(
+            let intensity = normalizeWorkoutIntensity(workout.intensity)
+            let loggedAt = formatter.string(from: workoutLogDate)
+            let response = try await api.addWorkout(
                 description: workout.description,
-                intensity: normalizeWorkoutIntensity(workout.intensity),
+                intensity: intensity,
                 durationHours: workout.durationHours,
                 caloriesBurned: workout.caloriesBurned,
-                loggedAt: formatter.string(from: workoutLogDate)
+                loggedAt: loggedAt
             )
-            triggerHealthKitExport()
+            if let id = response.id {
+                triggerHealthKitExport(WorkoutEntry(
+                    id: id,
+                    description: workout.description,
+                    intensity: intensity,
+                    durationHours: workout.durationHours,
+                    caloriesBurned: workout.caloriesBurned,
+                    loggedAt: loggedAt,
+                    source: "manual",
+                    externalId: nil
+                ))
+            }
             await loadWorkouts(reset: true)
         } catch {
             showErrorUnlessCancelled(error)
@@ -1018,24 +1032,43 @@ struct WorkoutsView: View {
         do {
             let f = ISO8601DateFormatter()
             f.timeZone = TimeZone(identifier: "America/New_York")
-            try await api.addWorkout(
-                description: parsedDescription.trimmingCharacters(in: .whitespacesAndNewlines),
-                intensity: normalizeWorkoutIntensity(parsedIntensity),
-                durationHours: Double(parsedDurationHours) ?? 1,
-                caloriesBurned: Double(parsedCalories) ?? 0,
-                loggedAt: f.string(from: workoutLogDate)
+            let description = parsedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            let intensity = normalizeWorkoutIntensity(parsedIntensity)
+            let durationHours = Double(parsedDurationHours) ?? 1
+            let caloriesBurned = Double(parsedCalories) ?? 0
+            let loggedAt = f.string(from: workoutLogDate)
+            let response = try await api.addWorkout(
+                description: description,
+                intensity: intensity,
+                durationHours: durationHours,
+                caloriesBurned: caloriesBurned,
+                loggedAt: loggedAt
             )
+            if let id = response.id {
+                triggerHealthKitExport(WorkoutEntry(
+                    id: id,
+                    description: description,
+                    intensity: intensity,
+                    durationHours: durationHours,
+                    caloriesBurned: caloriesBurned,
+                    loggedAt: loggedAt,
+                    source: "manual",
+                    externalId: nil
+                ))
+            }
             resetWorkoutSheet()
-            triggerHealthKitExport()
             await loadWorkouts(reset: true)
         } catch {
             showErrorUnlessCancelled(error)
         }
     }
 
-    private func triggerHealthKitExport() {
+    private func triggerHealthKitExport(_ workout: WorkoutEntry) {
+        let access = integrationDataAccess
+            .healthKitAccessPlan(includeSexualActivity: false)
+            .workouts
         Task {
-            _ = try? await healthKitSync.syncRecentWorkouts(api: api)
+            _ = try? await healthKitSync.exportWorkout(workout, access: access)
         }
     }
 
@@ -1105,15 +1138,25 @@ struct WorkoutsView: View {
             workoutPlannerError = "Workout Planner: \(error.localizedDescription)"
         }
 
-        do {
-            let healthResult = try await healthKitSync.syncRecentWorkouts(api: api)
-            if healthResult.importedCount > 0 || healthResult.exportedCount > 0 {
-                syncMessages.append("Apple Health: imported \(healthResult.importedCount), wrote \(healthResult.exportedCount).")
-            } else {
-                syncMessages.append("Apple Health: no new workouts from the last 30 days.")
+        let healthAccess = integrationDataAccess
+            .healthKitAccessPlan(includeSexualActivity: false)
+            .workouts
+        if healthAccess.readEnabled || healthAccess.writeEnabled {
+            do {
+                let healthResult = try await healthKitSync.syncRecentWorkouts(
+                    api: api,
+                    access: healthAccess
+                )
+                if healthResult.importedCount > 0 || healthResult.exportedCount > 0 {
+                    syncMessages.append("Apple Health: imported \(healthResult.importedCount), wrote \(healthResult.exportedCount).")
+                } else {
+                    syncMessages.append("Apple Health: no new workouts from the last 30 days.")
+                }
+            } catch {
+                syncMessages.append("Apple Health: \(error.localizedDescription)")
             }
-        } catch {
-            syncMessages.append("Apple Health: \(error.localizedDescription)")
+        } else {
+            syncMessages.append("Apple Health workout access is off. Change it in Settings > Data Sources.")
         }
 
         if syncMessages.count == 1,

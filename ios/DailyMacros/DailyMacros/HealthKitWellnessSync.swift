@@ -6,6 +6,8 @@ struct HealthKitMetricSyncResult {
     let importedCount: Int
     let exportedCount: Int
     let skippedCount: Int
+
+    static let empty = HealthKitMetricSyncResult(importedCount: 0, exportedCount: 0, skippedCount: 0)
 }
 
 enum HealthKitWellnessSyncError: LocalizedError {
@@ -55,7 +57,11 @@ final class HealthKitWellnessSync: ObservableObject {
         return formatter
     }()
 
-    func syncRecentWeight(api: APIClient) async throws -> HealthKitMetricSyncResult {
+    func syncRecentWeight(
+        api: APIClient,
+        access: IntegrationDirectionSelection
+    ) async throws -> HealthKitMetricSyncResult {
+        guard access.readEnabled || access.writeEnabled else { return .empty }
         guard HKHealthStore.isHealthDataAvailable() else {
             throw HealthKitWellnessSyncError.unavailable
         }
@@ -63,70 +69,107 @@ final class HealthKitWellnessSync: ObservableObject {
             throw HealthKitWellnessSyncError.missingType("weight")
         }
 
-        try await requestAuthorization(share: [bodyMassType], read: [bodyMassType])
+        try await requestAuthorization(
+            share: access.writeEnabled ? [bodyMassType] : [],
+            read: access.readEnabled ? [bodyMassType] : []
+        )
 
         let cutoff = syncCutoffDate()
-        let healthSamples = try await fetchQuantitySamples(type: bodyMassType, since: cutoff)
-        let existingResponse = try await api.getWeights(scope: "month", limit: 500, offset: 0)
-        var existingExternalIds = Set(existingResponse.entries.compactMap { entry in
-            entry.source == "healthkit" ? entry.externalId : nil
-        })
-        var existingSignatures = Set(existingResponse.entries.compactMap(weightSignature))
+        let healthSamples = access.readEnabled
+            ? try await fetchQuantitySamples(type: bodyMassType, since: cutoff)
+            : []
         var importedCount = 0
         var skippedCount = 0
 
-        for sample in healthSamples {
-            guard shouldImport(sample, dailyMacrosPrefix: dailyMacrosWeightPrefix) else {
-                skippedCount += 1
-                continue
-            }
+        if access.readEnabled {
+            let existingResponse = try await api.getWeights(scope: "month", limit: 500, offset: 0)
+            var existingExternalIds = Set(existingResponse.entries.compactMap { entry in
+                entry.source == "healthkit" ? entry.externalId : nil
+            })
+            var existingSignatures = Set(existingResponse.entries.compactMap(weightSignature))
 
-            let weight = max(0, sample.quantity.doubleValue(for: .pound()))
-            let externalId = sample.uuid.uuidString
-            let signature = weightSignature(start: sample.startDate, weight: weight)
-            if weight <= 0 || existingExternalIds.contains(externalId) || existingSignatures.contains(signature) {
-                skippedCount += 1
-                continue
-            }
+            for sample in healthSamples {
+                guard shouldImport(sample, dailyMacrosPrefix: dailyMacrosWeightPrefix) else {
+                    skippedCount += 1
+                    continue
+                }
 
-            let response = try await api.addWeight(
-                weight,
-                loggedAt: isoFormatter.string(from: sample.startDate),
-                source: "healthkit",
-                externalId: externalId
-            )
+                let weight = max(0, sample.quantity.doubleValue(for: .pound()))
+                let externalId = sample.uuid.uuidString
+                let signature = weightSignature(start: sample.startDate, weight: weight)
+                if weight <= 0 || existingExternalIds.contains(externalId) || existingSignatures.contains(signature) {
+                    skippedCount += 1
+                    continue
+                }
 
-            existingExternalIds.insert(externalId)
-            existingSignatures.insert(signature)
-            if response.created != false {
-                importedCount += 1
-            } else {
-                skippedCount += 1
+                let response = try await api.addWeight(
+                    weight,
+                    loggedAt: isoFormatter.string(from: sample.startDate),
+                    source: "healthkit",
+                    externalId: externalId
+                )
+
+                existingExternalIds.insert(externalId)
+                existingSignatures.insert(signature)
+                if response.created != false {
+                    importedCount += 1
+                } else {
+                    skippedCount += 1
+                }
             }
         }
 
-        let refreshedResponse = try await api.getWeights(scope: "month", limit: 500, offset: 0)
-        var dailyMacrosExternalIds = dailyMacrosExternalUUIDs(from: healthSamples, prefix: dailyMacrosWeightPrefix)
         var exportedCount = 0
+        // Historical export needs a HealthKit query for deduplication, so it is
+        // allowed only when Read is also enabled. Write-only mode is still fully
+        // supported for newly created entries through exportWeight(_:access:).
+        if access.readEnabled && access.writeEnabled {
+            let refreshedResponse = try await api.getWeights(scope: "month", limit: 500, offset: 0)
+            var dailyMacrosExternalIds = dailyMacrosExternalUUIDs(from: healthSamples, prefix: dailyMacrosWeightPrefix)
 
-        for entry in refreshedResponse.entries {
-            guard shouldExport(source: entry.source, loggedAt: entry.loggedAt, cutoff: cutoff) else { continue }
+            for entry in refreshedResponse.entries {
+                guard shouldExport(source: entry.source, loggedAt: entry.loggedAt, cutoff: cutoff) else { continue }
 
-            let externalUUID = "\(dailyMacrosWeightPrefix)\(entry.id)"
-            if dailyMacrosExternalIds.contains(externalUUID) {
-                skippedCount += 1
-                continue
+                let externalUUID = "\(dailyMacrosWeightPrefix)\(entry.id)"
+                if dailyMacrosExternalIds.contains(externalUUID) {
+                    skippedCount += 1
+                    continue
+                }
+
+                try await saveWeightToHealthKit(entry, type: bodyMassType, externalUUID: externalUUID)
+                dailyMacrosExternalIds.insert(externalUUID)
+                exportedCount += 1
             }
-
-            try await saveWeightToHealthKit(entry, type: bodyMassType, externalUUID: externalUUID)
-            dailyMacrosExternalIds.insert(externalUUID)
-            exportedCount += 1
         }
 
         return HealthKitMetricSyncResult(importedCount: importedCount, exportedCount: exportedCount, skippedCount: skippedCount)
     }
 
-    func syncRecentSleep(api: APIClient) async throws -> HealthKitMetricSyncResult {
+    func exportWeight(
+        _ entry: WeightEntry,
+        access: IntegrationDirectionSelection
+    ) async throws -> HealthKitMetricSyncResult {
+        guard access.writeEnabled else { return .empty }
+        guard HKHealthStore.isHealthDataAvailable() else {
+            throw HealthKitWellnessSyncError.unavailable
+        }
+        guard let bodyMassType = HKQuantityType.quantityType(forIdentifier: .bodyMass) else {
+            throw HealthKitWellnessSyncError.missingType("weight")
+        }
+        try await requestAuthorization(share: [bodyMassType], read: [])
+        try await saveWeightToHealthKit(
+            entry,
+            type: bodyMassType,
+            externalUUID: "\(dailyMacrosWeightPrefix)\(entry.id)"
+        )
+        return HealthKitMetricSyncResult(importedCount: 0, exportedCount: 1, skippedCount: 0)
+    }
+
+    func syncRecentSleep(
+        api: APIClient,
+        access: IntegrationDirectionSelection
+    ) async throws -> HealthKitMetricSyncResult {
+        guard access.readEnabled || access.writeEnabled else { return .empty }
         guard HKHealthStore.isHealthDataAvailable() else {
             throw HealthKitWellnessSyncError.unavailable
         }
@@ -134,90 +177,115 @@ final class HealthKitWellnessSync: ObservableObject {
             throw HealthKitWellnessSyncError.missingType("sleep")
         }
 
-        try await requestAuthorization(share: [sleepType], read: [sleepType])
+        try await requestAuthorization(
+            share: access.writeEnabled ? [sleepType] : [],
+            read: access.readEnabled ? [sleepType] : []
+        )
 
         let cutoff = syncCutoffDate()
-        let healthSamples = try await fetchCategorySamples(type: sleepType, since: cutoff)
-        let sessions = sleepSessions(from: healthSamples.filter { shouldImport($0, dailyMacrosPrefix: dailyMacrosSleepPrefix) })
-        let existingResponse = try await api.getSleepEntries(scope: "month", limit: 500, offset: 0)
-        var existingHealthKitEntries = existingResponse.entries.filter {
-            $0.source?.lowercased() == "healthkit"
-        }
+        let healthSamples = access.readEnabled
+            ? try await fetchCategorySamples(type: sleepType, since: cutoff)
+            : []
         var importedCount = 0
         var skippedCount = 0
 
-        for session in sessions {
-            let existingIndex = existingHealthKitEntries.firstIndex {
-                isSameSleepSession($0, as: session)
-            }
-            if let existingIndex,
-               sleepEntry(existingHealthKitEntries[existingIndex], matches: session) {
-                skippedCount += 1
-                continue
+        if access.readEnabled {
+            let sessions = sleepSessions(from: healthSamples.filter {
+                shouldImport($0, dailyMacrosPrefix: dailyMacrosSleepPrefix)
+            })
+            let existingResponse = try await api.getSleepEntries(scope: "month", limit: 500, offset: 0)
+            var existingHealthKitEntries = existingResponse.entries.filter {
+                $0.source?.lowercased() == "healthkit"
             }
 
-            let response = try await api.addSleepEntry(
-                durationHours: session.durationHours,
-                wakeUps: session.wakeUps,
-                loggedAt: isoFormatter.string(from: session.start),
-                source: "healthkit",
-                externalId: session.externalId
-            )
+            for session in sessions {
+                let existingIndex = existingHealthKitEntries.firstIndex {
+                    isSameSleepSession($0, as: session)
+                }
+                if let existingIndex,
+                   sleepEntry(existingHealthKitEntries[existingIndex], matches: session) {
+                    skippedCount += 1
+                    continue
+                }
 
-            let syncedEntry = SleepEntry(
-                id: response.id ?? existingIndex.map { existingHealthKitEntries[$0].id } ?? -1,
-                durationHours: session.durationHours,
-                wakeUps: session.wakeUps,
-                quality: existingIndex.flatMap { existingHealthKitEntries[$0].quality },
-                notes: existingIndex.flatMap { existingHealthKitEntries[$0].notes },
-                loggedAt: isoFormatter.string(from: session.start),
-                source: "healthkit",
-                externalId: session.externalId
-            )
-            if let existingIndex {
-                existingHealthKitEntries[existingIndex] = syncedEntry
-            } else {
-                existingHealthKitEntries.append(syncedEntry)
-            }
-            if response.created != false {
-                importedCount += 1
-            } else {
-                skippedCount += 1
+                let response = try await api.addSleepEntry(
+                    durationHours: session.durationHours,
+                    wakeUps: session.wakeUps,
+                    loggedAt: isoFormatter.string(from: session.start),
+                    source: "healthkit",
+                    externalId: session.externalId
+                )
+
+                let syncedEntry = SleepEntry(
+                    id: response.id ?? existingIndex.map { existingHealthKitEntries[$0].id } ?? -1,
+                    durationHours: session.durationHours,
+                    wakeUps: session.wakeUps,
+                    quality: existingIndex.flatMap { existingHealthKitEntries[$0].quality },
+                    notes: existingIndex.flatMap { existingHealthKitEntries[$0].notes },
+                    loggedAt: isoFormatter.string(from: session.start),
+                    source: "healthkit",
+                    externalId: session.externalId
+                )
+                if let existingIndex {
+                    existingHealthKitEntries[existingIndex] = syncedEntry
+                } else {
+                    existingHealthKitEntries.append(syncedEntry)
+                }
+                if response.created != false {
+                    importedCount += 1
+                } else {
+                    skippedCount += 1
+                }
             }
         }
 
-        let refreshedResponse = try await api.getSleepEntries(scope: "month", limit: 500, offset: 0)
-        var dailyMacrosExternalIds = dailyMacrosExternalUUIDs(from: healthSamples, prefix: dailyMacrosSleepPrefix)
         var exportedCount = 0
+        if access.readEnabled && access.writeEnabled {
+            let refreshedResponse = try await api.getSleepEntries(scope: "month", limit: 500, offset: 0)
+            var dailyMacrosExternalIds = dailyMacrosExternalUUIDs(from: healthSamples, prefix: dailyMacrosSleepPrefix)
 
-        for entry in refreshedResponse.entries {
-            guard shouldExport(source: entry.source, loggedAt: entry.loggedAt, cutoff: cutoff),
-                  let start = parseDate(entry.loggedAt) else { continue }
+            for entry in refreshedResponse.entries {
+                guard shouldExport(source: entry.source, loggedAt: entry.loggedAt, cutoff: cutoff) else { continue }
+                let externalUUID = "\(dailyMacrosSleepPrefix)\(entry.id)"
+                if dailyMacrosExternalIds.contains(externalUUID) {
+                    skippedCount += 1
+                    continue
+                }
 
-            let externalUUID = "\(dailyMacrosSleepPrefix)\(entry.id)"
-            if dailyMacrosExternalIds.contains(externalUUID) {
-                skippedCount += 1
-                continue
+                try await saveSleepToHealthKit(entry, type: sleepType, externalUUID: externalUUID)
+                dailyMacrosExternalIds.insert(externalUUID)
+                exportedCount += 1
             }
-
-            let end = start.addingTimeInterval(max(entry.durationHours * 3600, 60))
-            let metadata = dailyMacrosMetadata(externalUUID: externalUUID, entryId: entry.id)
-            let sample = HKCategorySample(
-                type: sleepType,
-                value: HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
-                start: start,
-                end: end,
-                metadata: metadata
-            )
-            try await saveSample(sample)
-            dailyMacrosExternalIds.insert(externalUUID)
-            exportedCount += 1
         }
 
         return HealthKitMetricSyncResult(importedCount: importedCount, exportedCount: exportedCount, skippedCount: skippedCount)
     }
 
-    func syncRecentSexualActivity(api: APIClient) async throws -> HealthKitMetricSyncResult {
+    func exportSleep(
+        _ entry: SleepEntry,
+        access: IntegrationDirectionSelection
+    ) async throws -> HealthKitMetricSyncResult {
+        guard access.writeEnabled else { return .empty }
+        guard HKHealthStore.isHealthDataAvailable() else {
+            throw HealthKitWellnessSyncError.unavailable
+        }
+        guard let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else {
+            throw HealthKitWellnessSyncError.missingType("sleep")
+        }
+        try await requestAuthorization(share: [sleepType], read: [])
+        try await saveSleepToHealthKit(
+            entry,
+            type: sleepType,
+            externalUUID: "\(dailyMacrosSleepPrefix)\(entry.id)"
+        )
+        return HealthKitMetricSyncResult(importedCount: 0, exportedCount: 1, skippedCount: 0)
+    }
+
+    func syncRecentSexualActivity(
+        api: APIClient,
+        access: IntegrationDirectionSelection
+    ) async throws -> HealthKitMetricSyncResult {
+        guard access.readEnabled || access.writeEnabled else { return .empty }
         guard HKHealthStore.isHealthDataAvailable() else {
             throw HealthKitWellnessSyncError.unavailable
         }
@@ -225,77 +293,103 @@ final class HealthKitWellnessSync: ObservableObject {
             throw HealthKitWellnessSyncError.missingType("sexual activity")
         }
 
-        try await requestAuthorization(share: [sexualActivityType], read: [sexualActivityType])
+        try await requestAuthorization(
+            share: access.writeEnabled ? [sexualActivityType] : [],
+            read: access.readEnabled ? [sexualActivityType] : []
+        )
 
         let cutoff = syncCutoffDate()
-        let healthSamples = try await fetchCategorySamples(type: sexualActivityType, since: cutoff)
-        let existingResponse = try await api.getHealthEntries(scope: "month", limit: 500, offset: 0)
-        var existingExternalIds = Set(existingResponse.entries.compactMap { entry in
-            entry.source == "healthkit" ? entry.externalId : nil
-        })
-        var existingSignatures = Set(existingResponse.entries.compactMap(sexualActivitySignature))
+        let healthSamples = access.readEnabled
+            ? try await fetchCategorySamples(type: sexualActivityType, since: cutoff)
+            : []
         var importedCount = 0
         var skippedCount = 0
 
-        for sample in healthSamples {
-            guard shouldImport(sample, dailyMacrosPrefix: dailyMacrosSexualActivityPrefix) else {
-                skippedCount += 1
-                continue
-            }
+        if access.readEnabled {
+            let existingResponse = try await api.getHealthEntries(scope: "month", limit: 500, offset: 0)
+            var existingExternalIds = Set(existingResponse.entries.compactMap { entry in
+                entry.source == "healthkit" ? entry.externalId : nil
+            })
+            var existingSignatures = Set(existingResponse.entries.compactMap(sexualActivitySignature))
 
-            let type = normalizeActivityType(sample.metadata?[dailyMacrosActivityTypeMetadataKey] as? String)
-            let externalId = sample.uuid.uuidString
-            let signature = sexualActivitySignature(start: sample.startDate, type: type)
-            if existingExternalIds.contains(externalId) || existingSignatures.contains(signature) {
-                skippedCount += 1
-                continue
-            }
+            for sample in healthSamples {
+                guard shouldImport(sample, dailyMacrosPrefix: dailyMacrosSexualActivityPrefix) else {
+                    skippedCount += 1
+                    continue
+                }
 
-            let response = try await api.addHealthEntry(
-                type: type,
-                loggedAt: isoFormatter.string(from: sample.startDate),
-                source: "healthkit",
-                externalId: externalId
-            )
+                let type = normalizeActivityType(sample.metadata?[dailyMacrosActivityTypeMetadataKey] as? String)
+                let externalId = sample.uuid.uuidString
+                let signature = sexualActivitySignature(start: sample.startDate, type: type)
+                if existingExternalIds.contains(externalId) || existingSignatures.contains(signature) {
+                    skippedCount += 1
+                    continue
+                }
 
-            existingExternalIds.insert(externalId)
-            existingSignatures.insert(signature)
-            if response.created != false {
-                importedCount += 1
-            } else {
-                skippedCount += 1
+                let response = try await api.addHealthEntry(
+                    type: type,
+                    loggedAt: isoFormatter.string(from: sample.startDate),
+                    source: "healthkit",
+                    externalId: externalId
+                )
+
+                existingExternalIds.insert(externalId)
+                existingSignatures.insert(signature)
+                if response.created != false {
+                    importedCount += 1
+                } else {
+                    skippedCount += 1
+                }
             }
         }
 
-        let refreshedResponse = try await api.getHealthEntries(scope: "month", limit: 500, offset: 0)
-        var dailyMacrosExternalIds = dailyMacrosExternalUUIDs(from: healthSamples, prefix: dailyMacrosSexualActivityPrefix)
         var exportedCount = 0
-
-        for entry in refreshedResponse.entries {
-            guard shouldExport(source: entry.source, loggedAt: entry.loggedAt, cutoff: cutoff),
-                  let start = parseDate(entry.loggedAt) else { continue }
-
-            let externalUUID = "\(dailyMacrosSexualActivityPrefix)\(entry.id)"
-            if dailyMacrosExternalIds.contains(externalUUID) {
-                skippedCount += 1
-                continue
-            }
-
-            var metadata = dailyMacrosMetadata(externalUUID: externalUUID, entryId: entry.id)
-            metadata[dailyMacrosActivityTypeMetadataKey] = normalizeActivityType(entry.type)
-            let sample = HKCategorySample(
-                type: sexualActivityType,
-                value: HKCategoryValue.notApplicable.rawValue,
-                start: start,
-                end: start.addingTimeInterval(60),
-                metadata: metadata
+        if access.readEnabled && access.writeEnabled {
+            let refreshedResponse = try await api.getHealthEntries(scope: "month", limit: 500, offset: 0)
+            var dailyMacrosExternalIds = dailyMacrosExternalUUIDs(
+                from: healthSamples,
+                prefix: dailyMacrosSexualActivityPrefix
             )
-            try await saveSample(sample)
-            dailyMacrosExternalIds.insert(externalUUID)
-            exportedCount += 1
+
+            for entry in refreshedResponse.entries {
+                guard shouldExport(source: entry.source, loggedAt: entry.loggedAt, cutoff: cutoff) else { continue }
+                let externalUUID = "\(dailyMacrosSexualActivityPrefix)\(entry.id)"
+                if dailyMacrosExternalIds.contains(externalUUID) {
+                    skippedCount += 1
+                    continue
+                }
+
+                try await saveSexualActivityToHealthKit(
+                    entry,
+                    type: sexualActivityType,
+                    externalUUID: externalUUID
+                )
+                dailyMacrosExternalIds.insert(externalUUID)
+                exportedCount += 1
+            }
         }
 
         return HealthKitMetricSyncResult(importedCount: importedCount, exportedCount: exportedCount, skippedCount: skippedCount)
+    }
+
+    func exportSexualActivity(
+        _ entry: HealthEntry,
+        access: IntegrationDirectionSelection
+    ) async throws -> HealthKitMetricSyncResult {
+        guard access.writeEnabled else { return .empty }
+        guard HKHealthStore.isHealthDataAvailable() else {
+            throw HealthKitWellnessSyncError.unavailable
+        }
+        guard let sexualActivityType = HKCategoryType.categoryType(forIdentifier: .sexualActivity) else {
+            throw HealthKitWellnessSyncError.missingType("sexual activity")
+        }
+        try await requestAuthorization(share: [sexualActivityType], read: [])
+        try await saveSexualActivityToHealthKit(
+            entry,
+            type: sexualActivityType,
+            externalUUID: "\(dailyMacrosSexualActivityPrefix)\(entry.id)"
+        )
+        return HealthKitMetricSyncResult(importedCount: 0, exportedCount: 1, skippedCount: 0)
     }
 
     private func requestAuthorization(share shareTypes: Set<HKSampleType>, read readTypes: Set<HKObjectType>) async throws {
@@ -347,6 +441,42 @@ final class HealthKitWellnessSync: ObservableObject {
             quantity: HKQuantity(unit: .pound(), doubleValue: entry.weight),
             start: start,
             end: start,
+            metadata: metadata
+        )
+        try await saveSample(sample)
+    }
+
+    private func saveSleepToHealthKit(
+        _ entry: SleepEntry,
+        type: HKCategoryType,
+        externalUUID: String
+    ) async throws {
+        guard let start = parseDate(entry.loggedAt) else { return }
+        let end = start.addingTimeInterval(max(entry.durationHours * 3600, 60))
+        let metadata = dailyMacrosMetadata(externalUUID: externalUUID, entryId: entry.id)
+        let sample = HKCategorySample(
+            type: type,
+            value: HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
+            start: start,
+            end: end,
+            metadata: metadata
+        )
+        try await saveSample(sample)
+    }
+
+    private func saveSexualActivityToHealthKit(
+        _ entry: HealthEntry,
+        type: HKCategoryType,
+        externalUUID: String
+    ) async throws {
+        guard let start = parseDate(entry.loggedAt) else { return }
+        var metadata = dailyMacrosMetadata(externalUUID: externalUUID, entryId: entry.id)
+        metadata[dailyMacrosActivityTypeMetadataKey] = normalizeActivityType(entry.type)
+        let sample = HKCategorySample(
+            type: type,
+            value: HKCategoryValue.notApplicable.rawValue,
+            start: start,
+            end: start.addingTimeInterval(60),
             metadata: metadata
         )
         try await saveSample(sample)

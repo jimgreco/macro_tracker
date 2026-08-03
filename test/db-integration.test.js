@@ -675,6 +675,35 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     });
     assert.equal(diagnostics[0].userAgent, null);
 
+    await db.replaceIntegrationDataPermissions(userId, 'healthkit', [
+      { dataType: 'weight', readEnabled: true, writeEnabled: false },
+      { dataType: 'sleep', readEnabled: false, writeEnabled: false }
+    ]);
+    const integrationPermissions = await db.listIntegrationDataPermissions(userId, 'healthkit');
+    assert.deepEqual(
+      integrationPermissions.map((permission) => ({
+        dataType: permission.dataType,
+        readEnabled: permission.readEnabled,
+        writeEnabled: permission.writeEnabled
+      })),
+      [
+        { dataType: 'sleep', readEnabled: false, writeEnabled: false },
+        { dataType: 'weight', readEnabled: true, writeEnabled: false }
+      ]
+    );
+    assert.equal(
+      await db.isIntegrationDataAccessEnabled(userId, 'healthkit', 'weight', 'read'),
+      true
+    );
+    assert.equal(
+      await db.isIntegrationDataAccessEnabled(userId, 'healthkit', 'sleep', 'read'),
+      false
+    );
+    assert.equal(
+      await db.isIntegrationDataAccessEnabled(userId, 'healthkit', 'workouts', 'read'),
+      false
+    );
+
     const ouraStateHash = crypto.createHash('sha256').update('integration-state').digest('hex');
     await db.createOuraOauthState(
       ouraStateHash,
@@ -744,6 +773,34 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     assert.equal(exported.ouraConnection.oura_user_id.startsWith('oura-'), true);
     assert.equal(Object.hasOwn(exported.ouraConnection, 'access_token_encrypted'), false);
     assert.equal(exported.ouraDocuments[0].normalized_data.score, 88);
+    assert.deepEqual(
+      exported.integrationDataPermissions.map((permission) => ({
+        source: permission.source,
+        dataType: permission.data_type,
+        readEnabled: permission.read_enabled,
+        writeEnabled: permission.write_enabled
+      })),
+      [
+        {
+          source: 'healthkit',
+          dataType: 'sleep',
+          readEnabled: false,
+          writeEnabled: false
+        },
+        {
+          source: 'healthkit',
+          dataType: 'weight',
+          readEnabled: true,
+          writeEnabled: false
+        }
+      ]
+    );
+
+    await db.replaceIntegrationDataPermissions(userId, 'oura', [
+      { dataType: 'sleep', readEnabled: true, writeEnabled: false }
+    ]);
+    await db.deleteOuraConnection(userId, { deleteData: true });
+    assert.deepEqual(await db.listIntegrationDataPermissions(userId, 'oura'), []);
 
     await db.upsertOuraConnection(userId, {
       ouraUserId: `oura-replacement-${crypto.randomUUID()}`,

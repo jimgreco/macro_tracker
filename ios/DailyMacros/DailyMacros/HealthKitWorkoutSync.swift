@@ -6,6 +6,8 @@ struct HealthKitWorkoutSyncResult {
     let importedCount: Int
     let exportedCount: Int
     let skippedCount: Int
+
+    static let empty = HealthKitWorkoutSyncResult(importedCount: 0, exportedCount: 0, skippedCount: 0)
 }
 
 enum HealthKitWorkoutSyncError: LocalizedError {
@@ -50,95 +52,108 @@ final class HealthKitWorkoutSync: ObservableObject {
         return formatter
     }()
 
-    func syncRecentWorkouts(api: APIClient) async throws -> HealthKitWorkoutSyncResult {
+    func syncRecentWorkouts(
+        api: APIClient,
+        access: IntegrationDirectionSelection
+    ) async throws -> HealthKitWorkoutSyncResult {
+        guard access.readEnabled || access.writeEnabled else { return .empty }
         guard HKHealthStore.isHealthDataAvailable() else {
             throw HealthKitWorkoutSyncError.unavailable
         }
 
-        try await requestAuthorization()
+        try await requestAuthorization(access: access)
 
         let cutoff = syncCutoffDate()
-        var healthWorkouts = try await fetchHealthWorkouts(since: cutoff)
-        let existingResponse = try await api.getWorkouts(limit: 500, offset: 0, scope: "month")
-        var existingExternalIds = Set(existingResponse.entries.compactMap { entry in
-            entry.source == "healthkit" ? entry.externalId : nil
-        })
-        var existingSignatures = Set(existingResponse.entries.compactMap(workoutSignature))
-
+        var healthWorkouts = access.readEnabled
+            ? try await fetchHealthWorkouts(since: cutoff)
+            : []
         var importedCount = 0
         var skippedCount = 0
 
-        for healthWorkout in healthWorkouts {
-            guard shouldImport(healthWorkout) else {
-                skippedCount += 1
-                continue
-            }
+        if access.readEnabled {
+            let existingResponse = try await api.getWorkouts(limit: 500, offset: 0, scope: "month")
+            var existingExternalIds = Set(existingResponse.entries.compactMap { entry in
+                entry.source == "healthkit" ? entry.externalId : nil
+            })
+            var existingSignatures = Set(existingResponse.entries.compactMap(workoutSignature))
 
-            let externalId = healthWorkout.uuid.uuidString
-            let durationHours = max(healthWorkout.duration / 3600, 0.01)
-            let signature = workoutSignature(start: healthWorkout.startDate, durationHours: durationHours)
+            for healthWorkout in healthWorkouts {
+                guard shouldImport(healthWorkout) else {
+                    skippedCount += 1
+                    continue
+                }
 
-            if existingExternalIds.contains(externalId) || existingSignatures.contains(signature) {
-                skippedCount += 1
-                continue
-            }
+                let externalId = healthWorkout.uuid.uuidString
+                let durationHours = max(healthWorkout.duration / 3600, 0.01)
+                let signature = workoutSignature(start: healthWorkout.startDate, durationHours: durationHours)
 
-            let response = try await api.addWorkout(
-                description: displayName(for: healthWorkout.workoutActivityType),
-                intensity: intensity(for: healthWorkout.workoutActivityType),
-                durationHours: durationHours,
-                caloriesBurned: activeEnergyCalories(for: healthWorkout),
-                loggedAt: isoFormatter.string(from: healthWorkout.startDate),
-                source: "healthkit",
-                externalId: externalId
-            )
+                if existingExternalIds.contains(externalId) || existingSignatures.contains(signature) {
+                    skippedCount += 1
+                    continue
+                }
 
-            existingExternalIds.insert(externalId)
-            existingSignatures.insert(signature)
-            if response.created != false {
-                importedCount += 1
-            } else {
-                skippedCount += 1
+                let response = try await api.addWorkout(
+                    description: displayName(for: healthWorkout.workoutActivityType),
+                    intensity: intensity(for: healthWorkout.workoutActivityType),
+                    durationHours: durationHours,
+                    caloriesBurned: activeEnergyCalories(for: healthWorkout),
+                    loggedAt: isoFormatter.string(from: healthWorkout.startDate),
+                    source: "healthkit",
+                    externalId: externalId
+                )
+
+                existingExternalIds.insert(externalId)
+                existingSignatures.insert(signature)
+                if response.created != false {
+                    importedCount += 1
+                } else {
+                    skippedCount += 1
+                }
             }
         }
 
-        let refreshedResponse = try await api.getWorkouts(limit: 500, offset: 0, scope: "month")
-        var healthWorkoutSignatures = Set(healthWorkouts.map(healthWorkoutSignature))
         var exportedCount = 0
+        // Deduplicating historical exports requires querying Apple Health, so
+        // write-only access exports only newly created entries via
+        // exportWorkout(_:access:), never a hidden read.
+        if access.readEnabled && access.writeEnabled {
+            let refreshedResponse = try await api.getWorkouts(limit: 500, offset: 0, scope: "month")
+            var healthWorkoutSignatures = Set(healthWorkouts.map(healthWorkoutSignature))
 
-        for workout in refreshedResponse.entries {
-            guard shouldExport(workout, cutoff: cutoff) else { continue }
-            guard let signature = workoutSignature(workout) else {
-                skippedCount += 1
-                continue
-            }
-
-            let externalUUID = dailyMacrosExternalUUID(for: workout)
-            let matchingDailyMacrosWorkouts = dailyMacrosHealthWorkouts(
-                matching: workout,
-                externalUUID: externalUUID,
-                in: healthWorkouts
-            )
-
-            if !matchingDailyMacrosWorkouts.isEmpty {
-                let deletedWorkoutIds = try await deleteDuplicateDailyMacrosWorkouts(matchingDailyMacrosWorkouts)
-                if !deletedWorkoutIds.isEmpty {
-                    healthWorkouts.removeAll { deletedWorkoutIds.contains($0.uuid) }
+            for workout in refreshedResponse.entries {
+                guard shouldExport(workout, cutoff: cutoff) else { continue }
+                guard let signature = workoutSignature(workout) else {
+                    skippedCount += 1
+                    continue
                 }
+
+                let externalUUID = dailyMacrosExternalUUID(for: workout)
+                let matchingDailyMacrosWorkouts = dailyMacrosHealthWorkouts(
+                    matching: workout,
+                    externalUUID: externalUUID,
+                    in: healthWorkouts
+                )
+
+                if !matchingDailyMacrosWorkouts.isEmpty {
+                    let deletedWorkoutIds = try await deleteDuplicateDailyMacrosWorkouts(matchingDailyMacrosWorkouts)
+                    if !deletedWorkoutIds.isEmpty {
+                        healthWorkouts.removeAll { deletedWorkoutIds.contains($0.uuid) }
+                    }
+                    healthWorkoutSignatures.insert(signature)
+                    skippedCount += 1
+                    continue
+                }
+
+                if healthWorkoutSignatures.contains(signature) {
+                    skippedCount += 1
+                    continue
+                }
+
+                let savedWorkout = try await saveWorkoutToHealthKit(workout, externalUUID: externalUUID)
+                healthWorkouts.append(savedWorkout)
                 healthWorkoutSignatures.insert(signature)
-                skippedCount += 1
-                continue
+                exportedCount += 1
             }
-
-            if healthWorkoutSignatures.contains(signature) {
-                skippedCount += 1
-                continue
-            }
-
-            let savedWorkout = try await saveWorkoutToHealthKit(workout, externalUUID: externalUUID)
-            healthWorkouts.append(savedWorkout)
-            healthWorkoutSignatures.insert(signature)
-            exportedCount += 1
         }
 
         return HealthKitWorkoutSyncResult(
@@ -148,14 +163,32 @@ final class HealthKitWorkoutSync: ObservableObject {
         )
     }
 
-    private func requestAuthorization() async throws {
+    func exportWorkout(
+        _ workout: WorkoutEntry,
+        access: IntegrationDirectionSelection
+    ) async throws -> HealthKitWorkoutSyncResult {
+        guard access.writeEnabled else { return .empty }
+        guard HKHealthStore.isHealthDataAvailable() else {
+            throw HealthKitWorkoutSyncError.unavailable
+        }
+        try await requestAuthorization(
+            access: IntegrationDirectionSelection(readEnabled: false, writeEnabled: true)
+        )
+        _ = try await saveWorkoutToHealthKit(
+            workout,
+            externalUUID: dailyMacrosExternalUUID(for: workout)
+        )
+        return HealthKitWorkoutSyncResult(importedCount: 0, exportedCount: 1, skippedCount: 0)
+    }
+
+    private func requestAuthorization(access: IntegrationDirectionSelection) async throws {
         guard let activeEnergyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) else {
             throw HealthKitWorkoutSyncError.missingActiveEnergyType
         }
 
         let workoutType = HKObjectType.workoutType()
-        let shareTypes: Set<HKSampleType> = [workoutType, activeEnergyType]
-        let readTypes: Set<HKObjectType> = [workoutType, activeEnergyType]
+        let shareTypes: Set<HKSampleType> = access.writeEnabled ? [workoutType, activeEnergyType] : []
+        let readTypes: Set<HKObjectType> = access.readEnabled ? [workoutType, activeEnergyType] : []
         try await healthStore.requestAuthorization(toShare: shareTypes, read: readTypes)
     }
 

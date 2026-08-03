@@ -4,6 +4,7 @@ struct WeightView: View {
     @EnvironmentObject var api: APIClient
     @EnvironmentObject private var appNavigation: AppNavigationModel
     @StateObject private var healthKitSync = HealthKitWellnessSync()
+    @ObservedObject private var integrationDataAccess = IntegrationDataAccessStore.shared
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var entries: [WeightEntry] = []
     @State private var target: WeightTarget?
@@ -875,20 +876,35 @@ struct WeightView: View {
         do {
             let f = ISO8601DateFormatter()
             f.timeZone = TimeZone(identifier: "America/New_York")
-            try await api.addWeight(weight, loggedAt: f.string(from: newWeightDate))
+            let loggedAt = f.string(from: newWeightDate)
+            let response = try await api.addWeight(weight, loggedAt: loggedAt)
+            if let id = response.id {
+                triggerHealthKitExport(WeightEntry(
+                    id: id,
+                    weight: weight,
+                    loggedAt: loggedAt,
+                    day: nil,
+                    targetWeight: nil,
+                    targetDate: nil,
+                    source: "manual",
+                    externalId: nil
+                ))
+            }
             newWeight = ""
             newWeightDate = Date()
             showAddSheet = false
-            triggerHealthKitExport()
             await loadEntries(reset: true)
         } catch {
             showErrorUnlessCancelled(error)
         }
     }
 
-    private func triggerHealthKitExport() {
+    private func triggerHealthKitExport(_ entry: WeightEntry) {
+        let access = integrationDataAccess
+            .healthKitAccessPlan(includeSexualActivity: false)
+            .weight
         Task {
-            _ = try? await healthKitSync.syncRecentWeight(api: api)
+            _ = try? await healthKitSync.exportWeight(entry, access: access)
         }
     }
 
@@ -917,11 +933,18 @@ struct WeightView: View {
     }
 
     private func syncWeight() async {
+        let access = integrationDataAccess
+            .healthKitAccessPlan(includeSexualActivity: false)
+            .weight
+        guard access.readEnabled || access.writeEnabled else {
+            errorMessage = "Apple Health weight access is off. You can change it in Settings > Data Sources."
+            return
+        }
         isSyncing = true
         defer { isSyncing = false }
 
         do {
-            let result = try await healthKitSync.syncRecentWeight(api: api)
+            let result = try await healthKitSync.syncRecentWeight(api: api, access: access)
             if result.importedCount > 0 || result.exportedCount > 0 {
                 errorMessage = "Apple Health: imported \(result.importedCount), wrote \(result.exportedCount)."
             } else {

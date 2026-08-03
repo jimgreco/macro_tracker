@@ -40,18 +40,18 @@ DailyMacros does not use third-party advertising SDKs, does not sell personal da
 - Google and Apple: sign-in provider data is used for authentication.
 - Stripe: subscription checkout, customer portal, and webhook state when paid features are enabled.
 - Open Food Facts: barcode lookup sends the barcode needed to retrieve product nutrition.
-- Oura: optional OAuth connection for sleep, readiness, activity, stress, resilience, bedtime-guidance, and optional workout aggregates. Tokens stay on the DailyMacros server, Oura profile details other than the opaque routing id are discarded, and imported aggregates remain until Oura is disconnected or the DailyMacros account is deleted. Oura aggregates may be combined with other app history only for deterministic in-app trends and coaching and are not provided to AI or machine-learning models.
+- Oura: optional OAuth connection for sleep, readiness, activity, stress, resilience, bedtime-guidance, and optional workout aggregates. After OAuth, the user chooses Read access separately for each supported aggregate category; missing choices deny access and no aggregate backfill or provider-document fetch starts before the choice is saved. Oura writes are unsupported. Tokens stay on the DailyMacros server, Oura profile details other than the opaque routing id are discarded, and imported aggregates remain until Oura is disconnected or the DailyMacros account is deleted. Oura aggregates may be combined with other app history only for deterministic in-app trends and coaching and are not provided to AI or machine-learning models.
 
 ## HealthKit Notes
 
-HealthKit permissions are optional and controlled by the user. DailyMacros reads and writes only supported categories used by app features: weight, workouts, sleep, and sexual activity where enabled. Apple's HealthKit guidance says apps using HealthKit must provide a clearly stated privacy policy URL during submission: <https://developer.apple.com/design/human-interface-guidelines/healthkit/>.
+HealthKit permissions are optional and controlled by the user at two layers. DailyMacros first requires an explicit per-data-type choice for Read and Write; a missing choice denies access. It then requests only the corresponding Apple permissions for weight, workouts, sleep, and sexual activity where enabled. Turning a direction off stops future transfers without deleting data already transferred. Apple's HealthKit guidance says apps using HealthKit must provide a clearly stated privacy policy URL during submission: <https://developer.apple.com/design/human-interface-guidelines/healthkit/>.
 
 ## Reviewer Notes
 
 - Account export: web Account & Privacy and iOS Settings.
 - Account deletion: web Account & Privacy and iOS Settings.
 - Optional diagnostics control: web Account & Privacy and iOS Settings. Disabling it stops future optional browser diagnostic uploads without disabling essential security/audit records. Optional diagnostics are retained for 30 days; usage counters for 90 days; audit events for 365 days.
-- Oura connection, manual sync, disconnect, and imported-data deletion: web Account & Privacy and iOS Settings.
+- Data-source Read/Write choices, Oura connection, manual sync, disconnect, and imported-data deletion: web Account & Privacy and iOS Settings.
 - Coach Tony P. controls: web Account & Privacy and iOS Settings support coach mode/category controls and dismissal reset.
 - Support path: contact the inviter with request references and build metadata.
 - Public policy route: `/privacy`.

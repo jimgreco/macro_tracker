@@ -16,11 +16,11 @@ DailyMacros is a private friends and family beta for nutrition, workout, weight,
 
 ## Apple Health
 
-HealthKit permissions are optional. If a user grants access, DailyMacros may read or write supported weight, workout, sleep, and sexual activity data so the app and Apple Health stay in sync. Users can change Health permissions at any time in iOS Settings.
+HealthKit permissions are optional. Before DailyMacros requests HealthKit access, users choose Read and Write separately for each supported data type: weight, workouts, sleep, and sexual activity where enabled. A missing choice defaults to no access. These in-app choices control whether DailyMacros imports from or adds new entries to Apple Health; Apple's system permission remains an additional device-level control. Turning a direction off stops future transfers in that direction and does not delete records already imported or samples already written. Users can change both the in-app choices and Apple's Health permissions at any time.
 
 ## Oura
 
-Connecting Oura is optional and uses Oura's authorization screen. DailyMacros requests daily-data access plus the minimum personal scope needed to obtain Oura's opaque user identifier and route signed webhook updates to the correct account. DailyMacros discards Oura profile fields such as age, height, weight, biological sex, and Oura email.
+Connecting Oura is optional and uses Oura's authorization screen. DailyMacros requests daily-data access plus the minimum personal scope needed to obtain Oura's opaque user identifier and route signed webhook updates to the correct account. After connection, users choose which supported Oura aggregate categories DailyMacros may read. No aggregate backfill, reconciliation, or webhook document fetch begins until those choices are saved, and a missing choice defaults to no access. Oura does not support writes from this integration. DailyMacros discards Oura profile fields such as age, height, weight, biological sex, and Oura email.
 
 Oura access and refresh tokens are encrypted on the DailyMacros server. DailyMacros stores allowlisted aggregate Oura metrics and does not retain raw heart-rate, HRV, movement, sleep-phase, or MET sample arrays. Imported aggregates remain stored until the user chooses Disconnect & Delete or deletes the DailyMacros account. Oura cloud updates are received by signed webhooks after the ring syncs to Oura, with scheduled reconciliation for missed events.
 
@@ -46,7 +46,7 @@ Production data is backed up for operational recovery. Account data remains in t
 
 ## User Controls
 
-Users can turn future optional browser diagnostic uploads on or off from Account & Privacy on the web or Settings on iOS. Turning them off does not disable essential server-side security records, audit events, abuse controls, or request references. Users can export a JSON copy of account data, including safe diagnostic metadata, or permanently delete the account from those same settings. Users can disconnect Oura and delete imported Oura data from either Settings surface, revoke HealthKit access from iOS Settings, and sign out from the app.
+Users can turn future optional browser diagnostic uploads on or off from Account & Privacy on the web or Settings on iOS. Turning them off does not disable essential server-side security records, audit events, abuse controls, or request references. Users can manage per-source, per-data-type Read and Write choices from those settings, and explicit off choices are retained so they are not treated as missing consent. Users can export a JSON copy of account data, including these integration choices and safe diagnostic metadata, or permanently delete the account from those same settings. Users can disconnect Oura and delete imported Oura data from either Settings surface, change or revoke HealthKit access, and sign out from the app.
 
 Users can turn Coach Tony P. off, hide dismissed suggestion patterns, or disable specific Coach Tony P. card categories such as reminders, celebrations, alcohol coaching, and cleanup prompts.
 

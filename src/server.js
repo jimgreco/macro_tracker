@@ -96,6 +96,10 @@ const {
   listCoachDismissals,
   upsertCoachDismissals,
   deleteCoachDismissals,
+  listIntegrationDataPermissions,
+  replaceIntegrationDataPermissions,
+  deleteIntegrationDataPermissions,
+  isIntegrationDataAccessEnabled,
   createOuraOauthState,
   consumeOuraOauthState,
   getOuraConnection,
@@ -147,6 +151,11 @@ const {
   subscriptionMetadataUserId
 } = require('./stripe-webhooks');
 const { buildOuraWebhookReceipt, createOuraService } = require('./oura');
+const {
+  SOURCE_IDS,
+  buildSourceAccess,
+  normalizeAccessSelection
+} = require('./integration-access');
 const packageJson = require('../package.json');
 
 const app = express();
@@ -347,7 +356,9 @@ const ouraService = createOuraService({
     listOuraDocuments,
     upsertOuraWebhookSubscription,
     listOuraWebhookSubscriptions,
-    deleteOuraConnection
+    deleteOuraConnection,
+    listIntegrationDataPermissions,
+    deleteIntegrationDataPermissions
   },
   logger: logJson
 });
@@ -2310,15 +2321,20 @@ app.get('/auth/oura/callback', async (req, res) => {
       scopes: result.grantedScopes
     });
 
-    setImmediate(() => {
-      ouraService.initializeConnection(result.userId).catch((error) => {
-        logJson('error', 'oura_initial_sync_failed', {
-          userId: result.userId,
-          message: safeErrorMessage(error)
+    if (result.shouldInitialize) {
+      setImmediate(() => {
+        ouraService.initializeConnection(result.userId).catch((error) => {
+          logJson('error', 'oura_initial_sync_failed', {
+            userId: result.userId,
+            message: safeErrorMessage(error)
+          });
         });
       });
+    }
+    return redirectAfterOuraAuthorization(res, result.returnTo, {
+      oura: 'connected',
+      ...(result.configurationRequired ? { access: 'required' } : {})
     });
-    return redirectAfterOuraAuthorization(res, result.returnTo, { oura: 'connected' });
   } catch (error) {
     logJson('warn', 'oura_authorization_failed', { message: safeErrorMessage(error) });
     return redirectAfterOuraAuthorization(res, error.returnTo, {
@@ -2881,6 +2897,123 @@ apiRouter.patch('/account/preferences', async (req, res) => {
   }
 });
 
+// ── Provider-neutral integration access ──
+
+function permissionsForSource(permissions, source) {
+  return permissions.filter((permission) => permission.source === source);
+}
+
+async function integrationAccessSources(req) {
+  const userId = userIdFromReq(req);
+  const [permissions, ouraStatus] = await Promise.all([
+    listIntegrationDataPermissions(userId),
+    ouraService.getStatus(userId)
+  ]);
+  const hasWorkoutPlannerIdentity = userHasProvider(req.user, 'google') || userHasProvider(req.user, 'local-dev');
+  const workoutPlannerConfigured = Boolean(String(process.env.INTERNAL_SYNC_SECRET || '').trim());
+  const ouraWorkoutsEnabled = ouraStatus.requestedScopes.includes('workout')
+    && (!ouraStatus.connected || ouraStatus.grantedScopes.includes('workout'));
+
+  return [
+    buildSourceAccess({
+      id: SOURCE_IDS.HEALTHKIT,
+      displayName: 'Apple Health',
+      // Apple Health authorization is device-owned and cannot be observed by
+      // the server. Treat the built-in integration as connected here; Apple's
+      // native authorization remains an additional gate on every iOS operation.
+      connected: true,
+      available: true,
+      permissions: permissionsForSource(permissions, SOURCE_IDS.HEALTHKIT),
+      sexualActivityEnabled: Boolean(req.user?.sexualActivityEnabled)
+    }),
+    buildSourceAccess({
+      id: SOURCE_IDS.OURA,
+      displayName: 'Oura Ring',
+      connected: ouraStatus.connected,
+      available: ouraStatus.configured,
+      unavailableReason: ouraStatus.configured
+        ? undefined
+        : 'Oura is not configured on this server.',
+      permissions: permissionsForSource(permissions, SOURCE_IDS.OURA),
+      ouraWorkoutsEnabled
+    }),
+    buildSourceAccess({
+      id: SOURCE_IDS.WORKOUT_PLANNER,
+      displayName: 'Workout Planner',
+      connected: hasWorkoutPlannerIdentity,
+      available: hasWorkoutPlannerIdentity && workoutPlannerConfigured,
+      unavailableReason: !hasWorkoutPlannerIdentity
+        ? 'Workout Planner requires a linked Google account.'
+        : !workoutPlannerConfigured
+          ? 'Workout Planner sync is not configured on this server.'
+          : undefined,
+      permissions: permissionsForSource(permissions, SOURCE_IDS.WORKOUT_PLANNER)
+    })
+  ];
+}
+
+async function healthKitImportIsDisabled(req, dataType) {
+  if (String(req.body?.source || '').trim().toLowerCase() !== SOURCE_IDS.HEALTHKIT) return false;
+  return !(await isIntegrationDataAccessEnabled(
+    userIdFromReq(req),
+    SOURCE_IDS.HEALTHKIT,
+    dataType,
+    'read'
+  ));
+}
+
+apiRouter.get('/integrations/access', async (req, res) => {
+  try {
+    disableConditionalCaching(req, res);
+    return res.json({ sources: await integrationAccessSources(req) });
+  } catch (error) {
+    return sendError(req, res, 500, 'Unable to load integration access settings.', error);
+  }
+});
+
+apiRouter.put('/integrations/:source/access', async (req, res) => {
+  try {
+    const userId = userIdFromReq(req);
+    const sourceId = String(req.params.source || '').trim().toLowerCase();
+    const sources = await integrationAccessSources(req);
+    const current = sources.find((source) => source.id === sourceId);
+    if (!current) return sendError(req, res, 404, 'Integration source not found.');
+    if (sourceId !== SOURCE_IDS.HEALTHKIT && !current.connected) {
+      return sendError(req, res, 409, 'Connect this integration before choosing data access.');
+    }
+
+    const selections = normalizeAccessSelection(sourceId, req.body, {
+      sexualActivityEnabled: Boolean(req.user?.sexualActivityEnabled),
+      ouraWorkoutsEnabled: current.dataTypes.some((dataType) => dataType.id === 'workouts')
+    });
+    if (!current.available && selections.some((selection) =>
+      selection.readEnabled || selection.writeEnabled
+    )) {
+      return sendError(req, res, 409, current.unavailableReason || 'Integration source is unavailable.');
+    }
+    await replaceIntegrationDataPermissions(userId, sourceId, selections);
+    await logAudit(userId, 'update', 'integration_data_access', sourceId, {
+      dataTypes: selections
+    });
+
+    if (sourceId === SOURCE_IDS.OURA && current.available) {
+      setImmediate(() => {
+        ouraService.initializeConnection(userId).catch((error) => {
+          logJson('error', 'oura_access_sync_failed', {
+            userId,
+            message: safeErrorMessage(error)
+          });
+        });
+      });
+    }
+
+    const updatedSources = await integrationAccessSources(req);
+    return res.json(updatedSources.find((source) => source.id === sourceId));
+  } catch (error) {
+    return sendError(req, res, 400, error.message || 'Unable to save integration access settings.');
+  }
+});
+
 // ── Oura Cloud connection and normalized data ──
 
 apiRouter.get('/oura/status', async (req, res) => {
@@ -2911,7 +3044,8 @@ apiRouter.post('/oura/sync', async (req, res) => {
     await logAudit(userIdFromReq(req), 'sync', 'oura_connection', null, { days });
     return res.json({ ok: true, ...result });
   } catch (error) {
-    return sendError(req, res, 400, error.message || 'Unable to sync Oura data.');
+    const status = error?.code === 'integration_access_required' ? 409 : 400;
+    return sendError(req, res, status, error.message || 'Unable to sync Oura data.');
   }
 });
 
@@ -3193,6 +3327,14 @@ apiRouter.post('/sync-workouts', async (req, res) => {
 
   try {
     const userId = req.user.id;
+    if (!(await isIntegrationDataAccessEnabled(
+      userId,
+      SOURCE_IDS.WORKOUT_PLANNER,
+      'workouts',
+      'read'
+    ))) {
+      return sendError(req, res, 403, 'Enable Workout Planner workout read access before syncing.');
+    }
     const workoutPlannerUserId = userHasProvider(req.user, 'google')
       ? (await getProviderUserId(userId, 'google')) || userId
       : userId;
@@ -3684,6 +3826,9 @@ apiRouter.delete('/weight-target', async (req, res) => {
 
 apiRouter.post('/weights', async (req, res) => {
   try {
+    if (await healthKitImportIsDisabled(req, 'weight')) {
+      return sendError(req, res, 403, 'Enable Apple Health weight read access before importing.');
+    }
     const userId = userIdFromReq(req);
     const result = await addWeightEntry(userId, req.body || {});
     if (result.created !== false) {
@@ -3791,6 +3936,9 @@ apiRouter.get('/workouts', async (req, res) => {
 
 apiRouter.post('/workouts', async (req, res) => {
   try {
+    if (await healthKitImportIsDisabled(req, 'workouts')) {
+      return sendError(req, res, 403, 'Enable Apple Health workout read access before importing.');
+    }
     const userId = userIdFromReq(req);
     const result = await addWorkoutEntry(userId, req.body || {});
     if (result.created !== false) {
@@ -3882,6 +4030,9 @@ apiRouter.get('/sexual-activity', async (req, res) => {
 
 apiRouter.post('/sexual-activity', async (req, res) => {
   try {
+    if (await healthKitImportIsDisabled(req, 'sexual_activity')) {
+      return sendError(req, res, 403, 'Enable Apple Health sexual activity read access before importing.');
+    }
     const userId = userIdFromReq(req);
     const result = await addSexualActivityEntry(userId, req.body || {});
     if (result.created !== false) {
@@ -3946,6 +4097,9 @@ apiRouter.get('/sleep', async (req, res) => {
 
 apiRouter.post('/sleep', async (req, res) => {
   try {
+    if (await healthKitImportIsDisabled(req, 'sleep')) {
+      return sendError(req, res, 403, 'Enable Apple Health sleep read access before importing.');
+    }
     const userId = userIdFromReq(req);
     const result = await addSleepEntry(userId, req.body || {});
     if (result.created !== false) {

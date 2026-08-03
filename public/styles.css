@@ -3472,6 +3472,10 @@ button[disabled] {
   color: #66d9ff;
 }
 
+.account-oura-status[data-state="permissions_required"] {
+  color: #ffd27a;
+}
+
 .account-oura-status[data-state="error"],
 .account-oura-status[data-state="reauthorization_required"] {
   color: #ff9fbb;
@@ -4832,6 +4836,207 @@ button[disabled] {
   color: var(--text);
 }
 
+.combine-modal.integration-access-modal {
+  width: min(94vw, 680px);
+  max-width: 680px;
+}
+
+.account-integration-access-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.account-integration-access-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.58rem 0.62rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.account-integration-access-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.account-integration-access-copy strong {
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.account-integration-access-copy small,
+.account-integration-access-empty {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.account-integration-access-empty {
+  margin: 0;
+}
+
+.integration-access-header {
+  display: grid;
+  gap: 0.28rem;
+  margin-bottom: 1rem;
+}
+
+.integration-access-header h3 {
+  margin: 0;
+}
+
+.integration-access-header h3:focus {
+  outline: none;
+}
+
+.integration-access-header p,
+.integration-access-retention-note,
+.integration-access-notice {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.48;
+  margin: 0;
+}
+
+.integration-access-eyebrow {
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.integration-access-data-types {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.integration-access-data-type {
+  min-width: 0;
+  margin: 0;
+  padding: 0.72rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.integration-access-data-type legend {
+  padding: 0 0.28rem;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.integration-access-data-type-detail {
+  margin: 0 0 0.6rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.42;
+}
+
+.integration-access-directions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.combine-modal label.integration-access-direction {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 58px;
+  margin: 0;
+  padding: 0.58rem 0.62rem;
+  gap: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.combine-modal label.integration-access-direction:hover {
+  border-color: rgba(0, 207, 255, 0.24);
+  background: rgba(0, 207, 255, 0.055);
+}
+
+.combine-modal label.integration-access-direction.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.combine-modal label.integration-access-direction.is-disabled:hover {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.combine-modal label.integration-access-direction input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.integration-access-direction-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.integration-access-direction-copy strong {
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.integration-access-direction-copy small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.integration-access-direction input:focus-visible + .integration-access-direction-copy + .account-setting-check {
+  border-color: rgba(0, 207, 255, 0.78);
+  box-shadow: 0 0 0 3px rgba(0, 207, 255, 0.18);
+}
+
+.integration-access-direction input:checked + .integration-access-direction-copy + .account-setting-check {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(0, 207, 255, 0.28);
+}
+
+.integration-access-direction input:checked + .integration-access-direction-copy + .account-setting-check::after {
+  opacity: 1;
+}
+
+.integration-access-retention-note,
+.integration-access-notice {
+  margin-top: 0.85rem;
+}
+
+.integration-access-notice {
+  padding: 0.62rem 0.7rem;
+  border: 1px solid rgba(255, 210, 122, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 210, 122, 0.06);
+  color: #ffdca0;
+}
+
+.integration-access-actions {
+  margin-top: 1rem;
+}
+
 .action-banner {
   top: 1rem;
   z-index: 120;
@@ -5328,4 +5533,15 @@ button[disabled] {
 
 #profile-avatar:not([src]) {
   opacity: 0;
+}
+
+@media (max-width: 600px) {
+  .integration-access-directions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .account-integration-access-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }

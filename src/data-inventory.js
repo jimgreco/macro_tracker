@@ -255,6 +255,27 @@ const DATA_INVENTORY = Object.freeze([
     }
   },
   {
+    table: 'integration_data_permissions',
+    scope: 'account',
+    userColumn: 'user_id',
+    disclosureGroup: 'health',
+    purpose: 'Per-source choices for importing from and exporting to health data integrations',
+    accountDeletion: true,
+    deleteOrder: 111,
+    export: {
+      key: 'integrationDataPermissions',
+      columns: [
+        'source',
+        'data_type',
+        'read_enabled',
+        'write_enabled',
+        'configured_at',
+        'updated_at'
+      ],
+      orderBy: 'source, data_type'
+    }
+  },
+  {
     table: 'oura_oauth_states',
     scope: 'account',
     userColumn: 'user_id',

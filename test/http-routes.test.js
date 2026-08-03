@@ -54,6 +54,7 @@ const clientMutations = new Map();
 const webSessions = new Map();
 const rateLimits = new Map();
 const dayCompletenessByDay = new Map();
+const integrationPermissions = new Map();
 let analysisSnapshotOverride = null;
 
 function record(name, payload) {
@@ -70,6 +71,10 @@ function latestCall(name) {
 
 function clientMutationKey(userId, clientMutationId) {
   return `${userId}:${clientMutationId}`;
+}
+
+function integrationPermissionKey(userId, source, dataType) {
+  return `${userId}:${source}:${dataType}`;
 }
 
 const fakeUser = {
@@ -369,6 +374,39 @@ const fakeDb = {
   listCoachDismissals: async () => [],
   upsertCoachDismissals: async () => [],
   deleteCoachDismissals: async () => 0,
+  listIntegrationDataPermissions: async (userId, source = null) =>
+    [...integrationPermissions.values()].filter((permission) =>
+      permission.userId === userId && (!source || permission.source === source)
+    ),
+  replaceIntegrationDataPermissions: async (userId, source, permissions) => {
+    for (const [key, permission] of integrationPermissions) {
+      if (permission.userId === userId && permission.source === source) {
+        integrationPermissions.delete(key);
+      }
+    }
+    for (const permission of permissions) {
+      integrationPermissions.set(
+        integrationPermissionKey(userId, source, permission.dataType),
+        { userId, source, ...permission }
+      );
+    }
+    record('replaceIntegrationDataPermissions', { userId, source, permissions });
+    return permissions;
+  },
+  deleteIntegrationDataPermissions: async (userId, source) => {
+    let count = 0;
+    for (const [key, permission] of integrationPermissions) {
+      if (permission.userId === userId && permission.source === source) {
+        integrationPermissions.delete(key);
+        count += 1;
+      }
+    }
+    return count;
+  },
+  isIntegrationDataAccessEnabled: async (userId, source, dataType, direction) => {
+    const permission = integrationPermissions.get(integrationPermissionKey(userId, source, dataType));
+    return direction === 'read' ? permission?.readEnabled === true : permission?.writeEnabled === true;
+  },
   createOuraOauthState: async () => {},
   consumeOuraOauthState: async () => null,
   getOuraConnection: async () => null,
@@ -512,6 +550,137 @@ test('account preferences route persists the optional diagnostics control', rout
   assert.deepEqual(latestCall('updateUserPreferences').payload, {
     optionalDiagnosticsEnabled: false
   });
+});
+
+test('integration access GET distinguishes missing choices from explicit false values', routeTestOptions, async () => {
+  await fakeDb.deleteIntegrationDataPermissions(fakeUser.id, 'healthkit');
+  const missing = await request('/api/integrations/access');
+
+  assert.equal(missing.res.status, 200);
+  const missingHealthKit = missing.body.sources.find((source) => source.id === 'healthkit');
+  assert.equal(missingHealthKit.displayName, 'Apple Health');
+  assert.equal(missingHealthKit.connected, true);
+  assert.equal(missingHealthKit.available, true);
+  assert.equal(missingHealthKit.configurationRequired, true);
+  assert.equal(missingHealthKit.dataTypes.length, 4);
+  assert.equal(Object.hasOwn(missingHealthKit.dataTypes[0], 'selection'), false);
+
+  const selections = missingHealthKit.dataTypes.map((dataType) => ({
+    id: dataType.id,
+    readEnabled: false,
+    writeEnabled: false
+  }));
+  const saved = await request('/api/integrations/healthkit/access', {
+    method: 'PUT',
+    body: JSON.stringify({ dataTypes: selections })
+  });
+
+  assert.equal(saved.res.status, 200);
+  assert.equal(saved.body.id, 'healthkit');
+  assert.equal(saved.body.configurationRequired, false);
+  assert.equal(saved.body.dataTypes.every((dataType) =>
+    dataType.selection?.readEnabled === false && dataType.selection?.writeEnabled === false
+  ), true);
+});
+
+test('integration access PUT rejects unsupported writes and incomplete replacements', routeTestOptions, async () => {
+  const current = await request('/api/integrations/access');
+  const healthKit = current.body.sources.find((source) => source.id === 'healthkit');
+  const complete = healthKit.dataTypes.map((dataType) => ({
+    id: dataType.id,
+    readEnabled: false,
+    writeEnabled: false
+  }));
+  const incomplete = await request('/api/integrations/healthkit/access', {
+    method: 'PUT',
+    body: JSON.stringify({ dataTypes: complete.slice(1) })
+  });
+  const disconnectedOura = await request('/api/integrations/oura/access', {
+    method: 'PUT',
+    body: JSON.stringify({ dataTypes: [] })
+  });
+
+  assert.equal(incomplete.res.status, 400);
+  assert.match(incomplete.body.error, /Missing healthkit data type selections/);
+  assert.equal(disconnectedOura.res.status, 409);
+  assert.match(disconnectedOura.body.error, /connect/i);
+});
+
+test('a connected but unavailable source accepts only a complete all-off selection', routeTestOptions, async () => {
+  const originalSyncSecret = process.env.INTERNAL_SYNC_SECRET;
+  delete process.env.INTERNAL_SYNC_SECRET;
+  await fakeDb.deleteIntegrationDataPermissions(fakeUser.id, 'workout_planner');
+  try {
+    const access = await request('/api/integrations/access');
+    const planner = access.body.sources.find((source) => source.id === 'workout_planner');
+    assert.equal(planner.connected, true);
+    assert.equal(planner.available, false);
+    assert.equal(planner.configurationRequired, true);
+
+    const completed = await request('/api/integrations/workout_planner/access', {
+      method: 'PUT',
+      body: JSON.stringify({
+        dataTypes: [{ id: 'workouts', readEnabled: false, writeEnabled: false }]
+      })
+    });
+    assert.equal(completed.res.status, 200);
+    assert.equal(completed.body.available, false);
+    assert.equal(completed.body.configurationRequired, false);
+    assert.deepEqual(completed.body.dataTypes[0].selection, {
+      readEnabled: false,
+      writeEnabled: false
+    });
+
+    const rejected = await request('/api/integrations/workout_planner/access', {
+      method: 'PUT',
+      body: JSON.stringify({
+        dataTypes: [{ id: 'workouts', readEnabled: true, writeEnabled: false }]
+      })
+    });
+    assert.equal(rejected.res.status, 409);
+    assert.match(rejected.body.error, /not configured|unavailable/i);
+  } finally {
+    if (originalSyncSecret == null) delete process.env.INTERNAL_SYNC_SECRET;
+    else process.env.INTERNAL_SYNC_SECRET = originalSyncSecret;
+  }
+});
+
+test('HealthKit source imports are default-denied and accepted after read access is enabled', routeTestOptions, async () => {
+  await fakeDb.deleteIntegrationDataPermissions(fakeUser.id, 'healthkit');
+  const blocked = await request('/api/weights', {
+    method: 'POST',
+    body: JSON.stringify({
+      weight: 180,
+      loggedAt: '2026-07-31T08:00:00Z',
+      source: 'healthkit',
+      externalId: 'healthkit-weight-1'
+    })
+  });
+  assert.equal(blocked.res.status, 403);
+
+  const access = await request('/api/integrations/access');
+  const healthKit = access.body.sources.find((source) => source.id === 'healthkit');
+  const selections = healthKit.dataTypes.map((dataType) => ({
+    id: dataType.id,
+    readEnabled: dataType.id === 'weight',
+    writeEnabled: false
+  }));
+  await request('/api/integrations/healthkit/access', {
+    method: 'PUT',
+    body: JSON.stringify({ dataTypes: selections })
+  });
+  const allowed = await request('/api/weights', {
+    method: 'POST',
+    body: JSON.stringify({
+      weight: 180,
+      loggedAt: '2026-07-31T08:00:00Z',
+      source: 'healthkit',
+      externalId: 'healthkit-weight-1'
+    })
+  });
+
+  assert.equal(allowed.res.status, 200);
+  assert.equal(allowed.body.created, true);
 });
 
 test('Oura status is explicit when server credentials are not configured', routeTestOptions, async () => {
@@ -738,6 +907,11 @@ test('workout sync does not count a tombstoned external workout as newly synced'
   const originalWorkoutAddResult = workoutAddResult;
   process.env.INTERNAL_SYNC_SECRET = 'route-test-secret';
   process.env.WORKOUT_API_URL = 'http://workout.test';
+  await fakeDb.replaceIntegrationDataPermissions(fakeUser.id, 'workout_planner', [{
+    dataType: 'workouts',
+    readEnabled: true,
+    writeEnabled: false
+  }]);
   workoutAddResult = { id: 42, created: false };
   global.fetch = async (input, options) => {
     if (String(input) === 'http://workout.test/logs') {

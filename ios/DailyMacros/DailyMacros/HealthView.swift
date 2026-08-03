@@ -34,6 +34,7 @@ struct HealthView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject private var appNavigation: AppNavigationModel
     @StateObject private var healthKitSync = HealthKitWellnessSync()
+    @ObservedObject private var integrationDataAccess = IntegrationDataAccessStore.shared
     @StateObject private var coachDismissals = CoachDismissalStore.shared
 
     init(mode: HealthViewMode = .sleep) {
@@ -1468,10 +1469,19 @@ struct HealthView: View {
         do {
             let f = ISO8601DateFormatter()
             f.timeZone = TimeZone(identifier: "America/New_York")
-            try await api.addHealthEntry(type: selectedActivityType, loggedAt: f.string(from: healthLogDate))
+            let loggedAt = f.string(from: healthLogDate)
+            let response = try await api.addHealthEntry(type: selectedActivityType, loggedAt: loggedAt)
+            if let id = response.id {
+                triggerSexualActivityHealthKitExport(HealthEntry(
+                    id: id,
+                    type: selectedActivityType,
+                    loggedAt: loggedAt,
+                    source: "manual",
+                    externalId: nil
+                ))
+            }
             showLogHealth = false
             healthLogDate = Date()
-            triggerSexualActivityHealthKitExport()
             await loadHealth(reset: true)
         } catch {
             showErrorUnlessCancelled(error)
@@ -1496,29 +1506,53 @@ struct HealthView: View {
             let notes = normalizedSleepNotes(from: sleepNotes)
             let f = ISO8601DateFormatter()
             f.timeZone = TimeZone(identifier: "America/New_York")
-            try await api.addSleepEntry(durationHours: hours, wakeUps: wakeUps, quality: quality, notes: notes, loggedAt: f.string(from: sleepLogDate))
+            let loggedAt = f.string(from: sleepLogDate)
+            let response = try await api.addSleepEntry(
+                durationHours: hours,
+                wakeUps: wakeUps,
+                quality: quality,
+                notes: notes,
+                loggedAt: loggedAt
+            )
+            if let id = response.id {
+                triggerSleepHealthKitExport(SleepEntry(
+                    id: id,
+                    durationHours: hours,
+                    wakeUps: wakeUps,
+                    quality: quality,
+                    notes: notes,
+                    loggedAt: loggedAt,
+                    source: "manual",
+                    externalId: nil
+                ))
+            }
             showLogSleep = false
             sleepHours = ""
             sleepWakeUps = "0"
             sleepQuality = "3"
             sleepNotes = ""
             sleepLogDate = Date()
-            triggerSleepHealthKitExport()
             await loadSleep(reset: true)
         } catch {
             showErrorUnlessCancelled(error)
         }
     }
 
-    private func triggerSleepHealthKitExport() {
+    private func triggerSleepHealthKitExport(_ entry: SleepEntry) {
+        let access = integrationDataAccess
+            .healthKitAccessPlan(includeSexualActivity: sexualActivityEnabled)
+            .sleep
         Task {
-            _ = try? await healthKitSync.syncRecentSleep(api: api)
+            _ = try? await healthKitSync.exportSleep(entry, access: access)
         }
     }
 
-    private func triggerSexualActivityHealthKitExport() {
+    private func triggerSexualActivityHealthKitExport(_ entry: HealthEntry) {
+        let access = integrationDataAccess
+            .healthKitAccessPlan(includeSexualActivity: sexualActivityEnabled)
+            .sexualActivity
         Task {
-            _ = try? await healthKitSync.syncRecentSexualActivity(api: api)
+            _ = try? await healthKitSync.exportSexualActivity(entry, access: access)
         }
     }
 
@@ -1629,8 +1663,15 @@ struct HealthView: View {
 
         switch mode {
         case .sleep:
+            let access = integrationDataAccess
+                .healthKitAccessPlan(includeSexualActivity: sexualActivityEnabled)
+                .sleep
+            guard access.readEnabled || access.writeEnabled else {
+                errorMessage = "Apple Health sleep access is off. You can change it in Settings > Data Sources."
+                return
+            }
             do {
-                let sleepResult = try await healthKitSync.syncRecentSleep(api: api)
+                let sleepResult = try await healthKitSync.syncRecentSleep(api: api, access: access)
                 errorMessage = syncMessage(name: "Sleep", result: sleepResult, empty: "no new sleep entries from the last 30 days.")
                 await loadSleep(reset: true)
             } catch {
@@ -1641,8 +1682,18 @@ struct HealthView: View {
                 errorMessage = "Sexual activity tracking is not enabled for this account."
                 return
             }
+            let access = integrationDataAccess
+                .healthKitAccessPlan(includeSexualActivity: true)
+                .sexualActivity
+            guard access.readEnabled || access.writeEnabled else {
+                errorMessage = "Apple Health sexual activity access is off. You can change it in Settings > Data Sources."
+                return
+            }
             do {
-                let activityResult = try await healthKitSync.syncRecentSexualActivity(api: api)
+                let activityResult = try await healthKitSync.syncRecentSexualActivity(
+                    api: api,
+                    access: access
+                )
                 errorMessage = syncMessage(name: "Sexual Activity", result: activityResult, empty: "no new entries from the last 30 days.")
                 await loadHealth(reset: true)
             } catch {

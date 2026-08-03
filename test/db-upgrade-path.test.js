@@ -321,6 +321,11 @@ test('initDb upgrades the supported legacy schema without losing account data', 
         (row) => row.name === '2026-07-29_durable_webhook_inbox'
       )
     );
+    assert.ok(
+      migrationNames.rows.some(
+        (row) => row.name === '2026-07-31_integration_data_access'
+      )
+    );
 
     const requiredTables = await db.getPool().query(
       `SELECT table_name
@@ -330,6 +335,7 @@ test('initDb upgrades the supported legacy schema without losing account data', 
        ORDER BY table_name`,
       [[
         'client_mutations',
+        'integration_data_permissions',
         'nutrition_day_completeness',
         'rate_limit_counters',
         'web_sessions',
@@ -340,6 +346,7 @@ test('initDb upgrades the supported legacy schema without losing account data', 
       requiredTables.rows.map((row) => row.table_name),
       [
         'client_mutations',
+        'integration_data_permissions',
         'nutrition_day_completeness',
         'rate_limit_counters',
         'web_sessions',
