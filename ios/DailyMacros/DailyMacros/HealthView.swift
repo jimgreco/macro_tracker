@@ -72,6 +72,9 @@ struct HealthView: View {
     @State private var sleepOffset = 0
     @State private var hasMoreSleepEntries = true
     @State private var isLoadingSleepPage = false
+    @State private var ouraSleepSummaries: [OuraSleepSummary] = []
+    @State private var isLoadingOuraSleep = false
+    @State private var ouraSleepLastSyncedAt: Date?
 
     // Edit state
     @State private var editingHealth: HealthEntry?
@@ -85,7 +88,7 @@ struct HealthView: View {
     @State private var editSleepDate = Date()
 
     @State private var errorMessage: String?
-    @State private var isSyncingHealthKit = false
+    @State private var isSyncingSources = false
 
     private let activityTypes = ["masturbation", "oral sex", "vaginal sex", "other"]
     private let activityDotPriorityTypes = ["vaginal sex", "oral sex", "other", "masturbation"]
@@ -95,6 +98,28 @@ struct HealthView: View {
 
     private var sexualActivityEnabled: Bool {
         auth.user?.sexualActivityEnabled == true
+    }
+
+    private var ouraSleepSource: IntegrationDataSource? {
+        integrationDataAccess.source(id: "oura")
+    }
+
+    private var isOuraSleepConnected: Bool {
+        guard let source = ouraSleepSource else { return false }
+        return source.connected && source.available
+    }
+
+    private var isOuraSleepReadEnabled: Bool {
+        guard let source = ouraSleepSource,
+              source.connected,
+              source.available,
+              !source.needsAccessConfiguration,
+              let sleep = source.dataTypes.first(where: { $0.id == "sleep" }),
+              sleep.read.supported,
+              sleep.selection?.readEnabled == true else {
+            return false
+        }
+        return true
     }
 
     private var modeAccent: Color {
@@ -120,15 +145,16 @@ struct HealthView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
-                        Task { await syncHealthKit() }
+                        Task { await syncVisibleSources() }
                     } label: {
-                        if isSyncingHealthKit {
+                        if isSyncingSources {
                             ProgressView()
                         } else {
                             Image(systemName: "arrow.triangle.2.circlepath")
                         }
                     }
-                    .disabled(isSyncingHealthKit || (mode == .sexualActivity && !sexualActivityEnabled))
+                    .accessibilityLabel(mode == .sleep ? "Sync sleep sources" : "Sync sexual activity")
+                    .disabled(isSyncingSources || (mode == .sexualActivity && !sexualActivityEnabled))
 
                     Button {
                         showLogSheetForMode()
@@ -528,10 +554,14 @@ struct HealthView: View {
             }
             .pickerStyle(.segmented)
             .onChange(of: sleepScope) { _, _ in
-                Task { await loadSleep(reset: true) }
+                Task { await loadSleepSurface() }
             }
 
             sleepChart
+
+            if isOuraSleepConnected {
+                ouraSleepSection
+            }
 
             sleepEntriesList
         }
@@ -873,6 +903,131 @@ struct HealthView: View {
             parts.append("Notes: \(notes)")
         }
         return parts
+    }
+
+    private var ouraSleepSection: some View {
+        VStack(spacing: 8) {
+            AppSectionHeader(
+                "Oura Sleep",
+                subtitle: ouraSleepSummaries.isEmpty
+                    ? "Read-only ring sessions"
+                    : "\(ouraSleepSummaries.count) recent session\(ouraSleepSummaries.count == 1 ? "" : "s")",
+                systemImage: "circle.circle.fill",
+                tint: AppVisualSystem.ColorToken.recovery
+            )
+
+            if isLoadingOuraSleep && ouraSleepSummaries.isEmpty {
+                ProgressView("Loading Oura sleep...")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            } else if ouraSleepSummaries.isEmpty {
+                ContentUnavailableView(
+                    "No Oura Sleep Yet",
+                    systemImage: "circle.dashed",
+                    description: Text(
+                        isOuraSleepReadEnabled
+                            ? "Sync your ring to Oura, then tap the sync button here."
+                            : "Enable Oura Sleep Read in Settings > Data Sources."
+                    )
+                )
+            } else {
+                ForEach(ouraSleepSummaries) { summary in
+                    ouraSleepCard(summary)
+                }
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "lock.shield.fill")
+                    .accessibilityHidden(true)
+                Text(ouraSleepFooter)
+            }
+            .font(.caption)
+            .foregroundStyle(AppVisualSystem.ColorToken.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private func ouraSleepCard(_ summary: OuraSleepSummary) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "circle.circle.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(AppVisualSystem.ColorToken.recovery)
+                .frame(width: 40, height: 40)
+                .background(
+                    AppVisualSystem.ColorToken.recovery.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 10)
+                )
+                .accessibilityLabel("Oura")
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(String(format: "%.1f hours", summary.durationHours))
+                        .font(.subheadline.bold())
+                    Text("OURA")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(AppVisualSystem.ColorToken.recovery)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(
+                            AppVisualSystem.ColorToken.recovery.opacity(0.12),
+                            in: Capsule()
+                        )
+                }
+
+                let details = ouraSleepDetailLines(summary)
+                if !details.isEmpty {
+                    Text(details.joined(separator: " · "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(formatDateOnly(summary.startedAt))
+                    .font(.subheadline.bold())
+                Text(formatTime(summary.startedAt))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        }
+        .appSurface(.tinted(AppVisualSystem.ColorToken.recovery), cornerRadius: 16)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(ouraSleepAccessibilityLabel(summary))
+    }
+
+    private func ouraSleepDetailLines(_ summary: OuraSleepSummary) -> [String] {
+        var details: [String] = []
+        if let score = summary.score {
+            details.append("Score \(score)")
+        }
+        if let deepSleepHours = summary.deepSleepHours {
+            details.append(String(format: "Deep %.1fh", deepSleepHours))
+        }
+        if let remSleepHours = summary.remSleepHours {
+            details.append(String(format: "REM %.1fh", remSleepHours))
+        }
+        if let type = summary.type,
+           type.lowercased().contains("nap") {
+            details.append("Nap")
+        }
+        return details
+    }
+
+    private func ouraSleepAccessibilityLabel(_ summary: OuraSleepSummary) -> String {
+        let details = ouraSleepDetailLines(summary).joined(separator: ", ")
+        let detailSuffix = details.isEmpty ? "" : ", \(details)"
+        return "Oura sleep, \(String(format: "%.1f", summary.durationHours)) hours\(detailSuffix), \(formatDateOnly(summary.startedAt))"
+    }
+
+    private var ouraSleepFooter: String {
+        let prefix = "Read-only Oura records stay separate from AI coaching."
+        guard let ouraSleepLastSyncedAt else { return prefix }
+        return "\(prefix) Updated \(formatDate(ouraSleepLastSyncedAt))."
     }
 
     // MARK: - Log Health Sheet
@@ -1349,7 +1504,7 @@ struct HealthView: View {
 
         switch mode {
         case .sleep:
-            await loadSleep(reset: true)
+            await loadSleepSurface()
         case .sexualActivity:
             if sexualActivityEnabled {
                 await loadHealth(reset: true)
@@ -1358,6 +1513,11 @@ struct HealthView: View {
                 dailyTypes = []
             }
         }
+    }
+
+    private func loadSleepSurface() async {
+        await loadSleep(reset: true)
+        await loadOuraSleep()
     }
 
     private func loadHealth(reset: Bool = true) async {
@@ -1415,6 +1575,58 @@ struct HealthView: View {
         }
         await loadSleepTarget()
         await rebuildSleepCoachSuggestions()
+    }
+
+    private func loadOuraSleep() async {
+        guard isOuraSleepConnected else {
+            ouraSleepSummaries = []
+            ouraSleepLastSyncedAt = nil
+            return
+        }
+        guard !isLoadingOuraSleep else { return }
+        isLoadingOuraSleep = true
+        defer { isLoadingOuraSleep = false }
+
+        let endDate = isoDayString(Date())
+        let startDate = isoDayString(
+            healthCalendar.date(
+                byAdding: .day,
+                value: -(ouraSleepScopeDays - 1),
+                to: Date()
+            ) ?? Date()
+        )
+
+        do {
+            let sessions = try await api.getOuraDocuments(
+                dataType: "sleep",
+                startDate: startDate,
+                endDate: endDate,
+                limit: 500
+            )
+            let dailyScores = try await api.getOuraDocuments(
+                dataType: "daily_sleep",
+                startDate: startDate,
+                endDate: endDate,
+                limit: 500
+            )
+            let summaries = OuraSleepSummaryBuilder.build(
+                sleepDocuments: sessions.documents,
+                dailySleepDocuments: dailyScores.documents
+            )
+            guard !Task.isCancelled else { return }
+            ouraSleepSummaries = summaries
+            ouraSleepLastSyncedAt = summaries.compactMap(\.syncedAt).max()
+        } catch {
+            showErrorUnlessCancelled(error)
+        }
+    }
+
+    private var ouraSleepScopeDays: Int {
+        switch sleepScope {
+        case "year": return 365
+        case "month": return 30
+        default: return 7
+        }
     }
 
     private func rebuildSleepCoachSuggestions() async {
@@ -1657,48 +1869,92 @@ struct HealthView: View {
         }
     }
 
-    private func syncHealthKit() async {
-        isSyncingHealthKit = true
-        defer { isSyncingHealthKit = false }
+    private func syncVisibleSources() async {
+        isSyncingSources = true
+        defer { isSyncingSources = false }
 
         switch mode {
         case .sleep:
-            let access = integrationDataAccess
-                .healthKitAccessPlan(includeSexualActivity: sexualActivityEnabled)
-                .sleep
-            guard access.readEnabled || access.writeEnabled else {
-                errorMessage = "Apple Health sleep access is off. You can change it in Settings > Data Sources."
-                return
-            }
-            do {
-                let sleepResult = try await healthKitSync.syncRecentSleep(api: api, access: access)
-                errorMessage = syncMessage(name: "Sleep", result: sleepResult, empty: "no new sleep entries from the last 30 days.")
-                await loadSleep(reset: true)
-            } catch {
-                errorMessage = "Sleep: \(error.localizedDescription)"
-            }
+            await syncSleepSources()
         case .sexualActivity:
-            guard sexualActivityEnabled else {
-                errorMessage = "Sexual activity tracking is not enabled for this account."
-                return
-            }
-            let access = integrationDataAccess
-                .healthKitAccessPlan(includeSexualActivity: true)
-                .sexualActivity
-            guard access.readEnabled || access.writeEnabled else {
-                errorMessage = "Apple Health sexual activity access is off. You can change it in Settings > Data Sources."
-                return
-            }
+            await syncSexualActivitySource()
+        }
+    }
+
+    private func syncSleepSources() async {
+        let healthKitAccess = integrationDataAccess
+            .healthKitAccessPlan(includeSexualActivity: sexualActivityEnabled)
+            .sleep
+        let syncsHealthKit = healthKitAccess.readEnabled || healthKitAccess.writeEnabled
+        let syncsOura = isOuraSleepReadEnabled
+
+        guard syncsHealthKit || syncsOura else {
+            errorMessage = "Sleep sync is off. Enable Read for Apple Health or Oura in Settings > Data Sources."
+            return
+        }
+
+        var messages: [String] = []
+        if syncsHealthKit {
             do {
-                let activityResult = try await healthKitSync.syncRecentSexualActivity(
+                let result = try await healthKitSync.syncRecentSleep(
                     api: api,
-                    access: access
+                    access: healthKitAccess
                 )
-                errorMessage = syncMessage(name: "Sexual Activity", result: activityResult, empty: "no new entries from the last 30 days.")
-                await loadHealth(reset: true)
+                messages.append(
+                    syncMessage(
+                        name: "Apple Health",
+                        result: result,
+                        empty: "no new sleep entries from the last 30 days."
+                    )
+                )
             } catch {
-                errorMessage = "Sexual Activity: \(error.localizedDescription)"
+                messages.append("Apple Health: \(error.localizedDescription)")
             }
+        }
+
+        if syncsOura {
+            do {
+                let result = try await api.syncOura(days: 30)
+                let sessions = result.counts["sleep"] ?? 0
+                let scoreDays = result.counts["daily_sleep"] ?? 0
+                messages.append(
+                    "Oura: refreshed \(sessions) sleep session\(sessions == 1 ? "" : "s") and \(scoreDays) daily score\(scoreDays == 1 ? "" : "s")."
+                )
+                Diagnostics.shared.record(category: "oura", message: "Synced Oura sleep data")
+            } catch {
+                messages.append("Oura: \(error.localizedDescription)")
+            }
+        }
+
+        await loadSleepSurface()
+        errorMessage = messages.joined(separator: "\n")
+    }
+
+    private func syncSexualActivitySource() async {
+        guard sexualActivityEnabled else {
+            errorMessage = "Sexual activity tracking is not enabled for this account."
+            return
+        }
+        let access = integrationDataAccess
+            .healthKitAccessPlan(includeSexualActivity: true)
+            .sexualActivity
+        guard access.readEnabled || access.writeEnabled else {
+            errorMessage = "Apple Health sexual activity access is off. You can change it in Settings > Data Sources."
+            return
+        }
+        do {
+            let activityResult = try await healthKitSync.syncRecentSexualActivity(
+                api: api,
+                access: access
+            )
+            errorMessage = syncMessage(
+                name: "Sexual Activity",
+                result: activityResult,
+                empty: "no new entries from the last 30 days."
+            )
+            await loadHealth(reset: true)
+        } catch {
+            errorMessage = "Sexual Activity: \(error.localizedDescription)"
         }
     }
 
@@ -1862,6 +2118,26 @@ struct HealthView: View {
             return f.string(from: date)
         }
         return String(iso.prefix(10))
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
+    private func formatDateOnly(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
+    }
+
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 
     private func formatTime(_ iso: String) -> String {

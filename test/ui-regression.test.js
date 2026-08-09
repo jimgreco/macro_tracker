@@ -1085,6 +1085,27 @@ test('iOS sleep and sexual activity use tab titles with grouped toolbar add acti
   assert.equal(sleepSection.includes('showLogSleep = true'), false);
 });
 
+test('iOS sleep sync includes enabled Oura data without feeding Oura records to Coach narration', () => {
+  const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
+  const models = read('ios/DailyMacros/DailyMacros/Models.swift');
+  const syncSources = health.slice(
+    health.indexOf('private func syncSleepSources()'),
+    health.indexOf('private func syncSexualActivitySource()')
+  );
+  const coachInput = health.slice(
+    health.indexOf('private func rebuildSleepCoachSuggestions()'),
+    health.indexOf('private func appendUniqueHealthEntries')
+  );
+
+  assert.equal(health.includes('Task { await syncVisibleSources() }'), true);
+  assert.equal(syncSources.includes('let syncsOura = isOuraSleepReadEnabled'), true);
+  assert.equal(syncSources.includes('try await api.syncOura(days: 30)'), true);
+  assert.equal(health.includes('private var ouraSleepSection'), true);
+  assert.equal(health.includes('OuraSleepSummaryBuilder.build('), true);
+  assert.equal(models.includes('struct OuraSleepSummary'), true);
+  assert.equal(coachInput.includes('ouraSleepSummaries'), false);
+});
+
 test('iOS sleep chart omits axis title labels and centers summary legend', () => {
   const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
   const sleepChart = health.slice(

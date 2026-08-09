@@ -501,6 +501,96 @@ struct OuraDocumentsResponse: Codable, Sendable {
     let documents: [OuraDocument]
 }
 
+struct OuraSleepSummary: Identifiable, Equatable, Sendable {
+    let id: String
+    let day: String?
+    let startedAt: Date
+    let endedAt: Date?
+    let durationHours: Double
+    let score: Int?
+    let deepSleepHours: Double?
+    let remSleepHours: Double?
+    let type: String?
+    let syncedAt: Date?
+}
+
+enum OuraSleepSummaryBuilder {
+    static func build(
+        sleepDocuments: [OuraDocument],
+        dailySleepDocuments: [OuraDocument]
+    ) -> [OuraSleepSummary] {
+        let scoresByDay = dailySleepDocuments.reduce(into: [String: Int]()) { scores, document in
+            guard document.dataType == "daily_sleep",
+                  let day = document.day,
+                  let score = number(document.data["score"]),
+                  (0...100).contains(score) else { return }
+            scores[day] = Int(score.rounded())
+        }
+
+        return sleepDocuments.compactMap { document in
+            guard document.dataType == "sleep",
+                  let startedAtString = string(document.data["bedtimeStart"]),
+                  let startedAt = parseTimestamp(startedAtString) else {
+                return nil
+            }
+
+            let endedAt = string(document.data["bedtimeEnd"]).flatMap(parseTimestamp)
+            let reportedSeconds = number(document.data["totalSleepSeconds"])
+            let calculatedSeconds = endedAt.map { $0.timeIntervalSince(startedAt) }
+            guard let durationSeconds = reportedSeconds ?? calculatedSeconds,
+                  durationSeconds > 0,
+                  durationSeconds <= 24 * 60 * 60 else {
+                return nil
+            }
+
+            return OuraSleepSummary(
+                id: document.providerDocumentId,
+                day: document.day,
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationHours: durationSeconds / 3600,
+                score: document.day.flatMap { scoresByDay[$0] },
+                deepSleepHours: positiveHours(document.data["deepSleepSeconds"]),
+                remSleepHours: positiveHours(document.data["remSleepSeconds"]),
+                type: string(document.data["type"]),
+                syncedAt: parseTimestamp(document.syncedAt)
+            )
+        }
+        .sorted { $0.startedAt > $1.startedAt }
+    }
+
+    private static func number(_ value: JSONValue?) -> Double? {
+        guard let value,
+              case .number(let number) = value,
+              number.isFinite else { return nil }
+        return number
+    }
+
+    private static func string(_ value: JSONValue?) -> String? {
+        guard let value,
+              case .string(let string) = value else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func positiveHours(_ value: JSONValue?) -> Double? {
+        guard let seconds = number(value), seconds > 0 else { return nil }
+        return seconds / 3600
+    }
+
+    private static func parseTimestamp(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: value) {
+            return date
+        }
+
+        let wholeSeconds = ISO8601DateFormatter()
+        wholeSeconds.formatOptions = [.withInternetDateTime]
+        return wholeSeconds.date(from: value)
+    }
+}
+
 enum JSONValue: Codable, Sendable {
     case string(String)
     case number(Double)
