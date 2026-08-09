@@ -1,6 +1,23 @@
 import SwiftUI
 import AuthenticationServices
 
+enum OuraTimestampFormatting {
+    static func date(from value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) {
+            return date
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
+    }
+
+    static func displayString(for value: String) -> String {
+        guard let date = date(from: value) else { return value }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+}
+
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var auth: AuthManager
@@ -118,6 +135,7 @@ struct SettingsView: View {
                     IntegrationDataAccessView(sourceID: "oura", isRequired: true)
                 }
                 .environmentObject(api)
+                .environmentObject(integrationDataAccess)
             }
             .onChange(of: ouraNeedsDataAccess) { _, needsAccess in
                 if !needsAccess {
@@ -330,19 +348,53 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                ForEach(integrationDataAccess.sources) { source in
-                    NavigationLink {
-                        IntegrationDataAccessView(sourceID: source.id, isRequired: false)
-                    } label: {
-                        IntegrationDataSourceRow(source: source)
+                NavigationLink {
+                    IntegrationDataAccessMatrixView()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "tablecells")
+                            .foregroundStyle(AppVisualSystem.ColorToken.accent)
+                            .frame(width: 28)
+                            .accessibilityHidden(true)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Manage Data Sources")
+                            Text(dataSourceMatrixSummary)
+                                .font(.caption)
+                                .foregroundStyle(
+                                    dataSourcesNeedReview
+                                        ? AppVisualSystem.ColorToken.warning
+                                        : AppVisualSystem.ColorToken.textSecondary
+                                )
+                        }
                     }
                 }
+                .accessibilityHint("Shows data types as rows and data sources as columns")
             }
         } header: {
             Text("Data Sources")
         } footer: {
-            Text("Choose what macrovana may read from or write to each connected source. Provider and device limitations are shown for each data type.")
+            Text("See Read and Write access across every source in one matrix, then open a source to change its choices.")
         }
+    }
+
+    private var dataSourcesNeedReview: Bool {
+        integrationDataAccess.sources.contains {
+            $0.connected && $0.needsAccessConfiguration
+        }
+    }
+
+    private var dataSourceMatrixSummary: String {
+        let sourceCount = integrationDataAccess.sources.count
+        let enabledCount = integrationDataAccess.sources.reduce(0) {
+            $0 + $1.enabledDirectionCount
+        }
+        let sourceLabel = sourceCount == 1 ? "source" : "sources"
+        if dataSourcesNeedReview {
+            return "\(sourceCount) \(sourceLabel) · Review needed"
+        }
+        let enabledLabel = enabledCount == 1 ? "direction" : "directions"
+        return "\(sourceCount) \(sourceLabel) · \(enabledCount) \(enabledLabel) enabled"
     }
 
     private func ouraConnectionLabel(_ status: OuraStatusResponse) -> String {
@@ -368,8 +420,7 @@ struct SettingsView: View {
     }
 
     private func formatOuraTimestamp(_ value: String) -> String {
-        guard let date = ISO8601DateFormatter().date(from: value) else { return value }
-        return date.formatted(date: .abbreviated, time: .shortened)
+        OuraTimestampFormatting.displayString(for: value)
     }
 
     private var preferencesSection: some View {

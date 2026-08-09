@@ -62,51 +62,125 @@ test('Account & Privacy modal has no critical accessibility violations', async (
 }, testInfo) => {
   await page.goto('/');
   await page.locator('#profile-chip').click();
-  await page.locator('#account-info-btn').click();
+  const accountButton = page.locator('#account-info-btn');
+  await accountButton.click();
 
-  const modal = page.locator('.account-privacy-modal');
-  await expect(modal.getByRole('heading', { name: 'Account & Privacy' })).toBeVisible();
+  const modal = page.getByRole('dialog', { name: 'Account & Privacy' });
+  const heading = modal.getByRole('heading', { name: 'Account & Privacy' });
+  await expect(heading).toBeVisible();
+  await expect(heading).toBeFocused();
   const violations = await criticalViolations(page, '.account-privacy-modal');
   await testInfo.attach('axe-account-settings.json', {
     body: JSON.stringify(formatViolations(violations), null, 2),
     contentType: 'application/json'
   });
   expect(formatViolations(violations)).toEqual([]);
+
+  await modal.getByRole('button', { name: 'Close' }).click();
+  await expect(page.locator('#profile-chip')).toBeFocused();
 });
 
-test('Integration Data Access modal has no critical accessibility violations', async ({
+test('Integration Data Access matrix has no critical accessibility violations', async ({
   page
 }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/integrations/access', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        sources: [{
-          id: 'oura',
-          displayName: 'Oura Ring',
-          connected: true,
-          available: true,
-          configurationRequired: true,
-          dataTypes: [{
-            id: 'sleep',
-            displayName: 'Sleep',
-            detail: 'Import Oura sleep sessions and daily sleep scores.',
-            read: { supported: true },
-            write: {
-              supported: false,
-              disabledReason: 'DailyMacros does not write health data to Oura.'
-            }
-          }]
-        }]
+        sources: [
+          {
+            id: 'healthkit',
+            displayName: 'Apple Health',
+            connected: true,
+            available: true,
+            configurationRequired: false,
+            dataTypes: [{
+              id: 'sleep',
+              displayName: 'Sleep',
+              read: { supported: true },
+              write: { supported: true },
+              selection: { readEnabled: true, writeEnabled: false }
+            }]
+          },
+          {
+            id: 'oura',
+            displayName: 'Oura Ring',
+            connected: true,
+            available: true,
+            configurationRequired: false,
+            dataTypes: [{
+              id: 'sleep',
+              displayName: 'Sleep',
+              detail: 'Import Oura sleep sessions and daily sleep scores.',
+              read: { supported: true },
+              write: {
+                supported: false,
+                disabledReason: 'DailyMacros does not write health data to Oura.'
+              },
+              selection: { readEnabled: true, writeEnabled: false }
+            }]
+          },
+          {
+            id: 'workout_planner',
+            displayName: 'Workout Planner',
+            connected: false,
+            available: false,
+            unavailableReason: 'Workout Planner requires a linked Google account.',
+            configurationRequired: false,
+            dataTypes: [{
+              id: 'workouts',
+              displayName: 'Workouts',
+              read: { supported: true },
+              write: { supported: false, disabledReason: 'Write is not supported.' }
+            }]
+          }
+        ]
+      })
+    });
+  });
+  await page.route('**/api/oura/status', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        configured: true,
+        connected: true,
+        state: 'connected',
+        updateMode: 'reconciliation'
       })
     });
   });
 
-  await page.goto('/?oura=connected&access=required');
-  const modal = page.getByRole('dialog', { name: 'Data Access' });
-  await expect(modal).toBeVisible();
-  const violations = await criticalViolations(page, '#integration-access-modal-overlay');
+  await page.goto('/');
+  await page.locator('#profile-chip').click();
+  await page.locator('#account-info-btn').click();
+  const matrix = page.locator('.integration-access-matrix');
+  await expect(matrix).toBeVisible();
+  await expect(matrix.getByRole('columnheader', { name: /Apple Health/ })).toContainText('Manage on iPhone');
+  const matrixScroller = page.locator('.integration-access-matrix-scroll');
+  const geometry = await matrixScroller.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    modalRight: element.closest('.account-privacy-modal')?.getBoundingClientRect().right,
+    viewportWidth: window.innerWidth,
+    rowHeaderPosition: getComputedStyle(
+      element.querySelector('tbody th[scope="row"]')
+    ).position,
+    columnHeaderPosition: getComputedStyle(
+      element.querySelector('thead th[scope="col"]')
+    ).position
+  }));
+  expect(geometry.scrollWidth).toBeGreaterThan(geometry.clientWidth);
+  expect(geometry.modalRight).toBeLessThanOrEqual(geometry.viewportWidth);
+  expect(geometry.rowHeaderPosition).toBe('sticky');
+  expect(geometry.columnHeaderPosition).toBe('sticky');
+  await matrixScroller.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+  });
+  await expect.poll(() => matrixScroller.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+  const violations = await criticalViolations(page, '#account-integration-access-list');
   await testInfo.attach('axe-integration-data-access.json', {
     body: JSON.stringify(formatViolations(violations), null, 2),
     contentType: 'application/json'

@@ -4820,6 +4820,11 @@ button[disabled] {
   box-shadow: var(--shadow);
 }
 
+.combine-modal.account-privacy-modal {
+  width: min(96vw, 980px);
+  max-width: 980px;
+}
+
 .combine-modal h3 {
   color: var(--text);
   font-size: 1.08rem;
@@ -4843,41 +4848,313 @@ button[disabled] {
 
 .account-integration-access-list {
   display: grid;
-  gap: 0.5rem;
+  min-width: 0;
+  gap: 0.7rem;
 }
 
-.account-integration-access-row {
+.integration-access-matrix-intro,
+.account-integration-access-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.integration-access-matrix-scroll {
+  max-width: 100%;
+  max-height: min(52vh, 540px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(4, 8, 14, 0.46);
+  overscroll-behavior-inline: contain;
+}
+
+.integration-access-matrix-scroll:focus-visible {
+  outline: 3px solid rgba(91, 184, 247, 0.36);
+  outline-offset: 2px;
+}
+
+.integration-access-matrix {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--text);
+}
+
+.integration-access-matrix caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.integration-access-matrix th,
+.integration-access-matrix td {
+  min-width: 205px;
+  padding: 0.68rem;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  transition: background 140ms ease, box-shadow 140ms ease;
+}
+
+.integration-access-matrix tr > :last-child {
+  border-right: 0;
+}
+
+.integration-access-matrix tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.integration-access-matrix thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #111c29;
+}
+
+.integration-access-matrix th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 126px;
+  width: 126px;
+  background: #0d1722;
+}
+
+.integration-access-matrix thead th:first-child {
+  z-index: 3;
+  background: #111c29;
+}
+
+.integration-access-matrix tbody th {
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 800;
+  vertical-align: middle;
+}
+
+.integration-access-matrix th.has-unsaved-changes,
+.integration-access-matrix td.has-unsaved-changes {
+  background: rgba(91, 184, 247, 0.075);
+}
+
+.integration-access-matrix thead th.has-unsaved-changes {
+  box-shadow: inset 0 3px 0 var(--accent);
+}
+
+.integration-access-matrix th.needs-explicit-review,
+.integration-access-matrix td.needs-explicit-review {
+  background: rgba(255, 210, 122, 0.055);
+}
+
+.integration-access-matrix thead th.needs-explicit-review {
+  box-shadow: inset 0 3px 0 rgba(255, 210, 122, 0.72);
+}
+
+.integration-access-matrix-source-name {
+  display: block;
+  margin-bottom: 0.28rem;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.integration-access-matrix-source-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  padding: 0.16rem 0.42rem;
+  border: 1px solid rgba(199, 214, 233, 0.16);
+  border-radius: 999px;
+  background: rgba(199, 214, 233, 0.07);
+  color: var(--text-secondary);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.025em;
+}
+
+.integration-access-matrix-source-state[data-state="ready"] {
+  border-color: rgba(69, 214, 181, 0.24);
+  background: rgba(69, 214, 181, 0.08);
+  color: #8cead1;
+}
+
+.integration-access-matrix-source-state[data-state="required"],
+.integration-access-matrix-source-state[data-state="unavailable"] {
+  border-color: rgba(255, 210, 122, 0.24);
+  background: rgba(255, 210, 122, 0.08);
+  color: #ffdca0;
+}
+
+.integration-access-matrix-source-state[data-state="device"] {
+  border-color: rgba(91, 184, 247, 0.25);
+  background: rgba(91, 184, 247, 0.08);
+  color: #a9ddff;
+}
+
+.integration-access-matrix thead small {
+  display: block;
+  max-width: 230px;
+  margin-top: 0.38rem;
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.integration-access-matrix-review-button {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 0.52rem;
+  padding: 0.38rem 0.5rem;
+  border: 1px solid rgba(91, 184, 247, 0.28);
+  border-radius: 10px;
+  background: rgba(91, 184, 247, 0.07);
+  color: #a9ddff;
+  font-size: 0.66rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.integration-access-matrix-review-button:hover,
+.integration-access-matrix-review-button[aria-pressed="true"] {
+  border-color: rgba(91, 184, 247, 0.56);
+  background: rgba(91, 184, 247, 0.15);
+}
+
+.integration-access-matrix-review-button:focus-visible {
+  outline: 3px solid rgba(91, 184, 247, 0.34);
+  outline-offset: 2px;
+}
+
+.integration-access-matrix-directions {
+  display: grid;
+  gap: 0.34rem;
+}
+
+.integration-access-matrix-direction,
+.integration-access-matrix-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0.34rem 0.42rem;
+  gap: 0.5rem;
+  border: 1px solid rgba(199, 214, 233, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.integration-access-matrix-direction {
+  min-height: 32px;
+}
+
+.integration-access-matrix-toggle {
+  min-height: 44px;
+}
+
+.combine-modal label.integration-access-matrix-toggle {
+  display: flex;
+  margin: 0;
+  cursor: pointer;
+}
+
+.combine-modal label.integration-access-matrix-toggle:hover {
+  border-color: rgba(91, 184, 247, 0.28);
+  background: rgba(91, 184, 247, 0.055);
+}
+
+.integration-access-matrix-toggle-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.integration-access-matrix-toggle-copy small {
+  color: var(--text-secondary);
+  font-size: 0.61rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.integration-access-matrix-toggle.is-not-chosen {
+  border-style: dashed;
+  border-color: rgba(255, 210, 122, 0.25);
+}
+
+.integration-access-matrix-toggle.is-not-chosen .integration-access-matrix-toggle-copy small {
+  color: #ffdca0;
+}
+
+.integration-access-matrix-direction strong {
+  color: var(--text-secondary);
+  font-size: 0.65rem;
+}
+
+.integration-access-matrix-direction.is-unsupported,
+.integration-access-matrix-direction.is-unavailable {
+  background: rgba(255, 255, 255, 0.015);
+  color: var(--muted);
+}
+
+.integration-access-matrix-direction.is-unsupported strong,
+.integration-access-matrix-direction.is-unavailable strong {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.integration-access-matrix-direction.is-device-managed strong {
+  color: #a9ddff;
+}
+
+.combine-modal .integration-access-matrix-toggle input[type="checkbox"] {
+  width: 1.08rem;
+  height: 1.08rem;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.combine-modal .integration-access-matrix-toggle input[type="checkbox"]:focus-visible {
+  outline: 3px solid rgba(91, 184, 247, 0.34);
+  outline-offset: 2px;
+}
+
+.integration-access-matrix-not-available {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.integration-access-matrix-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  min-width: 0;
-  padding: 0.58rem 0.62rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  flex-wrap: wrap;
 }
 
-.account-integration-access-copy {
-  display: grid;
-  min-width: 0;
-  gap: 0.12rem;
-}
-
-.account-integration-access-copy strong {
-  color: var(--text);
-  font-size: 0.8rem;
-}
-
-.account-integration-access-copy small,
-.account-integration-access-empty {
+.integration-access-matrix-footer p {
+  flex: 1 1 220px;
+  margin: 0;
   color: var(--muted);
   font-size: 0.7rem;
-  line-height: 1.35;
-}
-
-.account-integration-access-empty {
-  margin: 0;
+  line-height: 1.4;
 }
 
 .integration-access-header {
@@ -5436,6 +5713,11 @@ button[disabled] {
     border-radius: 24px 24px 0 0;
   }
 
+  .combine-modal.account-privacy-modal {
+    width: 100%;
+    max-width: none;
+  }
+
   .site-legal-footer {
     margin: -0.4rem auto 0;
     padding-bottom: 0.7rem;
@@ -5540,8 +5822,17 @@ button[disabled] {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .account-integration-access-row {
-    align-items: stretch;
-    flex-direction: column;
+  .integration-access-matrix th,
+  .integration-access-matrix td {
+    min-width: 160px;
+  }
+
+  .integration-access-matrix th:first-child {
+    min-width: 94px;
+    width: 94px;
+  }
+
+  .integration-access-matrix-footer .table-action-btn {
+    width: 100%;
   }
 }

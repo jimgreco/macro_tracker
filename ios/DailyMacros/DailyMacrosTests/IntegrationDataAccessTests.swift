@@ -2,6 +2,175 @@ import XCTest
 @testable import DailyMacros
 
 final class IntegrationDataAccessTests: XCTestCase {
+    func testMatrixRowsUseFirstSourceOrderAndAlignSharedDataTypeIDs() {
+        let supported = IntegrationDirectionCapability(supported: true, disabledReason: nil)
+        let unsupportedWrite = IntegrationDirectionCapability(
+            supported: false,
+            disabledReason: "Read-only source"
+        )
+        let health = IntegrationDataSource(
+            id: "healthkit",
+            displayName: "Apple Health",
+            connected: true,
+            available: true,
+            unavailableReason: nil,
+            configurationRequired: false,
+            dataTypes: [
+                IntegrationDataType(
+                    id: "workouts",
+                    displayName: "Workouts",
+                    detail: nil,
+                    read: supported,
+                    write: supported,
+                    selection: .denied
+                ),
+                IntegrationDataType(
+                    id: "sleep",
+                    displayName: "Sleep",
+                    detail: nil,
+                    read: supported,
+                    write: supported,
+                    selection: .denied
+                )
+            ]
+        )
+        let oura = IntegrationDataSource(
+            id: "oura",
+            displayName: "Oura Ring",
+            connected: true,
+            available: true,
+            unavailableReason: nil,
+            configurationRequired: false,
+            dataTypes: [
+                IntegrationDataType(
+                    id: "sleep",
+                    displayName: "Sleep",
+                    detail: nil,
+                    read: supported,
+                    write: unsupportedWrite,
+                    selection: .denied
+                ),
+                IntegrationDataType(
+                    id: "readiness",
+                    displayName: "Readiness",
+                    detail: nil,
+                    read: supported,
+                    write: unsupportedWrite,
+                    selection: .denied
+                )
+            ]
+        )
+
+        XCTAssertEqual(
+            integrationDataAccessMatrixRows(for: [health, oura]),
+            [
+                IntegrationDataAccessMatrixRow(id: "workouts", displayName: "Workouts"),
+                IntegrationDataAccessMatrixRow(id: "sleep", displayName: "Sleep"),
+                IntegrationDataAccessMatrixRow(id: "readiness", displayName: "Readiness")
+            ]
+        )
+    }
+
+    func testMatrixDirectionStatesPreserveReviewOffOnAndUnsupported() {
+        let supported = IntegrationDirectionCapability(supported: true, disabledReason: nil)
+        let unsupported = IntegrationDirectionCapability(
+            supported: false,
+            disabledReason: "This source is read-only."
+        )
+        let unreviewed = IntegrationDataType(
+            id: "sleep",
+            displayName: "Sleep",
+            detail: nil,
+            read: supported,
+            write: unsupported,
+            selection: nil
+        )
+        let reviewed = IntegrationDataType(
+            id: "workouts",
+            displayName: "Workouts",
+            detail: nil,
+            read: supported,
+            write: supported,
+            selection: .init(readEnabled: false, writeEnabled: true)
+        )
+        let connectedSource = IntegrationDataSource(
+            id: "connected",
+            displayName: "Connected Source",
+            connected: true,
+            available: true,
+            unavailableReason: nil,
+            configurationRequired: true,
+            dataTypes: [unreviewed, reviewed]
+        )
+        let disconnectedSource = IntegrationDataSource(
+            id: "disconnected",
+            displayName: "Disconnected Source",
+            connected: false,
+            available: true,
+            unavailableReason: nil,
+            configurationRequired: false,
+            dataTypes: [unreviewed]
+        )
+        let unavailableSource = IntegrationDataSource(
+            id: "unavailable",
+            displayName: "Unavailable Source",
+            connected: true,
+            available: false,
+            unavailableReason: "Server setup is incomplete.",
+            configurationRequired: false,
+            dataTypes: [reviewed]
+        )
+
+        XCTAssertEqual(
+            integrationDataAccessMatrixDirectionState(
+                for: unreviewed,
+                direction: .read,
+                source: connectedSource
+            ),
+            .reviewRequired
+        )
+        XCTAssertEqual(
+            integrationDataAccessMatrixDirectionState(
+                for: unreviewed,
+                direction: .write,
+                source: connectedSource
+            ),
+            .unsupported("This source is read-only.")
+        )
+        XCTAssertEqual(
+            integrationDataAccessMatrixDirectionState(
+                for: reviewed,
+                direction: .read,
+                source: connectedSource
+            ),
+            .disabled
+        )
+        XCTAssertEqual(
+            integrationDataAccessMatrixDirectionState(
+                for: reviewed,
+                direction: .write,
+                source: connectedSource
+            ),
+            .enabled
+        )
+        XCTAssertEqual(
+            integrationDataAccessMatrixDirectionState(
+                for: unreviewed,
+                direction: .read,
+                source: disconnectedSource
+            ),
+            .disconnected
+        )
+        XCTAssertEqual(
+            integrationDataAccessMatrixDirectionState(
+                for: reviewed,
+                direction: .write,
+                source: unavailableSource
+            ),
+            .unavailable("Server setup is incomplete.")
+        )
+    }
+
     func testManifestDecodesMissingAndExplicitDeniedSelectionsSeparately() throws {
         let payload = Data(
             """

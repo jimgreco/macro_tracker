@@ -18,6 +18,12 @@ final class DailyMacrosScreenshots: XCTestCase {
         if name.contains("testRapidPrimaryAndHealthTabSwitchingStaysStable") {
             app.launchArguments.append("--tab-stability-testing")
         }
+        if name.contains("testDataSourceMatrixUsesLargeTextOverview") {
+            app.launchArguments += [
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryAccessibilityXXXL"
+            ]
+        }
         app.launch()
 
         XCUIDevice.shared.orientation = .portrait
@@ -60,6 +66,103 @@ final class DailyMacrosScreenshots: XCTestCase {
             selectHealthSection("Sexual Activity")
             XCTAssertEqual(app.state, .runningForeground, "App stopped while switching Health sections")
         }
+    }
+
+    func testDataSourceMatrixShowsTheCrossSourceOverview() throws {
+        openDataSources()
+        XCTAssertTrue(app.staticTexts["Data type"].exists)
+
+        let matrix = app.otherElements["integration-data-access-matrix"]
+        XCTAssertTrue(matrix.exists)
+        let rowScroll = app.scrollViews["integration-data-access-row-scroll"]
+        XCTAssertTrue(rowScroll.exists)
+        let workoutsCell = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Workouts, Apple Health.")
+        ).firstMatch
+        let sleepCell = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Sleep, Apple Health.")
+        ).firstMatch
+        XCTAssertTrue(workoutsCell.exists)
+        XCTAssertTrue(sleepCell.exists)
+
+        let bedtimeCell = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Bedtime, Oura Ring.")
+        ).firstMatch
+        for _ in 0..<3 where !bedtimeCell.exists {
+            rowScroll.swipeUp()
+        }
+        XCTAssertTrue(bedtimeCell.waitForExistence(timeout: 2))
+        let sourceScroll = app.scrollViews["integration-data-access-source-scroll"]
+        XCTAssertTrue(sourceScroll.exists)
+
+        let sourceIDs = [
+            "Apple Health": "healthkit",
+            "Oura Ring": "oura",
+            "Workout Planner": "workout_planner"
+        ]
+        for (sourceName, sourceID) in sourceIDs {
+            let sourceColumn = app.descendants(matching: .any)[
+                "integration-data-access-source-\(sourceID)"
+            ]
+            XCTAssertTrue(sourceColumn.exists, "Missing matrix column for \(sourceName)")
+        }
+
+        let workoutPlanner = app.descendants(matching: .any)[
+            "integration-data-access-source-workout_planner"
+        ]
+        XCTAssertTrue(workoutPlanner.exists)
+        let wasHittable = workoutPlanner.isHittable
+        let initialWorkoutPlannerX = workoutPlanner.frame.minX
+        for _ in 0..<3 where !workoutPlanner.isHittable {
+            sourceScroll.swipeLeft()
+        }
+        if !wasHittable {
+            XCTAssertLessThan(
+                workoutPlanner.frame.minX,
+                initialWorkoutPlannerX,
+                "Horizontal swipe should move later source columns into view"
+            )
+        }
+        XCTAssertTrue(
+            workoutPlanner.isHittable,
+            "Workout Planner should be visible after horizontal swiping"
+        )
+    }
+
+    func testDataSourceMatrixUsesLargeTextOverview() throws {
+        openDataSources()
+
+        XCTAssertTrue(
+            app.otherElements["integration-data-access-accessibility-overview"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertFalse(app.otherElements["integration-data-access-matrix"].exists)
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(
+                NSPredicate(format: "label CONTAINS %@", "Apple Health")
+            ).firstMatch.exists
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(
+                NSPredicate(format: "label CONTAINS %@", "Oura Ring")
+            ).firstMatch.exists
+        )
+    }
+
+    private func openDataSources() {
+        let settingsButton = app.buttons["Open Settings"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
+        settingsButton.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+
+        let manageDataSources = app.staticTexts["Manage Data Sources"]
+        for _ in 0..<6 {
+            if manageDataSources.exists && manageDataSources.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(manageDataSources.waitForExistence(timeout: 5))
+        manageDataSources.tap()
+        XCTAssertTrue(app.navigationBars["Data Sources"].waitForExistence(timeout: 5))
     }
 
     private func selectTab(_ name: String) {

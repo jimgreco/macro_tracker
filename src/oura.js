@@ -412,12 +412,35 @@ function isoDayOffset(daysFromToday) {
 }
 
 function safeErrorMessage(error) {
+  const missingScope = missingOuraScope(error);
+  if (missingScope) {
+    const scopeLabel = missingScope === 'spo2Daily'
+      ? 'SpO₂'
+      : missingScope.replace(/[_-]+/g, ' ').replace(/^./, (character) => character.toUpperCase());
+    return `Reconnect Oura to grant access to ${scopeLabel} data.`;
+  }
   return String(error?.message || error || 'Unknown Oura error').slice(0, 500);
+}
+
+function missingOuraScope(error) {
+  if (!(error instanceof OuraApiError) || error.status !== 403) return null;
+  const providerMessage = [
+    error.payload?.detail,
+    error.payload?.error_description,
+    error.payload?.title,
+    error.message
+  ].filter(Boolean).join(' ');
+  const knownScopes = [
+    'personal', 'daily', 'stress', 'heartrate', 'workout', 'tag', 'session', 'spo2Daily'
+  ];
+  return knownScopes.find((scope) =>
+    new RegExp(`\\b${scope}\\s+scope\\b`, 'i').test(providerMessage)
+  ) || null;
 }
 
 function requiresOuraReauthorization(error) {
   if (!(error instanceof OuraApiError)) return false;
-  if (error.status === 401 || error.status === 403) return true;
+  if (error.status === 401 || missingOuraScope(error)) return true;
   return ['invalid_grant', 'invalid_token'].includes(String(error.payload?.error || ''));
 }
 
@@ -483,7 +506,9 @@ function createOuraService({ db, env = process.env, fetchImpl = globalThis.fetch
   const encryptionKey = parseEncryptionKey(env.OURA_TOKEN_ENCRYPTION_KEY);
   const includeWorkouts = parseBoolean(env.OURA_INCLUDE_WORKOUTS, false);
   const dataTypes = includeWorkouts ? [...BASE_DATA_TYPES, 'workout'] : [...BASE_DATA_TYPES];
-  const requestedScopes = includeWorkouts ? ['personal', 'daily', 'workout'] : ['personal', 'daily'];
+  const requestedScopes = includeWorkouts
+    ? ['personal', 'daily', 'stress', 'workout']
+    : ['personal', 'daily', 'stress'];
   const inFlightSyncs = new Map();
   let backgroundJobs = null;
 

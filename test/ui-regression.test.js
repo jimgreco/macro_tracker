@@ -823,11 +823,16 @@ test('web account menu surfaces privacy support export delete and build info', (
   assert.equal(script.includes('function renderTimezoneOptions(selectedTimezone, browserTimezone)'), true);
   assert.equal(script.includes('id="account-timezone-select"'), true);
   assert.equal(script.includes('account-timezone-input'), false);
+  assert.equal(script.includes('id="${headingId}" tabindex="-1">Account & Privacy</h3>'), true);
+  assert.equal(script.includes('aria-labelledby="${headingId}"'), true);
+  assert.equal(script.includes("window.confirm('Discard unsaved data access changes?')"), true);
+  assert.equal(script.includes('previousFocus.focus()'), true);
+  assert.equal(script.includes("if (event.key !== 'Tab') return;"), true);
   assert.equal(styles.includes('.account-privacy-modal'), true);
   assert.equal(styles.includes('.account-preference-row select'), true);
 });
 
-test('web integration access is provider-neutral, explicit, and available after Oura connection', () => {
+test('web integration access presents an all-source matrix and preserves focused post-connect setup', () => {
   const script = read('public/script.js');
   const styles = read('public/styles.css');
   const accessSection = script.slice(
@@ -840,22 +845,63 @@ test('web integration access is provider-neutral, explicit, and available after 
   );
 
   assert.equal(accessSection.includes("api('/api/integrations/access')"), true);
+  assert.equal(accessSection.includes('let integrationAccessLoadRevision = 0'), true);
+  assert.equal(script.includes('requestRevision: loadRevision'), true);
+  assert.equal(script.includes('loadRevision !== integrationAccessLoadRevision'), true);
+  assert.equal(script.includes('commit: false,\n    requestRevision: loadRevision'), true);
   assert.equal(accessSection.includes("method: 'PUT'"), true);
   assert.equal(accessSection.includes('dataTypes: selections'), true);
-  assert.equal(accessSection.includes("String(source.id).trim().toLowerCase() !== 'healthkit'"), true);
+  assert.equal(accessSection.includes('function integrationAccessMatrixDataTypes'), true);
+  assert.equal(accessSection.includes('class="integration-access-matrix"'), true);
+  assert.equal(accessSection.includes('scope="row"'), true);
+  assert.equal(accessSection.includes('Manage on iPhone'), true);
+  assert.equal(accessSection.includes('function isBrowserManagedIntegrationSource'), true);
+  assert.equal(accessSection.includes("'Not chosen'"), true);
+  assert.equal(accessSection.includes('data-integration-matrix-initial-choice-state'), true);
+  assert.equal(accessSection.includes('data-integration-matrix-choice-state'), true);
+  assert.equal(accessSection.includes('const changedSources = new Set()'), true);
+  assert.equal(accessSection.includes('const valueChangedSources = new Set()'), true);
+  assert.equal(accessSection.includes('const reviewedSources = new Set()'), true);
+  assert.equal(accessSection.includes('data-integration-matrix-review-source'), true);
+  assert.equal(accessSection.includes("'Keep all Off'"), true);
+  assert.equal(accessSection.includes("'Use shown choices'"), true);
+  assert.equal(accessSection.includes('reviewedSources.delete(sourceId)'), true);
+  assert.equal(accessSection.includes('const saveAuthorized = sourceRequiresReview(sourceId) ? reviewed : hasValueChanges'), true);
+  assert.equal(accessSection.includes('function integrationAccessMatrixSelections'), true);
+  assert.equal(accessSection.includes('const refreshSavedSourceColumn'), true);
+  assert.equal(accessSection.includes('const restoreFocus'), true);
+  assert.equal(accessSection.includes('tabindex="-1"'), true);
+  assert.equal(accessSection.includes('data-integration-matrix-initial-enabled'), true);
+  assert.equal(accessSection.includes('input.checked !=='), true);
+  assert.equal(accessSection.includes('for (const sourceId of sourceIds)'), true);
+  assert.equal(accessSection.includes('data-integration-matrix-source'), true);
+  assert.equal(accessSection.includes('Not available'), true);
+  assert.equal(accessSection.includes('Not supported'), true);
+  assert.equal(accessSection.includes('Connect first'), true);
   assert.equal(accessSection.includes('source?.configurationRequired === true'), true);
   assert.equal(accessSection.includes('role="dialog"'), true);
   assert.equal(accessSection.includes('aria-modal="true"'), true);
   assert.equal(accessSection.includes('capability.disabledReason'), true);
   assert.equal(accessSection.includes("?.checked === true"), true);
   assert.equal(script.includes('id="account-integration-access-list"'), true);
-  assert.equal(script.includes('data-manage-integration-access'), true);
+  assert.equal(script.includes('data-manage-integration-access'), false);
+  assert.equal(script.includes('id="account-integration-access-save-btn"'), true);
+  assert.equal(script.includes("dataset.integrationAccessDirty === 'true'"), true);
   assert.equal(script.includes("status.state === 'permissions_required'"), true);
   assert.equal(initSection.includes("callbackParams.get('access') === 'required'"), true);
   assert.equal(initSection.includes('requiredWebIntegrationAccessSource'), true);
   assert.equal(initSection.includes('initial 90-day sync is running'), false);
   assert.equal(styles.includes('.integration-access-modal'), true);
   assert.equal(styles.includes('.integration-access-direction input:checked'), true);
+  assert.equal(styles.includes('.integration-access-matrix-scroll'), true);
+  assert.equal(styles.includes('.integration-access-matrix th:first-child'), true);
+  assert.equal(styles.includes('.integration-access-matrix-toggle input[type="checkbox"]'), true);
+  assert.equal(styles.includes('.integration-access-matrix-toggle {\n  min-height: 44px;'), true);
+  assert.equal(styles.includes('.integration-access-matrix-review-button'), true);
+  assert.equal(styles.includes('max-height: min(52vh, 540px);'), true);
+  assert.equal(styles.includes('label.integration-access-matrix-toggle {\n  display: flex;'), true);
+  assert.equal(styles.includes('min-width: 160px;'), true);
+  assert.equal(styles.includes('min-width: 94px;'), true);
 });
 
 test('iOS settings expose account timezone picker', () => {

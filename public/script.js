@@ -2291,9 +2291,6 @@ function webIntegrationAccessSources(payload) {
     source
     && typeof source === 'object'
     && String(source.id || '').trim()
-    // Apple Health is device-local. The iOS client owns its add/setup prompt;
-    // the web must never infer that HealthKit is connected for this browser.
-    && String(source.id).trim().toLowerCase() !== 'healthkit'
   ));
 }
 
@@ -2307,61 +2304,540 @@ function integrationAccessSource(sourceId) {
 function storeIntegrationAccessSource(source) {
   if (!source?.id || String(source.id).trim().toLowerCase() === 'healthkit') return;
   const normalizedId = String(source.id).trim().toLowerCase();
-  const nextSources = state.integrationAccessSources.filter(
-    (candidate) => String(candidate?.id || '').trim().toLowerCase() !== normalizedId
+  const sourceIndex = state.integrationAccessSources.findIndex(
+    (candidate) => String(candidate?.id || '').trim().toLowerCase() === normalizedId
   );
-  nextSources.push(source);
-  state.integrationAccessSources = nextSources;
+  if (sourceIndex < 0) {
+    state.integrationAccessSources = [...state.integrationAccessSources, source];
+    return;
+  }
+  state.integrationAccessSources = state.integrationAccessSources.map(
+    (candidate, index) => index === sourceIndex ? source : candidate
+  );
+}
+
+function isBrowserManagedIntegrationSource(source) {
+  return String(source?.id || '').trim().toLowerCase() !== 'healthkit'
+    && source?.connected === true
+    && source?.available === true;
+}
+
+function integrationAccessMatrixDataTypes(sources) {
+  const dataTypes = new Map();
+  for (const source of Array.isArray(sources) ? sources : []) {
+    for (const dataType of Array.isArray(source?.dataTypes) ? source.dataTypes : []) {
+      const id = String(dataType?.id || '').trim();
+      if (id && !dataTypes.has(id)) {
+        dataTypes.set(id, {
+          id,
+          displayName: dataType.displayName || id
+        });
+      }
+    }
+  }
+  return [...dataTypes.values()];
+}
+
+function integrationAccessMatrixSourceState(source) {
+  const sourceId = String(source?.id || '').trim().toLowerCase();
+  if (sourceId === 'healthkit') {
+    return {
+      label: 'Manage on iPhone',
+      detail: 'DailyMacros choices and Apple system permission are managed on your iPhone.',
+      state: 'device'
+    };
+  }
+  if (source?.available === false) {
+    return {
+      label: source?.connected === true ? 'Unavailable' : 'Not connected · Unavailable',
+      detail: source.unavailableReason || 'This source is not available right now.',
+      state: 'unavailable'
+    };
+  }
+  if (source?.connected !== true) {
+    return {
+      label: 'Not connected',
+      detail: 'Connect this source before choosing data access.',
+      state: 'disconnected'
+    };
+  }
+  if (source?.configurationRequired === true) {
+    return {
+      label: 'Choices required',
+      detail: 'Review this column, then save your choices. All off is allowed.',
+      state: 'required'
+    };
+  }
+  return {
+    label: 'Access saved',
+    detail: 'Read and write choices are current.',
+    state: 'ready'
+  };
+}
+
+function integrationAccessMatrixDirection(source, dataType, direction) {
+  const directionName = direction === 'read' ? 'Read' : 'Write';
+  const capability = dataType?.[direction] || {};
+  const sourceId = String(source?.id || '').trim().toLowerCase();
+  const sourceName = source?.displayName || source?.id || 'integration';
+  const dataTypeName = dataType?.displayName || dataType?.id || 'data';
+  const enabledKey = direction === 'read' ? 'readEnabled' : 'writeEnabled';
+  const enabled = dataType?.selection?.[enabledKey] === true;
+  const hasSelection = Boolean(dataType?.selection);
+
+  if (capability.supported !== true) {
+    const reason = capability.disabledReason || `${directionName} is not supported.`;
+    return `
+      <span class="integration-access-matrix-direction is-unsupported" title="${escapeAttr(reason)}">
+        <span>${directionName}</span>
+        <strong>Not supported</strong>
+      </span>
+    `;
+  }
+
+  if (sourceId === 'healthkit') {
+    const choice = dataType?.selection ? (enabled ? 'On' : 'Off') : 'Not chosen';
+    return `
+      <span class="integration-access-matrix-direction is-device-managed">
+        <span>${directionName}</span>
+        <strong>${choice}</strong>
+      </span>
+    `;
+  }
+
+  if (source?.available === false) {
+    return `
+      <span class="integration-access-matrix-direction is-unavailable">
+        <span>${directionName}</span>
+        <strong>Unavailable</strong>
+      </span>
+    `;
+  }
+
+  if (source?.connected !== true) {
+    return `
+      <span class="integration-access-matrix-direction is-unavailable">
+        <span>${directionName}</span>
+        <strong>Connect first</strong>
+      </span>
+    `;
+  }
+
+  const relationship = direction === 'read' ? 'from' : 'to';
+  const baseLabel = `${directionName} ${dataTypeName} ${relationship} ${sourceName}`;
+  return `
+    <label class="integration-access-matrix-toggle${hasSelection ? '' : ' is-not-chosen'}">
+      <span class="integration-access-matrix-toggle-copy">
+        <span>${directionName}</span>
+        <small data-integration-matrix-control-state>${hasSelection ? (enabled ? 'On' : 'Off') : 'Not chosen'}</small>
+      </span>
+      <input
+        type="checkbox"
+        data-integration-matrix-source="${escapeAttr(source.id)}"
+        data-integration-matrix-data-type="${escapeAttr(dataType.id)}"
+        data-integration-matrix-direction="${direction}"
+        data-integration-matrix-initial-enabled="${enabled ? 'true' : 'false'}"
+        data-integration-matrix-initial-choice-state="${hasSelection ? 'chosen' : 'not-chosen'}"
+        data-integration-matrix-choice-state="${hasSelection ? 'chosen' : 'not-chosen'}"
+        data-integration-matrix-base-label="${escapeAttr(baseLabel)}"
+        aria-label="${escapeAttr(`${baseLabel}, ${hasSelection ? (enabled ? 'on' : 'off') : 'not chosen'}`)}"
+        ${enabled ? 'checked' : ''}
+      />
+    </label>
+  `;
+}
+
+function integrationAccessMatrixCell(source, matrixDataType) {
+  const dataType = (Array.isArray(source?.dataTypes) ? source.dataTypes : []).find(
+    (candidate) => String(candidate?.id || '').trim() === matrixDataType.id
+  );
+  if (!dataType) {
+    return '<span class="integration-access-matrix-not-available">Not available</span>';
+  }
+  return `
+    <div class="integration-access-matrix-directions"${dataType.detail ? ` title="${escapeAttr(dataType.detail)}"` : ''}>
+      ${integrationAccessMatrixDirection(source, dataType, 'read')}
+      ${integrationAccessMatrixDirection(source, dataType, 'write')}
+    </div>
+  `;
+}
+
+function integrationAccessMatrixSelections(container, source) {
+  const inputs = Array.from(container.querySelectorAll('[data-integration-matrix-source]')).filter(
+    (input) => input.dataset.integrationMatrixSource === String(source?.id || '')
+  );
+  return (Array.isArray(source?.dataTypes) ? source.dataTypes : []).map((dataType) => {
+    const inputFor = (direction) => inputs.find((input) => (
+      input.dataset.integrationMatrixDataType === String(dataType.id || '')
+      && input.dataset.integrationMatrixDirection === direction
+    ));
+    return {
+      id: dataType.id,
+      readEnabled: inputFor('read')?.checked === true,
+      writeEnabled: inputFor('write')?.checked === true
+    };
+  });
 }
 
 function renderAccountIntegrationAccessControls(overlay) {
   const list = overlay?.querySelector('#account-integration-access-list');
   if (!list) return;
-  const connectedSources = state.integrationAccessSources.filter((source) => source?.connected === true);
-  if (!connectedSources.length) {
-    list.innerHTML = '<p class="account-integration-access-empty">Connect an integration to choose its data access.</p>';
+  const sources = state.integrationAccessSources;
+  const matrixDataTypes = integrationAccessMatrixDataTypes(sources);
+  if (!sources.length || !matrixDataTypes.length) {
+    list.innerHTML = '<p class="account-integration-access-empty">Integration data access is not available right now.</p>';
     return;
   }
 
-  list.innerHTML = connectedSources.map((source) => {
-    const sourceName = source.displayName || source.id || 'Integration';
-    const requiresConfiguration = source.configurationRequired === true;
-    const unavailable = source.available === false;
-    return `
-      <div class="account-integration-access-row">
-        <span class="account-integration-access-copy">
-          <strong>${escapeHtml(sourceName)}</strong>
-          <small>${escapeHtml(
-            unavailable
-              ? (source.unavailableReason || 'Unavailable')
-              : requiresConfiguration
-                ? 'Data access choices required'
-                : 'Data access saved'
-          )}</small>
-        </span>
-        <button
-          type="button"
-          class="${requiresConfiguration ? 'btn-success' : 'btn-secondary'} table-action-btn"
-          data-manage-integration-access="${escapeAttr(source.id)}"
-          ${unavailable ? 'disabled' : ''}
-        >${requiresConfiguration ? 'Choose Data Access' : 'Manage Data Access'}</button>
-      </div>
-    `;
-  }).join('');
+  const matrixHeadingId = 'integration-access-matrix-heading';
+  const matrixStatusId = 'integration-access-matrix-status';
+  list.innerHTML = `
+    <p class="integration-access-matrix-intro" id="${matrixHeadingId}">
+      Compare every source at once. Read imports data into DailyMacros; Write adds new DailyMacros records to that source.
+    </p>
+    <div
+      class="integration-access-matrix-scroll"
+      role="region"
+      aria-labelledby="${matrixHeadingId}"
+      tabindex="0"
+    >
+      <table class="integration-access-matrix">
+        <caption>Integration data access by data type and source</caption>
+        <thead>
+          <tr>
+            <th scope="col" class="integration-access-matrix-data-type-heading">Data type</th>
+            ${sources.map((source) => {
+              const sourceState = integrationAccessMatrixSourceState(source);
+              const hasEnabledChoice = (Array.isArray(source.dataTypes) ? source.dataTypes : []).some((dataType) => (
+                dataType?.selection?.readEnabled === true || dataType?.selection?.writeEnabled === true
+              ));
+              const reviewActionLabel = hasEnabledChoice ? 'Use shown choices' : 'Keep all Off';
+              const sourceName = source.displayName || source.id || 'Integration';
+              return `
+                <th
+                  scope="col"
+                  data-integration-matrix-column="${escapeAttr(source.id)}"
+                  data-integration-matrix-configuration-required="${source.configurationRequired === true ? 'true' : 'false'}"
+                >
+                  <span class="integration-access-matrix-source-name">${escapeHtml(sourceName)}</span>
+                  <span class="integration-access-matrix-source-state" data-state="${escapeAttr(sourceState.state)}">${escapeHtml(sourceState.label)}</span>
+                  <small class="integration-access-matrix-source-detail">${escapeHtml(sourceState.detail)}</small>
+                  ${isBrowserManagedIntegrationSource(source) && source.configurationRequired === true ? `
+                    <button
+                      type="button"
+                      class="integration-access-matrix-review-button"
+                      data-integration-matrix-review-source="${escapeAttr(source.id)}"
+                      aria-pressed="false"
+                      aria-label="${escapeAttr(`${reviewActionLabel} for ${sourceName}`)}"
+                    >${reviewActionLabel}</button>
+                  ` : ''}
+                </th>
+              `;
+            }).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${matrixDataTypes.map((dataType) => `
+            <tr>
+              <th scope="row">${escapeHtml(dataType.displayName)}</th>
+              ${sources.map((source) => `
+                <td data-integration-matrix-column="${escapeAttr(source.id)}">
+                  ${integrationAccessMatrixCell(source, dataType)}
+                </td>
+              `).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="integration-access-matrix-footer">
+      <p id="${matrixStatusId}" role="status" aria-live="polite" tabindex="-1">No unsaved changes.</p>
+      <button type="button" class="btn-success table-action-btn" id="account-integration-access-save-btn" disabled>
+        Save Data Access Changes
+      </button>
+    </div>
+  `;
 
-  list.querySelectorAll('[data-manage-integration-access]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const sourceId = button.dataset.manageIntegrationAccess;
-      overlay.remove();
-      openIntegrationAccessModal(sourceId);
+  const valueChangedSources = new Set();
+  const changedSources = new Set();
+  const reviewedSources = new Set();
+  const status = list.querySelector(`#${matrixStatusId}`);
+  const saveButton = list.querySelector('#account-integration-access-save-btn');
+  const inputsForSource = (sourceId) => Array.from(
+    list.querySelectorAll('[data-integration-matrix-source]')
+  ).filter((input) => input.dataset.integrationMatrixSource === sourceId);
+  const reviewButtonForSource = (sourceId) => Array.from(
+    list.querySelectorAll('[data-integration-matrix-review-source]')
+  ).find((button) => button.dataset.integrationMatrixReviewSource === sourceId) || null;
+  const sourceHeaderFor = (sourceId) => Array.from(
+    list.querySelectorAll('thead [data-integration-matrix-column]')
+  ).find((header) => header.dataset.integrationMatrixColumn === sourceId) || null;
+  const sourceRequiresReview = (sourceId) => (
+    sourceHeaderFor(sourceId)?.dataset.integrationMatrixConfigurationRequired === 'true'
+  );
+  const renderedSourceFor = (sourceId) => sources.find(
+    (source) => String(source?.id || '') === sourceId
+  ) || null;
+  const sourceDisplayName = (sourceId) => (
+    renderedSourceFor(sourceId)?.displayName || sourceId
+  );
+  const updateInputChoicePresentation = (input) => {
+    const matchesInitialValue = input.checked
+      === (input.dataset.integrationMatrixInitialEnabled === 'true');
+    const remainsNotChosen = input.dataset.integrationMatrixInitialChoiceState === 'not-chosen'
+      && matchesInitialValue;
+    const choiceLabel = remainsNotChosen ? 'Not chosen' : (input.checked ? 'On' : 'Off');
+    const label = input.closest('.integration-access-matrix-toggle');
+    label?.classList.toggle('is-not-chosen', remainsNotChosen);
+    const choiceState = label?.querySelector('[data-integration-matrix-control-state]');
+    if (choiceState) choiceState.textContent = choiceLabel;
+    input.dataset.integrationMatrixChoiceState = remainsNotChosen ? 'not-chosen' : 'chosen';
+    input.setAttribute(
+      'aria-label',
+      `${input.dataset.integrationMatrixBaseLabel || 'Integration access'}, ${choiceLabel.toLowerCase()}`
+    );
+  };
+  const updateChangedState = () => {
+    for (const column of list.querySelectorAll('[data-integration-matrix-column]')) {
+      const sourceId = column.dataset.integrationMatrixColumn;
+      column.classList.toggle(
+        'has-unsaved-changes',
+        changedSources.has(sourceId)
+      );
+      column.classList.toggle(
+        'needs-explicit-review',
+        valueChangedSources.has(sourceId)
+          && sourceRequiresReview(sourceId)
+          && !reviewedSources.has(sourceId)
+      );
+    }
+    if (saveButton) saveButton.disabled = changedSources.size === 0;
+    if (status) {
+      const changedNames = [...changedSources].map(sourceDisplayName);
+      const reviewNames = [...valueChangedSources]
+        .filter((sourceId) => sourceRequiresReview(sourceId) && !reviewedSources.has(sourceId))
+        .map(sourceDisplayName);
+      const messages = [];
+      if (changedNames.length) messages.push(`Ready to save: ${changedNames.join(', ')}.`);
+      if (reviewNames.length) {
+        messages.push(`Review ${reviewNames.join(', ')} with its source action before saving.`);
+      }
+      status.textContent = messages.join(' ') || 'No unsaved changes.';
+    }
+    list.dataset.integrationAccessDirty = (
+      valueChangedSources.size || reviewedSources.size || changedSources.size
+    ) ? 'true' : 'false';
+  };
+  const updateSourceChangedState = (sourceId) => {
+    const sourceInputs = inputsForSource(sourceId);
+    const hasValueChanges = sourceInputs.some((input) => (
+      input.checked !== (input.dataset.integrationMatrixInitialEnabled === 'true')
+    ));
+    if (hasValueChanges) valueChangedSources.add(sourceId);
+    else valueChangedSources.delete(sourceId);
+
+    const reviewed = reviewedSources.has(sourceId);
+    const saveAuthorized = sourceRequiresReview(sourceId) ? reviewed : hasValueChanges;
+    if (saveAuthorized) changedSources.add(sourceId);
+    else changedSources.delete(sourceId);
+
+    const reviewButton = reviewButtonForSource(sourceId);
+    if (reviewButton) {
+      const reviewLabel = sourceInputs.some((input) => input.checked)
+        ? 'Use shown choices'
+        : 'Keep all Off';
+      reviewButton.textContent = reviewLabel;
+      reviewButton.setAttribute('aria-pressed', reviewed ? 'true' : 'false');
+      reviewButton.setAttribute('aria-label', `${reviewLabel} for ${sourceDisplayName(sourceId)}`);
+    }
+    sourceInputs.forEach(updateInputChoicePresentation);
+    updateChangedState();
+  };
+  const refreshSavedSourceColumn = (savedSource) => {
+    const sourceId = String(savedSource?.id || '');
+    const header = sourceHeaderFor(sourceId);
+    if (header) {
+      const sourceState = integrationAccessMatrixSourceState(savedSource);
+      header.dataset.integrationMatrixConfigurationRequired = savedSource.configurationRequired === true
+        ? 'true'
+        : 'false';
+      const stateEl = header.querySelector('.integration-access-matrix-source-state');
+      if (stateEl) {
+        stateEl.textContent = sourceState.label;
+        stateEl.dataset.state = sourceState.state;
+      }
+      const detailEl = header.querySelector('.integration-access-matrix-source-detail');
+      if (detailEl) detailEl.textContent = sourceState.detail;
+    }
+
+    for (const input of inputsForSource(sourceId)) {
+      const dataType = (Array.isArray(savedSource?.dataTypes) ? savedSource.dataTypes : []).find(
+        (candidate) => String(candidate?.id || '') === input.dataset.integrationMatrixDataType
+      );
+      const enabledKey = input.dataset.integrationMatrixDirection === 'read'
+        ? 'readEnabled'
+        : 'writeEnabled';
+      input.checked = dataType?.selection?.[enabledKey] === true;
+      input.dataset.integrationMatrixInitialEnabled = input.checked ? 'true' : 'false';
+      input.dataset.integrationMatrixInitialChoiceState = 'chosen';
+      updateInputChoicePresentation(input);
+    }
+    valueChangedSources.delete(sourceId);
+    reviewedSources.delete(sourceId);
+    changedSources.delete(sourceId);
+    reviewButtonForSource(sourceId)?.remove();
+  };
+  const focusDescriptor = () => {
+    const active = document.activeElement;
+    if (active?.matches?.('[data-integration-matrix-source]')) {
+      return {
+        type: 'input',
+        sourceId: active.dataset.integrationMatrixSource,
+        dataTypeId: active.dataset.integrationMatrixDataType,
+        direction: active.dataset.integrationMatrixDirection
+      };
+    }
+    if (active?.matches?.('[data-integration-matrix-review-source]')) {
+      return {
+        type: 'review',
+        sourceId: active.dataset.integrationMatrixReviewSource
+      };
+    }
+    return { type: active === saveButton ? 'save' : 'status' };
+  };
+  const restoreFocus = (descriptor) => {
+    const refreshedList = overlay.querySelector('#account-integration-access-list');
+    if (!refreshedList) return;
+    let target = null;
+    if (descriptor?.type === 'input') {
+      target = Array.from(refreshedList.querySelectorAll('[data-integration-matrix-source]')).find((input) => (
+        input.dataset.integrationMatrixSource === descriptor.sourceId
+        && input.dataset.integrationMatrixDataType === descriptor.dataTypeId
+        && input.dataset.integrationMatrixDirection === descriptor.direction
+      )) || null;
+    } else if (descriptor?.type === 'review') {
+      target = Array.from(refreshedList.querySelectorAll('[data-integration-matrix-review-source]')).find(
+        (button) => button.dataset.integrationMatrixReviewSource === descriptor.sourceId
+      ) || null;
+    } else if (descriptor?.type === 'save') {
+      target = refreshedList.querySelector('#account-integration-access-save-btn');
+    }
+    if (!target || target.disabled) {
+      target = refreshedList.querySelector(`#${matrixStatusId}`);
+    }
+    target?.focus({ preventScroll: true });
+  };
+
+  list.querySelectorAll('[data-integration-matrix-source]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const sourceId = input.dataset.integrationMatrixSource;
+      updateSourceChangedState(sourceId);
     });
+  });
+  list.querySelectorAll('[data-integration-matrix-review-source]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const sourceId = button.dataset.integrationMatrixReviewSource;
+      if (reviewedSources.has(sourceId)) reviewedSources.delete(sourceId);
+      else reviewedSources.add(sourceId);
+      updateSourceChangedState(sourceId);
+    });
+  });
+  list.querySelectorAll('[data-integration-matrix-source]').forEach(updateInputChoicePresentation);
+  updateChangedState();
+
+  saveButton?.addEventListener('click', async () => {
+    const focusAfterSave = focusDescriptor();
+    const sourceIds = [...changedSources];
+    const savedNames = [];
+    const failures = [];
+    if (document.activeElement === saveButton) {
+      status?.focus({ preventScroll: true });
+    }
+    list.dataset.integrationAccessSaving = 'true';
+    saveButton.disabled = true;
+    list.querySelector('.integration-access-matrix')?.setAttribute('aria-busy', 'true');
+    list.querySelectorAll('[data-integration-matrix-source]').forEach((input) => {
+      input.disabled = true;
+    });
+    list.querySelectorAll('[data-integration-matrix-review-source]').forEach((button) => {
+      button.disabled = true;
+    });
+
+    for (const sourceId of sourceIds) {
+      const source = renderedSourceFor(sourceId);
+      if (!isBrowserManagedIntegrationSource(source)) {
+        failures.push(`${source?.displayName || sourceId}: this source is no longer available to manage here.`);
+        continue;
+      }
+      try {
+        const selections = integrationAccessMatrixSelections(list, source);
+        const response = await api(`/api/integrations/${encodeURIComponent(source.id)}/access`, {
+          method: 'PUT',
+          body: JSON.stringify({ dataTypes: selections })
+        });
+        const savedSource = webIntegrationAccessSources(response)[0] || {
+          ...source,
+          configurationRequired: false,
+          dataTypes: source.dataTypes.map((dataType) => {
+            const savedSelection = selections.find((selection) => selection.id === dataType.id);
+            return savedSelection ? { ...dataType, selection: savedSelection } : dataType;
+          })
+        };
+        storeIntegrationAccessSource(savedSource);
+        refreshSavedSourceColumn(savedSource);
+        savedNames.push(source.displayName || source.id);
+      } catch (error) {
+        failures.push(`${source.displayName || source.id}: ${error.message}`);
+      }
+    }
+
+    list.querySelector('.integration-access-matrix')?.removeAttribute('aria-busy');
+    list.querySelectorAll('[data-integration-matrix-source]').forEach((input) => {
+      input.disabled = false;
+    });
+    list.querySelectorAll('[data-integration-matrix-review-source]').forEach((button) => {
+      button.disabled = false;
+    });
+    delete list.dataset.integrationAccessSaving;
+    updateChangedState();
+
+    if (failures.length) {
+      const message = [
+        savedNames.length ? `Saved ${savedNames.join(', ')}.` : '',
+        `Could not save ${failures.join(' ')}`
+      ].filter(Boolean).join(' ');
+      if (status) status.textContent = message;
+      setActionBanner(message, 'error');
+      restoreFocus(focusAfterSave);
+      return;
+    }
+
+    const successMessage = savedNames.length
+      ? `${savedNames.join(', ')} data access saved.`
+      : 'No data access changes to save.';
+    if (overlay.isConnected) await loadOuraAccountControls(overlay);
+    const refreshedStatus = overlay.querySelector(`#${matrixStatusId}`);
+    if (refreshedStatus) {
+      const pendingStatus = refreshedStatus.textContent === 'No unsaved changes.'
+        ? ''
+        : ` ${refreshedStatus.textContent}`;
+      refreshedStatus.textContent = `${successMessage}${pendingStatus}`;
+    }
+    setActionBanner(successMessage, 'success');
+    restoreFocus(focusAfterSave);
   });
 }
 
-async function loadIntegrationAccessSources() {
+let integrationAccessLoadRevision = 0;
+
+async function loadIntegrationAccessSources({ commit = true, requestRevision = null } = {}) {
+  const revision = requestRevision ?? ++integrationAccessLoadRevision;
   const payload = await api('/api/integrations/access');
-  state.integrationAccessSources = webIntegrationAccessSources(payload);
-  return state.integrationAccessSources;
+  const sources = webIntegrationAccessSources(payload);
+  if (commit && revision === integrationAccessLoadRevision) {
+    state.integrationAccessSources = sources;
+  }
+  return sources;
 }
 
 function requiredWebIntegrationAccessSource(sources, preferredSourceId = null) {
@@ -2537,20 +3013,6 @@ function showIntegrationAccessModal(source) {
   });
 }
 
-async function openIntegrationAccessModal(sourceId) {
-  try {
-    let source = integrationAccessSource(sourceId);
-    if (!source) {
-      await loadIntegrationAccessSources();
-      source = integrationAccessSource(sourceId);
-    }
-    if (!source) throw new Error('Data access settings are not available for this integration.');
-    showIntegrationAccessModal(source);
-  } catch (error) {
-    setActionBanner(error.message, 'error');
-  }
-}
-
 function ouraConnectionLabel(status) {
   if (!status?.configured) return 'Not configured';
   if (!status.connected) return 'Not connected';
@@ -2605,24 +3067,48 @@ function renderOuraAccountControls(overlay, status) {
 }
 
 async function loadOuraAccountControls(overlay) {
+  const loadRevision = ++integrationAccessLoadRevision;
+  const accessLoad = loadIntegrationAccessSources({
+    commit: false,
+    requestRevision: loadRevision
+  })
+    .then((sources) => {
+      if (loadRevision !== integrationAccessLoadRevision || !overlay.isConnected) return;
+      const currentList = overlay.querySelector('#account-integration-access-list');
+      if (currentList?.dataset.integrationAccessDirty === 'true') return;
+      state.integrationAccessSources = sources;
+      renderAccountIntegrationAccessControls(overlay);
+    })
+    .catch((error) => {
+      if (loadRevision !== integrationAccessLoadRevision) return;
+      console.warn('Failed to load integration data access:', error);
+      if (overlay.isConnected && !state.integrationAccessSources.length) {
+        const list = overlay.querySelector('#account-integration-access-list');
+        if (list) {
+          list.innerHTML = `<p class="account-integration-access-empty" role="status">${escapeHtml(error.message)}</p>`;
+        }
+      }
+    });
   try {
     const status = await api('/api/oura/status');
-    try {
-      await loadIntegrationAccessSources();
-    } catch (error) {
-      console.warn('Failed to load integration data access:', error);
-    }
-    if (overlay.isConnected) {
+    await accessLoad;
+    if (loadRevision === integrationAccessLoadRevision && overlay.isConnected) {
       renderOuraAccountControls(overlay, status);
-      renderAccountIntegrationAccessControls(overlay);
     }
   } catch (error) {
+    await accessLoad;
+    if (loadRevision !== integrationAccessLoadRevision) return;
     const detailEl = overlay.querySelector('#account-oura-detail');
     if (detailEl) detailEl.textContent = error.message;
   }
 }
 
 function showAccountPrivacyModal() {
+  const activeElement = document.activeElement;
+  const previousFocus = activeElement instanceof HTMLElement
+    && activeElement.getClientRects().length > 0
+    ? activeElement
+    : profileChipEl;
   let overlay = document.getElementById('entry-modal-overlay');
   if (overlay) overlay.remove();
 
@@ -2664,9 +3150,15 @@ function showAccountPrivacyModal() {
   overlay = document.createElement('div');
   overlay.id = 'entry-modal-overlay';
   overlay.className = 'combine-modal-overlay';
+  const headingId = 'account-privacy-heading';
   overlay.innerHTML = `
-    <div class="combine-modal entry-modal account-privacy-modal">
-      <h3>Account & Privacy</h3>
+    <div
+      class="combine-modal entry-modal account-privacy-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="${headingId}"
+    >
+      <h3 id="${headingId}" tabindex="-1">Account & Privacy</h3>
       <div class="account-privacy-copy">
         <p><strong>Support</strong><span>Contact the person who invited you. Include any request reference shown in an error message and the build details below.</span></p>
         <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, optional Oura aggregate metrics, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
@@ -2688,8 +3180,8 @@ function showAccountPrivacyModal() {
       </fieldset>
       <fieldset class="account-preference-controls">
         <legend>Integration Data Access</legend>
-        <div id="account-integration-access-list" class="account-integration-access-list" aria-live="polite">
-          <p class="account-integration-access-empty">Loading integration data access…</p>
+        <div id="account-integration-access-list" class="account-integration-access-list">
+          <p class="account-integration-access-empty" role="status">Loading integration data access…</p>
         </div>
       </fieldset>
       ${sexualActivityPageControl}
@@ -2745,9 +3237,28 @@ function showAccountPrivacyModal() {
     </div>
   `;
   document.body.appendChild(overlay);
+  if (state.integrationAccessSources.length) {
+    renderAccountIntegrationAccessControls(overlay);
+  }
 
+  const close = () => {
+    const accessList = overlay.querySelector('#account-integration-access-list');
+    if (accessList?.dataset.integrationAccessSaving === 'true') {
+      setActionBanner('Wait for data access changes to finish saving.', 'info');
+      return false;
+    }
+    if (accessList?.dataset.integrationAccessDirty === 'true') {
+      const discard = window.confirm('Discard unsaved data access changes?');
+      if (!discard) return false;
+    }
+    overlay.remove();
+    if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+      previousFocus.focus();
+    }
+    return true;
+  };
   overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) overlay.remove();
+    if (event.target === overlay) close();
   });
   const sexualActivityPageToggleEl = overlay.querySelector('#account-sexual-activity-page-toggle');
   if (sexualActivityPageToggleEl) {
@@ -2772,7 +3283,7 @@ function showAccountPrivacyModal() {
       }
     });
   });
-  document.getElementById('account-close-btn').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#account-close-btn')?.addEventListener('click', close);
   const timezoneSelectEl = document.getElementById('account-timezone-select');
   const optionalDiagnosticsToggleEl = document.getElementById('account-optional-diagnostics-toggle');
   optionalDiagnosticsToggleEl?.addEventListener('change', async () => {
@@ -2914,8 +3425,27 @@ function showAccountPrivacyModal() {
     }
   });
   overlay.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') overlay.remove();
+    if (event.key === 'Escape') {
+      close();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(overlay.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+    )).filter((element) => !element.hidden && element.getClientRects().length > 0);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const heading = overlay.querySelector(`#${headingId}`);
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === heading)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   });
+  overlay.querySelector(`#${headingId}`)?.focus();
   loadOuraAccountControls(overlay);
 }
 

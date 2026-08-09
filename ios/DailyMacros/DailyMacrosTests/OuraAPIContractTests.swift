@@ -2,6 +2,15 @@ import XCTest
 @testable import DailyMacros
 
 final class OuraAPIContractTests: XCTestCase {
+    func testOuraTimestampFormattingAcceptsFractionalAndWholeSeconds() throws {
+        let fractional = "2026-08-09T18:18:20.681Z"
+        let whole = "2026-08-09T18:18:20Z"
+
+        XCTAssertNotNil(OuraTimestampFormatting.date(from: fractional))
+        XCTAssertNotNil(OuraTimestampFormatting.date(from: whole))
+        XCTAssertNotEqual(OuraTimestampFormatting.displayString(for: fractional), fractional)
+    }
+
     @MainActor
     func testTodayUsesVersionedAPIAndDecodesOuraRecoveryStatus() async throws {
         let defaults = UserDefaults.standard
