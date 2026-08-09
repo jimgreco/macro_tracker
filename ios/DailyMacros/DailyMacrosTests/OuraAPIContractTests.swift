@@ -11,6 +11,68 @@ final class OuraAPIContractTests: XCTestCase {
         XCTAssertNotEqual(OuraTimestampFormatting.displayString(for: fractional), fractional)
     }
 
+    func testOuraSleepSummaryCombinesSessionAggregatesWithDailyScore() throws {
+        let sleep = OuraDocument(
+            dataType: "sleep",
+            providerDocumentId: "sleep-2026-08-08",
+            day: "2026-08-08",
+            recordedAt: "2026-08-09T07:00:00Z",
+            data: [
+                "bedtimeStart": .string("2026-08-08T23:30:00-04:00"),
+                "bedtimeEnd": .string("2026-08-09T07:30:00-04:00"),
+                "totalSleepSeconds": .number(27_000),
+                "deepSleepSeconds": .number(5_400),
+                "remSleepSeconds": .number(7_200),
+                "type": .string("long_sleep")
+            ],
+            syncedAt: "2026-08-09T12:00:00.123Z",
+            updatedAt: "2026-08-09T12:00:00.123Z"
+        )
+        let dailySleep = OuraDocument(
+            dataType: "daily_sleep",
+            providerDocumentId: "daily-sleep-2026-08-08",
+            day: "2026-08-08",
+            recordedAt: "2026-08-09T07:30:00Z",
+            data: ["score": .number(86)],
+            syncedAt: "2026-08-09T12:00:00Z",
+            updatedAt: "2026-08-09T12:00:00Z"
+        )
+
+        let summary = try XCTUnwrap(
+            OuraSleepSummaryBuilder.build(
+                sleepDocuments: [sleep],
+                dailySleepDocuments: [dailySleep]
+            ).first
+        )
+
+        XCTAssertEqual(summary.id, "sleep-2026-08-08")
+        XCTAssertEqual(summary.durationHours, 7.5, accuracy: 0.001)
+        XCTAssertEqual(summary.deepSleepHours ?? 0, 1.5, accuracy: 0.001)
+        XCTAssertEqual(summary.remSleepHours ?? 0, 2, accuracy: 0.001)
+        XCTAssertEqual(summary.score, 86)
+        XCTAssertEqual(summary.type, "long_sleep")
+        XCTAssertNotNil(summary.syncedAt)
+    }
+
+    func testOuraSleepSummaryRejectsSessionsWithoutUsableTiming() {
+        let invalid = OuraDocument(
+            dataType: "sleep",
+            providerDocumentId: "invalid",
+            day: "2026-08-08",
+            recordedAt: nil,
+            data: ["totalSleepSeconds": .number(0)],
+            syncedAt: "2026-08-09T12:00:00Z",
+            updatedAt: "2026-08-09T12:00:00Z"
+        )
+
+        XCTAssertTrue(
+            OuraSleepSummaryBuilder.build(
+                sleepDocuments: [invalid],
+                dailySleepDocuments: []
+            ).isEmpty
+        )
+    }
+
     @MainActor
     func testTodayUsesVersionedAPIAndDecodesOuraRecoveryStatus() async throws {
         let defaults = UserDefaults.standard
