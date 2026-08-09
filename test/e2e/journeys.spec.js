@@ -177,9 +177,12 @@ test.describe.serial('critical web journeys', () => {
   });
 
   test('Oura connection requires explicit per-type data access and can be managed later', async ({ page }) => {
-    let savedPayload = null;
+    const savedPayloads = [];
+    const workoutPlannerPayloads = [];
+    let workoutPlannerSaveCount = 0;
     let saved = false;
-    const sourcePayload = () => ({
+    let workoutPlannerSaved = false;
+    const ouraSourcePayload = () => ({
       id: 'oura',
       displayName: 'Oura Ring',
       connected: true,
@@ -210,21 +213,67 @@ test.describe.serial('critical web journeys', () => {
         }
       ]
     });
+    const sourcesPayload = () => ([
+      {
+        id: 'healthkit',
+        displayName: 'Apple Health',
+        connected: true,
+        available: true,
+        configurationRequired: false,
+        dataTypes: [{
+          id: 'sleep',
+          displayName: 'Sleep',
+          detail: 'Import sleep sessions and add sleep logged in DailyMacros to Apple Health.',
+          read: { supported: true },
+          write: { supported: true },
+          selection: { readEnabled: true, writeEnabled: false }
+        }]
+      },
+      ouraSourcePayload(),
+      {
+        id: 'workout_planner',
+        displayName: 'Workout Planner',
+        connected: true,
+        available: true,
+        configurationRequired: !workoutPlannerSaved,
+        dataTypes: [{
+          id: 'workouts',
+          displayName: 'Workouts',
+          detail: 'Import completed workouts from Workout Planner.',
+          read: { supported: true },
+          write: {
+            supported: false,
+            disabledReason: 'DailyMacros does not write workouts to Workout Planner.'
+          },
+          ...(workoutPlannerSaved ? { selection: { readEnabled: false, writeEnabled: false } } : {})
+        }]
+      }
+    ]);
 
     await page.route('**/api/integrations/access', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ sources: [sourcePayload()] })
+        body: JSON.stringify({ sources: sourcesPayload() })
       });
     });
     await page.route('**/api/integrations/oura/access', async (route) => {
-      savedPayload = route.request().postDataJSON();
+      savedPayloads.push(route.request().postDataJSON());
       saved = true;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(sourcePayload())
+        body: JSON.stringify(ouraSourcePayload())
+      });
+    });
+    await page.route('**/api/integrations/workout_planner/access', async (route) => {
+      workoutPlannerSaveCount += 1;
+      workoutPlannerPayloads.push(route.request().postDataJSON());
+      workoutPlannerSaved = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(sourcesPayload()[2])
       });
     });
     await page.route('**/api/oura/status', async (route) => {
@@ -252,7 +301,7 @@ test.describe.serial('critical web journeys', () => {
       await accessDialog.getByRole('button', { name: 'Save Data Access' }).click();
 
       await expect(page.locator('#action-banner')).toContainText('Oura Ring data access saved.');
-      expect(savedPayload).toEqual({
+      expect(savedPayloads[0]).toEqual({
         dataTypes: [
           { id: 'sleep', readEnabled: true, writeEnabled: false },
           { id: 'readiness', readEnabled: false, writeEnabled: false }
@@ -262,11 +311,60 @@ test.describe.serial('critical web journeys', () => {
       await page.locator('#profile-chip').click();
       await page.locator('#account-info-btn').click();
       const accountModal = page.locator('.account-privacy-modal');
-      const manageAccessButton = accountModal.locator('[data-manage-integration-access="oura"]');
-      await expect(manageAccessButton).toHaveText('Manage Data Access');
-      await manageAccessButton.click();
-      await expect(accessDialog).toBeVisible();
-      await expect(accessDialog.getByRole('checkbox', { name: 'Read Sleep from Oura Ring' })).toBeChecked();
+      const matrix = accountModal.locator('.integration-access-matrix');
+      await expect(matrix).toBeVisible();
+      await expect(matrix.getByRole('columnheader', { name: /Apple Health/ })).toContainText('Manage on iPhone');
+      await expect(matrix.getByRole('columnheader', { name: /Oura Ring/ })).toContainText('Access saved');
+      await expect(matrix.getByRole('columnheader', { name: /Workout Planner/ })).toContainText('Choices required');
+      await expect(matrix.getByRole('checkbox', { name: 'Read Sleep from Apple Health' })).toHaveCount(0);
+      await expect(matrix.getByRole('checkbox', { name: 'Read Sleep from Oura Ring' })).toBeChecked();
+      await expect(matrix.getByText('Not available').first()).toBeVisible();
+
+      const readinessRead = matrix.getByRole('checkbox', { name: 'Read Readiness from Oura Ring' });
+      await readinessRead.check();
+      page.once('dialog', async (dialog) => {
+        expect(dialog.message()).toBe('Discard unsaved data access changes?');
+        await dialog.dismiss();
+      });
+      await accountModal.getByRole('button', { name: 'Close' }).click();
+      await expect(accountModal).toBeVisible();
+      await expect(readinessRead).toBeChecked();
+      await readinessRead.uncheck();
+
+      const plannerRead = matrix.getByRole('checkbox', { name: 'Read Workouts from Workout Planner' });
+      await expect(plannerRead.locator('xpath=..').getByText('Not chosen')).toBeVisible();
+      await plannerRead.check();
+      await expect(accountModal.locator('#account-integration-access-save-btn')).toBeDisabled();
+      await expect(accountModal.locator('#integration-access-matrix-status')).toContainText('Review Workout Planner');
+      await plannerRead.uncheck();
+      await expect(plannerRead.locator('xpath=..').getByText('Not chosen')).toBeVisible();
+      await expect(accountModal.locator('#account-integration-access-save-btn')).toBeDisabled();
+
+      const keepPlannerOff = matrix.getByRole('button', { name: 'Keep all Off for Workout Planner' });
+      await keepPlannerOff.click();
+      await expect(keepPlannerOff).toHaveAttribute('aria-pressed', 'true');
+      await expect(accountModal.locator('#integration-access-matrix-status')).toContainText('Workout Planner');
+      const plannerSaveButton = accountModal.locator('#account-integration-access-save-btn');
+      await plannerSaveButton.focus();
+      await plannerSaveButton.press('Enter');
+      await expect(page.locator('#action-banner')).toContainText('Workout Planner data access saved.');
+      expect(workoutPlannerPayloads[0]).toEqual({
+        dataTypes: [{ id: 'workouts', readEnabled: false, writeEnabled: false }]
+      });
+      await expect(accountModal.locator('#integration-access-matrix-status')).toBeFocused();
+      await expect(accountModal.getByRole('button', { name: 'Keep all Off for Workout Planner' })).toHaveCount(0);
+
+      await readinessRead.check();
+      await expect(accountModal.locator('#integration-access-matrix-status')).toContainText('Oura Ring');
+      await accountModal.locator('#account-integration-access-save-btn').click();
+      await expect(page.locator('#action-banner')).toContainText('Oura Ring data access saved.');
+      expect(savedPayloads[1]).toEqual({
+        dataTypes: [
+          { id: 'sleep', readEnabled: true, writeEnabled: false },
+          { id: 'readiness', readEnabled: true, writeEnabled: false }
+        ]
+      });
+      expect(workoutPlannerSaveCount).toBe(1);
     });
   });
 

@@ -244,6 +244,10 @@ test('Oura authorization stores only opaque identity and encrypted rotating cred
   const service = createOuraService({ db, env: configuredEnv(), fetchImpl });
 
   const authorization = await service.createAuthorization('daily-user-1', 'ios');
+  assert.equal(
+    new URL(authorization.authorizationUrl).searchParams.get('scope'),
+    'personal daily stress'
+  );
   const state = new URL(authorization.authorizationUrl).searchParams.get('state');
   const result = await service.completeAuthorization({
     code: 'authorization-code',
@@ -466,6 +470,75 @@ test('Oura sync reads only explicitly enabled logical data types', async () => {
   assert.deepEqual(Object.keys(result.counts), ['daily_readiness']);
   assert.equal(requests.length, 1);
   assert.match(requests[0], /\/usercollection\/daily_readiness\?/);
+});
+
+test('Oura missing-scope failures request reconnect with a user-safe explanation', async () => {
+  const db = makeFakeDb();
+  await db.upsertOuraConnection('daily-user-1', {
+    ouraUserId: 'oura-user-123',
+    accessTokenEncrypted: encryptSecret('valid-access', encryptionKey),
+    refreshTokenEncrypted: encryptSecret('valid-refresh', encryptionKey),
+    tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    scopes: ['personal', 'daily'],
+    status: 'connected'
+  });
+  await db.replaceIntegrationDataPermissions('daily-user-1', 'oura', [
+    { dataType: 'sleep', readEnabled: false, writeEnabled: false },
+    { dataType: 'readiness', readEnabled: false, writeEnabled: false },
+    { dataType: 'activity', readEnabled: false, writeEnabled: false },
+    { dataType: 'stress', readEnabled: true, writeEnabled: false },
+    { dataType: 'resilience', readEnabled: false, writeEnabled: false },
+    { dataType: 'bedtime', readEnabled: false, writeEnabled: false }
+  ]);
+  const service = createOuraService({
+    db,
+    env: configuredEnv(),
+    fetchImpl: async () => jsonResponse({
+      detail: 'Token is not authorized access stress scope.'
+    }, 403)
+  });
+
+  await assert.rejects(
+    service.syncUser('daily-user-1', { days: 7 }),
+    /not authorized access stress scope/
+  );
+  assert.equal(db.getStoredConnection().status, 'reauthorization_required');
+  assert.equal(
+    db.getStoredConnection().lastError,
+    'Reconnect Oura to grant access to Stress data.'
+  );
+});
+
+test('Oura non-scope forbidden failures do not claim reconnect will fix them', async () => {
+  const db = makeFakeDb();
+  await db.upsertOuraConnection('daily-user-1', {
+    ouraUserId: 'oura-user-123',
+    accessTokenEncrypted: encryptSecret('valid-access', encryptionKey),
+    refreshTokenEncrypted: encryptSecret('valid-refresh', encryptionKey),
+    tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    scopes: ['personal', 'daily', 'stress'],
+    status: 'connected'
+  });
+  await db.replaceIntegrationDataPermissions('daily-user-1', 'oura', [
+    { dataType: 'sleep', readEnabled: false, writeEnabled: false },
+    { dataType: 'readiness', readEnabled: true, writeEnabled: false },
+    { dataType: 'activity', readEnabled: false, writeEnabled: false },
+    { dataType: 'stress', readEnabled: false, writeEnabled: false },
+    { dataType: 'resilience', readEnabled: false, writeEnabled: false },
+    { dataType: 'bedtime', readEnabled: false, writeEnabled: false }
+  ]);
+  const service = createOuraService({
+    db,
+    env: configuredEnv(),
+    fetchImpl: async () => jsonResponse({ detail: 'Oura membership is inactive.' }, 403)
+  });
+
+  await assert.rejects(
+    service.syncUser('daily-user-1', { days: 7 }),
+    /membership is inactive/
+  );
+  assert.equal(db.getStoredConnection().status, 'error');
+  assert.match(db.getStoredConnection().lastError, /membership is inactive/);
 });
 
 test('Oura workout choices are not required when the connected account did not grant workout scope', async () => {

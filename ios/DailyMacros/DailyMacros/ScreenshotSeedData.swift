@@ -126,12 +126,54 @@ enum ScreenshotSeedData {
             unavailableReason: nil,
             configurationRequired: false,
             dataTypes: [
-                integrationDataType(id: "sleep", name: "Sleep", detail: "Import Oura sleep sessions and daily sleep scores.", read: read, write: write),
-                integrationDataType(id: "readiness", name: "Readiness", detail: "Import Oura readiness scores and aggregate contributors.", read: read, write: write),
-                integrationDataType(id: "activity", name: "Activity", detail: "Import Oura daily activity aggregates.", read: read, write: write),
-                integrationDataType(id: "stress", name: "Stress", detail: "Import Oura daily stress and recovery aggregates.", read: read, write: write),
-                integrationDataType(id: "resilience", name: "Resilience", detail: "Import Oura resilience levels and aggregate contributors.", read: read, write: write),
-                integrationDataType(id: "bedtime", name: "Bedtime", detail: "Import Oura bedtime recommendations.", read: read, write: write)
+                integrationDataType(
+                    id: "sleep",
+                    name: "Sleep",
+                    detail: "Import Oura sleep sessions and daily sleep scores.",
+                    read: read,
+                    write: write,
+                    selection: nil
+                ),
+                integrationDataType(
+                    id: "readiness",
+                    name: "Readiness",
+                    detail: "Import Oura readiness scores and aggregate contributors.",
+                    read: read,
+                    write: write,
+                    selection: nil
+                ),
+                integrationDataType(
+                    id: "activity",
+                    name: "Activity",
+                    detail: "Import Oura daily activity aggregates.",
+                    read: read,
+                    write: write,
+                    selection: nil
+                ),
+                integrationDataType(
+                    id: "stress",
+                    name: "Stress",
+                    detail: "Import Oura daily stress and recovery aggregates.",
+                    read: read,
+                    write: write,
+                    selection: nil
+                ),
+                integrationDataType(
+                    id: "resilience",
+                    name: "Resilience",
+                    detail: "Import Oura resilience levels and aggregate contributors.",
+                    read: read,
+                    write: write,
+                    selection: nil
+                ),
+                integrationDataType(
+                    id: "bedtime",
+                    name: "Bedtime",
+                    detail: "Import Oura bedtime recommendations.",
+                    read: read,
+                    write: write,
+                    selection: nil
+                )
             ]
         )
     }
@@ -155,7 +197,8 @@ enum ScreenshotSeedData {
                     name: "Workouts",
                     detail: "Import completed workouts from Workout Planner.",
                     read: read,
-                    write: write
+                    write: write,
+                    selection: nil
                 )
             ]
         )
@@ -166,7 +209,8 @@ enum ScreenshotSeedData {
         name: String,
         detail: String,
         read: IntegrationDirectionCapability,
-        write: IntegrationDirectionCapability
+        write: IntegrationDirectionCapability,
+        selection: IntegrationDirectionSelection? = .denied
     ) -> IntegrationDataType {
         IntegrationDataType(
             id: id,
@@ -174,7 +218,7 @@ enum ScreenshotSeedData {
             detail: detail,
             read: read,
             write: write,
-            selection: .denied
+            selection: selection
         )
     }
 
