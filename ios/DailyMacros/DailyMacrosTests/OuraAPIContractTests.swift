@@ -73,6 +73,96 @@ final class OuraAPIContractTests: XCTestCase {
         )
     }
 
+    func testSleepTimelineCombinesAppAndOuraSessionsChronologically() throws {
+        let appEntry = SleepEntry(
+            id: 42,
+            durationHours: 1.0,
+            wakeUps: 0,
+            quality: 4,
+            notes: nil,
+            loggedAt: "2026-08-08T23:00:00-04:00",
+            source: "manual",
+            externalId: nil
+        )
+        let ouraSummary = OuraSleepSummary(
+            id: "oura-evening",
+            day: "2026-08-08",
+            startedAt: try XCTUnwrap(
+                ISO8601DateFormatter().date(from: "2026-08-08T21:15:00-04:00")
+            ),
+            endedAt: nil,
+            durationHours: 7.6,
+            score: 73,
+            deepSleepHours: 1,
+            remSleepHours: 1.5,
+            type: "long_sleep",
+            syncedAt: nil
+        )
+
+        let sessions = SleepTimelineBuilder.sessions(
+            appEntries: [appEntry],
+            ouraSummaries: [ouraSummary]
+        )
+
+        XCTAssertEqual(sessions.map(\.id), ["app-42", "oura-oura-evening"])
+        XCTAssertFalse(sessions[0].isOura)
+        XCTAssertTrue(sessions[1].isOura)
+    }
+
+    func testSleepDailyTotalsAggregateMultipleOuraAndAppSessionsOnTheSameDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let start = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-08-07T21:15:00-04:00")
+        )
+        let nap = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-08-07T19:40:00-04:00")
+        )
+        let summaries = [
+            OuraSleepSummary(
+                id: "main",
+                day: "2026-08-07",
+                startedAt: start,
+                endedAt: nil,
+                durationHours: 7.6,
+                score: 73,
+                deepSleepHours: 1,
+                remSleepHours: 1.5,
+                type: "long_sleep",
+                syncedAt: nil
+            ),
+            OuraSleepSummary(
+                id: "nap",
+                day: "2026-08-07",
+                startedAt: nap,
+                endedAt: nil,
+                durationHours: 0.2,
+                score: 73,
+                deepSleepHours: nil,
+                remSleepHours: nil,
+                type: "late_nap",
+                syncedAt: nil
+            )
+        ]
+
+        let totals = SleepTimelineBuilder.dailyTotals(
+            appTotals: [
+                SleepDailyTotals(
+                    day: "2026-08-07",
+                    totalHours: 1,
+                    targetHours: 8
+                )
+            ],
+            ouraSummaries: summaries,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(totals.count, 1)
+        XCTAssertEqual(totals[0].day, "2026-08-07")
+        XCTAssertEqual(totals[0].totalHours, 8.8, accuracy: 0.001)
+        XCTAssertEqual(totals[0].targetHours, 8)
+    }
+
     @MainActor
     func testTodayUsesVersionedAPIAndDecodesOuraRecoveryStatus() async throws {
         let defaults = UserDefaults.standard

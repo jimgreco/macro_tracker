@@ -1085,9 +1085,11 @@ test('iOS sleep and sexual activity use tab titles with grouped toolbar add acti
   assert.equal(sleepSection.includes('showLogSleep = true'), false);
 });
 
-test('iOS sleep sync includes enabled Oura data without feeding Oura records to Coach narration', () => {
+test('iOS sleep timeline, chart totals, and rule coaching include Oura without AI narration', () => {
   const health = read('ios/DailyMacros/DailyMacros/HealthView.swift');
   const models = read('ios/DailyMacros/DailyMacros/Models.swift');
+  const coach = read('ios/DailyMacros/DailyMacros/AICoach.swift');
+  const workouts = read('ios/DailyMacros/DailyMacros/WorkoutsView.swift');
   const syncSources = health.slice(
     health.indexOf('private func syncSleepSources()'),
     health.indexOf('private func syncSexualActivitySource()')
@@ -1100,10 +1102,19 @@ test('iOS sleep sync includes enabled Oura data without feeding Oura records to 
   assert.equal(health.includes('Task { await syncVisibleSources() }'), true);
   assert.equal(syncSources.includes('let syncsOura = isOuraSleepReadEnabled'), true);
   assert.equal(syncSources.includes('try await api.syncOura(days: 30)'), true);
-  assert.equal(health.includes('private var ouraSleepSection'), true);
+  assert.equal(health.includes('private var ouraSleepSection'), false);
   assert.equal(health.includes('OuraSleepSummaryBuilder.build('), true);
   assert.equal(models.includes('struct OuraSleepSummary'), true);
-  assert.equal(coachInput.includes('ouraSleepSummaries'), false);
+  assert.equal(models.includes('enum SleepTimelineBuilder'), true);
+  assert.equal(health.includes('SleepTimelineBuilder.sessions('), true);
+  assert.equal(health.includes('SleepTimelineBuilder.dailyTotals('), true);
+  assert.equal(health.includes('ForEach(sleepTimelineSessions)'), true);
+  assert.equal(health.includes('let data = combinedSleepDailyTotals'), true);
+  assert.equal(coachInput.includes('let sleepDailyTotals = combinedSleepDailyTotals'), true);
+  assert.equal(coachInput.includes('includesOuraData: includesOuraData'), true);
+  assert.equal(coach.includes('candidates.allSatisfy(\\.allowsAINarration)'), true);
+  assert.equal(coach.includes('suggestions.map { $0.excludingAINarration() }'), true);
+  assert.equal(workouts.includes('includesOuraSleepData: includesOuraSleepData'), true);
 });
 
 test('iOS sleep chart omits axis title labels and centers summary legend', () => {
@@ -1303,7 +1314,8 @@ test('iOS Coach Tony P. exposes settings and title-first cards', () => {
   assert.ok(coach.includes('Do not encourage alcohol'));
   assert.ok(coach.includes('record(\n                category: "coach",\n                message: "\\(CoachBrand.name) local_ai_vetoed"'));
   assert.ok(coach.includes('if localAIVetoKey == narrationKey'));
-  assert.ok(coach.includes('if mode.allowsLocalModel, !mode.allowsTemplateFallback, narrationFailureKey != narrationKey'));
+  assert.ok(coach.includes('let narrationCandidates = visibleCandidates.filter(\\.allowsAINarration)'));
+  assert.ok(coach.includes('topCandidates.filter { !$0.allowsAINarration }'));
   assert.ok(coach.includes('private func isLocalAIProcessing(for candidates: [CoachSuggestion], mode: CoachMode, narrationKey: String) -> Bool'));
   assert.ok(coach.includes('isLocalAIProcessing: isLocalAIProcessing'));
   assert.ok(coach.includes('ProgressView()'));
@@ -1325,7 +1337,8 @@ test('iOS Coach Tony P. exposes settings and title-first cards', () => {
   assert.equal(coach.includes('/parse'), false);
   assert.ok(coach.includes('mode.allowsTemplateFallback ? topCandidates : []'));
   assert.ok(coach.includes('private struct AICoachPageIndicator'));
-  assert.ok(coach.includes('private func displayedSuggestions(from candidates: [CoachSuggestion], mode: CoachMode, narrationKey: String) -> [CoachSuggestion]'));
+  assert.ok(coach.includes('private func displayedSuggestions('));
+  assert.ok(coach.includes('narrationCandidates: [CoachSuggestion]'));
   assert.ok(coach.includes('let topCandidates = Array(candidates.prefix(3))'));
   assert.ok(coach.includes('DragGesture(minimumDistance: 24)'));
   assert.ok(coach.includes('AICoachPageIndicator('));

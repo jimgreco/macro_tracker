@@ -794,6 +794,143 @@ struct SleepEntriesResponse: Codable {
     let pagination: Pagination?
 }
 
+enum SleepTimelineOrigin: Sendable {
+    case app(SleepEntry)
+    case oura(OuraSleepSummary)
+}
+
+struct SleepTimelineSession: Identifiable, Sendable {
+    let id: String
+    let startedAt: Date
+    let origin: SleepTimelineOrigin
+
+    var isOura: Bool {
+        if case .oura = origin {
+            return true
+        }
+        return false
+    }
+}
+
+enum SleepTimelineBuilder {
+    static func sessions(
+        appEntries: [SleepEntry],
+        ouraSummaries: [OuraSleepSummary]
+    ) -> [SleepTimelineSession] {
+        let appSessions = appEntries.compactMap { entry -> SleepTimelineSession? in
+            guard let startedAt = parseTimestamp(entry.loggedAt) else { return nil }
+            return SleepTimelineSession(
+                id: "app-\(entry.id)",
+                startedAt: startedAt,
+                origin: .app(entry)
+            )
+        }
+        let ouraSessions = ouraSummaries.map { summary in
+            SleepTimelineSession(
+                id: "oura-\(summary.id)",
+                startedAt: summary.startedAt,
+                origin: .oura(summary)
+            )
+        }
+
+        return (appSessions + ouraSessions).sorted {
+            if $0.startedAt == $1.startedAt {
+                return $0.id < $1.id
+            }
+            return $0.startedAt > $1.startedAt
+        }
+    }
+
+    static func dailyTotals(
+        appTotals: [SleepDailyTotals],
+        ouraSummaries: [OuraSleepSummary],
+        calendar: Calendar? = nil
+    ) -> [SleepDailyTotals] {
+        struct Accumulator {
+            var totalHours: Double
+            var targetHours: Double?
+        }
+
+        let resolvedCalendar = calendar ?? defaultCalendar
+        var totalsByDay: [String: Accumulator] = [:]
+        for total in appTotals where total.totalHours.isFinite && total.totalHours > 0 {
+            let existing = totalsByDay[total.day]
+            totalsByDay[total.day] = Accumulator(
+                totalHours: (existing?.totalHours ?? 0) + total.totalHours,
+                targetHours: existing?.targetHours ?? total.targetHours
+            )
+        }
+
+        for summary in ouraSummaries where summary.durationHours.isFinite && summary.durationHours > 0 {
+            let day = normalizedDay(
+                summary.day,
+                fallback: summary.startedAt,
+                calendar: resolvedCalendar
+            )
+            let existing = totalsByDay[day]
+            totalsByDay[day] = Accumulator(
+                totalHours: (existing?.totalHours ?? 0) + summary.durationHours,
+                targetHours: existing?.targetHours
+            )
+        }
+
+        return totalsByDay
+            .map { day, accumulator in
+                SleepDailyTotals(
+                    day: day,
+                    totalHours: accumulator.totalHours,
+                    targetHours: accumulator.targetHours
+                )
+            }
+            .sorted { $0.day < $1.day }
+    }
+
+    private static var defaultCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York") ?? .current
+        return calendar
+    }
+
+    private static func normalizedDay(
+        _ day: String?,
+        fallback date: Date,
+        calendar: Calendar
+    ) -> String {
+        if let day, isValidDay(day, calendar: calendar) {
+            return day
+        }
+
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private static func isValidDay(_ value: String, calendar: Calendar) -> Bool {
+        guard value.range(
+            of: #"^\d{4}-\d{2}-\d{2}$"#,
+            options: .regularExpression
+        ) != nil else { return false }
+
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter.date(from: value) != nil
+    }
+
+    private static func parseTimestamp(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: value) {
+            return date
+        }
+        return ISO8601DateFormatter().date(from: value)
+    }
+}
+
 struct CoachDismissalRecord: Codable {
     let type: String
     let key: String
