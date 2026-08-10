@@ -239,6 +239,7 @@ struct CoachSuggestion: Identifiable, Sendable {
     let dismissalKey: String
     let expiresAt: Date
     let modelSource: CoachModelSource
+    let allowsAINarration: Bool
 
     func narrated(title: String, message: String) -> CoachSuggestion {
         CoachSuggestion(
@@ -253,7 +254,26 @@ struct CoachSuggestion: Identifiable, Sendable {
             primaryAction: primaryAction,
             dismissalKey: dismissalKey,
             expiresAt: expiresAt,
-            modelSource: .afmLocal
+            modelSource: .afmLocal,
+            allowsAINarration: allowsAINarration
+        )
+    }
+
+    func excludingAINarration() -> CoachSuggestion {
+        CoachSuggestion(
+            id: id,
+            surface: surface,
+            category: category,
+            priority: priority,
+            confidence: confidence,
+            title: title,
+            message: message,
+            evidence: evidence,
+            primaryAction: primaryAction,
+            dismissalKey: dismissalKey,
+            expiresAt: expiresAt,
+            modelSource: modelSource,
+            allowsAINarration: false
         )
     }
 }
@@ -477,9 +497,19 @@ struct AICoachSlot: View {
                 .filter { !CoachCategoryPreference.isDisabled($0, rawValue: disabledCategoryIDsRaw) }
                 .prefix(max(1, maximumSuggestions))
         )
-        let narrationKey = narrationTaskID(for: visibleCandidates, mode: mode)
-        let displayedSuggestions = displayedSuggestions(from: visibleCandidates, mode: mode, narrationKey: narrationKey)
-        let isLocalAIProcessing = isLocalAIProcessing(for: visibleCandidates, mode: mode, narrationKey: narrationKey)
+        let narrationCandidates = visibleCandidates.filter(\.allowsAINarration)
+        let narrationKey = narrationTaskID(for: narrationCandidates, mode: mode)
+        let displayedSuggestions = displayedSuggestions(
+            from: visibleCandidates,
+            narrationCandidates: narrationCandidates,
+            mode: mode,
+            narrationKey: narrationKey
+        )
+        let isLocalAIProcessing = isLocalAIProcessing(
+            for: narrationCandidates,
+            mode: mode,
+            narrationKey: narrationKey
+        )
         let suggestion = selectedSuggestion(from: displayedSuggestions)
 
         Group {
@@ -535,8 +565,8 @@ struct AICoachSlot: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .clipped()
-        .task(id: "\(isActive):\(narrationTaskID(for: visibleCandidates, mode: mode))") {
-            await refreshNarration(for: visibleCandidates, mode: mode)
+        .task(id: "\(isActive):\(narrationKey)") {
+            await refreshNarration(for: narrationCandidates, mode: mode)
         }
     }
 
@@ -589,13 +619,20 @@ struct AICoachSlot: View {
         }
     }
 
-    private func displayedSuggestions(from candidates: [CoachSuggestion], mode: CoachMode, narrationKey: String) -> [CoachSuggestion] {
+    private func displayedSuggestions(
+        from candidates: [CoachSuggestion],
+        narrationCandidates: [CoachSuggestion],
+        mode: CoachMode,
+        narrationKey: String
+    ) -> [CoachSuggestion] {
         guard mode != .off else { return [] }
         let topCandidates = Array(candidates.prefix(3))
         guard !topCandidates.isEmpty else { return [] }
 
         if localAIVetoKey == narrationKey {
-            return []
+            return mode.allowsTemplateFallback
+                ? topCandidates.filter { !$0.allowsAINarration }
+                : []
         }
 
         if let narratedSuggestion,
@@ -607,7 +644,9 @@ struct AICoachSlot: View {
             return [narratedSuggestion]
         }
 
-        if mode.allowsLocalModel, !mode.allowsTemplateFallback, narrationFailureKey != narrationKey {
+        if mode.allowsLocalModel,
+           !mode.allowsTemplateFallback,
+           (narrationCandidates.isEmpty || narrationFailureKey != narrationKey) {
             return []
         }
 
@@ -795,16 +834,25 @@ actor CoachCandidateWorker {
         workoutsTarget: Double,
         caloriesTarget: Double,
         sleepDailyTotals: [SleepDailyTotals],
-        sleepTargetHours: Double?
+        sleepTargetHours: Double?,
+        includesOuraSleepData: Bool = false,
+        now: Date = Date()
     ) -> [CoachSuggestion] {
-        CoachCandidateEngine.workouts(
+        let suggestions = CoachCandidateEngine.workouts(
             entries: entries,
             dailyCalories: dailyCalories,
             workoutsTarget: workoutsTarget,
             caloriesTarget: caloriesTarget,
             sleepDailyTotals: sleepDailyTotals,
-            sleepTargetHours: sleepTargetHours
+            sleepTargetHours: sleepTargetHours,
+            now: now
         )
+        guard includesOuraSleepData else { return suggestions }
+        return suggestions.map { suggestion in
+            suggestion.category == "recovery"
+                ? suggestion.excludingAINarration()
+                : suggestion
+        }
     }
 
     func weight(
@@ -824,9 +872,19 @@ actor CoachCandidateWorker {
     func sleep(
         entries: [SleepEntry],
         dailyTotals: [SleepDailyTotals],
-        targetHours: Double
+        targetHours: Double,
+        includesOuraData: Bool = false,
+        now: Date = Date()
     ) -> [CoachSuggestion] {
-        CoachCandidateEngine.sleep(entries: entries, dailyTotals: dailyTotals, targetHours: targetHours)
+        let suggestions = CoachCandidateEngine.sleep(
+            entries: entries,
+            dailyTotals: dailyTotals,
+            targetHours: targetHours,
+            now: now
+        )
+        return includesOuraData
+            ? suggestions.map { $0.excludingAINarration() }
+            : suggestions
     }
 }
 
@@ -855,7 +913,10 @@ actor CoachNarrationWorker {
         mode: CoachMode,
         key: String
     ) async -> CoachNarrationResult {
-        guard !Task.isCancelled, mode.allowsLocalModel, !candidates.isEmpty else {
+        guard !Task.isCancelled,
+              mode.allowsLocalModel,
+              !candidates.isEmpty,
+              candidates.allSatisfy(\.allowsAINarration) else {
             return .unavailable
         }
 
@@ -938,7 +999,11 @@ actor CoachNarrator {
     static let shared = CoachNarrator()
 
     func narrate(candidates: [CoachSuggestion]) async -> CoachNarrationResult {
-        guard !Task.isCancelled, !candidates.isEmpty else { return .unavailable }
+        guard !Task.isCancelled,
+              !candidates.isEmpty,
+              candidates.allSatisfy(\.allowsAINarration) else {
+            return .unavailable
+        }
 
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
@@ -995,7 +1060,11 @@ private enum FoundationCoachNarrator {
     private static let quarantinedOSBuilds = ["24A5380h"]
 
     static func narrate(candidates: [CoachSuggestion]) async -> CoachNarrationResult {
-        guard !Task.isCancelled, !isRuntimeQuarantined else { return .unavailable }
+        guard !Task.isCancelled,
+              !isRuntimeQuarantined,
+              candidates.allSatisfy(\.allowsAINarration) else {
+            return .unavailable
+        }
         let model = SystemLanguageModel.default
         guard model.isAvailable else { return .unavailable }
 
@@ -2707,7 +2776,8 @@ enum CoachCandidateEngine {
         evidence: [String],
         action: CoachAction?,
         dismissalKey: String,
-        modelSource: CoachModelSource = .ruleTemplate
+        modelSource: CoachModelSource = .ruleTemplate,
+        allowsAINarration: Bool = true
     ) -> CoachSuggestion {
         CoachSuggestion(
             id: id,
@@ -2721,7 +2791,8 @@ enum CoachCandidateEngine {
             primaryAction: action,
             dismissalKey: dismissalKey,
             expiresAt: endOfEasternDay(containing: Date()),
-            modelSource: modelSource
+            modelSource: modelSource,
+            allowsAINarration: allowsAINarration
         )
     }
 

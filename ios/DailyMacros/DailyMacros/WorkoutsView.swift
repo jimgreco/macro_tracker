@@ -9,6 +9,7 @@ struct WorkoutsView: View {
     @State private var workouts: [WorkoutEntry] = []
     @State private var dailyCalories: [WorkoutDailyCalories] = []
     @State private var sleepDailyTotals: [SleepDailyTotals] = []
+    @State private var includesOuraSleepData = false
     @State private var coachSuggestions: [CoachSuggestion] = []
     @State private var workoutText = ""
     @State private var parsedWorkout: ParseWorkoutResponse?
@@ -49,6 +50,19 @@ struct WorkoutsView: View {
     private let intensityOptions = ["low", "medium", "high"]
     private let logPageSize = 30
     private let logWorkoutSheetTopAnchor = "log-workout-sheet-top"
+
+    private var isOuraSleepReadEnabled: Bool {
+        guard let source = integrationDataAccess.source(id: "oura"),
+              source.connected,
+              source.available,
+              !source.needsAccessConfiguration,
+              let sleep = source.dataTypes.first(where: { $0.id == "sleep" }),
+              sleep.read.supported,
+              sleep.selection?.readEnabled == true else {
+            return false
+        }
+        return true
+    }
 
     var body: some View {
         NavigationStack {
@@ -980,6 +994,32 @@ struct WorkoutsView: View {
             let response = try await api.getSleepEntries(scope: "week", limit: 1)
             sleepDailyTotals = response.dailyTotals
         } catch { /* non-critical */ }
+
+        includesOuraSleepData = false
+        guard isOuraSleepReadEnabled else { return }
+
+        let endDate = isoDayString(Date())
+        let startDate = isoDayString(
+            workoutCalendar.date(byAdding: .day, value: -6, to: Date()) ?? Date()
+        )
+        do {
+            let sessions = try await api.getOuraDocuments(
+                dataType: "sleep",
+                startDate: startDate,
+                endDate: endDate,
+                limit: 500
+            )
+            let summaries = OuraSleepSummaryBuilder.build(
+                sleepDocuments: sessions.documents,
+                dailySleepDocuments: []
+            )
+            sleepDailyTotals = SleepTimelineBuilder.dailyTotals(
+                appTotals: sleepDailyTotals,
+                ouraSummaries: summaries,
+                calendar: workoutCalendar
+            )
+            includesOuraSleepData = !summaries.isEmpty
+        } catch { /* Oura recovery context is non-critical. */ }
     }
 
     private func rebuildCoachSuggestions() async {
@@ -989,13 +1029,15 @@ struct WorkoutsView: View {
         let caloriesTarget = caloriesTarget
         let sleepDailyTotals = sleepDailyTotals
         let sleepTargetHours = sleepTargetHours
+        let includesOuraSleepData = includesOuraSleepData
         let suggestions = await CoachCandidateWorker.shared.workouts(
             entries: workouts,
             dailyCalories: dailyCalories,
             workoutsTarget: workoutsTarget,
             caloriesTarget: caloriesTarget,
             sleepDailyTotals: sleepDailyTotals,
-            sleepTargetHours: sleepTargetHours
+            sleepTargetHours: sleepTargetHours,
+            includesOuraSleepData: includesOuraSleepData
         )
         guard !Task.isCancelled else { return }
         coachSuggestions = suggestions

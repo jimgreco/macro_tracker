@@ -122,6 +122,21 @@ struct HealthView: View {
         return true
     }
 
+    private var sleepTimelineSessions: [SleepTimelineSession] {
+        SleepTimelineBuilder.sessions(
+            appEntries: sleepEntries,
+            ouraSummaries: ouraSleepSummaries
+        )
+    }
+
+    private var combinedSleepDailyTotals: [SleepDailyTotals] {
+        SleepTimelineBuilder.dailyTotals(
+            appTotals: sleepDailyTotals,
+            ouraSummaries: ouraSleepSummaries,
+            calendar: healthCalendar
+        )
+    }
+
     private var modeAccent: Color {
         switch mode {
         case .sleep:
@@ -558,11 +573,6 @@ struct HealthView: View {
             }
 
             sleepChart
-
-            if isOuraSleepConnected {
-                ouraSleepSection
-            }
-
             sleepEntriesList
         }
     }
@@ -579,7 +589,7 @@ struct HealthView: View {
                 .foregroundStyle(AppVisualSystem.ColorToken.accent)
             }
 
-            if sleepDailyTotals.isEmpty {
+            if combinedSleepDailyTotals.isEmpty {
                 Text("No data for this period")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -592,9 +602,10 @@ struct HealthView: View {
                 .accessibilityLabel("Sleep chart with dates on the horizontal axis and hours on the vertical axis")
             }
 
-            if !sleepDailyTotals.isEmpty {
+            if !combinedSleepDailyTotals.isEmpty {
                 HStack(spacing: 16) {
-                    let avg = sleepDailyTotals.reduce(0.0) { $0 + $1.totalHours } / Double(sleepDailyTotals.count)
+                    let avg = combinedSleepDailyTotals.reduce(0.0) { $0 + $1.totalHours }
+                        / Double(combinedSleepDailyTotals.count)
                     HStack(spacing: 4) {
                         Rectangle().fill(.white.opacity(0.5)).frame(width: 16, height: 2)
                         Text(String(format: "Avg: %.1fh", avg))
@@ -617,7 +628,7 @@ struct HealthView: View {
     }
 
     private func drawSleepChart(context: GraphicsContext, size: CGSize) {
-        let data = sleepDailyTotals.sorted { $0.day < $1.day }
+        let data = combinedSleepDailyTotals
         guard !data.isEmpty else { return }
 
         let historicalTargets = data.compactMap(\.targetHours).filter { $0 > 0 }
@@ -784,38 +795,32 @@ struct HealthView: View {
         VStack(spacing: 8) {
             AppSectionHeader(
                 "Sleep Log",
-                subtitle: sleepEntries.isEmpty ? "No sleep logged" : "Recent recovery",
+                subtitle: sleepTimelineSubtitle,
                 systemImage: "moon.zzz.fill",
                 tint: AppVisualSystem.ColorToken.recovery
             )
 
-            if sleepEntries.isEmpty {
-                if isLoadingSleepPage {
+            if sleepTimelineSessions.isEmpty {
+                if isLoadingSleepPage || isLoadingOuraSleep {
                     ProgressView("Loading sleep...")
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                 } else {
-                    ContentUnavailableView("No Sleep Data", systemImage: "moon.zzz", description: Text("Tap + to log sleep."))
+                    ContentUnavailableView(
+                        "No Sleep Data",
+                        systemImage: "moon.zzz",
+                        description: Text(
+                            !isOuraSleepConnected
+                                ? "Tap + to log sleep."
+                                : isOuraSleepReadEnabled
+                                    ? "Tap + to log sleep, or sync your ring to Oura."
+                                    : "Tap + to log sleep, or enable Oura Sleep Read in Settings > Data Sources."
+                        )
+                    )
                 }
             } else {
-                ForEach(sleepEntries) { entry in
-                    SwipeToDeleteRow {
-                        Task { await deleteSleep(entry) }
-                    } content: {
-                        sleepEntryCard(entry)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                editSleepHours = sleepHoursEditText(for: entry)
-                                editSleepWakeUps = "\(entry.wakeUps)"
-                                editSleepQuality = sleepQualityEditText(for: entry)
-                                editSleepNotes = sleepNotesEditText(for: entry)
-                                editSleepDate = parseISO(entry.loggedAt)
-                                editingSleep = entry
-                            }
-                    }
-                    .onAppear {
-                        loadMoreSleepIfNeeded(current: entry)
-                    }
+                ForEach(sleepTimelineSessions) { session in
+                    sleepTimelineRow(session)
                 }
 
                 if isLoadingSleepPage {
@@ -824,6 +829,53 @@ struct HealthView: View {
                         .padding(.vertical, 12)
                 }
             }
+
+            if isOuraSleepConnected {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "lock.shield.fill")
+                        .accessibilityHidden(true)
+                    Text(ouraSleepFooter)
+                }
+                .font(.caption)
+                .foregroundStyle(AppVisualSystem.ColorToken.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
+    private var sleepTimelineSubtitle: String {
+        let count = sleepTimelineSessions.count
+        guard count > 0 else { return "No sleep logged" }
+        if ouraSleepSummaries.isEmpty {
+            return "Recent recovery"
+        }
+        return "\(count) recent session\(count == 1 ? "" : "s") · all sources"
+    }
+
+    @ViewBuilder
+    private func sleepTimelineRow(_ session: SleepTimelineSession) -> some View {
+        switch session.origin {
+        case .app(let entry):
+            SwipeToDeleteRow {
+                Task { await deleteSleep(entry) }
+            } content: {
+                sleepEntryCard(entry)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        editSleepHours = sleepHoursEditText(for: entry)
+                        editSleepWakeUps = "\(entry.wakeUps)"
+                        editSleepQuality = sleepQualityEditText(for: entry)
+                        editSleepNotes = sleepNotesEditText(for: entry)
+                        editSleepDate = parseISO(entry.loggedAt)
+                        editingSleep = entry
+                    }
+            }
+            .onAppear {
+                loadMoreSleepIfNeeded(current: entry)
+            }
+        case .oura(let summary):
+            ouraSleepCard(summary)
         }
     }
 
@@ -905,49 +957,6 @@ struct HealthView: View {
         return parts
     }
 
-    private var ouraSleepSection: some View {
-        VStack(spacing: 8) {
-            AppSectionHeader(
-                "Oura Sleep",
-                subtitle: ouraSleepSummaries.isEmpty
-                    ? "Read-only ring sessions"
-                    : "\(ouraSleepSummaries.count) recent session\(ouraSleepSummaries.count == 1 ? "" : "s")",
-                systemImage: "circle.circle.fill",
-                tint: AppVisualSystem.ColorToken.recovery
-            )
-
-            if isLoadingOuraSleep && ouraSleepSummaries.isEmpty {
-                ProgressView("Loading Oura sleep...")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-            } else if ouraSleepSummaries.isEmpty {
-                ContentUnavailableView(
-                    "No Oura Sleep Yet",
-                    systemImage: "circle.dashed",
-                    description: Text(
-                        isOuraSleepReadEnabled
-                            ? "Sync your ring to Oura, then tap the sync button here."
-                            : "Enable Oura Sleep Read in Settings > Data Sources."
-                    )
-                )
-            } else {
-                ForEach(ouraSleepSummaries) { summary in
-                    ouraSleepCard(summary)
-                }
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: "lock.shield.fill")
-                    .accessibilityHidden(true)
-                Text(ouraSleepFooter)
-            }
-            .font(.caption)
-            .foregroundStyle(AppVisualSystem.ColorToken.textTertiary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .combine)
-        }
-    }
-
     private func ouraSleepCard(_ summary: OuraSleepSummary) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "circle.circle.fill")
@@ -1025,7 +1034,10 @@ struct HealthView: View {
     }
 
     private var ouraSleepFooter: String {
-        let prefix = "Read-only Oura records stay separate from AI coaching."
+        guard isOuraSleepReadEnabled else {
+            return "Oura sleep is excluded while Sleep Read is off."
+        }
+        let prefix = "Oura is included in daily totals and rule-based \(CoachBrand.name) coaching, but never sent to AI models."
         guard let ouraSleepLastSyncedAt else { return prefix }
         return "\(prefix) Updated \(formatDate(ouraSleepLastSyncedAt))."
     }
@@ -1518,6 +1530,7 @@ struct HealthView: View {
     private func loadSleepSurface() async {
         await loadSleep(reset: true)
         await loadOuraSleep()
+        await rebuildSleepCoachSuggestions()
     }
 
     private func loadHealth(reset: Bool = true) async {
@@ -1578,7 +1591,7 @@ struct HealthView: View {
     }
 
     private func loadOuraSleep() async {
-        guard isOuraSleepConnected else {
+        guard isOuraSleepReadEnabled else {
             ouraSleepSummaries = []
             ouraSleepLastSyncedAt = nil
             return
@@ -1631,12 +1644,14 @@ struct HealthView: View {
 
     private func rebuildSleepCoachSuggestions() async {
         let sleepEntries = sleepEntries
-        let sleepDailyTotals = sleepDailyTotals
+        let sleepDailyTotals = combinedSleepDailyTotals
         let sleepTargetHours = sleepTargetHours
+        let includesOuraData = !ouraSleepSummaries.isEmpty
         let suggestions = await CoachCandidateWorker.shared.sleep(
             entries: sleepEntries,
             dailyTotals: sleepDailyTotals,
-            targetHours: sleepTargetHours
+            targetHours: sleepTargetHours,
+            includesOuraData: includesOuraData
         )
         guard !Task.isCancelled else { return }
         sleepCoachSuggestions = suggestions

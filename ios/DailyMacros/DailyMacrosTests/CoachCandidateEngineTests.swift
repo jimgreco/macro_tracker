@@ -65,6 +65,83 @@ final class CoachCandidateEngineTests: XCTestCase {
         )
     }
 
+    func testOuraSleepCanDriveRulesButCannotEnterAINarration() async throws {
+        let now = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-08-09T16:00:00Z")
+        )
+        let totals = (3...8).map { day in
+            SleepDailyTotals(
+                day: "2026-08-\(String(format: "%02d", day))",
+                totalHours: 6.5,
+                targetHours: 8
+            )
+        }
+
+        let suggestions = await CoachCandidateWorker.shared.sleep(
+            entries: [],
+            dailyTotals: totals,
+            targetHours: 8,
+            includesOuraData: true,
+            now: now
+        )
+
+        XCTAssertTrue(suggestions.contains { $0.id.hasPrefix("sleep-below-target-") })
+        XCTAssertTrue(suggestions.allSatisfy { !$0.allowsAINarration })
+    }
+
+    func testOuraRecoveryGuardrailIsRuleOnlyWithoutRestrictingOtherWorkoutRules() async throws {
+        let now = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-08-09T16:00:00Z")
+        )
+        let workouts = [
+            WorkoutEntry(
+                id: 1,
+                description: "Intervals",
+                intensity: "high",
+                durationHours: 0.75,
+                caloriesBurned: 450,
+                loggedAt: "2026-08-08T18:00:00-04:00",
+                source: "manual",
+                externalId: nil
+            ),
+            WorkoutEntry(
+                id: 2,
+                description: "Tempo run",
+                intensity: "high",
+                durationHours: 0.6,
+                caloriesBurned: 400,
+                loggedAt: "2026-08-07T18:00:00-04:00",
+                source: "manual",
+                externalId: nil
+            )
+        ]
+        let sleepTotals = (5...8).map { day in
+            SleepDailyTotals(
+                day: "2026-08-\(String(format: "%02d", day))",
+                totalHours: 6.5,
+                targetHours: 8
+            )
+        }
+
+        let suggestions = await CoachCandidateWorker.shared.workouts(
+            entries: workouts,
+            dailyCalories: [],
+            workoutsTarget: 0,
+            caloriesTarget: 0,
+            sleepDailyTotals: sleepTotals,
+            sleepTargetHours: 8,
+            includesOuraSleepData: true,
+            now: now
+        )
+
+        let recovery = suggestions.first { $0.category == "recovery" }
+        XCTAssertNotNil(recovery)
+        XCTAssertEqual(recovery?.allowsAINarration, false)
+        XCTAssertTrue(
+            suggestions.filter { $0.category != "recovery" }.allSatisfy(\.allowsAINarration)
+        )
+    }
+
     private func dashboard(previousDays: [DailyTotals]) -> DashboardResponse {
         DashboardResponse(
             currentDayTotals: totals(
