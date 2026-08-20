@@ -2,6 +2,22 @@ import XCTest
 @testable import DailyMacros
 
 final class IntegrationDataAccessTests: XCTestCase {
+    func testWorkoutPlannerNoResultsRemainVisibleWhenAppleHealthAccessIsOff() {
+        XCTAssertEqual(
+            workoutSyncResultMessages(
+                workoutPlannerMessage: "Workout Planner: No workouts found in Workout Planner.",
+                workoutPlannerError: nil,
+                appleHealthMessages: [
+                    "Apple Health: skipped because workout access is off."
+                ]
+            ),
+            [
+                "Workout Planner: No workouts found in Workout Planner.",
+                "Apple Health: skipped because workout access is off."
+            ]
+        )
+    }
+
     func testMatrixRowsUseFirstSourceOrderAndAlignSharedDataTypeIDs() {
         let supported = IntegrationDirectionCapability(supported: true, disabledReason: nil)
         let unsupportedWrite = IntegrationDirectionCapability(
