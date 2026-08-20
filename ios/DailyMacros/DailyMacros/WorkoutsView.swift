@@ -1,5 +1,21 @@
 import SwiftUI
 
+func workoutSyncResultMessages(
+    workoutPlannerMessage: String?,
+    workoutPlannerError: String?,
+    appleHealthMessages: [String]
+) -> [String] {
+    var messages = appleHealthMessages
+    if let workoutPlannerMessage {
+        messages.insert(workoutPlannerMessage, at: 0)
+    }
+    if let workoutPlannerError,
+       !workoutPlannerError.contains("Syncing requires a Google account") {
+        messages.append(workoutPlannerError)
+    }
+    return messages
+}
+
 struct WorkoutsView: View {
     @EnvironmentObject var api: APIClient
     @EnvironmentObject private var appNavigation: AppNavigationModel
@@ -1165,14 +1181,14 @@ struct WorkoutsView: View {
         isSyncing = true
         defer { isSyncing = false }
 
-        var syncMessages: [String] = []
+        var appleHealthMessages: [String] = []
         var workoutPlannerMessage: String?
         var workoutPlannerError: String?
 
         do {
             let response = try await api.syncWorkouts()
             if response.syncedCount > 0 {
-                syncMessages.append("Workout Planner: synced \(response.syncedCount) workout(s).")
+                workoutPlannerMessage = "Workout Planner: synced \(response.syncedCount) workout(s)."
             } else if let message = response.message {
                 workoutPlannerMessage = "Workout Planner: \(message)"
             }
@@ -1190,27 +1206,22 @@ struct WorkoutsView: View {
                     access: healthAccess
                 )
                 if healthResult.importedCount > 0 || healthResult.exportedCount > 0 {
-                    syncMessages.append("Apple Health: imported \(healthResult.importedCount), wrote \(healthResult.exportedCount).")
+                    appleHealthMessages.append("Apple Health: imported \(healthResult.importedCount), wrote \(healthResult.exportedCount).")
                 } else {
-                    syncMessages.append("Apple Health: no new workouts from the last 30 days.")
+                    appleHealthMessages.append("Apple Health: no new workouts from the last 30 days.")
                 }
             } catch {
-                syncMessages.append("Apple Health: \(error.localizedDescription)")
+                appleHealthMessages.append("Apple Health: \(error.localizedDescription)")
             }
         } else {
-            syncMessages.append("Apple Health workout access is off. Change it in Settings > Data Sources.")
+            appleHealthMessages.append("Apple Health: skipped because workout access is off.")
         }
 
-        if syncMessages.count == 1,
-           syncMessages.first == "Apple Health: no new workouts from the last 30 days.",
-           let workoutPlannerMessage {
-            syncMessages.insert(workoutPlannerMessage, at: 0)
-        }
-
-        if let workoutPlannerError,
-           !workoutPlannerError.contains("Syncing requires a Google account") {
-            syncMessages.append(workoutPlannerError)
-        }
+        let syncMessages = workoutSyncResultMessages(
+            workoutPlannerMessage: workoutPlannerMessage,
+            workoutPlannerError: workoutPlannerError,
+            appleHealthMessages: appleHealthMessages
+        )
 
         if !syncMessages.isEmpty {
             errorMessage = syncMessages.joined(separator: "\n")
