@@ -12,6 +12,10 @@ const DISCLOSURE_GROUPS = Object.freeze({
 });
 
 const DATA_INVENTORY = Object.freeze([
+  { table: 'progress_photos', scope: 'account', userColumn: 'user_id', disclosureGroup: 'health', accountDeletion: true, deleteOrder: 67,
+    export: { key: 'progressPhotos', columns: ['id','checkin_id','view','ready','created_at'], orderBy: 'created_at' } },
+  { table: 'progress_checkins', scope: 'account', userColumn: 'user_id', disclosureGroup: 'health', accountDeletion: true, deleteOrder: 68,
+    export: { key: 'progressCheckins', columns: ['id','day','notes','created_at','updated_at'], orderBy: 'day' } },
   {
     table: 'schema_migrations',
     scope: 'system',

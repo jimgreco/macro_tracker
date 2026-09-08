@@ -94,6 +94,7 @@ const fakeUser = {
 };
 
 const fakeDb = {
+  getPool: () => ({ query: async () => ({ rows: [] }) }),
   initDb: async () => {},
   checkDatabaseHealth: async () => ({ ok: true, latencyMs: 1 }),
   upsertUser: async (user) => ({ ...fakeUser, ...user }),

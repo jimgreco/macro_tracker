@@ -970,3 +970,21 @@ struct WaistResponse: Codable {
     let entries: [WaistEntry]
     let hasMore: Bool
 }
+
+struct ProgressCheckin: Codable, Identifiable {
+    struct Photo: Codable, Identifiable { let id: String; let view: String }
+    struct Waist: Codable { let valueCm: Double; let method: String; let day: String }
+    let id: String
+    let day: String
+    let notes: String
+    let averageWeight: Double?
+    let weightDays: Int
+    let waist: Waist?
+    let photos: [Photo]
+}
+struct ProgressCheckinsResponse: Codable {
+    let entries: [ProgressCheckin]
+    let hasMore: Bool
+    let photosConfigured: Bool
+}
+struct ProgressPhotoURL: Codable { let url: URL }

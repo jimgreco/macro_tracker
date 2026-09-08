@@ -55,3 +55,5 @@ HealthKit permissions are optional and controlled by the user at two layers. Dai
 - Coach Tony P. controls: web Account & Privacy and iOS Settings support coach mode/category controls and dismissal reset.
 - Support path: contact the inviter with request references and build metadata.
 - Public policy route: `/privacy`.
+
+Progress check-ins: optional user photos are account-linked user content stored in private S3 for app functionality. Photo selection uses the system picker; there is no full-library access. Images are stripped of metadata, are not sent to AI services, and are deleted with the photo/check-in/account. Check-in details are included in account exports; each photo has an export action.

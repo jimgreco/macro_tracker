@@ -6985,7 +6985,7 @@ function renderWorkoutCard(entry) {
 
 
 async function refreshWeightData(options = {}) {
-  if (options.reset !== false) void refreshWaistData();
+  if (options.reset !== false) { void refreshWaistData(); void refreshCheckins(); }
   if (!weightLogListEl) {
     return;
   }
@@ -8551,3 +8551,64 @@ function showWaistModal(entry = null) {
 }
 document.getElementById('log-waist-btn')?.addEventListener('click', () => showWaistModal());
 document.getElementById('waist-more-btn')?.addEventListener('click', () => { void refreshWaistData(true); });
+
+let checkinEntries = [];
+async function refreshCheckins(more = false) {
+  const list = document.getElementById('checkins-list');
+  if (!list) return;
+  try {
+    const result = await api(`/api/checkins?offset=${more ? checkinEntries.length : 0}`);
+    checkinEntries = more ? [...checkinEntries, ...result.entries] : result.entries;
+    document.getElementById('checkins-more').hidden = !result.hasMore;
+    document.getElementById('checkins-status').textContent = result.photosConfigured ? '' : 'Photo storage needs to be configured. You can still save check-in notes.';
+    list.replaceChildren();
+    if (!checkinEntries.length) list.textContent = 'Your first check-in establishes your starting point.';
+    for (const entry of checkinEntries) {
+      const card = document.createElement('article'); card.className = 'checkin-card';
+      const title = document.createElement('h3'); title.textContent = entry.day; card.append(title);
+      const stats = document.createElement('p');
+      stats.textContent = `${entry.averageWeight == null ? 'No weight readings' : Number(entry.averageWeight).toFixed(1) + ' lb average'} · ${entry.weightDays}/7 days` + (entry.waist ? ` · Waist ${(Number(entry.waist.valueCm)/2.54).toFixed(1)} in (${entry.waist.day}, ${entry.waist.method.replaceAll('_',' ')})` : ' · No waist reading this week');
+      card.append(stats);
+      const notes = document.createElement('p'); notes.textContent = entry.notes; card.append(notes);
+      const photos = document.createElement('div'); photos.className = 'checkin-photos'; card.append(photos);
+      for (const view of ['front','side','back']) {
+        const cell = document.createElement('div'); const label = document.createElement('strong'); label.textContent = view; cell.append(label);
+        const photo = entry.photos.find(p => p.view === view);
+        if (photo) {
+          const signed = await api(`/api/checkin-photos/${photo.id}`);
+          const img = document.createElement('img'); img.src = signed.url; img.alt = `${entry.day} ${view} progress photo`; img.referrerPolicy = 'no-referrer'; cell.append(img);
+          const download = document.createElement('button'); download.textContent = 'Export photo'; download.type = 'button';
+          download.onclick = async () => { try { const fresh = await api(`/api/checkin-photos/${photo.id}`); window.open(fresh.url, '_blank', 'noopener,noreferrer'); } catch(e) { alert(e.message); } }; cell.append(download);
+          const remove = document.createElement('button'); remove.textContent = 'Delete photo'; remove.type='button';
+          remove.onclick = async () => { if (!confirm('Permanently delete this photo?')) return; try { await api(`/api/checkin-photos/${photo.id}`, {method:'DELETE'}); await refreshCheckins(); } catch(e) { alert(e.message); } }; cell.append(remove);
+        }
+        const upload = document.createElement('input'); upload.type='file'; upload.accept='image/*'; upload.setAttribute('aria-label', `${photo ? 'Replace' : 'Add'} ${view} photo for ${entry.day}`); upload.disabled=!result.photosConfigured;
+        upload.onchange = async () => {
+          const file=upload.files[0]; if (!file) return;
+          upload.disabled=true;
+          try {
+            if (file.size>9*1024*1024) throw new Error('Choose a photo smaller than 9 MB.');
+            const base64=await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>resolve(r.result.split(',')[1]); r.onerror=reject; r.readAsDataURL(file); });
+            await api(`/api/checkins/${entry.id}/photos/${view}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({base64})});
+            await refreshCheckins();
+          } catch(e) { alert(e.message || 'Upload failed.'); upload.disabled=false; }
+        }; cell.append(upload); photos.append(cell);
+      }
+      const edit=document.createElement('button'); edit.textContent='Edit notes'; edit.onclick=()=>showCheckinModal(entry); card.append(edit);
+      const remove=document.createElement('button'); remove.textContent='Delete check-in'; remove.onclick=async()=>{ if (!confirm('Permanently delete this check-in and its photos?')) return; try { await api(`/api/checkins/${entry.id}`,{method:'DELETE'}); await refreshCheckins(); } catch(e) {alert(e.message);} }; card.append(remove);
+      list.append(card);
+    }
+  } catch(e) { document.getElementById('checkins-status').textContent=e.message; }
+}
+function showCheckinModal(entry) {
+  const dialog=document.createElement('dialog'); dialog.className='combine-modal';
+  dialog.innerHTML=`<form><h3>Progress check-in</h3><label>Date<input name="day" type="date" required></label><label>Notes<textarea name="notes" maxlength="2000" placeholder="How training feels, changes in technique, travel or anything to revisit"></textarea></label><p>Weight averages use daily averages from the seven days ending on this date. Waist uses the most recent reading in that window. Corrections to those logs update these values.</p><p role="alert"></p><div class="combine-modal-actions"><button type="button">Cancel</button><button type="submit">Save check-in</button></div></form>`;
+  dialog.querySelector('[name=day]').value=entry?.day || new Date().toLocaleDateString('en-CA',{timeZone:getTimezone()});
+  dialog.querySelector('[name=day]').disabled=Boolean(entry);
+  dialog.querySelector('[name=notes]').value=entry?.notes || '';
+  dialog.querySelector('button').onclick=()=>dialog.close(); dialog.onclose=()=>dialog.remove();
+  dialog.querySelector('form').onsubmit=async e=>{e.preventDefault(); const submit=dialog.querySelector('[type=submit]'); submit.disabled=true; try {await api('/api/checkins',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...(entry ? {id:entry.id} : {}),day:dialog.querySelector('[name=day]').value,notes:dialog.querySelector('[name=notes]').value})}); dialog.close(); await refreshCheckins();} catch(error){dialog.querySelector('[role=alert]').textContent=error.message;submit.disabled=false;} };
+  document.body.append(dialog); dialog.showModal();
+}
+document.getElementById('new-checkin-btn')?.addEventListener('click',()=>showCheckinModal());
+document.getElementById('checkins-more')?.addEventListener('click',()=>refreshCheckins(true));

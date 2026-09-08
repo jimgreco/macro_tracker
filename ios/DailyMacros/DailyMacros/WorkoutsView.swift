@@ -102,6 +102,13 @@ struct WorkoutsView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
             }
             .appScreenBackground(accent: AppVisualSystem.ColorToken.workout)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HStack {
+                    Label("Nutrition · Macrovana", systemImage: "leaf").fontWeight(.semibold)
+                    Spacer()
+                    Button("Training · Forge") { UIApplication.shared.open(URL(string: "forgeworkout://train")!, options: [:]) { opened in if !opened { DispatchQueue.main.async { UIApplication.shared.open(URL(string: "https://workout-planner.jim-greco.com")!) } } } }
+                }.font(.caption).padding(.horizontal, 16).padding(.vertical, 10)
+            }
             .navigationTitle("Workouts")
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
