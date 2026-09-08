@@ -1,3 +1,5 @@
+let waistEntries = [];
+let waistLoading = false;
 const state = {
   parsedMeal: null,
   savedItems: [],
@@ -6983,6 +6985,7 @@ function renderWorkoutCard(entry) {
 
 
 async function refreshWeightData(options = {}) {
+  if (options.reset !== false) void refreshWaistData();
   if (!weightLogListEl) {
     return;
   }
@@ -8467,3 +8470,84 @@ if (adminPageBtnEl) {
     window.location.href = '/admin';
   });
 }
+
+
+async function refreshWaistData(more = false) {
+  const list = document.getElementById('waist-list');
+  if (!list || waistLoading) return;
+  waistLoading = true;
+  try {
+    const result = await api(`/api/waist?tz=${encodeURIComponent(getTimezone())}&offset=${more ? waistEntries.length : 0}`);
+    waistEntries = more ? appendUniqueById(waistEntries, result.entries) : result.entries;
+    list.replaceChildren();
+    if (!waistEntries.length) list.textContent = 'No waist measurements yet.';
+    for (const entry of waistEntries) {
+      const row = document.createElement('button');
+      row.type = 'button'; row.className = 'btn-muted';
+      const average = entry.valueCm / (entry.unit === 'in' ? 2.54 : 1);
+      row.textContent = `${entry.day} · ${average.toFixed(1)} ${entry.unit} · ${entry.method === 'navel_relaxed' ? 'At navel, relaxed' : 'Midpoint, relaxed'} · Edit`;
+      row.addEventListener('click', () => showWaistModal(entry));
+      list.append(row);
+    }
+    document.getElementById('waist-more-btn').hidden = !result.hasMore;
+    document.getElementById('waist-status').textContent = '';
+  } catch (error) { document.getElementById('waist-status').textContent = error.message; }
+  finally { waistLoading = false; }
+}
+function showWaistModal(entry = null) {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'combine-modal entry-modal';
+  dialog.style.maxWidth = 'min(480px, 92vw)';
+  dialog.style.maxHeight = '90dvh';
+  dialog.style.overflowY = 'auto';
+  dialog.setAttribute('aria-labelledby', 'waist-modal-title');
+  dialog.innerHTML = `<form>
+    <h3 id="waist-modal-title">${entry ? 'Edit' : 'Log'} waist</h3>
+    <label for="waist-time">Date and time</label><input id="waist-time" type="datetime-local" required value="${escapeAttr(isoToLocalInputValue(entry?.loggedAt || new Date().toISOString()))}" />
+    <label for="waist-unit">Unit</label><select id="waist-unit"><option value="in">Inches</option><option value="cm">Centimeters</option></select>
+    <label for="waist-first">First reading</label><input id="waist-first" type="number" step="any" min="0.01" required value="${escapeAttr(entry?.readings[0] ?? '')}" />
+    <label for="waist-second">Second reading (optional)</label><input id="waist-second" type="number" step="any" min="0.01" value="${escapeAttr(entry?.readings[1] ?? '')}" />
+    <p>Readings use the selected unit. Changing units does not convert entered values.</p>
+    <label for="waist-method">Landmark</label><select id="waist-method"><option value="navel_relaxed">At navel, relaxed</option><option value="midpoint_relaxed">Between lowest rib and hip, relaxed</option></select>
+    <label for="waist-notes">Notes (optional)</label><input id="waist-notes" maxlength="300" value="${escapeAttr(entry?.notes || '')}" />
+    <p id="waist-error" role="alert"></p>
+    <div class="combine-modal-actions"><button type="button" id="waist-cancel">Cancel</button>${entry ? '<button type="button" id="waist-delete" class="btn-danger">Delete</button>' : ''}<button type="submit">Save</button></div>
+  </form>`;
+  document.body.append(dialog);
+  dialog.querySelector('#waist-unit').value = entry?.unit || waistEntries[0]?.unit || 'in';
+  dialog.querySelector('#waist-method').value = entry?.method || waistEntries[0]?.method || 'navel_relaxed';
+  let busy = false;
+  const close = () => { if (!busy) dialog.close(); };
+  dialog.addEventListener('cancel', e => { if (busy) e.preventDefault(); });
+  dialog.addEventListener('close', () => dialog.remove());
+  dialog.querySelector('#waist-cancel').addEventListener('click', close);
+  // Keep an id across retries of the same body after an uncertain network response.
+  let lastBody; let mutationId;
+  async function submit(method, payload) {
+    if (busy) return;
+    const body = payload ? JSON.stringify(payload) : undefined;
+    const signature = method + (body || '');
+    if (signature !== lastBody) { mutationId = crypto.randomUUID(); lastBody = signature; }
+    busy = true;
+    dialog.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    try {
+      await api(`/api/waist${entry ? `/${entry.id}` : ''}`, { method, body, headers: { 'Content-Type': 'application/json', 'X-Client-Mutation-Id': mutationId } });
+      busy = false; dialog.close(); await refreshWaistData();
+    } catch (error) { dialog.querySelector('#waist-error').textContent = error.message; }
+    finally { busy = false; dialog.querySelectorAll('button').forEach(b => { b.disabled = false; }); }
+  }
+  dialog.querySelector('form').addEventListener('submit', e => {
+    e.preventDefault();
+    const value = id => dialog.querySelector(id).value;
+    const readings = [value('#waist-first'), value('#waist-second')].filter(v => v !== '').map(Number);
+    const time = new Date(value('#waist-time'));
+    if (!Number.isFinite(time.getTime())) return;
+    void submit(entry ? 'PUT' : 'POST', { readings, unit: value('#waist-unit'), method: value('#waist-method'), notes: value('#waist-notes'), loggedAt: time.toISOString() });
+  });
+  dialog.querySelector('#waist-delete')?.addEventListener('click', () => {
+    if (confirm('Delete this waist measurement?')) void submit('DELETE');
+  });
+  dialog.showModal();
+}
+document.getElementById('log-waist-btn')?.addEventListener('click', () => showWaistModal());
+document.getElementById('waist-more-btn')?.addEventListener('click', () => { void refreshWaistData(true); });

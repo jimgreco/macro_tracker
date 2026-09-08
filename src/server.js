@@ -64,6 +64,9 @@ const {
   getMacroTargets,
   getMacroTargetHistory,
   setMacroTarget,
+  saveWaistEntry,
+  listWaistEntries,
+  deleteWaistEntry,
   addWeightEntry,
   updateWeightEntry,
   deleteWeightEntry,
@@ -3374,23 +3377,18 @@ apiRouter.post('/sync-workouts', async (req, res) => {
     // Past 30 days filter
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const filteredLogs = logs.filter(l => new Date(l.date) >= thirtyDaysAgo);
+    const filteredLogs = logs.filter(l =>
+      (!l.status || l.status === 'finished') && (l.id || l._id || l.uuid)
+      && new Date(l.startTime || l.date) >= thirtyDaysAgo);
 
     if (filteredLogs.length === 0) {
       return res.json({ message: 'No workouts found from the last 30 days.', syncedCount: 0 });
     }
 
-    // Get existing workouts from PG to avoid duplicates
-    const existingResult = await listWorkoutEntries(userId, { limit: 100, scope: 'month' });
-    const existingDates = new Set(existingResult.entries.map(e => e.loggedAt.slice(0, 10)));
-
+    // addWorkoutEntry deduplicates by source/external ID, including user-deleted tombstones.
+    // A calendar day can legitimately contain multiple sessions.
     let syncedCount = 0;
     for (const log of filteredLogs) {
-      const logDate = log.date.slice(0, 10);
-      if (existingDates.has(logDate)) {
-        continue;
-      }
-
       // Format log for ChatGPT
       const items = log.exerciseItems || log.items || [];
       const exerciseSummary = items.map(item => {
@@ -3780,6 +3778,24 @@ apiRouter.put('/macro-targets/:macro', async (req, res) => {
 });
 
 
+
+apiRouter.get('/waist', async (req, res) => {
+  try { res.json(await listWaistEntries(userIdFromReq(req), { timezone: requestTimezone(req), offset: normalizeOffset(req.query.offset) })); }
+  catch (error) { res.status(400).json({ error: error.message }); }
+});
+for (const method of ['post', 'put', 'delete']) {
+  apiRouter[method](method === 'post' ? '/waist' : '/waist/:id', async (req, res) => {
+    try {
+      const id = method === 'post' ? null : Number(req.params.id);
+      if (method !== 'post' && (!Number.isSafeInteger(id) || id <= 0)) return res.status(400).json({ error: 'Invalid waist measurement id.' });
+      const userId = userIdFromReq(req);
+      const result = method === 'delete' ? await deleteWaistEntry(userId, id) : await saveWaistEntry(userId, req.body || {}, id);
+      if (!result) return res.status(404).json({ error: 'Waist measurement not found.' });
+      logAudit(userId, method === 'post' ? 'create' : method === 'put' ? 'update' : 'delete', 'waist_entry', String(id || result.id));
+      res.json({ ok: true, ...(method === 'delete' ? {} : result) });
+    } catch (error) { res.status(400).json({ error: error.message }); }
+  });
+}
 
 apiRouter.get('/weights', async (req, res) => {
   try {

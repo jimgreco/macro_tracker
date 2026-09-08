@@ -1,9 +1,9 @@
-const DATA_INVENTORY_VERSION = '2026-07-31';
+const DATA_INVENTORY_VERSION = '2026-09-08';
 
 const DISCLOSURE_GROUPS = Object.freeze({
   account: 'Account details',
   nutrition: 'Nutrition data',
-  health: 'Workout, weight, sleep, and wellness entries',
+  health: 'Workout, weight, waist measurements, sleep, and wellness entries',
   coaching: 'Coach Tony P.',
   billing: 'Subscription and billing state',
   authentication: 'Authentication and security records',
@@ -166,6 +166,11 @@ const DATA_INVENTORY = Object.freeze([
       columns: ['macro', 'target', 'effective_date', 'updated_at'],
       orderBy: 'effective_date DESC, macro'
     }
+  },
+  {
+    table: 'waist_entries', scope: 'account', userColumn: 'user_id', disclosureGroup: 'health',
+    accountDeletion: true, deleteOrder: 69,
+    export: { key: 'waistEntries', columns: ['id', 'readings', 'unit', 'method', 'value_cm', 'notes', 'logged_at', 'created_at', 'updated_at', 'deleted_at'], orderBy: 'logged_at DESC, id DESC' }
   },
   {
     table: 'weight_entries',

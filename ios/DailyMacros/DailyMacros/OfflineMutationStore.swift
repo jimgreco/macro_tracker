@@ -4,6 +4,7 @@ enum PendingMutationKind: String, Codable {
     case meal
     case quickAdd = "quick_add"
     case weight
+    case waist
     case workout
     case sleep
     case sexualActivity = "sexual_activity"

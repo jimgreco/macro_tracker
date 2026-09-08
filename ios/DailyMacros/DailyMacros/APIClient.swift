@@ -981,6 +981,28 @@ class APIClient: ObservableObject {
         )
     }
 
+    func getWaist(offset: Int = 0) async throws -> WaistResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled { return WaistResponse(entries: [], hasMore: false) }
+        #endif
+        var components = URLComponents(url: apiURL("/waist"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [.init(name: "offset", value: String(offset))]
+        return try await perform(authorizedRequest(components.url!))
+    }
+
+    func saveWaist(id: Int?, readings: [Double], unit: String, method: String, notes: String, loggedAt: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["readings": readings, "unit": unit, "method": method, "notes": notes, "loggedAt": loggedAt])
+        let _: OkResponse = try await performReplayableMutation(
+            path: id.map { "/waist/\($0)" } ?? "/waist", method: id == nil ? "POST" : "PUT", body: body,
+            kind: .waist, queuedResponse: OkResponse(ok: true)
+        )
+    }
+
+    func deleteWaist(id: Int) async throws {
+        let _: OkResponse = try await performReplayableMutation(path: "/waist/\(id)", method: "DELETE", body: nil,
+            kind: .waist, queuedResponse: OkResponse(ok: true))
+    }
+
     func getWeightTarget() async throws -> WeightTarget {
         #if DEBUG
         if ScreenshotSeedData.isEnabled {

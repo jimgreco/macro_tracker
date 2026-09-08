@@ -2,13 +2,13 @@
 
 Last updated: July 31, 2026
 
-DailyMacros is a private friends and family beta for nutrition, workout, weight, sleep, and wellness tracking. The public policy is served by the app at `/privacy`; this Markdown copy exists so privacy and App Store review details can be reviewed in the repo.
+DailyMacros is a private friends and family beta for nutrition, workout, weight, waist measurements, sleep, and wellness tracking. The public policy is served by the app at `/privacy`; this Markdown copy exists so privacy and App Store review details can be reviewed in the repo.
 
 ## Data Collected
 
 - Account details from sign-in providers, such as name, email address, provider identifiers, and profile image when provided.
 - Nutrition data, saved foods, meal groups, macro targets, meal text, barcode lookups, and meal photos submitted for parsing.
-- Workout, weight, sleep, and wellness entries. If Oura is connected, this includes Oura sleep, readiness, activity, stress, resilience, bedtime-guidance, and optional workout aggregates. Sexual activity entries are available only when enabled for an account.
+- Workout, weight, waist measurements, sleep, and wellness entries. If Oura is connected, this includes Oura sleep, readiness, activity, stress, resilience, bedtime-guidance, and optional workout aggregates. Sexual activity entries are available only when enabled for an account.
 - Subscription and billing state from Stripe when paid features are enabled.
 - Authentication and security records such as API credential metadata, browser-session metadata, audit events, and request references needed to secure and support the service.
 - Operational usage records such as per-feature daily usage limits and replay-safe mutation metadata needed to run the service.

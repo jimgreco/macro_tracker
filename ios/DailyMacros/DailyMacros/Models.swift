@@ -953,3 +953,20 @@ struct AppleSignInResponse: Codable {
     let token: String
     let user: AppleSignInUser
 }
+
+struct WaistEntry: Codable, Identifiable {
+    let id: Int
+    let readings: [Double]
+    let unit: String
+    let method: String
+    let valueCm: Double
+    let notes: String
+    let loggedAt: String
+    let day: String
+    var average: Double { valueCm / (unit == "in" ? 2.54 : 1) }
+    var methodLabel: String { method == "navel_relaxed" ? "At navel, relaxed" : "Midpoint, relaxed" }
+}
+struct WaistResponse: Codable {
+    let entries: [WaistEntry]
+    let hasMore: Bool
+}
