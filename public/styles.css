@@ -5836,3 +5836,15 @@ button[disabled] {
     width: 100%;
   }
 }
+
+.checkin-card { border-top: 1px solid var(--line); padding: 20px 0; }
+.checkin-photos { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; margin: 16px 0; }
+.checkin-photos > div { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.checkin-photos img { width: 100%; aspect-ratio: 3/4; object-fit: contain; border-radius: 14px; background: var(--bg); }
+.checkin-photos input { max-width: 100%; }
+@media(max-width:600px) { .checkin-photos { grid-template-columns: 1fr; } }
+
+.companion-switch { display:inline-flex;align-items:center;gap:4px;padding:4px;border:1px solid var(--line);border-radius:14px;background:var(--panel);font-size:12px; }
+.companion-switch a,.companion-switch span {padding:7px 10px;border-radius:10px;text-decoration:none;color:var(--text-secondary);}
+.companion-switch [aria-current] {background:var(--surface-hover);color:var(--text);font-weight:700;}
+.brand-lockup {flex-wrap:wrap;}

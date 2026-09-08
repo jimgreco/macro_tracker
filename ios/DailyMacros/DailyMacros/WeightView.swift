@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct WeightView: View {
     @EnvironmentObject var api: APIClient
@@ -53,6 +54,7 @@ struct WeightView: View {
                     chartView
                     entriesList
                     WaistMeasurementsView()
+                    ProgressCheckinsView()
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .top)
@@ -1185,5 +1187,134 @@ private struct WaistMeasurementsView: View {
             message = OfflineMutationStore.shared.pendingCount > 0 ? "Saved on this device. Pending changes will appear after syncing." : "Measurement saved."
             await load()
         } catch { self.error = error.localizedDescription }
+    }
+}
+
+
+private struct ProgressCheckinsView: View {
+    @EnvironmentObject var api: APIClient
+    @State private var entries: [ProgressCheckin] = []
+    @State private var hasMore = false
+    @State private var configured = false
+    @State private var editor = false
+    @State private var editing = false
+    @State private var editingId: String?
+    @State private var day = Date()
+    @State private var notes = ""
+    @State private var error: String?
+    @State private var busy = false
+    @State private var deleting: ProgressCheckin?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack { Text("Progress check-ins").font(.headline); Spacer(); Button("Add") { editing = false; editingId = nil; day = Date(); notes = ""; editor = true } }
+            Text("Same lighting, distance and pose each time. Photos are private; export them for your progress reviews.").font(.caption).foregroundStyle(.secondary)
+            if let error { Text(error).font(.caption).foregroundStyle(.red) }
+            if entries.isEmpty { Text("Your first check-in establishes your starting point.").foregroundStyle(.secondary) }
+            ForEach(entries) { entry in
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(entry.day).font(.headline)
+                    Text(entry.averageWeight.map { String(format: "%.1f lb average · %d/7 days", $0, entry.weightDays) } ?? "No weight readings this week").font(.subheadline)
+                    if let waist = entry.waist { Text(String(format: "Waist %.1f in · %@ · %@", waist.valueCm / 2.54, waist.day, waist.method.replacingOccurrences(of: "_", with: " "))).font(.caption).foregroundStyle(.secondary) }
+                    if !entry.notes.isEmpty { Text(entry.notes) }
+                    ForEach(["front", "side", "back"], id: \.self) { view in
+                        ProgressPhotoCell(checkin: entry.id, view: view, photo: entry.photos.first { $0.view == view }, configured: configured) { Task { await load() } }
+                    }
+                    HStack {
+                        Button("Edit notes") { editing = true; editingId = entry.id; day = Self.formatter.date(from: entry.day) ?? Date(); notes = entry.notes; editor = true }
+                        Spacer()
+                        Button("Delete", role: .destructive) { deleting = entry }
+                    }
+                }.padding(.vertical, 12)
+                Divider()
+            }
+            Button("Refresh check-ins") { Task { await load() } }.disabled(busy)
+            if hasMore { Button("Older check-ins") { Task { await load(more: true) } }.disabled(busy) }
+        }.padding().appSurface()
+        .task { await load() }
+        .sheet(isPresented: $editor) {
+            NavigationStack {
+                Form {
+                    DatePicker("Date", selection: $day, displayedComponents: .date).disabled(editing)
+                    TextField("Notes for your next review", text: $notes, axis: .vertical).lineLimit(4...10)
+                    Text("Weight averages use daily averages over the seven days ending on this date. Waist uses the most recent reading in that window. Corrections update these values.").font(.caption)
+                    if let error { Text(error).foregroundStyle(.red) }
+                }.navigationTitle("Check-in").toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { editor = false }.disabled(busy) }
+                    ToolbarItem(placement: .confirmationAction) { Button("Save") { Task {
+                        busy = true; defer { busy = false }
+                        do { try await api.saveCheckin(id: editingId, day: Self.formatter.string(from: day), notes: notes); editor = false; await load() }
+                        catch { self.error = error.localizedDescription }
+                    } }.disabled(busy || notes.count > 2000) }
+                }
+            }
+        }
+        .alert("Delete this check-in and its photos?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button("Delete", role: .destructive) { if let item = deleting { Task { do { try await api.deleteCheckin(id: item.id); await load() } catch { self.error = error.localizedDescription } } } }
+            Button("Cancel", role: .cancel) { deleting = nil }
+        }
+    }
+    static var formatter: DateFormatter { let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"; return f }
+    @MainActor private func load(more: Bool = false) async {
+        do { let result = try await api.getCheckins(offset: more ? entries.count : 0); entries = more ? entries + result.entries : result.entries; hasMore = result.hasMore; configured = result.photosConfigured; error = nil }
+        catch { self.error = error.localizedDescription }
+    }
+}
+
+private struct ProgressPhotoCell: View {
+    @EnvironmentObject var api: APIClient
+    let checkin: String
+    let view: String
+    let photo: ProgressCheckin.Photo?
+    let configured: Bool
+    let refresh: () -> Void
+    @State private var selection: PhotosPickerItem?
+    @State private var image: UIImage?
+    @State private var exportURL: URL?
+    @State private var error: String?
+    @State private var busy = false
+    @State private var deleting = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(view.capitalized).font(.subheadline.weight(.semibold))
+            if let image { Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 280).clipShape(RoundedRectangle(cornerRadius: 14)) }
+            HStack {
+                PhotosPicker(selection: $selection, matching: .images) { Label(photo == nil ? "Add photo" : "Replace photo", systemImage: "photo") }.disabled(!configured || busy)
+                if let photo {
+                    Button("Export") { Task { do {
+                        let url = try await api.progressPhotoURL(id: photo.id)
+                        let (data, _) = try await URLSession.shared.data(from: url)
+                        let file = FileManager.default.temporaryDirectory.appendingPathComponent("progress-\(photo.id).jpg")
+                        try data.write(to: file, options: [.atomic, .completeFileProtection]); exportURL = file
+                    } catch { self.error = error.localizedDescription } } }
+                    Button(role: .destructive) { deleting = true } label: { Image(systemName: "trash") }.accessibilityLabel("Delete \(view) photo")
+                }
+            }.font(.caption)
+            if let exportURL { ShareLink("Share photo", item: exportURL) }
+            if busy { ProgressView("Saving photo…") }
+            if !configured { Text("Photo storage has not been configured.").font(.caption).foregroundStyle(.secondary) }
+            if let error { Text(error).font(.caption).foregroundStyle(.red) }
+        }
+        .task(id: photo?.id) { guard let photo else { image = nil; return }; do { let url = try await api.progressPhotoURL(id: photo.id); var request = URLRequest(url: url); request.cachePolicy = .reloadIgnoringLocalCacheData; let (data, _) = try await URLSession.shared.data(for: request); image = UIImage(data: data) } catch { self.error = error.localizedDescription } }
+        .onDisappear { if let exportURL { try? FileManager.default.removeItem(at: exportURL) } }
+        .onChange(of: selection) { _, value in
+            guard let value else { return }
+            Task {
+                busy = true; defer { busy = false; selection = nil }
+                do {
+                    guard let data = try await value.loadTransferable(type: Data.self), let source = UIImage(data: data) else { throw URLError(.cannotDecodeContentData) }
+                    let scale = min(1, 1800 / max(source.size.width, source.size.height))
+                    let size = CGSize(width: source.size.width * scale, height: source.size.height * scale)
+                    let format = UIGraphicsImageRendererFormat(); format.scale = 1
+                    let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in source.draw(in: CGRect(origin: .zero, size: size)) }
+                    guard let jpeg = resized.jpegData(compressionQuality: 0.85) else { throw URLError(.cannotDecodeContentData) }
+                    try await api.saveProgressPhoto(checkin: checkin, view: view, data: jpeg)
+                    image = resized; error = nil; refresh()
+                } catch { self.error = error.localizedDescription }
+            }
+        }
+        .alert("Permanently delete this photo?", isPresented: $deleting) {
+            Button("Delete", role: .destructive) { if let photo { Task { do { try await api.deleteProgressPhoto(id: photo.id); image = nil; refresh() } catch { self.error = error.localizedDescription } } } }
+            Button("Cancel", role: .cancel) { }
+        }
     }
 }

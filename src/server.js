@@ -3779,6 +3779,32 @@ apiRouter.put('/macro-targets/:macro', async (req, res) => {
 
 
 
+const checkinService = require('./checkins').createCheckinService(getPool());
+apiRouter.get('/checkins', async (req,res) => {
+  try { res.set('Cache-Control','no-store').json(await checkinService.list(userIdFromReq(req), requestTimezone(req), req.query.offset)); }
+  catch { res.status(400).json({ error: 'Unable to load check-ins.' }); }
+});
+apiRouter.post('/checkins', async (req,res) => {
+  try { res.json(await checkinService.save(userIdFromReq(req), req.body)); }
+  catch (error) { res.status(400).json({ error: error.message }); }
+});
+apiRouter.put('/checkins/:id/photos/:view', async (req,res) => {
+  try { res.json(await checkinService.putPhoto(userIdFromReq(req), req.params.id, req.params.view, req.body.base64)); }
+  catch { res.status(400).json({ error: 'Unable to save photo. Use a supported image under 9 MB and check storage configuration.' }); }
+});
+apiRouter.get('/checkin-photos/:id', async (req,res) => {
+  try { res.set('Cache-Control','no-store').json(await checkinService.photoURL(userIdFromReq(req), req.params.id)); }
+  catch { res.status(404).json({ error: 'Photo unavailable.' }); }
+});
+apiRouter.delete('/checkin-photos/:id', async (req,res) => {
+  try { await checkinService.deletePhoto(userIdFromReq(req),req.params.id); res.json({ok:true}); }
+  catch { res.status(400).json({error:'Unable to delete photo. Please retry.'}); }
+});
+apiRouter.delete('/checkins/:id', async (req,res) => {
+  try { await checkinService.delete(userIdFromReq(req),req.params.id); res.json({ok:true}); }
+  catch { res.status(400).json({error:'Unable to delete check-in. Please retry.'}); }
+});
+
 apiRouter.get('/waist', async (req, res) => {
   try { res.json(await listWaistEntries(userIdFromReq(req), { timezone: requestTimezone(req), offset: normalizeOffset(req.query.offset) })); }
   catch (error) { res.status(400).json({ error: error.message }); }
@@ -4562,7 +4588,10 @@ apiRouter.delete('/account', async (req, res) => {
         message: safeErrorMessage(error)
       });
     }
-    await deleteUserAccount(userId);
+    await checkinService.lock(userId, async client => {
+      await checkinService.removePhotos(client, userId);
+      await deleteUserAccount(userId);
+    });
     req.logout(() => {
       req.session.destroy(() => {
         res.json({ ok: true });

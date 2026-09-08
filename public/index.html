@@ -22,7 +22,8 @@
       <header class="topbar">
         <div class="brand-lockup">
           <img class="brand-logo" src="/logo-mark.svg" alt="" aria-hidden="true" />
-          <span class="brand-wordmark">DailyMacros</span>
+          <span class="brand-wordmark">Macrovana</span>
+          <div class="companion-switch" aria-label="Companion apps"><span aria-current="page">Nutrition</span><a href="https://workout-planner.jim-greco.com">Training</a></div>
         </div>
         <nav class="main-nav" aria-label="App navigation">
           <button type="button" class="nav-tab is-active" data-page="today">
@@ -565,6 +566,12 @@
           <button id="waist-more-btn" type="button" hidden>Load older measurements</button>
         </section>
 
+        <section class="panel glass" aria-labelledby="checkins-heading">
+          <div class="section-head-row"><h2 id="checkins-heading">Progress check-ins</h2><button id="new-checkin-btn" type="button">New check-in</button></div>
+          <p>Front, side and back in consistent lighting. Your photos stay private. Review these alongside your original Macrovana and Forge exports.</p>
+          <p id="checkins-status" role="status"></p><div id="checkins-list"></div>
+          <button id="checkins-more" type="button" hidden>Older check-ins</button>
+        </section>
         <section id="weight-snapshot-section" class="panel glass">
           <div class="snapshot-header">
             <h2 id="weight-snapshot-heading">Weekly Snapshot</h2>

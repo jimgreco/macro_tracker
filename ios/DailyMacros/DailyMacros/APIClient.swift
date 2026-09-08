@@ -981,6 +981,43 @@ class APIClient: ObservableObject {
         )
     }
 
+    func getCheckins(offset: Int = 0) async throws -> ProgressCheckinsResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled { return ProgressCheckinsResponse(entries: [], hasMore: false, photosConfigured: true) }
+        #endif
+        var components = URLComponents(url: apiURL("/checkins"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [.init(name: "offset", value: String(offset))]
+        return try await perform(authorizedRequest(components.url!))
+    }
+    func saveCheckin(id: String?, day: String, notes: String) async throws {
+        var request = try authorizedRequest(apiURL("/checkins"))
+        request.httpMethod = "POST"
+        var body = ["day": day, "notes": notes]
+        if let id { body["id"] = id }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        struct Saved: Decodable { let id: String }
+        let _: Saved = try await perform(request)
+    }
+    func saveProgressPhoto(checkin: String, view: String, data: Data) async throws {
+        var request = try authorizedRequest(apiURL("/checkins/\(checkin)/photos/\(view)"))
+        request.httpMethod = "PUT"
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["base64": data.base64EncodedString()])
+        struct Saved: Decodable { let id: String }
+        let _: Saved = try await perform(request)
+    }
+    func progressPhotoURL(id: String) async throws -> URL {
+        let result: ProgressPhotoURL = try await perform(authorizedRequest(apiURL("/checkin-photos/\(id)")))
+        return result.url
+    }
+    func deleteProgressPhoto(id: String) async throws {
+        var request = try authorizedRequest(apiURL("/checkin-photos/\(id)")); request.httpMethod = "DELETE"
+        let _: OkResponse = try await perform(request)
+    }
+    func deleteCheckin(id: String) async throws {
+        var request = try authorizedRequest(apiURL("/checkins/\(id)")); request.httpMethod = "DELETE"
+        let _: OkResponse = try await perform(request)
+    }
+
     func getWaist(offset: Int = 0) async throws -> WaistResponse {
         #if DEBUG
         if ScreenshotSeedData.isEnabled { return WaistResponse(entries: [], hasMore: false) }

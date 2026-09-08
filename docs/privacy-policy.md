@@ -53,3 +53,6 @@ Users can turn Coach Tony P. off, hide dismissed suggestion patterns, or disable
 ## Support
 
 For support or privacy requests, users should contact the person who invited them. They should include the request reference shown in any error message and the build information from Settings or Account & Privacy.
+
+### Progress check-ins and photos
+Progress check-in notes and dates are stored with your account. Optional progress photos are stored privately in Amazon S3. We remove image metadata, including location, and resize photos before storing them. Photos are available only through authenticated access and short-lived download links. They are not sent to AI services. You can export photos individually from a check-in and export check-in records with your account data. Deleting a photo, its check-in, or your account deletes the associated stored photo files.

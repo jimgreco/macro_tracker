@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private Macrovana progress photos with permanent deletion semantics
+Parameters:
+  InstanceRoleName:
+    Type: String
+Resources:
+  Photos:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'macrovana-progress-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Application
+          Value: Macrovana
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Photos
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt Photos.Arn
+              - !Sub '${Photos.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+  PhotoAccess:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: MacrovanaProgressPhotos
+      Roles: [!Ref InstanceRoleName]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject']
+            Resource: !Sub '${Photos.Arn}/progress/*'
+Outputs:
+  BucketName:
+    Value: !Ref Photos

@@ -21,6 +21,8 @@
     "test:check": "node --check public/login.js && node --check public/today-state.js && node --check public/coach-rules.js && node --check public/script.js && node --check src/today-summary.js && node --check src/server.js && npm test"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1127.0",
+    "@aws-sdk/s3-request-presigner": "^3.1127.0",
     "apple-signin-auth": "^2.0.0",
     "dotenv": "^16.4.5",
     "express": "^4.22.2",
@@ -30,6 +32,7 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "pg": "^8.18.0",
+    "sharp": "^0.35.4",
     "stripe": "^20.4.1"
   },
   "overrides": {
