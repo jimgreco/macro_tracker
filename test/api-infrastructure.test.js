@@ -487,7 +487,7 @@ test('data inventory enumerates every database table and every account table par
     accountDeletionInventory,
     accountExportInventory
   } = require('../src/data-inventory');
-  const schemaTables = [...db.matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z_]+)/g)]
+  const schemaTables = [...(db + read('src/waist.js')).matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z_]+)/g)]
     .map((match) => match[1])
     .sort();
   const inventoryTables = DATA_INVENTORY.map((item) => item.table).sort();

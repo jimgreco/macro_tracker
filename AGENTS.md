@@ -234,3 +234,7 @@ The server sets a strict CSP header. Key constraints for frontend development:
 - TDEE/energy balance feature was removed — no longer present in the codebase.
 - Meal photo previews: use base64 data URLs from `state.mealImageAttachments` for `<img src>` — not blob URLs (blocked by CSP)
 - OpenAI API key is required; no fallback parsing exists
+
+## Waist evidence tracking
+
+Waist measurements live in `waist_entries` (schema/store/validation in `src/waist.js`). Preserve one or two raw readings, entered unit, landmark method, timestamp and notes; average in centimeters for comparison. Never compare different landmarks as one continuous series. Web and iOS entry points are Health > Weight; iOS uses the protected replayable `.waist` mutation queue. Account export/deletion coverage is registered in `src/data-inventory.js`.

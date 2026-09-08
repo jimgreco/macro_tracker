@@ -26,6 +26,20 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     });
     assert.equal(createdUser.timezone, 'America/Los_Angeles');
 
+    const waistPayload = { readings: [33, 33.4], unit: 'in', method: 'navel_relaxed', notes: 'Same tape', loggedAt: '2026-09-08T01:00:00Z' };
+    const waist = await db.saveWaistEntry(userId, waistPayload);
+    const waistRows = await db.listWaistEntries(userId, { timezone: 'America/New_York' });
+    assert.equal(waistRows.entries[0].day, '2026-09-07');
+    assert.ok(Math.abs(waistRows.entries[0].valueCm - 84.328) < 0.0001);
+    assert.deepEqual(waistRows.entries[0].readings, [33, 33.4]);
+    assert.equal(await db.saveWaistEntry('another-account', waistPayload, waist.id), null);
+    assert.equal(await db.deleteWaistEntry('another-account', waist.id), 0);
+    await db.saveWaistEntry(userId, { ...waistPayload, readings: [84], unit: 'cm' }, waist.id);
+    const waistExport = await db.exportUserData(userId);
+    assert.equal(waistExport.waistEntries[0].unit, 'cm');
+    assert.equal(await db.deleteWaistEntry(userId, waist.id), 1);
+    assert.equal((await db.listWaistEntries(userId)).entries.length, 0);
+
     const updatedUser = await db.updateUserPreferences(userId, { timezone: 'America/Chicago' });
     assert.equal(updatedUser.timezone, 'America/Chicago');
 
@@ -639,7 +653,7 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     );
 
     const cleanup = await db.runDataRetentionCleanup({ now: retentionNow });
-    assert.equal(cleanup.inventoryVersion, '2026-07-31');
+    assert.equal(cleanup.inventoryVersion, '2026-09-08');
     assert.ok(cleanup.tables.client_diagnostics.deleted >= 1);
     assert.ok(cleanup.tables.audit_log.deleted >= 1);
     assert.ok(cleanup.tables.daily_usage_counts.deleted >= 1);
@@ -747,7 +761,7 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     assert.equal((await db.listOuraDocuments(userId))[0].data.score, 88);
 
     const exported = await db.exportUserData(userId);
-    assert.equal(exported.dataInventoryVersion, '2026-07-31');
+    assert.equal(exported.dataInventoryVersion, '2026-09-08');
     assert.deepEqual(exported.retention.webhook_events, {
       mode: 'deadline',
       processedDays: 30,

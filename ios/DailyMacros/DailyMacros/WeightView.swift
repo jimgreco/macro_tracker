@@ -52,6 +52,7 @@ struct WeightView: View {
                     targetCard
                     chartView
                     entriesList
+                    WaistMeasurementsView()
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .top)
@@ -1054,5 +1055,135 @@ struct WeightView: View {
 
     private func isSameDisplayedMinute(_ lhs: Date, _ rhs: Date) -> Bool {
         Calendar.current.compare(lhs, to: rhs, toGranularity: .minute) == .orderedSame
+    }
+}
+
+
+private struct WaistMeasurementsView: View {
+    @EnvironmentObject var api: APIClient
+    @State private var entries: [WaistEntry] = []
+    @State private var hasMore = false
+    @State private var loading = false
+    @State private var editing: WaistEntry?
+    @State private var showingEditor = false
+    @State private var first = ""
+    @State private var second = ""
+    @State private var unit = "in"
+    @State private var method = "navel_relaxed"
+    @State private var notes = ""
+    @State private var date = Date()
+    @State private var error: String?
+    @State private var message: String?
+    @State private var saving = false
+    @State private var deleting: WaistEntry?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Waist measurements").font(.headline)
+                Spacer()
+                Button("Log waist") { open(nil) }
+            }
+            Text("Use the same landmark each time, relaxed after a normal exhale. Two readings are averaged.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
+            if let error { Text(error).font(.caption).foregroundStyle(.red) }
+            if entries.isEmpty { Text("No waist measurements yet.").foregroundStyle(.secondary) }
+            ForEach(entries) { entry in
+                HStack {
+                    Button { open(entry) } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("\(entry.average, specifier: "%.1f") \(entry.unit)").font(.headline)
+                            Text("\(entry.day) · \(entry.methodLabel)").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.buttonStyle(.plain)
+                    .accessibilityLabel("Edit waist measurement, \(entry.average.formatted()) \(entry.unit), \(entry.day)")
+                    Spacer()
+                    Button(role: .destructive) { deleting = entry } label: { Image(systemName: "trash") }
+                        .accessibilityLabel("Delete waist measurement from \(entry.day)")
+                }.padding(.vertical, 5)
+            }
+            if hasMore { Button("Load older measurements") { Task { await load(more: true) } }.disabled(loading) }
+            Button("Refresh measurements") { Task { await load() } }.disabled(loading)
+        }
+        .padding().appSurface(.standard)
+        .task { await load() }
+        .confirmationDialog("Delete this waist measurement?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button("Delete measurement", role: .destructive) {
+                guard let entry = deleting else { return }
+                Task {
+                    do {
+                        try await api.deleteWaist(id: entry.id)
+                        entries.removeAll { $0.id == entry.id }
+                        message = OfflineMutationStore.shared.pendingCount > 0 ? "Saved on this device. Pending changes will sync when connected." : "Measurement deleted."
+                    } catch { self.error = error.localizedDescription }
+                }
+            }
+        }
+        .sheet(isPresented: $showingEditor) {
+            NavigationStack {
+                Form {
+                    Section("Measurement") {
+                        DatePicker("Date and time", selection: $date)
+                        Picker("Unit", selection: $unit) { Text("Inches").tag("in"); Text("Centimeters").tag("cm") }
+                        TextField("First reading", text: $first).keyboardType(.decimalPad)
+                        TextField("Second reading (optional)", text: $second).keyboardType(.decimalPad)
+                        Text("Readings use the selected unit. Changing units does not convert entered values.").font(.caption)
+                    }
+                    Section("Keep the method consistent") {
+                        Picker("Landmark", selection: $method) {
+                            Text("At navel, relaxed").tag("navel_relaxed")
+                            Text("Between lowest rib and hip, relaxed").tag("midpoint_relaxed")
+                        }
+                        TextField("Notes (optional, up to 300 characters)", text: $notes, axis: .vertical)
+                    }
+                    if let error { Text(error).foregroundStyle(.red) }
+                }
+                .navigationTitle(editing == nil ? "Log waist" : "Edit waist")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showingEditor = false }.disabled(saving) }
+                    ToolbarItem(placement: .confirmationAction) { Button("Save") { Task { await save() } }.disabled(saving) }
+                }
+                .interactiveDismissDisabled(saving)
+            }
+        }
+    }
+    private func open(_ entry: WaistEntry?) {
+        editing = entry
+        first = entry?.readings.first.map { String($0) } ?? ""
+        second = (entry?.readings.count ?? 0) > 1 ? String(entry!.readings[1]) : ""
+        unit = entry?.unit ?? entries.first?.unit ?? "in"
+        method = entry?.method ?? entries.first?.method ?? "navel_relaxed"
+        notes = entry?.notes ?? ""
+        date = entry.flatMap { ISO8601DateFormatter().date(from: $0.loggedAt) } ?? Date()
+        if let raw = entry?.loggedAt {
+            let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            date = formatter.date(from: raw) ?? date
+        }
+        error = nil; showingEditor = true
+    }
+    private func load(more: Bool = false) async {
+        guard !loading else { return }; loading = true; defer { loading = false }
+        do {
+            let result = try await api.getWaist(offset: more ? entries.count : 0)
+            entries = more ? entries + result.entries.filter { candidate in !entries.contains { $0.id == candidate.id } } : result.entries
+            hasMore = result.hasMore; error = nil
+        } catch { self.error = error.localizedDescription }
+    }
+    private func save() async {
+        let fields = [first, second].map { $0.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".") }
+        guard !fields[0].isEmpty else { error = "Enter the first reading."; return }
+        let present = fields.filter { !$0.isEmpty }
+        let readings = present.compactMap(Double.init)
+        guard readings.count == present.count, readings.allSatisfy({ $0.isFinite && $0 > 0 && $0 * (unit == "in" ? 2.54 : 1) <= 400 }), notes.count <= 300 else {
+            error = "Check the readings and keep notes to 300 characters."; return
+        }
+        saving = true; defer { saving = false }
+        do {
+            try await api.saveWaist(id: editing?.id, readings: readings, unit: unit, method: method, notes: notes, loggedAt: ISO8601DateFormatter().string(from: date))
+            showingEditor = false
+            message = OfflineMutationStore.shared.pendingCount > 0 ? "Saved on this device. Pending changes will appear after syncing." : "Measurement saved."
+            await load()
+        } catch { self.error = error.localizedDescription }
     }
 }

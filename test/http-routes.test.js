@@ -273,6 +273,13 @@ const fakeDb = {
   getMacroTargets: async () => ({}),
   getMacroTargetHistory: async () => [],
   setMacroTarget: async () => ({ macro: 'calories', target: 2000 }),
+  saveWaistEntry: async (userId, payload, id) => {
+    require('../src/waist').normalizeWaist(payload);
+    record('saveWaistEntry', { userId, payload, id });
+    return id === 999999 ? null : { id: id || 42 };
+  },
+  listWaistEntries: async (userId, options) => { record('listWaistEntries', { userId, options }); return { entries: [], hasMore: false }; },
+  deleteWaistEntry: async (userId, id) => { record('deleteWaistEntry', { userId, id }); return id === 999999 ? 0 : 1; },
   addWeightEntry: async (_userId, payload) => {
     record('addWeightEntry', payload);
     if (weightAddDelayMs > 0) {
@@ -940,6 +947,42 @@ test('workout sync does not count a tombstoned external workout as newly synced'
   }
 });
 
+test('workout sync imports separate same-day finished sessions and excludes unfinished sessions', routeTestOptions, async () => {
+  resetCalls();
+  const originalFetch = global.fetch;
+  const originalWorkoutAddResult = workoutAddResult;
+  process.env.INTERNAL_SYNC_SECRET = 'route-test-secret';
+  process.env.WORKOUT_API_URL = 'http://workout.test';
+  await fakeDb.replaceIntegrationDataPermissions(fakeUser.id, 'workout_planner', [{
+    dataType: 'workouts',
+    readEnabled: true,
+    writeEnabled: false
+  }]);
+  workoutAddResult = { id: 42, created: true };
+  global.fetch = async (input, options) => {
+    if (String(input) === 'http://workout.test/logs') {
+      return new Response(JSON.stringify(['finished', 'finished', 'active', 'planning'].map((status, i) => ({
+        id: `session-${i}`, name: 'Test session', status,
+        date: new Date().toISOString(), exerciseItems: []
+      }))), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    return originalFetch(input, options);
+  };
+
+  try {
+    const { res, body } = await request('/api/sync-workouts', { method: 'POST' });
+    assert.equal(res.status, 200);
+    assert.equal(body.syncedCount, 2);
+    assert.equal(latestCall('addWorkoutEntry').payload.externalId, 'session-1');
+  } finally {
+    global.fetch = originalFetch;
+    workoutAddResult = originalWorkoutAddResult;
+  }
+});
+
 test('weekly recap and diagnostics routes are wired through real middleware', routeTestOptions, async () => {
   resetCalls();
   const requestId = '029a3f8c-ffb4-4d33-b566-a23eec5081ea';
@@ -1040,4 +1083,23 @@ test('weekly recap makes no nutrition shortfall claim from a breakfast-only unkn
   } finally {
     analysisSnapshotOverride = null;
   }
+});
+
+
+test('waist routes validate measurements, isolate users and support replay-safe creates', routeTestOptions, async () => {
+  resetCalls();
+  const payload = { readings: [33, 33.2], unit: 'in', method: 'navel_relaxed', loggedAt: '2026-09-08T01:00:00Z' };
+  const options = { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Client-Mutation-Id': '13457567-2323-4123-8123-123456789abc', Origin: 'http://localhost:3000' }, body: JSON.stringify(payload) };
+  const first = await request('/api/waist', options);
+  const replay = await request('/api/waist', options);
+  assert.equal(first.res.status, 200);
+  assert.deepEqual(first.body, replay.body);
+  assert.equal(calls.filter(c => c.name === 'saveWaistEntry').length, 1);
+  assert.equal(latestCall('saveWaistEntry').payload.userId, fakeUser.id);
+  assert.equal((await request('/api/waist', { method: 'POST', body: JSON.stringify({ ...payload, readings: [] }) })).res.status, 400);
+  assert.equal((await request('/api/waist/999999', { method: 'PUT', body: JSON.stringify(payload) })).res.status, 404);
+  assert.equal((await request('/api/waist/999999', { method: 'DELETE' })).res.status, 404);
+  assert.equal((await request('/api/waist/-1', { method: 'DELETE' })).res.status, 400);
+  await request('/api/waist?offset=50');
+  assert.equal(latestCall('listWaistEntries').payload.options.timezone, fakeUser.timezone);
 });

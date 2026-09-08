@@ -1,3 +1,4 @@
+const { initWaistDb, createWaistStore } = require('./waist');
 const fs = require('fs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
@@ -927,6 +928,8 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_oura_webhook_subscriptions_expiration ON oura_webhook_subscriptions(expiration_time);
   `);
 
+  await initWaistDb(pool);
+  await recordSchemaMigration('2026-09-08_waist_measurements');
   await recordSchemaMigration('2026-06-11_feature_foundations');
   await recordSchemaMigration('2026-07-20_direct_oura_integration');
   await recordSchemaMigration('2026-07-27_client_mutation_idempotency');
@@ -5824,6 +5827,7 @@ async function consumeDailyUsage(userId, feature, maxDaily) {
 }
 
 module.exports = {
+  ...createWaistStore(pool),
   initDb,
   getPool,
   checkDatabaseHealth,
