@@ -104,6 +104,7 @@ Uses Node's built-in `node:test` module.
 
 Run `npm run test:check` for fast syntax + test pass (no database required).
 Run `TEST_DATABASE_URL=postgres://... npm run test:db:integration` before pushing DB/schema-heavy work, and use a separate empty disposable database with `TEST_UPGRADE_DATABASE_URL=postgres://... npm run test:db:upgrade` for migration changes.
+Fixtures asserted through rolling analysis windows must use dates relative to the test run; fixed historical dates eventually age out. Keep explicit fixed dates for DST/travel cases that query those dates directly.
 
 ## Architecture Notes
 
