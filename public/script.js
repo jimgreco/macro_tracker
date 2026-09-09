@@ -1847,12 +1847,12 @@ function buildCoachContext() {
     dashboardData: state.dashboardData || {},
     savedItems: state.savedItems || [],
     macroDailyTotals: state.macroDailyTotals || [],
-    workoutEntries: state.workoutEntries || [],
+    workoutEntries: (state.workoutEntries || []).filter(entry => entry.source !== 'oura'),
     weightEntries: state.weightEntries || [],
     weightChartEntries: state.weightChartEntries || [],
     weightTargetData: state.weightTargetData || null,
     weightTarget: state.weightTarget || null,
-    sleepChartRows: state.sleepChartRows || [],
+    sleepChartRows: state.sleepCoachRows || state.sleepChartRows || [],
     sleepTargetHours: getSleepTargetHours()
   };
 }
@@ -3177,6 +3177,7 @@ function showAccountPrivacyModal() {
         <div class="account-preference-actions">
           <button type="button" class="btn-success table-action-btn" id="account-oura-connect-btn" hidden>Connect Oura</button>
           <button type="button" class="btn-secondary table-action-btn" id="account-oura-sync-btn" hidden>Sync Now</button>
+          <button type="button" class="btn-secondary table-action-btn" id="account-oura-evidence-btn">Copy sync diagnostics</button>
           <button type="button" class="btn-danger table-action-btn" id="account-oura-disconnect-btn" hidden>Disconnect &amp; Delete Oura Data</button>
         </div>
       </fieldset>
@@ -3380,6 +3381,13 @@ function showAccountPrivacyModal() {
     } catch (error) {
       setActionBanner(error.message, 'error');
     }
+  });
+  document.getElementById('account-oura-evidence-btn')?.addEventListener('click', async () => {
+    try {
+      const evidence = await api('/api/oura/evidence');
+      await navigator.clipboard.writeText(JSON.stringify(evidence, null, 2));
+      setActionBanner('Copied Oura sync timestamps and counts.', 'success');
+    } catch (error) { setActionBanner(error.message, 'error'); }
   });
   document.getElementById('account-oura-sync-btn')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
@@ -5675,6 +5683,12 @@ function showWorkoutEditModal(entry) {
       </div>
     </div>
   `;
+  if (entry.source === 'oura') {
+    overlay.querySelector('h3').textContent = 'Oura workout · read-only';
+    overlay.querySelectorAll('input, select, textarea').forEach(input => input.disabled = true);
+    overlay.querySelector('#workout-modal-save-btn')?.setAttribute('hidden', '');
+    overlay.querySelector('#workout-modal-save-btn')?.setAttribute('disabled', '');
+  }
   document.body.appendChild(overlay);
   document.getElementById('workout-modal-desc').focus();
 
@@ -7331,6 +7345,90 @@ function normalizeSleepNotes(value) {
   return notes ? notes : null;
 }
 
+function recoveryTime(value) {
+  return value ? new Date(value).toLocaleString(undefined, { timeZone: state.recovery?.timezone || getTimezone(), dateStyle: 'medium', timeStyle: 'short' }) : 'Unavailable';
+}
+
+function renderRecovery() {
+  const panel = document.getElementById('sleep-recovery');
+  if (!panel) return;
+  const recovery = state.recovery;
+  panel.hidden = !recovery?.latest;
+  if (panel.hidden) { panel.replaceChildren(); return; }
+  const latest = recovery.latest;
+  const dayHours = recovery.dailyTotals.find(row => row.day === latest.day)?.totalHours ?? latest.durationHours;
+  const value = number => number == null ? 'Unavailable' : fmtNumber(number);
+  panel.innerHTML = `
+    <div class="recovery-heading"><div><h3>Recovery</h3><p>${escapeHtml(latest.day)} · Oura Cloud</p></div><span>${escapeHtml(recovery.freshness)}</span></div>
+    <div class="recovery-metrics">
+      <div><strong>${escapeHtml(value(dayHours))}h</strong><span>of ${escapeHtml(value(recovery.targetHours))}h sleep target</span></div>
+      <div><strong>${escapeHtml(value(latest.score))}</strong><span>Sleep score</span></div>
+      <div><strong>${escapeHtml(value(latest.readiness))}</strong><span>Readiness</span></div>
+    </div>
+    <p class="muted">Last sync: ${escapeHtml(recoveryTime(recovery.lastSyncedAt))}</p>
+    <details><summary>${recovery.days === 7 ? 'Week' : recovery.days === 30 ? 'Month' : 'Year'} trends</summary>
+      <div class="recovery-trends">${recovery.trends.map(metric => `<div><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(value(metric.value))} ${escapeHtml(metric.unit)}</strong><small>${metric.count} nights · ${escapeHtml(metric.direction)}</small></div>`).join('')}</div>
+    </details>
+    <details><summary>Synced sleep details (${recovery.sessions.length})</summary><div class="recovery-sessions">
+      ${recovery.sessions.map(session => `<button type="button" class="btn-secondary" data-recovery-id="${escapeAttr(session.id)}"><span>${escapeHtml(session.day)} · ${session.type === 'long_sleep' ? 'Primary sleep' : escapeHtml(session.type)}</span><strong>${escapeHtml(value(session.durationHours))}h</strong><span>View details &amp; annotations</span></button>`).join('')}
+    </div></details>`;
+  panel.querySelectorAll('[data-recovery-id]').forEach(button => button.addEventListener('click', () => {
+    showRecoveryDetail(recovery.sessions.find(session => session.id === button.dataset.recoveryId));
+  }));
+}
+
+function showRecoveryDetail(session) {
+  if (!session) return;
+  document.getElementById('entry-modal-overlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'entry-modal-overlay'; overlay.className = 'combine-modal-overlay';
+  overlay.innerHTML = `<div class="combine-modal entry-modal" role="dialog" aria-modal="true" aria-labelledby="recovery-detail-title">
+    <h3 id="recovery-detail-title" tabindex="-1">Sleep details · ${escapeHtml(session.day)}</h3>
+    <p>Oura Cloud · ${escapeHtml(session.type === 'long_sleep' ? 'Primary sleep' : session.type)}</p>
+    <p class="muted">Objective measurements are read-only. Times shown in ${escapeHtml(state.recovery.timezone)}.</p>
+    <dl class="recovery-detail-values"><div><dt>Start</dt><dd>${escapeHtml(recoveryTime(session.startedAt))}</dd></div><div><dt>End</dt><dd>${escapeHtml(recoveryTime(session.endedAt))}</dd></div><div><dt>Last synced</dt><dd>${escapeHtml(recoveryTime(session.syncedAt))}</dd></div>
+    ${session.fields.map(metric => `<div><dt>${escapeHtml(metric.label)}</dt><dd>${escapeHtml(fmtNumber(metric.value))} ${escapeHtml(metric.unit)}</dd></div>`).join('')}</dl>
+    <fieldset><legend>How you felt</legend>
+      <label for="recovery-quality">Quality</label><select id="recovery-quality"><option value="">Not rated</option>${sleepQualityOptions(session.annotations.quality)}</select>
+      <label for="recovery-wakes">Perceived wake-ups (optional)</label><input id="recovery-wakes" type="number" min="0" max="99" step="1" value="${escapeAttr(session.annotations.wakeUps ?? '')}">
+      <label for="recovery-notes">Notes</label><textarea id="recovery-notes" maxlength="1000" rows="3">${escapeHtml(session.annotations.notes || '')}</textarea>
+      <p class="muted">Annotations stay separate from synced measurements.</p>
+    </fieldset>
+    <p id="recovery-error" role="alert"></p>
+    <div class="combine-modal-actions"><button type="button" class="btn-secondary" id="recovery-close">Close</button><button type="button" class="btn-danger" id="recovery-ignore">Ignore sleep</button><button type="button" class="btn-success" id="recovery-save">Save annotations</button></div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.querySelector('[data-recovery-id]')?.focus(); };
+  overlay.querySelector('#recovery-close').addEventListener('click', close);
+  overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+  overlay.addEventListener('keydown', event => {
+    if (event.key === 'Escape') close();
+    if (event.key === 'Tab') {
+      const controls = [...overlay.querySelectorAll('button, input, select, textarea')].filter(el => !el.disabled);
+      if (event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls.at(-1).focus(); }
+      else if (!event.shiftKey && document.activeElement === controls.at(-1)) { event.preventDefault(); controls[0].focus(); }
+    }
+  });
+  overlay.querySelector('#recovery-detail-title').focus();
+  const save = async ignore => {
+    const wakes = overlay.querySelector('#recovery-wakes');
+    if (!ignore && !wakes.reportValidity()) return;
+    if (ignore && !window.confirm('Ignore this sleep across Oura and Apple Health?')) return;
+    const buttons = overlay.querySelectorAll('button'); buttons.forEach(button => button.disabled = true);
+    try {
+      await api(`/api/oura/sleep/${encodeURIComponent(session.id)}${ignore ? '' : '/annotations'}`, {
+        method: ignore ? 'DELETE' : 'PUT',
+        ...(ignore ? {} : { body: JSON.stringify({ quality: normalizeSleepQuality(overlay.querySelector('#recovery-quality').value),
+          wakeUps: wakes.value === '' ? null : Number(wakes.value), notes: overlay.querySelector('#recovery-notes').value }) })
+      });
+      close(); await refreshSleepData();
+    } catch (error) { overlay.querySelector('#recovery-error').textContent = error.message; }
+    finally { buttons.forEach(button => button.disabled = false); }
+  };
+  overlay.querySelector('#recovery-save').addEventListener('click', () => save(false));
+  overlay.querySelector('#recovery-ignore').addEventListener('click', () => save(true));
+}
+
 function renderSleepCard(entry) {
   const loggedAt = new Date(entry.loggedAt);
   const dateText = loggedAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
@@ -7339,8 +7437,9 @@ function renderSleepCard(entry) {
   const quality = normalizeSleepQuality(entry.quality);
   const notes = normalizeSleepNotes(entry.notes);
   const hoursLabel = hours === 1 ? '1 hour' : `${fmtNumber(hours)} hours`;
-  const wakeUpsLabel = wakeUps > 0 ? ` · ${wakeUps} wake-up${wakeUps === 1 ? '' : 's'}` : '';
+  const wakeUpsLabel = wakeUps > 0 ? ` · ${wakeUps} perceived wake-up${wakeUps === 1 ? '' : 's'}` : '';
   const qualityLabel = quality ? ` · ${sleepQualityLabel(quality)} sleep` : '';
+  const sourceDetail = entry.healthkitMetadata ? `${entry.healthkitMetadata.sourceName} via Apple Health${entry.healthkitMetadata.awakeSeconds != null ? ` · ${fmtNumber(entry.healthkitMetadata.awakeSeconds / 60)} min awake` : ''}` : '';
   const entryId = safeId(entry.id);
   return `
     <div class="entry-card" data-sleep-action="edit" data-sleep-id="${entryId}">
@@ -7348,6 +7447,7 @@ function renderSleepCard(entry) {
       <div class="entry-card-body">
         <div class="entry-card-title">${escapeHtml(hoursLabel + wakeUpsLabel + qualityLabel)}</div>
         <div class="entry-card-sub">${escapeHtml(dateText)}</div>
+        ${sourceDetail ? `<div class="entry-card-sub">${escapeHtml(sourceDetail)}</div>` : ''}
         ${notes ? `<div class="entry-card-sub entry-card-notes">${escapeHtml(notes)}</div>` : ''}
       </div>
     </div>
@@ -7401,6 +7501,10 @@ function showSleepEditModal(entry) {
       </div>
     </div>
   `;
+  if (entry.source && entry.source !== 'manual') {
+    overlay.querySelector('#sleep-modal-date').disabled = true;
+    overlay.querySelector('#sleep-modal-hours').disabled = true;
+  }
   document.body.appendChild(overlay);
 
   overlay.addEventListener('click', (e) => {
@@ -7461,10 +7565,13 @@ async function refreshSleepData(options = {}) {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const scope = periodToScope[state.sleepSnapshotPeriod] || 'week';
     const tz = getTimezone();
-    const [data, targetData] = await Promise.all([
+    const [data, targetData, recovery] = await Promise.all([
       api(buildLogPageUrl('/api/sleep', { scope, tz }, paging)),
-      reset ? api(`/api/daily-totals?scope=week&tz=${encodeURIComponent(tz)}`) : Promise.resolve(null)
+      reset ? api(`/api/daily-totals?scope=week&tz=${encodeURIComponent(tz)}`) : Promise.resolve(null),
+      reset ? api(`/api/oura/recovery?scope=${scope}&tz=${encodeURIComponent(tz)}`) : Promise.resolve(state.recovery)
     ]);
+    state.recovery = recovery;
+    renderRecovery();
     if (reset && targetData?.targets) {
       setSleepTargetFromTargets(targetData.targets);
       if (targetData.targetHistory) {
@@ -7482,7 +7589,8 @@ async function refreshSleepData(options = {}) {
     paging.hasMore = entries.length === LOG_PAGE_SIZE;
 
     if (reset) {
-      const dailyTotals = Array.isArray(data.dailyTotals) ? data.dailyTotals : [];
+      state.sleepCoachRows = (data.dailyTotals || []).map(d => ({ label: d.day, value: Number(d.totalHours), time: new Date(d.day + 'T00:00:00').getTime() }));
+      const dailyTotals = recovery?.dailyTotals || (Array.isArray(data.dailyTotals) ? data.dailyTotals : []);
       state.sleepChartRows = dailyTotals.map((d) => ({
         label: new Date(d.day + 'T00:00:00').toLocaleDateString(),
         value: Number(d.totalHours || 0),

@@ -12,6 +12,8 @@ const DISCLOSURE_GROUPS = Object.freeze({
 });
 
 const DATA_INVENTORY = Object.freeze([
+  { table: 'health_transport_coverage', scope: 'account', userColumn: 'user_id', disclosureGroup: 'health', accountDeletion: true, deleteOrder: 112,
+    export: { key: 'healthTransportCoverage', columns: ['data_type', 'covered_day', 'ignored_ids'], orderBy: 'data_type' } },
   { table: 'progress_photos', scope: 'account', userColumn: 'user_id', disclosureGroup: 'health', accountDeletion: true, deleteOrder: 67,
     export: { key: 'progressPhotos', columns: ['id','checkin_id','view','ready','created_at'], orderBy: 'created_at' } },
   { table: 'progress_checkins', scope: 'account', userColumn: 'user_id', disclosureGroup: 'health', accountDeletion: true, deleteOrder: 68,
@@ -207,6 +209,10 @@ const DATA_INVENTORY = Object.freeze([
         'logged_at',
         'source',
         'external_id',
+        'healthkit_metadata',
+        'oura_document_id',
+        'oura_ignored',
+        'provider_day',
         'created_at',
         'deleted_at'
       ],
@@ -239,11 +245,16 @@ const DATA_INVENTORY = Object.freeze([
         'id',
         'duration_hours',
         'wake_ups',
+        'wake_ups_annotated',
         'quality',
         'notes',
         'logged_at',
         'source',
         'external_id',
+        'healthkit_metadata',
+        'oura_document_id',
+        'oura_ignored',
+        'provider_day',
         'created_at',
         'deleted_at'
       ],
@@ -313,6 +324,8 @@ const DATA_INVENTORY = Object.freeze([
         'day',
         'recorded_at',
         'normalized_data',
+        'annotations',
+        'ignored_at',
         'synced_at',
         'created_at',
         'updated_at',

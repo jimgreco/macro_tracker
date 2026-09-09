@@ -1137,7 +1137,13 @@ struct SettingsView: View {
         defer { isExportingDiagnostics = false }
         do {
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("macrovana-diagnostics.txt")
-            try diagnostics.exportText().write(to: tempURL, atomically: true, encoding: .utf8)
+            var text = diagnostics.exportText()
+            if let evidence = try? await api.getOuraSyncEvidence(),
+               let data = try? JSONEncoder().encode(evidence),
+               let summary = String(data: data, encoding: .utf8) {
+                text += "\n\nOura sync evidence (timestamps and counts only)\n" + summary
+            }
+            try text.write(to: tempURL, atomically: true, encoding: .utf8)
             await MainActor.run {
                 let controller = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
                 if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,

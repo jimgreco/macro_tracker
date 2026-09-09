@@ -338,7 +338,7 @@ test('delete operations use soft delete (UPDATE SET deleted_at)', () => {
   // deleteWeightEntry
   assert.ok(db.includes("UPDATE weight_entries SET deleted_at = NOW()"));
   // deleteWorkoutEntry
-  assert.ok(db.includes("UPDATE workout_entries SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL"));
+  assert.match(db, /UPDATE workout_entries SET deleted_at = NOW\(\), oura_ignored = .* WHERE id = \$1 AND user_id = \$2 AND deleted_at IS NULL/);
 });
 
 test('SELECT queries filter out soft-deleted rows', () => {
@@ -412,9 +412,10 @@ test('HealthKit sleep revisions reconcile without double counting', () => {
 
   assert.ok(wellnessSync.includes('return "sleep-v2-\\(thirtyMinuteBucket)"'));
   assert.ok(wellnessSync.includes('isSameSleepSession'));
-  assert.ok(wellnessSync.includes('sleepEntry(existingHealthKitEntries[existingIndex], matches: session)'));
+  assert.ok(wellnessSync.includes('healthkitMetadata: session.evidence'));
   assert.ok(wellnessSync.includes('var currentSessionEnd: Date?'));
-  assert.ok(wellnessSync.includes('let wakeUps = min(mergedIntervals(awakeIntervals).count, 99)'));
+  assert.ok(wellnessSync.includes('"awakeSeconds": mergedDurationHours(awakeIntervals) * 3600'));
+  assert.ok(wellnessSync.includes('Dictionary(grouping: samples, by: { $0.sourceRevision.source.bundleIdentifier })'));
   assert.equal(wellnessSync.includes('externalId = "sleep-\\(Int(start.timeIntervalSince1970))'), false);
 });
 
@@ -432,8 +433,8 @@ test('sleep entries support optional quality ratings and notes', () => {
   assert.ok(db.includes('Sleep quality must be a whole number between 1 and 5.'));
   assert.ok(db.includes('Sleep notes must be 1,000 characters or fewer.'));
   assert.ok(db.includes('INSERT INTO sleep_entries (user_id, duration_hours, wake_ups, quality, notes, logged_at, source, external_id)'));
-  assert.ok(db.includes('quality = CASE WHEN $8 THEN $9::integer ELSE quality END'));
-  assert.ok(db.includes('notes = CASE WHEN $10 THEN $11::text ELSE notes END'));
+  assert.ok(db.includes('quality = CASE WHEN $6 THEN $7::integer ELSE quality END'));
+  assert.ok(db.includes('notes = CASE WHEN $8 THEN $9::text ELSE notes END'));
   assert.ok(db.includes('quality: row.quality == null ? null : Number(row.quality)'));
   assert.ok(db.includes('notes: row.notes || null'));
   const { accountExportInventory } = require('../src/data-inventory');
@@ -487,7 +488,7 @@ test('data inventory enumerates every database table and every account table par
     accountDeletionInventory,
     accountExportInventory
   } = require('../src/data-inventory');
-  const schemaTables = [...(db + read('src/waist.js') + read('src/checkins.js')).matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z_]+)/g)]
+  const schemaTables = [...(db + read('src/waist.js') + read('src/checkins.js') + read('src/health-reconciliation.js')).matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z_]+)/g)]
     .map((match) => match[1])
     .sort();
   const inventoryTables = DATA_INVENTORY.map((item) => item.table).sort();

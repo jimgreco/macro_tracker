@@ -72,6 +72,8 @@ struct HealthView: View {
     @State private var sleepOffset = 0
     @State private var hasMoreSleepEntries = true
     @State private var isLoadingSleepPage = false
+    @State private var recovery: RecoveryResponse?
+    @State private var recoveryDetail: RecoverySession?
     @State private var ouraSleepSummaries: [OuraSleepSummary] = []
     @State private var isLoadingOuraSleep = false
     @State private var ouraSleepLastSyncedAt: Date?
@@ -130,7 +132,8 @@ struct HealthView: View {
     }
 
     private var combinedSleepDailyTotals: [SleepDailyTotals] {
-        SleepTimelineBuilder.dailyTotals(
+        if let recovery { return recovery.dailyTotals }
+        return SleepTimelineBuilder.dailyTotals(
             appTotals: sleepDailyTotals,
             ouraSummaries: ouraSleepSummaries,
             calendar: healthCalendar
@@ -191,6 +194,11 @@ struct HealthView: View {
             .sheet(isPresented: $showLogSleep) { logSleepSheet }
             .sheet(isPresented: $showEditSleepTargets) { editSleepTargetsSheet }
             .sheet(item: $editingHealth) { entry in editHealthSheet(entry) }
+            .sheet(item: $recoveryDetail) { session in
+                RecoveryDetailView(session: session, timezone: recovery?.timezone ?? "America/New_York") {
+                    await loadSleepSurface()
+                }
+            }
             .sheet(item: $editingSleep) { entry in editSleepSheet(entry) }
             .task {
                 await loadVisibleData()
@@ -572,8 +580,42 @@ struct HealthView: View {
                 Task { await loadSleepSurface() }
             }
 
+            recoveryOverview
             sleepChart
             sleepEntriesList
+        }
+    }
+
+    @ViewBuilder
+    private var recoveryOverview: some View {
+        if let recovery, let latest = recovery.latest {
+            VStack(alignment: .leading, spacing: 12) {
+                AppSectionHeader("Recovery", subtitle: "\(latest.day) · Oura Cloud", systemImage: "moon.zzz.fill", tint: AppVisualSystem.ColorToken.recovery)
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("\((recovery.dailyTotals.first { $0.day == latest.day }?.totalHours ?? latest.durationHours).formatted())h / \(recovery.targetHours.formatted())h target").font(.headline)
+                        Text("Sleep score \(latest.score.map { $0.formatted() } ?? "unavailable") · Readiness \(latest.readiness.map { $0.formatted() } ?? "unavailable")")
+                            .font(.subheadline)
+                    }
+                    Spacer()
+                }
+                Text(recovery.freshness).font(.caption).foregroundStyle(.secondary)
+                if let synced = recovery.lastSyncedAt {
+                    Text("Last sync: \(parseISO(synced).formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("\(sleepScope.capitalized) trends") {
+                    ForEach(recovery.trends) { metric in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(metric.label): \(metric.value.map { $0.formatted() } ?? "Unavailable") \(metric.unit)")
+                            Text("\(metric.count ?? 0) nights · \(metric.direction ?? "")").font(.caption).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+                            .accessibilityElement(children: .combine)
+                    }
+                }
+                Button("View latest sleep details") { recoveryDetail = latest }
+            }.appSurface(.tinted(AppVisualSystem.ColorToken.recovery), cornerRadius: 16)
+                .accessibilityElement(children: .contain)
         }
     }
 
@@ -875,7 +917,11 @@ struct HealthView: View {
                 loadMoreSleepIfNeeded(current: entry)
             }
         case .oura(let summary):
-            ouraSleepCard(summary)
+            Button {
+                recoveryDetail = recovery?.sessions.first { $0.id == summary.id }
+            } label: { ouraSleepCard(summary) }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Oura sleep on \(summary.day ?? "unknown day"), \(summary.durationHours.formatted()) hours. View recovery details and annotations.")
         }
     }
 
@@ -945,11 +991,17 @@ struct HealthView: View {
 
     private func sleepEntryDetailLines(_ entry: SleepEntry) -> [String] {
         var parts: [String] = []
+        if case .string(let name) = entry.healthkitMetadata?["sourceName"] {
+            parts.append("\(name) via Apple Health")
+        }
+        if case .number(let seconds) = entry.healthkitMetadata?["awakeSeconds"] {
+            parts.append("\((seconds / 60).formatted()) min awake")
+        }
         if let quality = entry.quality {
             parts.append("\(sleepQualityLabel(quality)) sleep")
         }
         if entry.wakeUps > 0 {
-            parts.append("\(entry.wakeUps) wake-up\(entry.wakeUps == 1 ? "" : "s")")
+            parts.append("\(entry.wakeUps) perceived wake-up\(entry.wakeUps == 1 ? "" : "s")")
         }
         if let notes = normalizedSleepNotes(from: entry.notes ?? "") {
             parts.append("Notes: \(notes)")
@@ -1353,6 +1405,7 @@ struct HealthView: View {
                 VStack(spacing: 16) {
                     DatePicker("Logged At", selection: $editSleepDate)
                         .datePickerStyle(.compact)
+                        .disabled(entry.source != nil && entry.source != "manual")
 
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
@@ -1360,6 +1413,7 @@ struct HealthView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             TextField("7.5", text: $editSleepHours)
+                                .disabled(entry.source != nil && entry.source != "manual")
                                 .textFieldStyle(.roundedBorder)
                                 .keyboardType(.decimalPad)
                         }
@@ -1529,7 +1583,20 @@ struct HealthView: View {
 
     private func loadSleepSurface() async {
         await loadSleep(reset: true)
-        await loadOuraSleep()
+        do {
+            let response = try await api.getRecovery(scope: sleepScope)
+            recovery = response
+            ouraSleepSummaries = response.sessions.map { session in
+                OuraSleepSummary(id: session.id, day: session.day, startedAt: parseISO(session.startedAt),
+                    endedAt: session.endedAt.map(parseISO), durationHours: session.durationHours,
+                    score: session.score.map { Int($0) },
+                    deepSleepHours: session.fields.first { $0.id == "deepSleepSeconds" }?.value,
+                    remSleepHours: session.fields.first { $0.id == "remSleepSeconds" }?.value,
+                    type: session.type, syncedAt: parseISO(session.syncedAt))
+            }
+            ouraSleepLastSyncedAt = response.lastSyncedAt.map(parseISO)
+        }
+        catch { recovery = nil; showErrorUnlessCancelled(error) }
         await rebuildSleepCoachSuggestions()
     }
 
@@ -2165,5 +2232,88 @@ struct HealthView: View {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
         return f.date(from: iso) ?? Date()
+    }
+}
+
+private struct RecoveryDetailView: View {
+    let session: RecoverySession
+    let timezone: String
+    let onSave: () async -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var quality = ""
+    @State private var wakeUps = ""
+    @State private var notes = ""
+    @State private var error: String?
+    @State private var saving = false
+    @State private var confirmIgnore = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Oura Cloud · \(session.day)") {
+                    LabeledContent("Sleep type", value: session.type == "long_sleep" ? "Primary sleep" : session.type.capitalized)
+                    LabeledContent("Start", value: time(session.startedAt))
+                    if let endedAt = session.endedAt { LabeledContent("End", value: time(endedAt)) }
+                    LabeledContent("Last synced", value: time(session.syncedAt))
+                    Text("Objective measurements are read-only. Times shown in \(timezone).")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(session.fields) { metric in
+                        LabeledContent(metric.label, value: "\(metric.value.map { $0.formatted() } ?? "Unavailable") \(metric.unit)")
+                    }
+                }
+                Section("How you felt") {
+                    Picker("Quality", selection: $quality) {
+                        Text("Not rated").tag("")
+                        ForEach(1...5, id: \.self) { value in Text("\(value) / 5").tag("\(value)") }
+                    }
+                    TextField("Perceived wake-ups (optional)", text: $wakeUps).keyboardType(.numberPad)
+                    TextField("Notes", text: $notes, axis: .vertical).lineLimit(3...6)
+                    Text("Your annotations stay separate from synced measurements.").font(.caption).foregroundStyle(.secondary)
+                }
+                if let error { Section { Text(error).foregroundStyle(.red) } }
+                Section {
+                    Button("Save annotations") {
+                        saving = true
+                        Task {
+                            do {
+                                try await APIClient.shared.annotateOuraSleep(id: session.id, quality: Int(quality), notes: notes, wakeUps: Int(wakeUps))
+                                await onSave(); dismiss()
+                            } catch { self.error = error.localizedDescription }
+                            saving = false
+                        }
+                    }.disabled(saving || notes.count > 1000 || (!wakeUps.isEmpty && !(0...99).contains(Int(wakeUps) ?? -1)))
+                    Button("Ignore this sleep", role: .destructive) { confirmIgnore = true }
+                        .disabled(saving)
+                }
+            }
+            .navigationTitle("Sleep details").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .confirmationDialog("Ignore this sleep across Oura and Apple Health?", isPresented: $confirmIgnore) {
+                Button("Ignore sleep", role: .destructive) {
+                    saving = true
+                    Task {
+                        do { try await APIClient.shared.ignoreOuraSleep(id: session.id); await onSave(); dismiss() }
+                        catch { self.error = error.localizedDescription }
+                        saving = false
+                    }
+                }
+            }
+            .onAppear {
+                quality = session.annotations.quality.map(String.init) ?? ""
+                wakeUps = session.annotations.wakeUps.map(String.init) ?? ""
+                notes = session.annotations.notes ?? ""
+            }
+        }
+    }
+    private func time(_ value: String) -> String {
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fractional = parser.date(from: value)
+        parser.formatOptions = [.withInternetDateTime]
+        guard let date = fractional ?? parser.date(from: value) else { return "Unavailable" }
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(identifier: timezone)
+        formatter.dateStyle = .medium; formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }

@@ -32,6 +32,7 @@ final class HealthKitWellnessSync: ObservableObject {
         let start: Date
         let end: Date
         let durationHours: Double
+        let evidence: [String: Any]
         let wakeUps: Int
         let externalId: String
     }
@@ -78,6 +79,7 @@ final class HealthKitWellnessSync: ObservableObject {
         let healthSamples = access.readEnabled
             ? try await fetchQuantitySamples(type: bodyMassType, since: cutoff)
             : []
+        if access.readEnabled { await recordSourceDiagnostics(healthSamples, cutoff: cutoff) }
         var importedCount = 0
         var skippedCount = 0
 
@@ -183,9 +185,18 @@ final class HealthKitWellnessSync: ObservableObject {
         )
 
         let cutoff = syncCutoffDate()
+        let owner = await api.authenticatedUserId
+        let evidenceKey = owner.map { "healthkit-source-evidence-v1-syncRecentSleep-\($0)" }
+        let needsSourceBackfill = access.readEnabled && evidenceKey.map { !UserDefaults.standard.bool(forKey: $0) } == true
+        // One account-scoped 90-day source-evidence pass aligns with direct Oura's
+        // first backfill. Subsequent queries and historical exports remain 30 days.
+        let sourceCutoff = needsSourceBackfill
+            ? Calendar.current.date(byAdding: .day, value: -90, to: Date()) ?? cutoff
+            : cutoff
         let healthSamples = access.readEnabled
-            ? try await fetchCategorySamples(type: sleepType, since: cutoff)
+            ? try await fetchCategorySamples(type: sleepType, since: sourceCutoff)
             : []
+        if access.readEnabled { await recordSourceDiagnostics(healthSamples, cutoff: sourceCutoff) }
         var importedCount = 0
         var skippedCount = 0
 
@@ -202,18 +213,13 @@ final class HealthKitWellnessSync: ObservableObject {
                 let existingIndex = existingHealthKitEntries.firstIndex {
                     isSameSleepSession($0, as: session)
                 }
-                if let existingIndex,
-                   sleepEntry(existingHealthKitEntries[existingIndex], matches: session) {
-                    skippedCount += 1
-                    continue
-                }
-
                 let response = try await api.addSleepEntry(
                     durationHours: session.durationHours,
                     wakeUps: session.wakeUps,
                     loggedAt: isoFormatter.string(from: session.start),
                     source: "healthkit",
-                    externalId: session.externalId
+                    externalId: session.externalId,
+                    healthkitMetadata: session.evidence
                 )
 
                 let syncedEntry = SleepEntry(
@@ -258,6 +264,7 @@ final class HealthKitWellnessSync: ObservableObject {
             }
         }
 
+        if needsSourceBackfill, let evidenceKey { UserDefaults.standard.set(true, forKey: evidenceKey) }
         return HealthKitMetricSyncResult(importedCount: importedCount, exportedCount: exportedCount, skippedCount: skippedCount)
     }
 
@@ -302,6 +309,7 @@ final class HealthKitWellnessSync: ObservableObject {
         let healthSamples = access.readEnabled
             ? try await fetchCategorySamples(type: sexualActivityType, since: cutoff)
             : []
+        if access.readEnabled { await recordSourceDiagnostics(healthSamples, cutoff: cutoff) }
         var importedCount = 0
         var skippedCount = 0
 
@@ -421,6 +429,12 @@ final class HealthKitWellnessSync: ObservableObject {
                 sortDescriptors: [sort]
             ) { _, samples, error in
                 if let error {
+                    let failure = error as NSError
+                    Task { @MainActor in
+                        Diagnostics.shared.record(level: "warning", category: "healthkit-sources", message: "Apple Health query failed", details: [
+                            "type": type.identifier, "errorDomain": failure.domain, "errorCode": "\(failure.code)"
+                        ])
+                    }
                     continuation.resume(throwing: error)
                     return
                 }
@@ -429,6 +443,25 @@ final class HealthKitWellnessSync: ObservableObject {
             }
 
             healthStore.execute(query)
+        }
+    }
+
+    private func recordSourceDiagnostics(_ samples: [HKSample], cutoff: Date) async {
+        let groups = Dictionary(grouping: samples) {
+            "\($0.sampleType.identifier)|\($0.sourceRevision.source.bundleIdentifier)|\($0.sourceRevision.source.name)"
+        }
+        for (source, values) in groups.sorted(by: { $0.key < $1.key }) {
+            await Diagnostics.shared.record(category: "healthkit-sources", message: "Observed Apple Health source", details: [
+                "typeBundleName": source, "sampleCount": "\(values.count)",
+                "queryStart": isoFormatter.string(from: cutoff), "queryEnd": isoFormatter.string(from: Date()),
+                "readAuthorization": "Requested; Apple does not disclose read denial"
+            ])
+        }
+        if samples.isEmpty {
+            await Diagnostics.shared.record(category: "healthkit-sources", message: "No readable samples", details: [
+                "queryStart": isoFormatter.string(from: cutoff), "sampleCount": "0",
+                "readAuthorization": "Requested; empty results do not prove read denial"
+            ])
         }
     }
 
@@ -499,6 +532,12 @@ final class HealthKitWellnessSync: ObservableObject {
     }
 
     private func sleepSessions(from samples: [HKCategorySample]) -> [SleepSession] {
+        Dictionary(grouping: samples, by: { $0.sourceRevision.source.bundleIdentifier })
+            .values.flatMap { sourceSleepSessions(from: $0) }
+            .sorted { $0.start < $1.start }
+    }
+
+    private func sourceSleepSessions(from samples: [HKCategorySample]) -> [SleepSession] {
         let asleepSamples = samples
             .filter(isAsleepSample)
             .sorted { $0.startDate < $1.startDate }
@@ -521,13 +560,26 @@ final class HealthKitWellnessSync: ObservableObject {
                 guard overlaps(sample, start: start, end: end) else { return nil }
                 return (max(sample.startDate, start), min(sample.endDate, end))
             }
-            let wakeUps = min(mergedIntervals(awakeIntervals).count, 99)
+            guard let source = samples.first?.sourceRevision.source else { return }
+            var evidence: [String: Any] = [
+                "sourceName": source.name,
+                "sourceBundleId": source.bundleIdentifier,
+                "endedAt": isoFormatter.string(from: end),
+                "awakeSeconds": mergedDurationHours(awakeIntervals) * 3600
+            ]
+            for (key, stage) in [("lightSleepSeconds", HKCategoryValueSleepAnalysis.asleepCore),
+                                 ("deepSleepSeconds", .asleepDeep), ("remSleepSeconds", .asleepREM)] {
+                let stageIntervals = samples.filter { $0.value == stage.rawValue && overlaps($0, start: start, end: end) }
+                    .map { (start: max($0.startDate, start), end: min($0.endDate, end)) }
+                if !stageIntervals.isEmpty { evidence[key] = mergedDurationHours(stageIntervals) * 3600 }
+            }
             sessions.append(SleepSession(
                 start: start,
                 end: end,
                 durationHours: min(durationHours, 24),
-                wakeUps: wakeUps,
-                externalId: sleepSessionExternalId(start: start)
+                evidence: evidence,
+                wakeUps: 0,
+                externalId: "\(source.bundleIdentifier):\(sleepSessionExternalId(start: start))"
             ))
         }
 
@@ -589,6 +641,8 @@ final class HealthKitWellnessSync: ObservableObject {
     }
 
     private func shouldImport(_ sample: HKSample, dailyMacrosPrefix: String) -> Bool {
+        if sample.sourceRevision.source.bundleIdentifier == Bundle.main.bundleIdentifier ||
+            sample.metadata?[dailyMacrosSourceMetadataKey] != nil { return false }
         guard let externalUUID = sample.metadata?[HKMetadataKeyExternalUUID] as? String else {
             return true
         }
@@ -596,7 +650,7 @@ final class HealthKitWellnessSync: ObservableObject {
     }
 
     private func shouldExport(source: String?, loggedAt: String, cutoff: Date) -> Bool {
-        guard source != "healthkit",
+        guard source != "healthkit", source != "oura",
               let date = parseDate(loggedAt),
               date >= cutoff else {
             return false

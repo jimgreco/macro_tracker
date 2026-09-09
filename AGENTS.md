@@ -238,3 +238,9 @@ The server sets a strict CSP header. Key constraints for frontend development:
 ## Waist evidence tracking
 
 Waist measurements live in `waist_entries` (schema/store/validation in `src/waist.js`). Preserve one or two raw readings, entered unit, landmark method, timestamp and notes; average in centimeters for comparison. Never compare different landmarks as one continuous series. Web and iOS entry points are Health > Weight; iOS uses the protected replayable `.waist` mutation queue. Account export/deletion coverage is registered in `src/data-inventory.js`.
+
+## Oura and HealthKit reconciliation
+
+`src/health-reconciliation.js` serializes source-aware HealthKit ingestion and direct sleep/workout upserts under the same account advisory lock. New native imports include observed `HKSourceRevision` name/bundle and aggregate timing evidence; never hard-code an assumed Oura bundle identifier. Sleep sessionization groups by source before merging intervals. Awake duration is objective; perceived wake-ups, quality and notes are user annotations. Legacy rows acquire source evidence on the next native replay, with a one-time account-scoped 90-day source pass followed by normal 30-day queries.
+
+Direct Oura workout projections use `workout_entries.source = 'oura'` and are read-only; exclude those rows from `getAnalysisSnapshot`, all model narration contexts, and HealthKit exports. Deleting a projection is a durable ignore. The 72-hour fallback grace never permits covered provider days to be reimported. `health_transport_coverage` retains only coverage days and ignore IDs across disconnect; account export/deletion includes it. `GET /oura/recovery` is the shared deterministic web/iOS display contract, and `/oura/evidence` returns only scoped timestamps/counts for operator verification. Recovery documents and derived values remain prohibited from AI inputs.

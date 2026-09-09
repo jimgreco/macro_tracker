@@ -1,3 +1,4 @@
+const healthReconciliation = require('./health-reconciliation');
 const { initCheckinDb } = require('./checkins');
 const { initWaistDb, createWaistStore } = require('./waist');
 const fs = require('fs');
@@ -929,6 +930,8 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_oura_webhook_subscriptions_expiration ON oura_webhook_subscriptions(expiration_time);
   `);
 
+  await healthReconciliation.initHealthReconciliation(pool);
+  await recordSchemaMigration('2026-09-08_health_transport_reconciliation');
   await initWaistDb(pool);
   await recordSchemaMigration('2026-09-08_waist_measurements');
   await initCheckinDb(pool);
@@ -3279,6 +3282,7 @@ async function clearWeightTarget(userId, payload = {}) {
 }
 
 async function addWorkoutEntry(userId, payload) {
+  if (payload.source === 'healthkit' && payload.healthkitMetadata) return healthReconciliation.importHealthKit(pool, userId, 'workout', payload);
   const description = String(payload.description || '').trim();
   if (!description) {
     throw new Error('Workout description is required.');
@@ -3352,7 +3356,7 @@ async function updateWorkoutEntry(userId, id, payload) {
          logged_at = $7,
          source = COALESCE($8, source),
          external_id = COALESCE($9, external_id)
-     WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
+     WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL AND source <> 'oura'`,
     [userId, id, description, intensity, durationHours, caloriesBurned, loggedAt, source, externalId]
   );
 
@@ -3361,9 +3365,15 @@ async function updateWorkoutEntry(userId, id, payload) {
 
 async function deleteWorkoutEntry(userId, id) {
   const result = await pool.query(
-    'UPDATE workout_entries SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+    "UPDATE workout_entries SET deleted_at = NOW(), oura_ignored = (source = 'oura') OR oura_ignored WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL RETURNING source, external_id",
     [id, userId]
   );
+  for (const row of result.rows) {
+    if (row.source !== 'oura') continue;
+    await pool.query(`UPDATE health_transport_coverage SET ignored_ids = array_append(ignored_ids, $2)
+      WHERE user_id = $1 AND data_type = 'workout' AND NOT ($2 = ANY(ignored_ids))`, [userId, row.external_id]);
+    await pool.query(`UPDATE oura_documents SET ignored_at = NOW() WHERE user_id = $1 AND data_type = 'workout' AND provider_document_id = $2`, [userId, row.external_id]);
+  }
   return result.rowCount;
 }
 
@@ -3580,6 +3590,7 @@ function normalizeSleepNotes(payload = {}) {
 }
 
 async function addSleepEntry(userId, payload) {
+  if (payload.source === 'healthkit' && payload.healthkitMetadata) return healthReconciliation.importHealthKit(pool, userId, 'sleep', payload);
   const durationHours = Number(payload.durationHours);
   if (!Number.isFinite(durationHours) || durationHours <= 0 || durationHours > 24) {
     throw new Error('Duration must be between 0 and 24 hours.');
@@ -3601,8 +3612,15 @@ async function addSleepEntry(userId, payload) {
       await client.query('BEGIN');
       await client.query(
         `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
-        [`healthkit-sleep:${userId}`]
+        [`health-transports:${userId}`]
       );
+
+      const tombstone = await client.query(`SELECT id FROM sleep_entries WHERE user_id = $1
+        AND source = 'healthkit' AND external_id = $2 AND (deleted_at IS NOT NULL OR healthkit_metadata IS NOT NULL) LIMIT 1`, [userId, externalId]);
+      if (tombstone.rows.length) {
+        await client.query('COMMIT');
+        return { id: Number(tombstone.rows[0].id), created: false };
+      }
 
       const matching = await client.query(
         `SELECT id,
@@ -3725,20 +3743,17 @@ async function updateSleepEntry(userId, id, payload) {
   const quality = hasQuality ? normalizeSleepQuality(payload) : null;
   const hasNotes = hasSleepNotesPayload(payload);
   const notes = hasNotes ? normalizeSleepNotes(payload) : null;
-  const source = payload.source == null ? null : normalizeHealthEntrySource(payload.source, 'Sleep');
-  const externalId = payload.externalId == null && payload.external_id == null ? null : normalizeExternalId(payload.externalId ?? payload.external_id, 'Sleep');
 
   const result = await pool.query(
     `UPDATE sleep_entries
-     SET duration_hours = $3,
+     SET duration_hours = CASE WHEN source = 'manual' THEN $3 ELSE duration_hours END,
          wake_ups = $4,
-         logged_at = $5,
-         source = COALESCE($6, source),
-         external_id = COALESCE($7, external_id),
-         quality = CASE WHEN $8 THEN $9::integer ELSE quality END,
-         notes = CASE WHEN $10 THEN $11::text ELSE notes END
+         wake_ups_annotated = TRUE,
+         logged_at = CASE WHEN source = 'manual' THEN $5 ELSE logged_at END,
+         quality = CASE WHEN $6 THEN $7::integer ELSE quality END,
+         notes = CASE WHEN $8 THEN $9::text ELSE notes END
      WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`,
-    [userId, id, Number(durationHours.toFixed(2)), wakeUps, loggedAt, source, externalId, hasQuality, quality, hasNotes, notes]
+    [userId, id, Number(durationHours.toFixed(2)), wakeUps, loggedAt, hasQuality, quality, hasNotes, notes]
   );
 
   return result.rowCount;
@@ -3762,6 +3777,7 @@ async function listSleepEntries(userId, options = {}) {
     `SELECT id,
             duration_hours AS "durationHours",
             wake_ups AS "wakeUps",
+            healthkit_metadata AS "healthkitMetadata",
             quality,
             notes,
             logged_at AS "loggedAt",
@@ -3795,6 +3811,7 @@ async function listSleepEntries(userId, options = {}) {
       id: Number(row.id),
       durationHours: Number(row.durationHours),
       wakeUps: Number(row.wakeUps || 0),
+      healthkitMetadata: row.healthkitMetadata || null,
       quality: row.quality == null ? null : Number(row.quality),
       notes: row.notes || null,
       loggedAt: new Date(row.loggedAt).toISOString(),
@@ -3917,7 +3934,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
            ROUND(SUM(duration_hours)::numeric, 2) AS duration_hours,
            ROUND(SUM(calories_burned)::numeric, 1) AS calories_burned
          FROM workout_entries
-         WHERE user_id = $1 AND deleted_at IS NULL
+         WHERE user_id = $1 AND deleted_at IS NULL AND source <> 'oura'
            AND logged_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
          GROUP BY day
          ORDER BY day ASC`,
@@ -3929,7 +3946,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
            COUNT(*)::integer AS sessions,
            ROUND(SUM(duration_hours)::numeric, 2) AS duration_hours
          FROM workout_entries
-         WHERE user_id = $1 AND deleted_at IS NULL
+         WHERE user_id = $1 AND deleted_at IS NULL AND source <> 'oura'
            AND logged_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
          GROUP BY lower(description)
          ORDER BY COUNT(*) DESC, SUM(duration_hours) DESC
@@ -3970,7 +3987,7 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
            UNION ALL
            SELECT MIN(logged_at) AS started_at
            FROM workout_entries
-           WHERE user_id = $1 AND deleted_at IS NULL
+           WHERE user_id = $1 AND deleted_at IS NULL AND source <> 'oura'
            UNION ALL
            SELECT MIN(logged_at) AS started_at
            FROM weight_entries
@@ -4794,6 +4811,7 @@ async function upsertOuraConnection(userId, connection) {
     if (previousOuraUserId && previousOuraUserId !== connection.ouraUserId) {
       // Never blend aggregates from two provider accounts when a DailyMacros
       // user intentionally connects a different Oura account.
+      await client.query("DELETE FROM workout_entries WHERE user_id = $1 AND source = 'oura'", [userId]);
       await client.query('DELETE FROM oura_documents WHERE user_id = $1', [userId]);
     }
 
@@ -4913,40 +4931,48 @@ async function listActiveOuraConnections() {
 
 async function upsertOuraDocument(userId, dataType, document, options = {}) {
   const resurrect = options.resurrect === true;
-  const result = await pool.query(
-    `INSERT INTO oura_documents (
-       user_id, data_type, provider_document_id, day, recorded_at, normalized_data,
-       synced_at, updated_at, deleted_at
-     )
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW(), NULL)
-     ON CONFLICT (user_id, data_type, provider_document_id) DO UPDATE SET
-       day = CASE
-         WHEN oura_documents.deleted_at IS NOT NULL AND NOT $7 THEN oura_documents.day
-         ELSE EXCLUDED.day
-       END,
-       recorded_at = CASE
-         WHEN oura_documents.deleted_at IS NOT NULL AND NOT $7 THEN oura_documents.recorded_at
-         ELSE EXCLUDED.recorded_at
-       END,
-       normalized_data = CASE
-         WHEN oura_documents.deleted_at IS NOT NULL AND NOT $7 THEN oura_documents.normalized_data
-         ELSE EXCLUDED.normalized_data
-       END,
-       synced_at = NOW(),
-       updated_at = NOW(),
-       deleted_at = CASE WHEN $7 THEN NULL ELSE oura_documents.deleted_at END
-     RETURNING *`,
-    [
-      userId,
-      dataType,
-      document.providerDocumentId,
-      document.day || null,
-      document.recordedAt || null,
-      JSON.stringify(document.data || {}),
-      resurrect
-    ]
-  );
-  return result.rows[0];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await healthReconciliation.lock(client, userId);
+    const result = await client.query(
+      `INSERT INTO oura_documents (
+         user_id, data_type, provider_document_id, day, recorded_at, normalized_data,
+         synced_at, updated_at, deleted_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW(), NULL)
+       ON CONFLICT (user_id, data_type, provider_document_id) DO UPDATE SET
+         day = CASE
+           WHEN oura_documents.deleted_at IS NOT NULL AND NOT $7 THEN oura_documents.day
+           ELSE EXCLUDED.day
+         END,
+         recorded_at = CASE
+           WHEN oura_documents.deleted_at IS NOT NULL AND NOT $7 THEN oura_documents.recorded_at
+           ELSE EXCLUDED.recorded_at
+         END,
+         normalized_data = CASE
+           WHEN oura_documents.deleted_at IS NOT NULL AND NOT $7 THEN oura_documents.normalized_data
+           ELSE EXCLUDED.normalized_data
+         END,
+         synced_at = NOW(),
+         updated_at = NOW(),
+         deleted_at = CASE WHEN $7 THEN NULL ELSE oura_documents.deleted_at END
+       RETURNING *`,
+      [
+        userId,
+        dataType,
+        document.providerDocumentId,
+        document.day || null,
+        document.recordedAt || null,
+        JSON.stringify(document.data || {}),
+        resurrect
+      ]
+    );
+    if (['sleep', 'workout'].includes(dataType)) await healthReconciliation.mergeDocument(client, userId, dataType, result.rows[0]);
+    await client.query('COMMIT');
+    return result.rows[0];
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
 }
 
 async function deleteOuraDocument(userId, dataType, providerDocumentId) {
@@ -4961,6 +4987,7 @@ async function deleteOuraDocument(userId, dataType, providerDocumentId) {
        deleted_at = NOW()`,
     [userId, dataType, providerDocumentId]
   );
+  if (dataType === 'workout') await pool.query("UPDATE workout_entries SET deleted_at = COALESCE(deleted_at, NOW()) WHERE user_id = $1 AND source = 'oura' AND external_id = $2", [userId, providerDocumentId]);
 }
 
 async function reconcileOuraDocuments(userId, dataType, startDate, endDate, seenIds, reconciliationStartedAt = new Date()) {
@@ -4977,11 +5004,14 @@ async function reconcileOuraDocuments(userId, dataType, startDate, endDate, seen
        AND NOT (provider_document_id = ANY($5::text[]))`,
     [userId, dataType, startDate, endDate, ids, reconciliationStartedAt]
   );
+  if (dataType === 'workout') await pool.query(`UPDATE workout_entries SET deleted_at = COALESCE(deleted_at, NOW())
+    WHERE user_id = $1 AND source = 'oura' AND external_id IN
+      (SELECT provider_document_id FROM oura_documents WHERE user_id = $1 AND data_type = 'workout' AND deleted_at IS NOT NULL)`, [userId]);
   return result.rowCount || 0;
 }
 
 async function listOuraDocuments(userId, options = {}) {
-  const conditions = ['user_id = $1', 'deleted_at IS NULL'];
+  const conditions = ['user_id = $1', 'deleted_at IS NULL', 'ignored_at IS NULL'];
   const values = [userId];
   if (options.dataType) {
     values.push(String(options.dataType));
@@ -5004,6 +5034,7 @@ async function listOuraDocuments(userId, options = {}) {
        day::text AS day,
        recorded_at AS "recordedAt",
        normalized_data AS data,
+       annotations,
        synced_at AS "syncedAt",
        updated_at AS "updatedAt"
      FROM oura_documents
@@ -5013,6 +5044,40 @@ async function listOuraDocuments(userId, options = {}) {
     values
   );
   return result.rows;
+}
+
+async function getOuraAcceptanceEvidence(userId) {
+  const [documents, deliveries, transport] = await Promise.all([
+    pool.query(`SELECT data_type AS "dataType", COUNT(*)::integer AS count,
+      MAX(synced_at) AS "lastSyncedAt", MAX(updated_at) AS "lastUpdatedAt"
+      FROM oura_documents WHERE user_id = $1 AND deleted_at IS NULL GROUP BY data_type ORDER BY data_type`, [userId]),
+    pool.query(`SELECT status, COUNT(*)::integer AS count, MAX(received_at) AS "lastReceivedAt",
+      MAX(processed_at) AS "lastProcessedAt" FROM webhook_events WHERE provider = 'oura' AND user_id = $1
+      GROUP BY status ORDER BY status`, [userId]),
+    pool.query(`SELECT 'sleep' AS type, COUNT(*)::integer AS "linkedCopies" FROM sleep_entries WHERE user_id = $1 AND oura_document_id IS NOT NULL
+      UNION ALL SELECT 'workout', COUNT(*)::integer FROM workout_entries WHERE user_id = $1 AND oura_document_id IS NOT NULL`, [userId])
+  ]);
+  return { generatedAt: new Date().toISOString(), documents: documents.rows, deliveries: deliveries.rows, transport: transport.rows };
+}
+
+async function annotateOuraSleep(userId, providerDocumentId, payload) {
+  const quality = normalizeSleepQuality(payload);
+  const notes = normalizeSleepNotes(payload);
+  const wakeUps = payload.wakeUps == null ? null : Number(payload.wakeUps);
+  if (wakeUps != null && (!Number.isInteger(wakeUps) || wakeUps < 0 || wakeUps > 99)) throw new Error('Invalid perceived wake-ups.');
+  const result = await pool.query(`UPDATE oura_documents SET annotations = $3::jsonb
+    WHERE user_id = $1 AND data_type = 'sleep' AND provider_document_id = $2 AND deleted_at IS NULL AND ignored_at IS NULL`,
+    [userId, providerDocumentId, JSON.stringify({ quality, notes, wakeUps })]);
+  return result.rowCount;
+}
+async function ignoreOuraSleep(userId, providerDocumentId) {
+  await pool.query(`UPDATE health_transport_coverage SET ignored_ids = array_append(ignored_ids, $2)
+    WHERE user_id = $1 AND data_type = 'sleep' AND NOT ($2 = ANY(ignored_ids))
+    AND EXISTS (SELECT 1 FROM oura_documents WHERE user_id = $1 AND data_type = 'sleep' AND provider_document_id = $2)`, [userId, providerDocumentId]);
+  await pool.query(`UPDATE sleep_entries SET oura_ignored = TRUE WHERE user_id = $1 AND oura_document_id = $2`, [userId, providerDocumentId]);
+  const result = await pool.query(`UPDATE oura_documents SET ignored_at = NOW()
+    WHERE user_id = $1 AND data_type = 'sleep' AND provider_document_id = $2`, [userId, providerDocumentId]);
+  return result.rowCount;
 }
 
 async function upsertOuraWebhookSubscription(subscription) {
@@ -5070,6 +5135,7 @@ async function deleteOuraConnection(userId, options = {}) {
     );
     await client.query('DELETE FROM oura_connections WHERE user_id = $1', [userId]);
     if (options.deleteData !== false) {
+      await client.query("DELETE FROM workout_entries WHERE user_id = $1 AND source = 'oura'", [userId]);
       await client.query('DELETE FROM oura_documents WHERE user_id = $1', [userId]);
     }
     await client.query('COMMIT');
@@ -5933,6 +5999,9 @@ module.exports = {
   deleteOuraDocument,
   reconcileOuraDocuments,
   listOuraDocuments,
+  getOuraAcceptanceEvidence,
+  annotateOuraSleep,
+  ignoreOuraSleep,
   upsertOuraWebhookSubscription,
   listOuraWebhookSubscriptions,
   deleteOuraConnection,

@@ -57,3 +57,5 @@ HealthKit permissions are optional and controlled by the user at two layers. Dai
 - Public policy route: `/privacy`.
 
 Progress check-ins: optional user photos are account-linked user content stored in private S3 for app functionality. Photo selection uses the system picker; there is no full-library access. Images are stripped of metadata, are not sent to AI services, and are deleted with the photo/check-in/account. Check-in details are included in account exports; each photo has an export action.
+
+HealthKit reconciliation stores observed source names/bundle identifiers and aggregate timing/stage durations, without raw sample arrays. Perceived wake-ups are separate user annotations, not awake sample counts. After Oura disconnect, minimal covered-day and ignored-identifier markers remain to prevent reimport of deleted history; account deletion removes them. Sync diagnostics contain timestamps, source/type identifiers, counts and sanitized errors, never credentials or health values.

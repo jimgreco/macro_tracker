@@ -5848,3 +5848,21 @@ button[disabled] {
 .companion-switch a,.companion-switch span {padding:7px 10px;border-radius:10px;text-decoration:none;color:var(--text-secondary);}
 .companion-switch [aria-current] {background:var(--surface-hover);color:var(--text);font-weight:700;}
 .brand-lockup {flex-wrap:wrap;}
+
+/* Recovery shares the existing Health surface without nutrition colors. */
+.recovery-panel { margin-bottom: 20px; padding: 20px; border: 1px solid var(--border-color, #414653); border-radius: 18px; background: var(--card-bg, #20242d); }
+.recovery-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; flex-wrap: wrap; }
+.recovery-heading h3, .recovery-heading p { margin: 0 0 6px; }
+.recovery-heading > span { font-size: .8rem; opacity: .75; }
+.recovery-metrics { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 16px; margin: 20px 0; }
+.recovery-metrics div, .recovery-trends > div { display: flex; flex-direction: column; gap: 6px; }
+.recovery-metrics strong { font-size: 1.65rem; font-variant-numeric: tabular-nums; }
+.recovery-metrics span, .recovery-trends small { font-size: .8rem; opacity: .8; }
+.recovery-panel summary { cursor: pointer; padding: 12px 0; font-weight: 600; }
+.recovery-trends { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 20px; padding: 12px 0; }
+.recovery-sessions { display: grid; gap: 8px; }
+.recovery-sessions button { display: flex; justify-content: space-between; gap: 12px; text-align: left; flex-wrap: wrap; }
+.recovery-detail-values { margin: 18px 0; }
+.recovery-detail-values > div { display: flex; justify-content: space-between; gap: 20px; padding: 7px 0; border-bottom: 1px solid var(--border-color, #414653); }
+.recovery-detail-values dd { text-align: right; margin: 0; font-variant-numeric: tabular-nums; }
+@media(max-width: 480px) { .recovery-panel { padding: 16px; } .recovery-metrics { grid-template-columns: 1fr 1fr; } .recovery-metrics > div:first-child { grid-column: 1 / -1; } }

@@ -1,3 +1,4 @@
+const { buildRecovery } = require('./recovery');
 // --- Macro Tracker Server ---
 // Last Deployed: 2026-04-03
 require('dotenv').config();
@@ -115,6 +116,9 @@ const {
   deleteOuraDocument,
   reconcileOuraDocuments,
   listOuraDocuments,
+  getOuraAcceptanceEvidence,
+  annotateOuraSleep,
+  ignoreOuraSleep,
   upsertOuraWebhookSubscription,
   listOuraWebhookSubscriptions,
   deleteOuraConnection,
@@ -3050,6 +3054,42 @@ apiRouter.post('/oura/sync', async (req, res) => {
     const status = error?.code === 'integration_access_required' ? 409 : 400;
     return sendError(req, res, status, error.message || 'Unable to sync Oura data.');
   }
+});
+
+apiRouter.get('/oura/evidence', async (req, res) => {
+  try {
+    disableConditionalCaching(req, res);
+    const [evidence, status] = await Promise.all([getOuraAcceptanceEvidence(userIdFromReq(req)), ouraService.getStatus(userIdFromReq(req))]);
+    return res.json({ ...evidence, connection: { state: status.state, lastSyncedAt: status.lastSyncedAt,
+      lastWebhookAt: status.lastWebhookAt, grantedScopes: status.grantedScopes, updateMode: status.updateMode,
+      webhookSubscriptions: status.webhookSubscriptions, expectedWebhookSubscriptions: status.expectedWebhookSubscriptions } });
+  } catch (error) { return sendError(req, res, 400, 'Unable to load sync evidence.'); }
+});
+
+apiRouter.get('/oura/recovery', async (req, res) => {
+  try {
+    disableConditionalCaching(req, res);
+    const userId = userIdFromReq(req);
+    const timezone = requestTimezone(req);
+    const days = req.query.scope === 'month' ? 30 : req.query.scope === 'year' ? 365 : 7;
+    const [documents, status, targets, sleep] = await Promise.all([
+      ouraService.listDocuments(userId, { limit: 2000 }), ouraService.getStatus(userId),
+      getMacroTargets(userId, undefined, { timezone }), listSleepEntries(userId, { limit: 500, scope: req.query.scope, timezone })
+    ]);
+    return res.json(buildRecovery({ documents, status, targetHours: Number(targets.sleep_hours) || 8, timezone, days, appEntries: sleep.entries }));
+  } catch (error) { return sendError(req, res, 400, error.message || 'Unable to load recovery.'); }
+});
+apiRouter.put('/oura/sleep/:id/annotations', async (req, res) => {
+  try {
+    if (!await annotateOuraSleep(userIdFromReq(req), req.params.id, req.body || {})) return sendError(req, res, 404, 'Sleep record not found.');
+    return res.json({ ok: true });
+  } catch (error) { return sendError(req, res, 400, error.message); }
+});
+apiRouter.delete('/oura/sleep/:id', async (req, res) => {
+  try {
+    if (!await ignoreOuraSleep(userIdFromReq(req), req.params.id)) return sendError(req, res, 404, 'Sleep record not found.');
+    return res.json({ ok: true });
+  } catch (error) { return sendError(req, res, 400, error.message); }
 });
 
 apiRouter.get('/oura/documents', async (req, res) => {

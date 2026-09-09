@@ -1114,7 +1114,8 @@ class APIClient: ObservableObject {
         caloriesBurned: Double,
         loggedAt: String,
         source: String? = nil,
-        externalId: String? = nil
+        externalId: String? = nil,
+        healthkitMetadata: [String: Any]? = nil
     ) async throws -> WorkoutMutationResponse {
         #if DEBUG
         if ScreenshotSeedData.isEnabled {
@@ -1131,6 +1132,7 @@ class APIClient: ObservableObject {
         ]
         if let source { payload["source"] = source }
         if let externalId { payload["externalId"] = externalId }
+        if let healthkitMetadata { payload["healthkitMetadata"] = healthkitMetadata }
         let body = try JSONSerialization.data(withJSONObject: payload)
         return try await performReplayableMutation(
             path: "/workouts",
@@ -1288,7 +1290,7 @@ class APIClient: ObservableObject {
     }
 
     @discardableResult
-    func addSleepEntry(durationHours: Double, wakeUps: Int, quality: Int? = nil, notes: String? = nil, loggedAt: String, source: String? = nil, externalId: String? = nil) async throws -> EntryMutationResponse {
+    func addSleepEntry(durationHours: Double, wakeUps: Int, quality: Int? = nil, notes: String? = nil, loggedAt: String, source: String? = nil, externalId: String? = nil, healthkitMetadata: [String: Any]? = nil) async throws -> EntryMutationResponse {
         #if DEBUG
         if ScreenshotSeedData.isEnabled {
             return ScreenshotSeedData.mutationOK(id: 9004)
@@ -1300,6 +1302,7 @@ class APIClient: ObservableObject {
         if let notes { payload["notes"] = notes }
         if let source { payload["source"] = source }
         if let externalId { payload["externalId"] = externalId }
+        if let healthkitMetadata { payload["healthkitMetadata"] = healthkitMetadata }
         let body = try JSONSerialization.data(withJSONObject: payload)
         return try await performReplayableMutation(
             path: "/sleep",
@@ -1403,6 +1406,41 @@ class APIClient: ObservableObject {
     }
 
     // MARK: - Oura
+
+    func getOuraSyncEvidence() async throws -> [String: JSONValue] {
+        let request = try authorizedRequest(apiURL("/oura/evidence"))
+        return try await perform(request)
+    }
+
+    func getRecovery(scope: String) async throws -> RecoveryResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return RecoveryResponse(source: "Oura Cloud", timezone: "America/New_York", targetHours: 8,
+                connectionState: "disconnected", freshness: "Not synced", lastSyncedAt: nil, latest: nil,
+                sessions: [], trends: [], dailyTotals: ScreenshotSeedData.sleepEntries(scope: scope, limit: 500, offset: 0).dailyTotals)
+        }
+        #endif
+        var components = URLComponents(url: apiURL("/oura/recovery"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [.init(name: "scope", value: scope)]
+        let request = try authorizedRequest(components.url!)
+        return try await perform(request)
+    }
+
+    func annotateOuraSleep(id: String, quality: Int?, notes: String, wakeUps: Int?) async throws {
+        var payload: [String: Any] = ["notes": notes]
+        payload["quality"] = quality.map { $0 as Any } ?? NSNull()
+        payload["wakeUps"] = wakeUps.map { $0 as Any } ?? NSNull()
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let encodedId = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let request = try authorizedRequest(apiURL("/oura/sleep/\(encodedId)/annotations"), method: "PUT", body: body)
+        let _: OkResponse = try await perform(request)
+    }
+
+    func ignoreOuraSleep(id: String) async throws {
+        let encodedId = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let request = try authorizedRequest(apiURL("/oura/sleep/\(encodedId)"), method: "DELETE")
+        let _: OkResponse = try await perform(request)
+    }
 
     func getOuraStatus() async throws -> OuraStatusResponse {
         let request = try authorizedRequest(apiURL("/oura/status"))

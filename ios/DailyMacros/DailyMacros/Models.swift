@@ -536,8 +536,7 @@ enum OuraSleepSummaryBuilder {
 
             let endedAt = string(document.data["bedtimeEnd"]).flatMap(parseTimestamp)
             let reportedSeconds = number(document.data["totalSleepSeconds"])
-            let calculatedSeconds = endedAt.map { $0.timeIntervalSince(startedAt) }
-            guard let durationSeconds = reportedSeconds ?? calculatedSeconds,
+            guard let durationSeconds = reportedSeconds,
                   durationSeconds > 0,
                   durationSeconds <= 24 * 60 * 60 else {
                 return nil
@@ -780,6 +779,7 @@ struct SleepEntry: Codable, Identifiable, Sendable {
     let loggedAt: String
     let source: String?
     let externalId: String?
+    var healthkitMetadata: [String: JSONValue]? = nil
 }
 
 struct SleepDailyTotals: Codable, Sendable {
@@ -988,3 +988,44 @@ struct ProgressCheckinsResponse: Codable {
     let photosConfigured: Bool
 }
 struct ProgressPhotoURL: Codable { let url: URL }
+
+// Server-backed recovery presentation; never pass to narration or analysis.
+struct RecoveryMetric: Codable, Identifiable, Sendable {
+    let id: String
+    let label: String
+    let value: Double?
+    let unit: String
+    let count: Int?
+    let direction: String?
+}
+struct RecoveryAnnotations: Codable, Sendable {
+    let quality: Int?
+    let notes: String?
+    let wakeUps: Int?
+}
+struct RecoverySession: Codable, Identifiable, Sendable {
+    let id: String
+    let day: String
+    let startedAt: String
+    let endedAt: String?
+    let type: String
+    let durationHours: Double
+    let score: Double?
+    let readiness: Double?
+    let source: String
+    let syncedAt: String
+    let fields: [RecoveryMetric]
+    let annotations: RecoveryAnnotations
+}
+struct RecoveryResponse: Codable, Sendable {
+    let source: String
+    let timezone: String
+    let targetHours: Double
+    let connectionState: String
+    let freshness: String
+    let lastSyncedAt: String?
+    let latest: RecoverySession?
+    let sessions: [RecoverySession]
+    let trends: [RecoveryMetric]
+    let dailyTotals: [SleepDailyTotals]
+}
