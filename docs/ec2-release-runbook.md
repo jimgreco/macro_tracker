@@ -213,3 +213,16 @@ Processed minimized receipts are deleted after 30 days. Retry-exhausted poison
 receipts are retained for 90 days for incident analysis, then deleted. Pending
 or actively leased receipts have no purge deadline: deleting one would violate
 the durable-acknowledgment guarantee.
+
+## JIM-50 / JIM-51 / JIM-52 acceptance
+
+Local verification does not close the real-ring acceptance requirement. After releasing the native and server changes, use one connected test account:
+
+1. In iOS, run Apple Health sync and export Settings > Diagnostics. Confirm actual source display names, bundle identifiers and sample types in `healthkit-sources` entries. The export contains query windows/counts and sanitized errors, never sample values. Oura classification uses the observed source name, with the actual bundle retained as transport evidence.
+2. Copy web Account & Privacy > Oura > Copy sync diagnostics (also included in the native diagnostic export). Save the before snapshot from `/api/v1/oura/evidence`.
+3. Sync the physical ring in Oura. Capture the after snapshot: a signed webhook receipt must progress to processed, canonical document update timestamps must advance, and the same provider day, source, metrics and freshness must display in web and iOS Sleep. Counts alone or a manual reconciliation are not proof of a real ring update.
+4. Save a subjective annotation on web and confirm it on iOS. Replay direct sync and Apple Health sync in both orders; verify no additional biological sleep/workout and no annotation loss. Verify Apple Watch data still imports independently, including naps and a DST/travel night.
+5. With the test account's agreement, exercise revoke/reconnect and disconnect. Imported direct Oura documents and workout projections are deleted on disconnect. Minimal coverage days and ignored identifiers remain so HealthKit cannot recreate covered history. A disconnected/revoked source may resume only for uncovered provider days; a transient error waits for the 72-hour last-success grace. Account deletion removes all markers.
+6. Keep `OURA_INCLUDE_WORKOUTS=false` until the real-device deduplication check passes. When opted in, only direct workout calories count as workout calories; all-day activity energy never changes workouts or macro targets. Direct workout projections are excluded from AI snapshots and HealthKit exports.
+
+Run `TEST_DATABASE_URL=... node --test test/health-reconciliation.test.js` for transactional replay/tombstone/annotation tests, in addition to the standard fresh schema, legacy upgrade and native test gates. Fixtures and simulator screenshots must be labeled as local evidence, never real-ring acceptance.

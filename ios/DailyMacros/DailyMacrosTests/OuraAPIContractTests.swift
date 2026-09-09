@@ -164,6 +164,33 @@ final class OuraAPIContractTests: XCTestCase {
     }
 
     @MainActor
+    func testRecoveryUsesAQueryParameterAndPreservesMissingMetrics() async throws {
+        let defaults = UserDefaults.standard
+        let previousBaseURL = defaults.string(forKey: "api_base_url")
+        defaults.set("https://dailymacros-unit.test", forKey: "api_base_url")
+        URLProtocol.registerClass(OuraURLProtocolStub.self)
+        OuraURLProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v1/oura/recovery")
+            XCTAssertEqual(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first?.value, "month")
+            let response = try XCTUnwrap(HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"]))
+            return (response, Data(#"{"source":"Oura Cloud","timezone":"America/New_York","targetHours":8,"connectionState":"connected","freshness":"Synced to Oura Cloud","lastSyncedAt":null,"latest":null,"sessions":[],"trends":[{"id":"hrv","label":"Average HRV","value":null,"unit":"ms","count":0,"direction":"Not enough nights for direction"}],"dailyTotals":[]}"#.utf8))
+        }
+        let client = APIClient()
+        client.token = "unit-test-token"
+        defer {
+            client.token = nil
+            OuraURLProtocolStub.handler = nil
+            URLProtocol.unregisterClass(OuraURLProtocolStub.self)
+            if let previousBaseURL { defaults.set(previousBaseURL, forKey: "api_base_url") }
+            else { defaults.removeObject(forKey: "api_base_url") }
+        }
+        let response = try await client.getRecovery(scope: "month")
+        XCTAssertNil(response.trends.first?.value)
+        XCTAssertEqual(response.targetHours, 8)
+        XCTAssertEqual(response.timezone, "America/New_York")
+    }
+
+    @MainActor
     func testTodayUsesVersionedAPIAndDecodesOuraRecoveryStatus() async throws {
         let defaults = UserDefaults.standard
         let previousBaseURL = defaults.string(forKey: "api_base_url")

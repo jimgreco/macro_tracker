@@ -146,7 +146,21 @@ struct WorkoutsView: View {
                 editTargetsSheet
             }
             .sheet(item: $editingWorkout) { workout in
-                editWorkoutSheet(workout)
+                if workout.source == "oura" {
+                    NavigationStack {
+                        Form {
+                            Section("Oura Cloud · read-only") {
+                                Text(workout.description)
+                                LabeledContent("Duration", value: "\(workout.durationHours.formatted()) hours")
+                                LabeledContent("Active calories", value: workout.caloriesBurned.formatted())
+                                Text("Synced measurements cannot be edited.").foregroundStyle(.secondary)
+                            }
+                            Section { Button("Delete workout", role: .destructive) { Task { await deleteWorkout(workout) } } }
+                        }
+                        .navigationTitle("Workout details")
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { editingWorkout = nil } } }
+                    }
+                } else { editWorkoutSheet(workout) }
             }
             .task { await loadWorkouts(reset: true) }
             .onAppear {
@@ -1046,8 +1060,8 @@ struct WorkoutsView: View {
     }
 
     private func rebuildCoachSuggestions() async {
-        let workouts = workouts
-        let dailyCalories = dailyCalories
+        let workouts = workouts.filter { $0.source != "oura" }
+        let dailyCalories = self.workouts.contains { $0.source == "oura" } ? [] : dailyCalories
         let workoutsTarget = workoutsTarget
         let caloriesTarget = caloriesTarget
         let sleepDailyTotals = sleepDailyTotals

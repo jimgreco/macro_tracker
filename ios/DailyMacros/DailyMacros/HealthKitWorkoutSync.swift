@@ -64,19 +64,31 @@ final class HealthKitWorkoutSync: ObservableObject {
         try await requestAuthorization(access: access)
 
         let cutoff = syncCutoffDate()
+        let owner = await api.authenticatedUserId
+        let evidenceKey = owner.map { "healthkit-source-evidence-v1-syncRecentWorkouts-\($0)" }
+        let needsSourceBackfill = access.readEnabled && evidenceKey.map { !UserDefaults.standard.bool(forKey: $0) } == true
+        // One account-scoped 90-day source-evidence pass aligns with direct Oura's
+        // first backfill. Subsequent queries and historical exports remain 30 days.
+        let sourceCutoff = needsSourceBackfill
+            ? Calendar.current.date(byAdding: .day, value: -90, to: Date()) ?? cutoff
+            : cutoff
         var healthWorkouts = access.readEnabled
-            ? try await fetchHealthWorkouts(since: cutoff)
+            ? try await fetchHealthWorkouts(since: sourceCutoff)
             : []
+        if access.readEnabled {
+            let sources = Dictionary(grouping: healthWorkouts) { "\($0.sourceRevision.source.bundleIdentifier)|\($0.sourceRevision.source.name)" }
+            for (source, values) in sources {
+                await Diagnostics.shared.record(category: "healthkit-sources", message: "Observed workout source", details: [
+                    "type": HKObjectType.workoutType().identifier, "bundleName": source,
+                    "sampleCount": "\(values.count)", "queryStart": isoFormatter.string(from: sourceCutoff),
+                    "queryEnd": isoFormatter.string(from: Date()), "readAuthorization": "Requested; read denial is not disclosed"
+                ])
+            }
+        }
         var importedCount = 0
         var skippedCount = 0
 
         if access.readEnabled {
-            let existingResponse = try await api.getWorkouts(limit: 500, offset: 0, scope: "month")
-            var existingExternalIds = Set(existingResponse.entries.compactMap { entry in
-                entry.source == "healthkit" ? entry.externalId : nil
-            })
-            var existingSignatures = Set(existingResponse.entries.compactMap(workoutSignature))
-
             for healthWorkout in healthWorkouts {
                 guard shouldImport(healthWorkout) else {
                     skippedCount += 1
@@ -85,13 +97,6 @@ final class HealthKitWorkoutSync: ObservableObject {
 
                 let externalId = healthWorkout.uuid.uuidString
                 let durationHours = max(healthWorkout.duration / 3600, 0.01)
-                let signature = workoutSignature(start: healthWorkout.startDate, durationHours: durationHours)
-
-                if existingExternalIds.contains(externalId) || existingSignatures.contains(signature) {
-                    skippedCount += 1
-                    continue
-                }
-
                 let response = try await api.addWorkout(
                     description: displayName(for: healthWorkout.workoutActivityType),
                     intensity: intensity(for: healthWorkout.workoutActivityType),
@@ -99,11 +104,14 @@ final class HealthKitWorkoutSync: ObservableObject {
                     caloriesBurned: activeEnergyCalories(for: healthWorkout),
                     loggedAt: isoFormatter.string(from: healthWorkout.startDate),
                     source: "healthkit",
-                    externalId: externalId
+                    externalId: externalId,
+                    healthkitMetadata: [
+                        "sourceName": healthWorkout.sourceRevision.source.name,
+                        "sourceBundleId": healthWorkout.sourceRevision.source.bundleIdentifier,
+                        "endedAt": isoFormatter.string(from: healthWorkout.endDate)
+                    ]
                 )
 
-                existingExternalIds.insert(externalId)
-                existingSignatures.insert(signature)
                 if response.created != false {
                     importedCount += 1
                 } else {
@@ -156,6 +164,7 @@ final class HealthKitWorkoutSync: ObservableObject {
             }
         }
 
+        if needsSourceBackfill, let evidenceKey { UserDefaults.standard.set(true, forKey: evidenceKey) }
         return HealthKitWorkoutSyncResult(
             importedCount: importedCount,
             exportedCount: exportedCount,
@@ -167,7 +176,7 @@ final class HealthKitWorkoutSync: ObservableObject {
         _ workout: WorkoutEntry,
         access: IntegrationDirectionSelection
     ) async throws -> HealthKitWorkoutSyncResult {
-        guard access.writeEnabled else { return .empty }
+        guard access.writeEnabled, workout.source != "oura" else { return .empty }
         guard HKHealthStore.isHealthDataAvailable() else {
             throw HealthKitWorkoutSyncError.unavailable
         }
@@ -289,7 +298,7 @@ final class HealthKitWorkoutSync: ObservableObject {
     }
 
     private func shouldExport(_ workout: WorkoutEntry, cutoff: Date) -> Bool {
-        guard workout.source != "healthkit",
+        guard workout.source != "healthkit", workout.source != "oura",
               let loggedAt = parseDate(workout.loggedAt),
               loggedAt >= cutoff else {
             return false
