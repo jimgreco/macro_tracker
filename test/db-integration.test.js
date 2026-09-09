@@ -12,6 +12,15 @@ test('database feature foundations persist and read back through PostgreSQL', { 
   const db = require(dbPath);
   const userId = `integration-${crypto.randomUUID()}`;
 
+  // Keep nutrition evidence inside the rolling analysis window. Fixed dates
+  // eventually age out even though persistence and completeness still work.
+  const nutritionDate = new Date();
+  nutritionDate.setUTCDate(nutritionDate.getUTCDate() - 7);
+  nutritionDate.setUTCHours(12, 0, 0, 0);
+  const nutritionDay = nutritionDate.toISOString().slice(0, 10);
+  const nutritionDayOffset = (days) =>
+    new Date(nutritionDate.getTime() + days * 86_400_000).toISOString().slice(0, 10);
+
   try {
     await db.initDb();
     await db.deleteUserAccount(userId).catch(() => {});
@@ -164,7 +173,7 @@ test('database feature foundations persist and read back through PostgreSQL', { 
         protein: 12,
         carbs: 48,
         fat: 6,
-        consumedAt: '2026-06-11T12:00:00.000Z',
+        consumedAt: nutritionDate.toISOString(),
         source: 'ai_text',
         sourceDetail: 'integration test',
         confidence: 0.62,
@@ -172,7 +181,7 @@ test('database feature foundations persist and read back through PostgreSQL', { 
       }
     ]);
 
-    const dashboard = await db.getDashboard(userId, '2026-06-11', { timezone: 'America/New_York' });
+    const dashboard = await db.getDashboard(userId, nutritionDay, { timezone: 'America/New_York' });
     const logged = dashboard.entries.find((entry) => entry.itemName === 'Integration Oatmeal');
     assert.ok(logged);
     assert.equal(logged.source, 'ai_text');
@@ -244,7 +253,7 @@ test('database feature foundations persist and read back through PostgreSQL', { 
 
     const completedDay = await db.setNutritionDayCompleteness(
       userId,
-      '2026-06-11',
+      nutritionDay,
       'complete',
       'America/New_York'
     );
@@ -263,21 +272,21 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     });
     const afterLateCorrection = await db.getDashboard(
       userId,
-      '2026-06-11',
+      nutritionDay,
       { timezone: 'America/New_York' }
     );
     assert.equal(afterLateCorrection.currentDayTotals.calories, 360);
     assert.equal(afterLateCorrection.currentDayTotals.completeness.state, 'complete');
     const completedSnapshot = await db.getAnalysisSnapshot(userId, 90, 'America/New_York');
     assert.equal(
-      completedSnapshot.meals.dailyTotals.find((row) => row.day === '2026-06-11')
+      completedSnapshot.meals.dailyTotals.find((row) => row.day === nutritionDay)
         ?.completeness.eligibleForNutritionAnalysis,
       true
     );
 
     const reopenedDay = await db.setNutritionDayCompleteness(
       userId,
-      '2026-06-11',
+      nutritionDay,
       'partial',
       'America/New_York'
     );
@@ -285,31 +294,31 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     assert.equal(reopenedDay.eligibleForNutritionAnalysis, false);
     const reopenedSnapshot = await db.getAnalysisSnapshot(userId, 90, 'America/New_York');
     assert.equal(
-      reopenedSnapshot.meals.dailyTotals.find((row) => row.day === '2026-06-11')
+      reopenedSnapshot.meals.dailyTotals.find((row) => row.day === nutritionDay)
         ?.completeness.eligibleForNutritionAnalysis,
       false
     );
-    await db.setNutritionDayCompleteness(userId, '2026-06-11', 'complete', 'America/New_York');
+    await db.setNutritionDayCompleteness(userId, nutritionDay, 'complete', 'America/New_York');
 
-    const copyResult = await db.copyEntriesForLocalDay(userId, '2026-06-11', '2026-06-12', 'America/New_York');
+    const copyResult = await db.copyEntriesForLocalDay(userId, nutritionDay, nutritionDayOffset(1), 'America/New_York');
     assert.equal(copyResult.copiedCount, 1);
-    const copiedDashboard = await db.getDashboard(userId, '2026-06-12', { timezone: 'America/New_York' });
+    const copiedDashboard = await db.getDashboard(userId, nutritionDayOffset(1), { timezone: 'America/New_York' });
     const copied = copiedDashboard.entries.find((entry) => entry.source === 'copy_day');
     assert.ok(copied);
-    assert.equal(copied.sourceDetail, 'copied_from:2026-06-11');
+    assert.equal(copied.sourceDetail, `copied_from:${nutritionDay}`);
     assert.equal(copiedDashboard.currentDayTotals.completeness.state, 'unknown');
     assert.equal(copiedDashboard.currentDayTotals.completeness.eligibleForNutritionAnalysis, false);
 
     const completeNoEntryDay = await db.setNutritionDayCompleteness(
       userId,
-      '2026-06-14',
+      nutritionDayOffset(3),
       'complete',
       'America/New_York'
     );
     assert.equal(completeNoEntryDay.state, 'complete');
     const noEntryDashboard = await db.getDashboard(
       userId,
-      '2026-06-14',
+      nutritionDayOffset(3),
       { timezone: 'America/New_York' }
     );
     assert.equal(noEntryDashboard.currentDayTotals.calories, 0);
@@ -347,11 +356,11 @@ test('database feature foundations persist and read back through PostgreSQL', { 
 
     const singleCopyResult = await db.copyEntriesToLocalDay(userId, {
       entryId: logged.id,
-      targetDay: '2026-06-13',
+      targetDay: nutritionDayOffset(2),
       timezone: 'America/New_York'
     });
     assert.equal(singleCopyResult.copiedCount, 1);
-    const singleCopiedDashboard = await db.getDashboard(userId, '2026-06-13', { timezone: 'America/New_York' });
+    const singleCopiedDashboard = await db.getDashboard(userId, nutritionDayOffset(2), { timezone: 'America/New_York' });
     const singleCopied = singleCopiedDashboard.entries.find((entry) => entry.sourceDetail === `copied_from_entry:${logged.id}`);
     assert.ok(singleCopied);
     assert.equal(singleCopied.mealGroup, null);
@@ -748,8 +757,8 @@ test('database feature foundations persist and read back through PostgreSQL', { 
 
     const ouraDocument = {
       providerDocumentId: 'integration-daily-sleep',
-      day: '2026-06-11',
-      recordedAt: '2026-06-11T08:00:00.000Z',
+      day: nutritionDay,
+      recordedAt: `${nutritionDay}T08:00:00.000Z`,
       data: { score: 88, contributors: { deepSleep: 90 } }
     };
     await db.upsertOuraDocument(userId, 'daily_sleep', ouraDocument, { resurrect: false });
@@ -779,7 +788,7 @@ test('database feature foundations persist and read back through PostgreSQL', { 
         const localDay = row.local_date instanceof Date
           ? row.local_date.toISOString().slice(0, 10)
           : String(row.local_date).slice(0, 10);
-        return localDay === '2026-06-11' && row.state === 'complete';
+        return localDay === nutritionDay && row.state === 'complete';
       }),
       true
     );
