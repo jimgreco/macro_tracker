@@ -53,7 +53,6 @@ struct WeightView: View {
                     targetCard
                     chartView
                     entriesList
-                    WaistMeasurementsView()
                     ProgressCheckinsView()
                 }
                 .padding()
@@ -1081,16 +1080,11 @@ private struct WaistMeasurementsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Waist measurements").font(.headline)
-                Spacer()
-                Button("Log waist") { open(nil) }
-            }
-            Text("Use the same landmark each time, relaxed after a normal exhale. Two readings are averaged.")
+            Text("Measurements saved before the combined check-in are kept here. Add new readings in New check-in.")
                 .font(.caption).foregroundStyle(.secondary)
             if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
-            if entries.isEmpty { Text("No waist measurements yet.").foregroundStyle(.secondary) }
+            if entries.isEmpty { Text("No earlier measurements outside your check-ins.").foregroundStyle(.secondary) }
             ForEach(entries) { entry in
                 HStack {
                     Button { open(entry) } label: {
@@ -1108,7 +1102,6 @@ private struct WaistMeasurementsView: View {
             if hasMore { Button("Load older measurements") { Task { await load(more: true) } }.disabled(loading) }
             Button("Refresh measurements") { Task { await load() } }.disabled(loading)
         }
-        .padding().appSurface(.standard)
         .task { await load() }
         .confirmationDialog("Delete this waist measurement?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("Delete measurement", role: .destructive) {
@@ -1167,7 +1160,7 @@ private struct WaistMeasurementsView: View {
     private func load(more: Bool = false) async {
         guard !loading else { return }; loading = true; defer { loading = false }
         do {
-            let result = try await api.getWaist(offset: more ? entries.count : 0)
+            let result = try await api.getWaist(offset: more ? entries.count : 0, unlinked: true)
             entries = more ? entries + result.entries.filter { candidate in !entries.contains { $0.id == candidate.id } } : result.entries
             hasMore = result.hasMore; error = nil
         } catch { self.error = error.localizedDescription }
@@ -1198,20 +1191,25 @@ private struct ProgressCheckinsView: View {
     @State private var configured = false
     @State private var editor = false
     @State private var editingEntry: ProgressCheckin?
+    @State private var saveMessage: String?
     @State private var error: String?
     @State private var busy = false
     @State private var deleting: ProgressCheckin?
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack { Text("Progress check-ins").font(.headline); Spacer(); Button("New check-in") { editingEntry = nil; editor = true } }
-            Text("Same lighting, distance and pose each time. Photos are private; export them for your progress reviews.").font(.caption).foregroundStyle(.secondary)
+            HStack { Text("Check-ins").font(.headline); Spacer(); Button("New check-in") { editingEntry = nil; editor = true } }
+            Text("Waist measurements, progress photos and notes together. Use the same landmark, lighting and pose each time.").font(.caption).foregroundStyle(.secondary)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
-            if entries.isEmpty { Text("Create a check-in to add notes and front, side or back photos.").foregroundStyle(.secondary) }
+            if let saveMessage { Text(saveMessage).font(.caption).foregroundStyle(.secondary) }
+            if entries.isEmpty { Text("Create your first check-in to record your waist, photos and notes.").foregroundStyle(.secondary) }
             ForEach(entries) { entry in
                 VStack(alignment: .leading, spacing: 12) {
                     Text(entry.day).font(.headline)
                     Text(entry.averageWeight.map { String(format: "%.1f lb average · %d/7 days", $0, entry.weightDays) } ?? "No weight readings this week").font(.subheadline)
-                    if let waist = entry.waist { Text(String(format: "Waist %.1f in · %@ · %@", waist.valueCm / 2.54, waist.day, waist.method.replacingOccurrences(of: "_", with: " "))).font(.caption).foregroundStyle(.secondary) }
+                    if let waist = entry.waistEntry {
+                        Text("Waist \(waist.average, specifier: "%.1f") \(waist.unit) · \(waist.methodLabel)").font(.subheadline)
+                        if !waist.notes.isEmpty { Text(waist.notes).font(.caption).foregroundStyle(.secondary) }
+                    } else { Text("No waist measurement in this check-in").font(.caption).foregroundStyle(.secondary) }
                     if !entry.notes.isEmpty { Text(entry.notes) }
                     ForEach(["front", "side", "back"], id: \.self) { view in
                         ProgressPhotoCell(checkin: entry.id, view: view, photo: entry.photos.first { $0.view == view }, configured: configured) { Task { await load() } }
@@ -1226,12 +1224,13 @@ private struct ProgressCheckinsView: View {
             }
             Button("Refresh check-ins") { Task { await load() } }.disabled(busy)
             if hasMore { Button("Older check-ins") { Task { await load(more: true) } }.disabled(busy) }
+            DisclosureGroup("Earlier waist measurements") { WaistMeasurementsView() }
         }.padding().appSurface()
         .task { await load() }
         .sheet(isPresented: $editor, onDismiss: { Task { await load() } }) {
-            ProgressCheckinEditor(entry: editingEntry, configured: configured) { editor = false }
+            ProgressCheckinEditor(entry: editingEntry, configured: configured) { message in saveMessage = message; editor = false }
         }
-        .alert("Delete this check-in and its photos?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+        .alert("Delete this check-in, waist measurement and photos?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("Delete", role: .destructive) { if let item = deleting { Task { do { try await api.deleteCheckin(id: item.id); await load() } catch { self.error = error.localizedDescription } } } }
             Button("Cancel", role: .cancel) { deleting = nil }
         }
@@ -1247,10 +1246,20 @@ private struct ProgressCheckinEditor: View {
     @EnvironmentObject var api: APIClient
     let entry: ProgressCheckin?
     let configured: Bool
-    let close: () -> Void
+    let close: (String?) -> Void
     @State private var savedID: String?
     @State private var day: Date
     @State private var notes: String
+    @State private var waistFirst: String
+    @State private var waistSecond: String
+    @State private var waistUnit: String
+    @State private var waistMethod: String
+    @State private var waistNotes: String
+    @State private var waistTime: Date
+    @State private var mutationID = UUID()
+    @State private var createID = UUID().uuidString
+    @State private var queuedMutationID: UUID?
+    @State private var lastSaveSignature: Data?
     @State private var drafts: [String: Data] = [:]
     @State private var uploadedViews: Set<String> = []
     @State private var preparing: Set<String> = []
@@ -1258,13 +1267,21 @@ private struct ProgressCheckinEditor: View {
     @State private var error: String?
     private let views = ["front", "side", "back"]
 
-    init(entry: ProgressCheckin?, configured: Bool, close: @escaping () -> Void) {
+    init(entry: ProgressCheckin?, configured: Bool, close: @escaping (String?) -> Void) {
         self.entry = entry
         self.configured = configured
         self.close = close
         _savedID = State(initialValue: entry?.id)
         _day = State(initialValue: entry.flatMap { ProgressCheckinsView.formatter.date(from: $0.day) } ?? Date())
         _notes = State(initialValue: entry?.notes ?? "")
+        let waist = entry?.waistEntry
+        _waistFirst = State(initialValue: waist?.readings.first.map { String($0) } ?? "")
+        _waistSecond = State(initialValue: waist.flatMap { $0.readings.count > 1 ? String($0.readings[1]) : nil } ?? "")
+        _waistUnit = State(initialValue: waist?.unit ?? "in")
+        _waistMethod = State(initialValue: waist?.method ?? "navel_relaxed")
+        _waistNotes = State(initialValue: waist?.notes ?? "")
+        let timeFormatter = DateFormatter(); timeFormatter.dateFormat = "HH:mm"; timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+        _waistTime = State(initialValue: waist?.time.flatMap { timeFormatter.date(from: $0) } ?? Date())
     }
 
     var body: some View {
@@ -1274,6 +1291,21 @@ private struct ProgressCheckinEditor: View {
                     DatePicker("Date", selection: $day, displayedComponents: .date).disabled(savedID != nil)
                     TextField("Notes for your next review", text: $notes, axis: .vertical).lineLimit(3...10)
                 }
+                Section {
+                    Picker("Unit", selection: $waistUnit) { Text("Inches").tag("in"); Text("Centimeters").tag("cm") }
+                    TextField("First waist reading", text: $waistFirst).keyboardType(.decimalPad)
+                    TextField("Second waist reading (optional)", text: $waistSecond).keyboardType(.decimalPad)
+                    Picker("Landmark", selection: $waistMethod) {
+                        Text("At navel, relaxed").tag("navel_relaxed")
+                        Text("Between lowest rib and hip, relaxed").tag("midpoint_relaxed")
+                    }
+                    DatePicker("Measurement time", selection: $waistTime, displayedComponents: .hourAndMinute)
+                    TextField("Waist notes (optional)", text: $waistNotes, axis: .vertical)
+                    if entry?.waistEntry != nil {
+                        Button("Remove waist measurement", role: .destructive) { waistFirst = ""; waistSecond = ""; waistNotes = "" }
+                    }
+                } header: { Text("Waist measurement (optional)") }
+                  footer: { Text("Use the same landmark, relaxed after a normal exhale. One or two readings are saved; two are averaged. Changing units does not convert entered values. Leave both readings blank to save without a waist measurement.") }
                 Section {
                     ForEach(views, id: \.self) { view in
                         ProgressPhotoDraftPicker(
@@ -1293,7 +1325,7 @@ private struct ProgressCheckinEditor: View {
                          : "Photo uploads are currently unavailable. You can still save check-in notes.")
                 }
                 Section {
-                    Text("Weight averages use daily averages over the seven days ending on this date. Waist uses the most recent reading in that window. Corrections update these values.").font(.caption)
+                    Text("Your waist measurement, notes and photos belong to this check-in. Weight averages use daily averages over the seven days ending on this date.").font(.caption)
                 }
                 if busy { ProgressView("Saving check-in and photos…") }
                 if let error { Text(error).foregroundStyle(.red).accessibilityLabel(error) }
@@ -1302,7 +1334,7 @@ private struct ProgressCheckinEditor: View {
             .navigationTitle("Check-in")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(savedID != nil && entry == nil ? "Close" : "Cancel", action: close)
+                    Button(savedID != nil && entry == nil ? "Close" : "Cancel") { close(nil) }
                         .disabled(busy || !preparing.isEmpty)
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -1319,9 +1351,40 @@ private struct ProgressCheckinEditor: View {
         error = nil
         defer { busy = false }
         do {
-            let id = try await api.saveCheckin(id: savedID, day: ProgressCheckinsView.formatter.string(from: day), notes: notes)
+            if let queuedMutationID {
+                try await api.flushPendingMutations()
+                if OfflineMutationStore.shared.mutations.contains(where: { $0.clientMutationId == queuedMutationID }) {
+                    error = "Your check-in is waiting to sync. Reconnect and tap Save to upload the photos."; return
+                }
+                self.queuedMutationID = nil
+            }
+            let fields = [waistFirst, waistSecond].map { $0.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".") }
+            guard !fields[0].isEmpty || waistNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                error = "Enter the first waist reading, or leave the waist fields blank."; return
+            }
+            var waist: CheckinWaistInput?
+            if fields.contains(where: { !$0.isEmpty }) {
+                let readings = fields.filter { !$0.isEmpty }.compactMap(Double.init)
+                guard !fields[0].isEmpty, readings.count == fields.filter({ !$0.isEmpty }).count,
+                      readings.allSatisfy({ $0.isFinite && $0 > 0 && $0 * (waistUnit == "in" ? 2.54 : 1) <= 400 }), waistNotes.count <= 300 else {
+                    error = "Enter a valid first waist reading and keep waist notes to 300 characters."; return
+                }
+                let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "HH:mm"
+                waist = CheckinWaistInput(readings: readings, unit: waistUnit, method: waistMethod, notes: waistNotes, time: formatter.string(from: waistTime))
+            }
+            let checkinDay = ProgressCheckinsView.formatter.string(from: day)
+            let signature = try JSONEncoder().encode([savedID ?? "", checkinDay, notes, waistFirst, waistSecond, waistUnit, waistMethod, waistNotes, waist?.time ?? ""])
+            if signature != lastSaveSignature { mutationID = UUID(); lastSaveSignature = signature }
+            let result = try await api.saveCheckin(id: savedID, createID: createID, day: checkinDay, notes: notes, waist: waist, mutationID: mutationID)
+            let id = result.id
             // Retain the saved ID and only retry unfinished uploads after a partial failure.
             savedID = id
+            if result.queued {
+                queuedMutationID = mutationID
+                if drafts.isEmpty { close("Check-in and waist measurement saved on this device. They will appear after syncing.") }
+                else { error = "Check-in and waist measurement saved on this device. Keep this form open, reconnect and tap Save to upload the selected photos." }
+                return
+            }
             for view in views {
                 guard let data = drafts[view] else { continue }
                 do {
@@ -1333,7 +1396,7 @@ private struct ProgressCheckinEditor: View {
                     return
                 }
             }
-            close()
+            close(nil)
         } catch { self.error = error.localizedDescription }
     }
 }

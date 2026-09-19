@@ -68,17 +68,25 @@ final class DailyMacrosScreenshots: XCTestCase {
         }
     }
 
-    func testNewCheckinOffersPhotosBeforeSaving() throws {
+    func testNewCheckinCombinesWaistAndPhotosBeforeSaving() throws {
         selectTab("Health")
         selectHealthSection("Weight")
         let newCheckin = app.buttons["New check-in"]
         for _ in 0..<8 where !newCheckin.isHittable { app.swipeUp() }
         XCTAssertTrue(newCheckin.isHittable)
+        XCTAssertFalse(app.buttons["Log waist"].exists)
         newCheckin.tap()
 
         XCTAssertTrue(app.navigationBars["Check-in"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["First waist reading"].exists)
+        XCTAssertTrue(app.textFields["Second waist reading (optional)"].exists)
+        let waistScreenshot = XCTAttachment(screenshot: app.screenshot())
+        waistScreenshot.name = "Combined check-in waist fields"
+        waistScreenshot.lifetime = .keepAlways
+        add(waistScreenshot)
         for view in ["front", "side", "back"] {
             let picker = app.buttons["Add \(view) photo"]
+            for _ in 0..<4 where !picker.isHittable { app.swipeUp() }
             XCTAssertTrue(picker.exists)
             XCTAssertTrue(picker.isEnabled)
         }
@@ -86,7 +94,9 @@ final class DailyMacrosScreenshots: XCTestCase {
         screenshot.name = "Check-in photo form"
         screenshot.lifetime = .keepAlways
         add(screenshot)
-        app.buttons["Add front photo"].tap()
+        let front = app.buttons["Add front photo"]
+        for _ in 0..<4 where !front.isHittable { app.swipeDown() }
+        front.tap()
         XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 5))
         // The system picker must open without creating a check-in first.
         XCTAssertFalse(app.navigationBars["Check-in"].buttons["Save"].isHittable)

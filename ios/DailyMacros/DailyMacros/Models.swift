@@ -963,6 +963,7 @@ struct WaistEntry: Codable, Identifiable {
     let notes: String
     let loggedAt: String
     let day: String
+    var time: String? = nil
     var average: Double { valueCm / (unit == "in" ? 2.54 : 1) }
     var methodLabel: String { method == "navel_relaxed" ? "At navel, relaxed" : "Midpoint, relaxed" }
 }
@@ -981,6 +982,18 @@ struct ProgressCheckin: Codable, Identifiable {
     let weightDays: Int
     let waist: Waist?
     let photos: [Photo]
+    var waistEntry: WaistEntry? = nil
+}
+struct CheckinWaistInput: Encodable {
+    let readings: [Double]
+    let unit: String
+    let method: String
+    let notes: String
+    let time: String
+}
+struct CheckinSaveResult {
+    let id: String
+    let queued: Bool
 }
 struct ProgressCheckinsResponse: Codable {
     let entries: [ProgressCheckin]

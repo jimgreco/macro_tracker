@@ -14,7 +14,7 @@
     "db:logs": "docker compose logs -f db",
     "db:seed:local": "node scripts/load-local-test-data.js",
     "test": "node --test test/*.test.js",
-    "test:db:integration": "node --test --test-concurrency=1 test/db-integration.test.js test/health-reconciliation.test.js test/webhook-inbox-db.test.js",
+    "test:db:integration": "node --test --test-concurrency=1 test/db-integration.test.js test/checkins.test.js test/health-reconciliation.test.js test/webhook-inbox-db.test.js",
     "test:db:upgrade": "node --test test/db-upgrade-path.test.js",
     "test:e2e": "playwright test --config playwright.config.js",
     "test:e2e:accessibility": "playwright test --config playwright.config.js test/e2e/accessibility.spec.js",

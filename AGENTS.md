@@ -34,6 +34,9 @@
 - Progress check-in forms stage photos until Save. Preserve the returned check-in
   ID and unfinished selections on upload failure so retries cannot create another
   check-in; see the progress check-in notes in the feature reference.
+- Waist readings belong in that same check-in form. Save notes and the linked waist
+  reading atomically; preserve the native replayable queue and older clients that
+  omit the waist payload. Clear/delete measurements with tombstones.
 
 
 ## Project Overview

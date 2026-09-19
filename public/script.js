@@ -8585,10 +8585,10 @@ async function refreshWaistData(more = false) {
   if (!list || waistLoading) return;
   waistLoading = true;
   try {
-    const result = await api(`/api/waist?tz=${encodeURIComponent(getTimezone())}&offset=${more ? waistEntries.length : 0}`);
+    const result = await api(`/api/waist?unlinked=true&tz=${encodeURIComponent(getTimezone())}&offset=${more ? waistEntries.length : 0}`);
     waistEntries = more ? appendUniqueById(waistEntries, result.entries) : result.entries;
     list.replaceChildren();
-    if (!waistEntries.length) list.textContent = 'No waist measurements yet.';
+    if (!waistEntries.length) list.textContent = 'No earlier measurements outside your check-ins.';
     for (const entry of waistEntries) {
       const row = document.createElement('button');
       row.type = 'button'; row.className = 'btn-muted';
@@ -8657,7 +8657,6 @@ function showWaistModal(entry = null) {
   });
   dialog.showModal();
 }
-document.getElementById('log-waist-btn')?.addEventListener('click', () => showWaistModal());
 document.getElementById('waist-more-btn')?.addEventListener('click', () => { void refreshWaistData(true); });
 
 let checkinEntries = [];
@@ -8666,19 +8665,21 @@ async function refreshCheckins(more = false) {
   const list = document.getElementById('checkins-list');
   if (!list) return;
   try {
-    const result = await api(`/api/checkins?offset=${more ? checkinEntries.length : 0}`);
+    const result = await api(`/api/checkins?tz=${encodeURIComponent(getTimezone())}&offset=${more ? checkinEntries.length : 0}`);
     checkinPhotosConfigured = result.photosConfigured;
     checkinEntries = more ? [...checkinEntries, ...result.entries] : result.entries;
     document.getElementById('checkins-more').hidden = !result.hasMore;
     document.getElementById('checkins-status').textContent = result.photosConfigured ? '' : 'Photo storage needs to be configured. You can still save check-in notes.';
     list.replaceChildren();
-    if (!checkinEntries.length) list.textContent = 'Create a check-in to add notes and front, side or back photos.';
+    if (!checkinEntries.length) list.textContent = 'Create your first check-in to record your waist, photos and notes.';
     for (const entry of checkinEntries) {
       const card = document.createElement('article'); card.className = 'checkin-card';
       const title = document.createElement('h3'); title.textContent = entry.day; card.append(title);
       const stats = document.createElement('p');
-      stats.textContent = `${entry.averageWeight == null ? 'No weight readings' : Number(entry.averageWeight).toFixed(1) + ' lb average'} · ${entry.weightDays}/7 days` + (entry.waist ? ` · Waist ${(Number(entry.waist.valueCm)/2.54).toFixed(1)} in (${entry.waist.day}, ${entry.waist.method.replaceAll('_',' ')})` : ' · No waist reading this week');
+      const waist = entry.waistEntry;
+      stats.textContent = `${entry.averageWeight == null ? 'No weight readings' : Number(entry.averageWeight).toFixed(1) + ' lb average'} · ${entry.weightDays}/7 days` + (waist ? ` · Waist ${(Number(waist.valueCm)/(waist.unit === 'in' ? 2.54 : 1)).toFixed(1)} ${waist.unit} (${waist.method === 'navel_relaxed' ? 'At navel, relaxed' : 'Midpoint, relaxed'})` : ' · No waist measurement in this check-in');
       card.append(stats);
+      if (waist?.notes) { const measurementNotes = document.createElement('p'); measurementNotes.textContent = waist.notes; card.append(measurementNotes); }
       const notes = document.createElement('p'); notes.textContent = entry.notes; card.append(notes);
       const photos = document.createElement('div'); photos.className = 'checkin-photos'; card.append(photos);
       for (const view of ['front','side','back']) {
@@ -8705,7 +8706,7 @@ async function refreshCheckins(more = false) {
         }; cell.append(upload); photos.append(cell);
       }
       const edit=document.createElement('button'); edit.textContent='Edit check-in'; edit.onclick=()=>showCheckinModal(entry); card.append(edit);
-      const remove=document.createElement('button'); remove.textContent='Delete check-in'; remove.onclick=async()=>{ if (!confirm('Permanently delete this check-in and its photos?')) return; try { await api(`/api/checkins/${entry.id}`,{method:'DELETE'}); await refreshCheckins(); } catch(e) {alert(e.message);} }; card.append(remove);
+      const remove=document.createElement('button'); remove.textContent='Delete check-in'; remove.onclick=async()=>{ if (!confirm('Delete this check-in, waist measurement and photos?')) return; try { await api(`/api/checkins/${entry.id}`,{method:'DELETE'}); await refreshCheckins(); } catch(e) {alert(e.message);} }; card.append(remove);
       list.append(card);
     }
   } catch(e) { document.getElementById('checkins-status').textContent=e.message; }
@@ -8714,7 +8715,17 @@ function showCheckinModal(entry) {
   const dialog = document.createElement('dialog');
   dialog.className = 'combine-modal checkin-modal';
   dialog.setAttribute('aria-labelledby', 'checkin-modal-title');
-  dialog.innerHTML = `<form><h3 id="checkin-modal-title">Progress check-in</h3><label>Date<input name="day" type="date" required></label><label>Notes<textarea name="notes" maxlength="2000" placeholder="How training feels, changes in technique, travel or anything to revisit"></textarea></label><fieldset><legend>Progress photos (optional)</legend><p class="checkin-photo-help"></p><div class="checkin-photos"></div></fieldset><p>Weight averages use daily averages from the seven days ending on this date. Waist uses the most recent reading in that window. Corrections to those logs update these values.</p><p role="alert"></p><p role="status" aria-live="polite"></p><div class="combine-modal-actions"><button type="button" data-cancel>Cancel</button><button type="submit">Save check-in</button></div></form>`;
+  dialog.innerHTML = `<form><h3 id="checkin-modal-title">Check-in</h3><label>Date<input name="day" type="date" required></label><label>Notes<textarea name="notes" maxlength="2000" placeholder="How training feels, changes in technique, travel or anything to revisit"></textarea></label>
+    <fieldset><legend>Waist measurement (optional)</legend><div class="checkin-waist-fields">
+      <label>Unit<select name="waist-unit" data-waist><option value="in">Inches</option><option value="cm">Centimeters</option></select></label>
+      <label>Measurement time<input name="waist-time" type="time" data-waist></label>
+      <label>First waist reading<input name="waist-first" type="number" step="any" min="0.01" data-waist></label>
+      <label>Second waist reading (optional)<input name="waist-second" type="number" step="any" min="0.01" data-waist></label>
+    </div><label>Landmark<select name="waist-method" data-waist><option value="navel_relaxed">At navel, relaxed</option><option value="midpoint_relaxed">Between lowest rib and hip, relaxed</option></select></label>
+    <label>Waist notes (optional)<input name="waist-notes" maxlength="300" data-waist></label>
+    <p>Use the same landmark, relaxed after a normal exhale. One or two readings are saved; two are averaged. Changing units does not convert entered values. Leave both readings blank to save without a waist measurement.</p>
+    <button type="button" data-remove-waist data-waist hidden>Remove waist measurement</button></fieldset>
+    <fieldset><legend>Progress photos (optional)</legend><p class="checkin-photo-help"></p><div class="checkin-photos"></div></fieldset><p>Your waist measurement, notes and photos belong to this check-in. Weight averages use daily averages over the seven days ending on this date.</p><p role="alert"></p><p role="status" aria-live="polite"></p><div class="combine-modal-actions"><button type="button" data-cancel>Cancel</button><button type="submit">Save check-in</button></div></form>`;
   const form = dialog.querySelector('form');
   const date = form.querySelector('[name=day]');
   const notes = form.querySelector('[name=notes]');
@@ -8728,8 +8739,21 @@ function showCheckinModal(entry) {
   let saved = false;
   let busy = false;
   let preparing = 0;
+  let mutationID;
+  let lastSaveBody;
   date.value = entry?.day || new Date().toLocaleDateString('en-CA', { timeZone: getTimezone() });
   notes.value = entry?.notes || '';
+  const waistField = name => form.querySelector(`[name=waist-${name}]`);
+  const waist = entry?.waistEntry;
+  waistField('first').value = waist?.readings[0] ?? '';
+  waistField('second').value = waist?.readings[1] ?? '';
+  waistField('unit').value = waist?.unit || 'in';
+  waistField('method').value = waist?.method || 'navel_relaxed';
+  waistField('notes').value = waist?.notes || '';
+  waistField('time').value = waist?.time || new Intl.DateTimeFormat('en-GB', { timeZone: getTimezone(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+  const removeWaist = form.querySelector('[data-remove-waist]');
+  removeWaist.hidden = !waist;
+  removeWaist.onclick = () => { for (const name of ['first', 'second', 'notes']) waistField(name).value = ''; };
   form.querySelector('.checkin-photo-help').textContent = checkinPhotosConfigured
     ? 'Choose front, side or back photos now. They upload when you save. Your photos stay private and are not sent to AI.'
     : 'Photo uploads are currently unavailable. You can still save check-in notes.';
@@ -8737,6 +8761,7 @@ function showCheckinModal(entry) {
   function updateControls() {
     date.disabled = busy || Boolean(savedID);
     notes.disabled = busy;
+    form.querySelectorAll('[data-waist]').forEach(control => { control.disabled = busy; });
     submit.disabled = cancel.disabled = busy || preparing > 0;
     submit.textContent = busy ? 'Saving…' : 'Save check-in';
     for (const [view, slot] of slots) {
@@ -8784,15 +8809,20 @@ function showCheckinModal(entry) {
 
   cancel.onclick = () => dialog.close();
   dialog.oncancel = event => { if (busy || preparing > 0) event.preventDefault(); };
-  dialog.onclose = () => { dialog.remove(); if (saved) void refreshCheckins(); };
+  dialog.onclose = () => { dialog.remove(); if (saved) { void refreshCheckins(); void refreshWaistData(); } };
   form.onsubmit = async event => {
     event.preventDefault();
     if (busy || preparing > 0) return;
+    const first = waistField('first').value;
+    const second = waistField('second').value;
+    if (!first && (second || waistField('notes').value.trim())) { alert.textContent = 'Enter the first waist reading, or leave the waist fields blank.'; return; }
+    const measurement = first ? { readings: [first, second].filter(value => value !== '').map(Number), unit: waistField('unit').value, method: waistField('method').value, notes: waistField('notes').value, time: waistField('time').value } : null;
+    const body = JSON.stringify({ ...(savedID ? { id: savedID } : {}), day: date.value, notes: notes.value, waist: measurement, tz: getTimezone() });
+    if (body !== lastSaveBody) { mutationID = crypto.randomUUID(); lastSaveBody = body; }
     busy = true; alert.textContent = ''; status.textContent = 'Saving check-in…'; updateControls();
     try {
-      const result = await api('/api/checkins', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...(savedID ? { id: savedID } : {}), day: date.value, notes: notes.value })
+      const result = await api(`/api/checkins?tz=${encodeURIComponent(getTimezone())}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Client-Mutation-Id': mutationID }, body
       });
       // Keep the ID after creation so retrying a failed photo cannot create another check-in.
       savedID = result.id; saved = true; cancel.textContent = 'Close';

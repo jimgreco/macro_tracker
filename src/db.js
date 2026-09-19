@@ -936,6 +936,7 @@ async function initDb() {
   await recordSchemaMigration('2026-09-08_waist_measurements');
   await initCheckinDb(pool);
   await recordSchemaMigration('2026-09-08_progress_checkins');
+  await recordSchemaMigration('2026-09-19_checkin_waist_measurements');
   await recordSchemaMigration('2026-06-11_feature_foundations');
   await recordSchemaMigration('2026-07-20_direct_oura_integration');
   await recordSchemaMigration('2026-07-27_client_mutation_idempotency');

@@ -178,6 +178,16 @@ test('initDb upgrades the supported legacy schema without losing account data', 
       '{"legacy":"sensitive-provider-payload"}'::jsonb
     );
   `);
+  await require('../src/waist').initWaistDb(bootstrapPool);
+  await bootstrapPool.query(`CREATE TABLE progress_checkins (
+    id UUID PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),day DATE NOT NULL,notes TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(user_id,day));
+    INSERT INTO progress_checkins(id,user_id,day,notes) VALUES
+      ('11111111-1111-4111-8111-111111111111','upgrade-user','2026-09-08','Keep same-day reading'),
+      ('22222222-2222-4222-8222-222222222222','upgrade-user','2026-09-09','Do not attach previous day');
+    INSERT INTO waist_entries(user_id,readings,unit,method,value_cm,notes,logged_at) VALUES
+      ('upgrade-user','[33,33.4]','in','navel_relaxed',84.328,'Original tape notes','2026-09-09T02:45:12Z'),
+      ('upgrade-user','[34]','in','navel_relaxed',86.36,'Earlier history','2026-09-07T12:00:00Z');`);
   await bootstrapPool.end();
 
   const originalDatabaseUrl = process.env.DATABASE_URL;
@@ -189,6 +199,18 @@ test('initDb upgrades the supported legacy schema without losing account data', 
   try {
     await db.initDb();
     await db.initDb();
+    const checkins=await require('../src/checkins').createCheckinService(db.getPool(),{bucket:'',s3:{}}).list('upgrade-user','America/New_York');
+    assert.equal(checkins.entries[0].waistEntry,null);
+    const linked=checkins.entries[1].waistEntry;
+    assert.deepEqual(linked.readings,[33,33.4]);
+    assert.equal(linked.notes,'Original tape notes');
+    assert.equal(linked.time,'22:45');
+    assert.equal(new Date(linked.loggedAt).toISOString(),'2026-09-09T02:45:12.000Z');
+    const legacyWaist=await db.listWaistEntries('upgrade-user',{unlinked:true});
+    assert.equal(legacyWaist.entries.length,1);
+    assert.equal(legacyWaist.entries[0].notes,'Earlier history');
+    const checkinExport=await db.exportUserData('upgrade-user');
+    assert.equal(Number(checkinExport.progressCheckins[0].waist_entry_id),linked.id);
 
     const sentinel = await db.getPool().query(
       `SELECT item_name, source, deleted_at

@@ -47,11 +47,12 @@ function createWaistStore(pool) {
       const result = await pool.query('UPDATE waist_entries SET deleted_at=NOW(), updated_at=NOW() WHERE user_id=$1 AND id=$2 AND deleted_at IS NULL', [userId, id]);
       return result.rowCount;
     },
-    async listWaistEntries(userId, { timezone = 'America/New_York', offset = 0 } = {}) {
+    async listWaistEntries(userId, { timezone = 'America/New_York', offset = 0, unlinked = false } = {}) {
       const skip = (Number.isFinite(Number(offset)) ? Math.max(0, Math.floor(Number(offset))) : 0);
       const result = await pool.query(`SELECT id, readings, unit, method, value_cm AS "valueCm", notes,
         logged_at AS "loggedAt", (logged_at AT TIME ZONE $2)::date::text AS day
         FROM waist_entries WHERE user_id=$1 AND deleted_at IS NULL
+        ${unlinked ? 'AND NOT EXISTS (SELECT 1 FROM progress_checkins c WHERE c.user_id=waist_entries.user_id AND c.waist_entry_id=waist_entries.id)' : ''}
         ORDER BY logged_at DESC, id DESC LIMIT 51 OFFSET $3`, [userId, timezone, skip]);
       return { entries: result.rows.slice(0, 50).map(r => ({ ...r, id: Number(r.id), valueCm: Number(r.valueCm) })), hasMore: result.rows.length > 50 };
     }

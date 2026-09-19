@@ -5852,6 +5852,9 @@ button[disabled] {
 .checkin-modal .checkin-photos input { margin-top: 8px; box-sizing: border-box; }
 .checkin-modal .checkin-photos span { font-size: .8rem; color: var(--muted); }
 .checkin-modal [role=alert] { color: var(--danger, #ff8f8f); }
+.checkin-waist-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.checkin-modal select { width: 100%; margin: 8px 0; }
+.checkin-waist-history { margin-top: 20px; }
 @media(max-width:600px) { .checkin-photos { grid-template-columns: 1fr; } }
 
 .companion-switch { display:inline-flex;align-items:center;gap:4px;padding:4px;border:1px solid var(--line);border-radius:14px;background:var(--panel);font-size:12px; }
