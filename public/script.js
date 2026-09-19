@@ -8661,16 +8661,18 @@ document.getElementById('log-waist-btn')?.addEventListener('click', () => showWa
 document.getElementById('waist-more-btn')?.addEventListener('click', () => { void refreshWaistData(true); });
 
 let checkinEntries = [];
+let checkinPhotosConfigured = false;
 async function refreshCheckins(more = false) {
   const list = document.getElementById('checkins-list');
   if (!list) return;
   try {
     const result = await api(`/api/checkins?offset=${more ? checkinEntries.length : 0}`);
+    checkinPhotosConfigured = result.photosConfigured;
     checkinEntries = more ? [...checkinEntries, ...result.entries] : result.entries;
     document.getElementById('checkins-more').hidden = !result.hasMore;
     document.getElementById('checkins-status').textContent = result.photosConfigured ? '' : 'Photo storage needs to be configured. You can still save check-in notes.';
     list.replaceChildren();
-    if (!checkinEntries.length) list.textContent = 'Your first check-in establishes your starting point.';
+    if (!checkinEntries.length) list.textContent = 'Create a check-in to add notes and front, side or back photos.';
     for (const entry of checkinEntries) {
       const card = document.createElement('article'); card.className = 'checkin-card';
       const title = document.createElement('h3'); title.textContent = entry.day; card.append(title);
@@ -8702,21 +8704,118 @@ async function refreshCheckins(more = false) {
           } catch(e) { alert(e.message || 'Upload failed.'); upload.disabled=false; }
         }; cell.append(upload); photos.append(cell);
       }
-      const edit=document.createElement('button'); edit.textContent='Edit notes'; edit.onclick=()=>showCheckinModal(entry); card.append(edit);
+      const edit=document.createElement('button'); edit.textContent='Edit check-in'; edit.onclick=()=>showCheckinModal(entry); card.append(edit);
       const remove=document.createElement('button'); remove.textContent='Delete check-in'; remove.onclick=async()=>{ if (!confirm('Permanently delete this check-in and its photos?')) return; try { await api(`/api/checkins/${entry.id}`,{method:'DELETE'}); await refreshCheckins(); } catch(e) {alert(e.message);} }; card.append(remove);
       list.append(card);
     }
   } catch(e) { document.getElementById('checkins-status').textContent=e.message; }
 }
 function showCheckinModal(entry) {
-  const dialog=document.createElement('dialog'); dialog.className='combine-modal';
-  dialog.innerHTML=`<form><h3>Progress check-in</h3><label>Date<input name="day" type="date" required></label><label>Notes<textarea name="notes" maxlength="2000" placeholder="How training feels, changes in technique, travel or anything to revisit"></textarea></label><p>Weight averages use daily averages from the seven days ending on this date. Waist uses the most recent reading in that window. Corrections to those logs update these values.</p><p role="alert"></p><div class="combine-modal-actions"><button type="button">Cancel</button><button type="submit">Save check-in</button></div></form>`;
-  dialog.querySelector('[name=day]').value=entry?.day || new Date().toLocaleDateString('en-CA',{timeZone:getTimezone()});
-  dialog.querySelector('[name=day]').disabled=Boolean(entry);
-  dialog.querySelector('[name=notes]').value=entry?.notes || '';
-  dialog.querySelector('button').onclick=()=>dialog.close(); dialog.onclose=()=>dialog.remove();
-  dialog.querySelector('form').onsubmit=async e=>{e.preventDefault(); const submit=dialog.querySelector('[type=submit]'); submit.disabled=true; try {await api('/api/checkins',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...(entry ? {id:entry.id} : {}),day:dialog.querySelector('[name=day]').value,notes:dialog.querySelector('[name=notes]').value})}); dialog.close(); await refreshCheckins();} catch(error){dialog.querySelector('[role=alert]').textContent=error.message;submit.disabled=false;} };
-  document.body.append(dialog); dialog.showModal();
+  const dialog = document.createElement('dialog');
+  dialog.className = 'combine-modal checkin-modal';
+  dialog.setAttribute('aria-labelledby', 'checkin-modal-title');
+  dialog.innerHTML = `<form><h3 id="checkin-modal-title">Progress check-in</h3><label>Date<input name="day" type="date" required></label><label>Notes<textarea name="notes" maxlength="2000" placeholder="How training feels, changes in technique, travel or anything to revisit"></textarea></label><fieldset><legend>Progress photos (optional)</legend><p class="checkin-photo-help"></p><div class="checkin-photos"></div></fieldset><p>Weight averages use daily averages from the seven days ending on this date. Waist uses the most recent reading in that window. Corrections to those logs update these values.</p><p role="alert"></p><p role="status" aria-live="polite"></p><div class="combine-modal-actions"><button type="button" data-cancel>Cancel</button><button type="submit">Save check-in</button></div></form>`;
+  const form = dialog.querySelector('form');
+  const date = form.querySelector('[name=day]');
+  const notes = form.querySelector('[name=notes]');
+  const alert = form.querySelector('[role=alert]');
+  const status = form.querySelector('[role=status]');
+  const cancel = form.querySelector('[data-cancel]');
+  const submit = form.querySelector('[type=submit]');
+  const drafts = new Map();
+  const slots = new Map();
+  let savedID = entry?.id;
+  let saved = false;
+  let busy = false;
+  let preparing = 0;
+  date.value = entry?.day || new Date().toLocaleDateString('en-CA', { timeZone: getTimezone() });
+  notes.value = entry?.notes || '';
+  form.querySelector('.checkin-photo-help').textContent = checkinPhotosConfigured
+    ? 'Choose front, side or back photos now. They upload when you save. Your photos stay private and are not sent to AI.'
+    : 'Photo uploads are currently unavailable. You can still save check-in notes.';
+
+  function updateControls() {
+    date.disabled = busy || Boolean(savedID);
+    notes.disabled = busy;
+    submit.disabled = cancel.disabled = busy || preparing > 0;
+    submit.textContent = busy ? 'Saving…' : 'Save check-in';
+    for (const [view, slot] of slots) {
+      slot.input.disabled = busy || preparing > 0 || !checkinPhotosConfigured;
+      slot.remove.disabled = busy || preparing > 0;
+      slot.remove.hidden = !drafts.has(view);
+    }
+  }
+
+  for (const view of ['front', 'side', 'back']) {
+    const cell = document.createElement('div');
+    const label = document.createElement('label');
+    label.textContent = `${view[0].toUpperCase() + view.slice(1)} photo`;
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/*';
+    label.append(input);
+    const preview = document.createElement('img');
+    preview.alt = `Selected ${view} photo`; preview.hidden = true;
+    const savedLabel = document.createElement('span');
+    savedLabel.textContent = entry?.photos.some(photo => photo.view === view) ? 'Photo saved. Choose a photo to replace it.' : '';
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.textContent = `Remove selected ${view} photo`; remove.hidden = true;
+    remove.onclick = () => { drafts.delete(view); input.value = ''; preview.hidden = true; preview.removeAttribute('src'); updateControls(); };
+    input.onchange = async () => {
+      const file = input.files[0];
+      if (!file) return;
+      preparing++; updateControls(); alert.textContent = '';
+      try {
+        if (file.size > 9 * 1024 * 1024) throw new Error('Choose a photo smaller than 9 MB.');
+        const dataURL = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('Could not read this photo. Please choose it again.'));
+          reader.readAsDataURL(file);
+        });
+        drafts.set(view, dataURL.split(',')[1]);
+        preview.src = dataURL; preview.hidden = false;
+      } catch (error) { alert.textContent = error.message; input.value = ''; }
+      finally { preparing--; updateControls(); }
+    };
+    cell.append(label, preview, savedLabel, remove);
+    form.querySelector('.checkin-photos').append(cell);
+    slots.set(view, { input, preview, savedLabel, remove });
+  }
+
+  cancel.onclick = () => dialog.close();
+  dialog.oncancel = event => { if (busy || preparing > 0) event.preventDefault(); };
+  dialog.onclose = () => { dialog.remove(); if (saved) void refreshCheckins(); };
+  form.onsubmit = async event => {
+    event.preventDefault();
+    if (busy || preparing > 0) return;
+    busy = true; alert.textContent = ''; status.textContent = 'Saving check-in…'; updateControls();
+    try {
+      const result = await api('/api/checkins', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...(savedID ? { id: savedID } : {}), day: date.value, notes: notes.value })
+      });
+      // Keep the ID after creation so retrying a failed photo cannot create another check-in.
+      savedID = result.id; saved = true; cancel.textContent = 'Close';
+      for (const [view, base64] of drafts) {
+        status.textContent = `Uploading ${view} photo…`;
+        try {
+          await api(`/api/checkins/${savedID}/photos/${view}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ base64 })
+          });
+        } catch (error) {
+          throw new Error(`Your check-in is saved, but the ${view} photo could not upload. Choose Save check-in to retry. ${error.message}`);
+        }
+        drafts.delete(view);
+        slots.get(view).input.value = '';
+        slots.get(view).savedLabel.textContent = 'Photo saved. Choose a photo to replace it.';
+      }
+      dialog.close();
+    } catch (error) { alert.textContent = error.message; }
+    finally { busy = false; status.textContent = ''; updateControls(); }
+  };
+  updateControls();
+  document.body.append(dialog);
+  dialog.showModal();
 }
 document.getElementById('new-checkin-btn')?.addEventListener('click',()=>showCheckinModal());
 document.getElementById('checkins-more')?.addEventListener('click',()=>refreshCheckins(true));
