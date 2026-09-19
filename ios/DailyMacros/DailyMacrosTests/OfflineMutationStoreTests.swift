@@ -3,6 +3,29 @@ import XCTest
 
 final class OfflineMutationStoreTests: XCTestCase {
     @MainActor
+    func testCombinedCheckinKeepsItsIdentityAndRawWaistReadingsWhenQueued() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let store = OfflineMutationStore(storageURL: fixture.storageURL, legacyDefaults: fixture.defaults)
+        store.activateAccount(userId: "account-a")
+        let createID = UUID().uuidString
+        let body = try JSONSerialization.data(withJSONObject: [
+            "createId": createID, "day": "2026-09-19", "notes": "Check-in", "tz": "America/New_York",
+            "waist": ["readings": [33, 33.4], "unit": "in", "method": "navel_relaxed", "time": "08:30", "notes": "Relaxed"]
+        ])
+        let mutation = store.makeMutation(ownerUserId: "account-a", method: "POST", path: "/checkins", body: body, kind: .waist)
+        try store.enqueue(mutation)
+        let reloaded = OfflineMutationStore(storageURL: fixture.storageURL, legacyDefaults: fixture.defaults)
+        reloaded.activateAccount(userId: "account-a")
+        let pending = try XCTUnwrap(reloaded.snapshot(for: "account-a").first)
+        XCTAssertEqual(pending.clientMutationId, mutation.clientMutationId)
+        XCTAssertEqual(pending.path, "/checkins")
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(pending.body)) as? [String: Any])
+        XCTAssertEqual(payload["createId"] as? String, createID)
+        XCTAssertEqual((payload["waist"] as? [String: Any])?["readings"] as? [Double], [33, 33.4])
+    }
+
+    @MainActor
     func testPendingMutationIdentityAndAccountScopeSurviveReload() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }

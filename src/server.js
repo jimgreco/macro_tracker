@@ -3825,7 +3825,7 @@ apiRouter.get('/checkins', async (req,res) => {
   catch { res.status(400).json({ error: 'Unable to load check-ins.' }); }
 });
 apiRouter.post('/checkins', async (req,res) => {
-  try { res.json(await checkinService.save(userIdFromReq(req), req.body)); }
+  try { res.json(await checkinService.save(userIdFromReq(req), req.body, requestTimezone(req))); }
   catch (error) { res.status(400).json({ error: error.message }); }
 });
 apiRouter.put('/checkins/:id/photos/:view', async (req,res) => {
@@ -3846,7 +3846,7 @@ apiRouter.delete('/checkins/:id', async (req,res) => {
 });
 
 apiRouter.get('/waist', async (req, res) => {
-  try { res.json(await listWaistEntries(userIdFromReq(req), { timezone: requestTimezone(req), offset: normalizeOffset(req.query.offset) })); }
+  try { res.json(await listWaistEntries(userIdFromReq(req), { timezone: requestTimezone(req), offset: normalizeOffset(req.query.offset), unlinked: req.query.unlinked === 'true' })); }
   catch (error) { res.status(400).json({ error: error.message }); }
 });
 for (const method of ['post', 'put', 'delete']) {

@@ -986,18 +986,31 @@ class APIClient: ObservableObject {
         if ScreenshotSeedData.isEnabled { return ProgressCheckinsResponse(entries: [], hasMore: false, photosConfigured: true) }
         #endif
         var components = URLComponents(url: apiURL("/checkins"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [.init(name: "offset", value: String(offset))]
+        components.queryItems = [.init(name: "offset", value: String(offset)), .init(name: "tz", value: TimeZone.current.identifier)]
         return try await perform(authorizedRequest(components.url!))
     }
-    func saveCheckin(id: String?, day: String, notes: String) async throws -> String {
+    func saveCheckin(id: String?, createID: String, day: String, notes: String, waist: CheckinWaistInput?, mutationID: UUID) async throws -> CheckinSaveResult {
+        guard let ownerUserId = authenticatedUserId, OfflineMutationStore.shared.activeOwnerUserId == ownerUserId else { throw APIError.notAuthenticated }
         var request = try authorizedRequest(apiURL("/checkins"))
         request.httpMethod = "POST"
-        var body = ["day": day, "notes": notes]
-        if let id { body["id"] = id }
+        request.setValue(mutationID.uuidString, forHTTPHeaderField: "X-Client-Mutation-Id")
+        var body: [String: Any] = ["day": day, "notes": notes, "waist": NSNull(), "tz": TimeZone.current.identifier]
+        if let id { body["id"] = id } else { body["createId"] = createID }
+        if let waist { body["waist"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(waist)) }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         struct Saved: Decodable { let id: String }
-        let saved: Saved = try await perform(request)
-        return saved.id
+        do {
+            let saved: Saved = try await perform(request)
+            return CheckinSaveResult(id: saved.id, queued: false)
+        } catch {
+            guard shouldQueueMutation(after: error) else { throw error }
+            guard authenticatedUserId == ownerUserId else { throw APIError.notAuthenticated }
+            try OfflineMutationStore.shared.enqueue(PendingMutation(
+                clientMutationId: mutationID, ownerUserId: ownerUserId, createdAt: Date(),
+                method: "POST", path: "/checkins", body: request.httpBody, kind: .waist
+            ))
+            return CheckinSaveResult(id: id ?? createID, queued: true)
+        }
     }
     func saveProgressPhoto(checkin: String, view: String, data: Data) async throws {
         var request = try authorizedRequest(apiURL("/checkins/\(checkin)/photos/\(view)"))
@@ -1015,16 +1028,17 @@ class APIClient: ObservableObject {
         let _: OkResponse = try await perform(request)
     }
     func deleteCheckin(id: String) async throws {
-        var request = try authorizedRequest(apiURL("/checkins/\(id)")); request.httpMethod = "DELETE"
-        let _: OkResponse = try await perform(request)
+        let _: OkResponse = try await performReplayableMutation(path: "/checkins/\(id)", method: "DELETE", body: nil,
+            kind: .waist, queuedResponse: OkResponse(ok: true))
     }
 
-    func getWaist(offset: Int = 0) async throws -> WaistResponse {
+    func getWaist(offset: Int = 0, unlinked: Bool = false) async throws -> WaistResponse {
         #if DEBUG
         if ScreenshotSeedData.isEnabled { return WaistResponse(entries: [], hasMore: false) }
         #endif
         var components = URLComponents(url: apiURL("/waist"), resolvingAgainstBaseURL: false)!
         components.queryItems = [.init(name: "offset", value: String(offset))]
+        if unlinked { components.queryItems?.append(.init(name: "unlinked", value: "true")) }
         return try await perform(authorizedRequest(components.url!))
     }
 
