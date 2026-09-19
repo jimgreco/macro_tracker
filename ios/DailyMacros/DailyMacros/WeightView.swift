@@ -1197,19 +1197,16 @@ private struct ProgressCheckinsView: View {
     @State private var hasMore = false
     @State private var configured = false
     @State private var editor = false
-    @State private var editing = false
-    @State private var editingId: String?
-    @State private var day = Date()
-    @State private var notes = ""
+    @State private var editingEntry: ProgressCheckin?
     @State private var error: String?
     @State private var busy = false
     @State private var deleting: ProgressCheckin?
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack { Text("Progress check-ins").font(.headline); Spacer(); Button("Add") { editing = false; editingId = nil; day = Date(); notes = ""; editor = true } }
+            HStack { Text("Progress check-ins").font(.headline); Spacer(); Button("New check-in") { editingEntry = nil; editor = true } }
             Text("Same lighting, distance and pose each time. Photos are private; export them for your progress reviews.").font(.caption).foregroundStyle(.secondary)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
-            if entries.isEmpty { Text("Your first check-in establishes your starting point.").foregroundStyle(.secondary) }
+            if entries.isEmpty { Text("Create a check-in to add notes and front, side or back photos.").foregroundStyle(.secondary) }
             ForEach(entries) { entry in
                 VStack(alignment: .leading, spacing: 12) {
                     Text(entry.day).font(.headline)
@@ -1220,7 +1217,7 @@ private struct ProgressCheckinsView: View {
                         ProgressPhotoCell(checkin: entry.id, view: view, photo: entry.photos.first { $0.view == view }, configured: configured) { Task { await load() } }
                     }
                     HStack {
-                        Button("Edit notes") { editing = true; editingId = entry.id; day = Self.formatter.date(from: entry.day) ?? Date(); notes = entry.notes; editor = true }
+                        Button("Edit check-in") { editingEntry = entry; editor = true }
                         Spacer()
                         Button("Delete", role: .destructive) { deleting = entry }
                     }
@@ -1231,22 +1228,8 @@ private struct ProgressCheckinsView: View {
             if hasMore { Button("Older check-ins") { Task { await load(more: true) } }.disabled(busy) }
         }.padding().appSurface()
         .task { await load() }
-        .sheet(isPresented: $editor) {
-            NavigationStack {
-                Form {
-                    DatePicker("Date", selection: $day, displayedComponents: .date).disabled(editing)
-                    TextField("Notes for your next review", text: $notes, axis: .vertical).lineLimit(4...10)
-                    Text("Weight averages use daily averages over the seven days ending on this date. Waist uses the most recent reading in that window. Corrections update these values.").font(.caption)
-                    if let error { Text(error).foregroundStyle(.red) }
-                }.navigationTitle("Check-in").toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { editor = false }.disabled(busy) }
-                    ToolbarItem(placement: .confirmationAction) { Button("Save") { Task {
-                        busy = true; defer { busy = false }
-                        do { try await api.saveCheckin(id: editingId, day: Self.formatter.string(from: day), notes: notes); editor = false; await load() }
-                        catch { self.error = error.localizedDescription }
-                    } }.disabled(busy || notes.count > 2000) }
-                }
-            }
+        .sheet(isPresented: $editor, onDismiss: { Task { await load() } }) {
+            ProgressCheckinEditor(entry: editingEntry, configured: configured) { editor = false }
         }
         .alert("Delete this check-in and its photos?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("Delete", role: .destructive) { if let item = deleting { Task { do { try await api.deleteCheckin(id: item.id); await load() } catch { self.error = error.localizedDescription } } } }
@@ -1258,6 +1241,157 @@ private struct ProgressCheckinsView: View {
         do { let result = try await api.getCheckins(offset: more ? entries.count : 0); entries = more ? entries + result.entries : result.entries; hasMore = result.hasMore; configured = result.photosConfigured; error = nil }
         catch { self.error = error.localizedDescription }
     }
+}
+
+private struct ProgressCheckinEditor: View {
+    @EnvironmentObject var api: APIClient
+    let entry: ProgressCheckin?
+    let configured: Bool
+    let close: () -> Void
+    @State private var savedID: String?
+    @State private var day: Date
+    @State private var notes: String
+    @State private var drafts: [String: Data] = [:]
+    @State private var uploadedViews: Set<String> = []
+    @State private var preparing: Set<String> = []
+    @State private var busy = false
+    @State private var error: String?
+    private let views = ["front", "side", "back"]
+
+    init(entry: ProgressCheckin?, configured: Bool, close: @escaping () -> Void) {
+        self.entry = entry
+        self.configured = configured
+        self.close = close
+        _savedID = State(initialValue: entry?.id)
+        _day = State(initialValue: entry.flatMap { ProgressCheckinsView.formatter.date(from: $0.day) } ?? Date())
+        _notes = State(initialValue: entry?.notes ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    DatePicker("Date", selection: $day, displayedComponents: .date).disabled(savedID != nil)
+                    TextField("Notes for your next review", text: $notes, axis: .vertical).lineLimit(3...10)
+                }
+                Section {
+                    ForEach(views, id: \.self) { view in
+                        ProgressPhotoDraftPicker(
+                            view: view,
+                            hasPhoto: uploadedViews.contains(view) || entry?.photos.contains { $0.view == view } == true,
+                            data: Binding(get: { drafts[view] }, set: { drafts[view] = $0 }),
+                            onPreparing: { loading in
+                                if loading { preparing.insert(view) } else { preparing.remove(view) }
+                            }
+                        ).disabled(!configured)
+                    }
+                } header: {
+                    Text("Progress photos (optional)")
+                } footer: {
+                    Text(configured
+                         ? "Choose front, side or back photos now. They upload when you save. Your photos stay private and are not sent to AI."
+                         : "Photo uploads are currently unavailable. You can still save check-in notes.")
+                }
+                Section {
+                    Text("Weight averages use daily averages over the seven days ending on this date. Waist uses the most recent reading in that window. Corrections update these values.").font(.caption)
+                }
+                if busy { ProgressView("Saving check-in and photos…") }
+                if let error { Text(error).foregroundStyle(.red).accessibilityLabel(error) }
+            }
+            .disabled(busy)
+            .navigationTitle("Check-in")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(savedID != nil && entry == nil ? "Close" : "Cancel", action: close)
+                        .disabled(busy || !preparing.isEmpty)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { Task { await save() } }
+                        .disabled(busy || !preparing.isEmpty || notes.count > 2000)
+                }
+            }
+            .interactiveDismissDisabled(busy || !preparing.isEmpty)
+        }
+    }
+
+    @MainActor private func save() async {
+        busy = true
+        error = nil
+        defer { busy = false }
+        do {
+            let id = try await api.saveCheckin(id: savedID, day: ProgressCheckinsView.formatter.string(from: day), notes: notes)
+            // Retain the saved ID and only retry unfinished uploads after a partial failure.
+            savedID = id
+            for view in views {
+                guard let data = drafts[view] else { continue }
+                do {
+                    try await api.saveProgressPhoto(checkin: id, view: view, data: data)
+                    drafts[view] = nil
+                    uploadedViews.insert(view)
+                } catch {
+                    self.error = "Your check-in is saved, but the \(view) photo could not upload. Tap Save to retry. \(error.localizedDescription)"
+                    return
+                }
+            }
+            close()
+        } catch { self.error = error.localizedDescription }
+    }
+}
+
+private struct ProgressPhotoDraftPicker: View {
+    let view: String
+    let hasPhoto: Bool
+    @Binding var data: Data?
+    let onPreparing: (Bool) -> Void
+    @State private var selection: PhotosPickerItem?
+    @State private var preparing = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(view.capitalized).font(.subheadline.weight(.semibold))
+            if let data, let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 180)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .accessibilityLabel("Selected \(view) photo")
+            } else if hasPhoto {
+                Label("Photo saved", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+            }
+            PhotosPicker(selection: $selection, matching: .images) {
+                Label("\(hasPhoto || data != nil ? "Replace" : "Add") \(view) photo", systemImage: "photo.badge.plus")
+            }.disabled(preparing)
+            if data != nil {
+                Button("Remove selected \(view) photo", role: .destructive) { data = nil }
+                    .font(.caption).disabled(preparing)
+            }
+            if preparing { ProgressView("Preparing photo…") }
+            if let error { Text(error).font(.caption).foregroundStyle(.red) }
+        }
+        .buttonStyle(.borderless)
+        .onChange(of: selection) { _, value in
+            guard let value else { return }
+            preparing = true
+            onPreparing(true)
+            Task { @MainActor in
+                defer { preparing = false; onPreparing(false); selection = nil }
+                do {
+                    guard let original = try await value.loadTransferable(type: Data.self) else { throw URLError(.cannotDecodeContentData) }
+                    data = try prepareProgressPhoto(original)
+                    error = nil
+                } catch { self.error = "Could not prepare this photo. Please choose it again. \(error.localizedDescription)" }
+            }
+        }
+    }
+}
+
+private func prepareProgressPhoto(_ data: Data) throws -> Data {
+    guard let source = UIImage(data: data) else { throw URLError(.cannotDecodeContentData) }
+    let scale = min(1, 1800 / max(source.size.width, source.size.height))
+    let size = CGSize(width: source.size.width * scale, height: source.size.height * scale)
+    let format = UIGraphicsImageRendererFormat(); format.scale = 1
+    let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in source.draw(in: CGRect(origin: .zero, size: size)) }
+    guard let jpeg = resized.jpegData(compressionQuality: 0.85) else { throw URLError(.cannotDecodeContentData) }
+    return jpeg
 }
 
 private struct ProgressPhotoCell: View {
@@ -1301,14 +1435,10 @@ private struct ProgressPhotoCell: View {
             Task {
                 busy = true; defer { busy = false; selection = nil }
                 do {
-                    guard let data = try await value.loadTransferable(type: Data.self), let source = UIImage(data: data) else { throw URLError(.cannotDecodeContentData) }
-                    let scale = min(1, 1800 / max(source.size.width, source.size.height))
-                    let size = CGSize(width: source.size.width * scale, height: source.size.height * scale)
-                    let format = UIGraphicsImageRendererFormat(); format.scale = 1
-                    let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in source.draw(in: CGRect(origin: .zero, size: size)) }
-                    guard let jpeg = resized.jpegData(compressionQuality: 0.85) else { throw URLError(.cannotDecodeContentData) }
+                    guard let data = try await value.loadTransferable(type: Data.self) else { throw URLError(.cannotDecodeContentData) }
+                    let jpeg = try prepareProgressPhoto(data)
                     try await api.saveProgressPhoto(checkin: checkin, view: view, data: jpeg)
-                    image = resized; error = nil; refresh()
+                    image = UIImage(data: jpeg); error = nil; refresh()
                 } catch { self.error = error.localizedDescription }
             }
         }

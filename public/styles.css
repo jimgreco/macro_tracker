@@ -5842,6 +5842,16 @@ button[disabled] {
 .checkin-photos > div { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .checkin-photos img { width: 100%; aspect-ratio: 3/4; object-fit: contain; border-radius: 14px; background: var(--bg); }
 .checkin-photos input { max-width: 100%; }
+.combine-modal.checkin-modal { width: min(94vw, 620px); max-width: 620px; margin: auto; border: 1px solid var(--line); border-radius: 22px; background: #131b28; }
+.checkin-modal::backdrop { background: rgba(0, 0, 0, .65); }
+.checkin-modal fieldset { min-width: 0; margin: 20px 0; padding: 12px; border: 1px solid var(--line); border-radius: 14px; }
+.checkin-modal legend { font-weight: 700; }
+.checkin-modal textarea { width: 100%; min-height: 80px; box-sizing: border-box; }
+.checkin-modal .checkin-photos { gap: 12px; }
+.checkin-modal .checkin-photos label { font-size: .9rem; }
+.checkin-modal .checkin-photos input { margin-top: 8px; box-sizing: border-box; }
+.checkin-modal .checkin-photos span { font-size: .8rem; color: var(--muted); }
+.checkin-modal [role=alert] { color: var(--danger, #ff8f8f); }
 @media(max-width:600px) { .checkin-photos { grid-template-columns: 1fr; } }
 
 .companion-switch { display:inline-flex;align-items:center;gap:4px;padding:4px;border:1px solid var(--line);border-radius:14px;background:var(--panel);font-size:12px; }

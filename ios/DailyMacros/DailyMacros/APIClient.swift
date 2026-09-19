@@ -989,14 +989,15 @@ class APIClient: ObservableObject {
         components.queryItems = [.init(name: "offset", value: String(offset))]
         return try await perform(authorizedRequest(components.url!))
     }
-    func saveCheckin(id: String?, day: String, notes: String) async throws {
+    func saveCheckin(id: String?, day: String, notes: String) async throws -> String {
         var request = try authorizedRequest(apiURL("/checkins"))
         request.httpMethod = "POST"
         var body = ["day": day, "notes": notes]
         if let id { body["id"] = id }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         struct Saved: Decodable { let id: String }
-        let _: Saved = try await perform(request)
+        let saved: Saved = try await perform(request)
+        return saved.id
     }
     func saveProgressPhoto(checkin: String, view: String, data: Data) async throws {
         var request = try authorizedRequest(apiURL("/checkins/\(checkin)/photos/\(view)"))

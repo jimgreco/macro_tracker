@@ -31,6 +31,9 @@
   and independent fail-closed integration Read/Write choices intact.
 - Oura API data and derived values must stay out of every AI/ML input, including
   OpenAI, Apple Foundation Models, narration, and ChatGPT-targeted exports.
+- Progress check-in forms stage photos until Save. Preserve the returned check-in
+  ID and unfinished selections on upload failure so retries cannot create another
+  check-in; see the progress check-in notes in the feature reference.
 
 
 ## Project Overview

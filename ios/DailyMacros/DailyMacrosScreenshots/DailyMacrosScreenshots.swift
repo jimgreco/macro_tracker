@@ -68,6 +68,30 @@ final class DailyMacrosScreenshots: XCTestCase {
         }
     }
 
+    func testNewCheckinOffersPhotosBeforeSaving() throws {
+        selectTab("Health")
+        selectHealthSection("Weight")
+        let newCheckin = app.buttons["New check-in"]
+        for _ in 0..<8 where !newCheckin.isHittable { app.swipeUp() }
+        XCTAssertTrue(newCheckin.isHittable)
+        newCheckin.tap()
+
+        XCTAssertTrue(app.navigationBars["Check-in"].waitForExistence(timeout: 5))
+        for view in ["front", "side", "back"] {
+            let picker = app.buttons["Add \(view) photo"]
+            XCTAssertTrue(picker.exists)
+            XCTAssertTrue(picker.isEnabled)
+        }
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Check-in photo form"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.buttons["Add front photo"].tap()
+        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 5))
+        // The system picker must open without creating a check-in first.
+        XCTAssertFalse(app.navigationBars["Check-in"].buttons["Save"].isHittable)
+    }
+
     func testDataSourceMatrixShowsTheCrossSourceOverview() throws {
         openDataSources()
         XCTAssertTrue(app.staticTexts["Data type"].exists)
