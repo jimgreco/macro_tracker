@@ -760,6 +760,7 @@ struct HealthEntry: Codable, Identifiable {
 struct HealthDailyTypes: Codable {
     let day: String
     let types: [String]
+    var counts: [String: Int]? = nil
 }
 
 struct HealthEntriesResponse: Codable {

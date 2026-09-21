@@ -203,6 +203,10 @@ The server sets a strict CSP header. Key constraints for frontend development:
 - Meal photo previews: use base64 data URLs from `state.mealImageAttachments` for `<img src>` — not blob URLs (blocked by CSP)
 - OpenAI API key is required; no fallback parsing exists
 
+## Sex activity summaries
+
+The Health subtab is labeled Sex. Keep the stored activity type `other` for compatibility and display it as Manual Stimulation. Graph category totals use the full-scope `dailyTypes[].counts` from `listSexualActivityEntries`, never the paginated recent-entry list. Filter summaries to the same 7/30/365 local-calendar days shown in the graph and count distinct active days separately from entries.
+
 ## Waist evidence tracking
 
 Waist measurements live in `waist_entries` (schema/store/validation in `src/waist.js`). Preserve one or two raw readings, entered unit, landmark method, timestamp and notes; average in centimeters for comparison. Never compare different landmarks as one continuous series. Web and iOS entry points are Health > Weight; iOS uses the protected replayable `.waist` mutation queue. Account export/deletion coverage is registered in `src/data-inventory.js`.

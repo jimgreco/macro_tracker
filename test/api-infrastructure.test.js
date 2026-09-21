@@ -1219,7 +1219,7 @@ test('iOS settings exposes support privacy and build metadata', () => {
   const plist = read('ios/DailyMacros/DailyMacros/Info.plist');
 
   assert.ok(settings.includes('Privacy & Support'));
-  assert.ok(settings.includes('Text("Sexual Activity")'));
+  assert.ok(settings.includes('Text("Sex")'));
   assert.ok(settings.includes('meal photos submitted for parsing'));
   assert.ok(settings.includes('Share Optional Diagnostics'));
   assert.ok(settings.includes('Essential security records stay enabled'));

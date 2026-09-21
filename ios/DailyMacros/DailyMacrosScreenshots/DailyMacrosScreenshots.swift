@@ -15,7 +15,7 @@ final class DailyMacrosScreenshots: XCTestCase {
             "-AppleLocale", "en_US"
         ]
         app.launchEnvironment["APP_STORE_SCREENSHOTS"] = "1"
-        if name.contains("testRapidPrimaryAndHealthTabSwitchingStaysStable") {
+        if name.contains("testRapidPrimaryAndHealthTabSwitchingStaysStable") || name.contains("testSexCategorySummaries") {
             app.launchArguments.append("--tab-stability-testing")
         }
         if name.contains("testDataSourceMatrixUsesLargeTextOverview") {
@@ -51,6 +51,16 @@ final class DailyMacrosScreenshots: XCTestCase {
         snapshot("05-Insights")
     }
 
+    func testSexCategorySummaries() throws {
+        selectTab("Health")
+        selectHealthSection("Sex")
+        XCTAssertTrue(app.staticTexts["Manual Stimulation: 0 entries · 0 days"].waitForExistence(timeout: 10))
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Sex category summaries"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testRapidPrimaryAndHealthTabSwitchingStaysStable() throws {
         let primaryTabs = ["Today", "Macros", "Workouts", "Health", "Insights"]
 
@@ -63,7 +73,7 @@ final class DailyMacrosScreenshots: XCTestCase {
             selectTab("Health")
             selectHealthSection("Weight")
             selectHealthSection("Sleep")
-            selectHealthSection("Sexual Activity")
+            selectHealthSection("Sex")
             XCTAssertEqual(app.state, .runningForeground, "App stopped while switching Health sections")
         }
     }

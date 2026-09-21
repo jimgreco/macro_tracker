@@ -533,7 +533,7 @@
           <div class="health-subnav" role="tablist" aria-label="Health sections">
             <button id="health-tab-weight" type="button" class="health-subnav-btn" role="tab" aria-controls="weight-page" aria-selected="false" tabindex="-1" data-health-page="weight">Weight</button>
             <button id="health-tab-sleep" type="button" class="health-subnav-btn is-active" role="tab" aria-controls="sleep-page" aria-selected="true" data-health-page="sleep">Sleep</button>
-            <button id="health-tab-sexual-activity" type="button" class="health-subnav-btn sexual-activity-feature" role="tab" aria-controls="sexual-activity-page" aria-selected="false" tabindex="-1" data-health-page="sexual-activity" hidden>Sexual Activity</button>
+            <button id="health-tab-sexual-activity" type="button" class="health-subnav-btn sexual-activity-feature" role="tab" aria-controls="sexual-activity-page" aria-selected="false" tabindex="-1" data-health-page="sexual-activity" hidden>Sex</button>
           </div>
         </div>
 
@@ -659,7 +659,7 @@
       </section>
 
       <section id="sexual-activity-page" class="health-pane" role="tabpanel" aria-labelledby="health-tab-sexual-activity" tabindex="0" hidden>
-        <h3 class="health-section-divider sexual-activity-feature" hidden>Sexual Activity</h3>
+        <h3 class="health-section-divider sexual-activity-feature" hidden>Sex</h3>
         <section class="panel glass panel-compact sexual-activity-feature" hidden>
           <div class="section-head-row">
             <h2>Log Activity</h2>
@@ -672,7 +672,7 @@
               <option value="masturbation">Masturbation</option>
               <option value="oral sex">Oral Sex</option>
               <option value="vaginal sex">Vaginal Sex</option>
-              <option value="other">Other</option>
+              <option value="other">Manual Stimulation</option>
             </select>
             <button id="save-health-btn" type="button">Log Entry</button>
           </div>
@@ -698,19 +698,19 @@
             <div class="trend-legend health-legend" aria-live="polite">
               <span class="trend-legend-item">
                 <span class="trend-legend-swatch-dot" style="background: #ff6b9d;" aria-hidden="true"></span>
-                Masturbation
+                <span data-health-summary="masturbation">Masturbation</span>
               </span>
               <span class="trend-legend-item">
                 <span class="trend-legend-swatch-dot" style="background: #00cfff;" aria-hidden="true"></span>
-                Oral Sex
+                <span data-health-summary="oral sex">Oral Sex</span>
               </span>
               <span class="trend-legend-item">
                 <span class="trend-legend-swatch-dot" style="background: #05ffa1;" aria-hidden="true"></span>
-                Vaginal Sex
+                <span data-health-summary="vaginal sex">Vaginal Sex</span>
               </span>
               <span class="trend-legend-item">
                 <span class="trend-legend-swatch-dot" style="background: #c48aff;" aria-hidden="true"></span>
-                Other
+                <span data-health-summary="other">Manual Stimulation</span>
               </span>
             </div>
             <div class="trend-legend" aria-live="polite">

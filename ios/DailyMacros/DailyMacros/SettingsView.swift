@@ -548,9 +548,9 @@ struct SettingsView: View {
         Section {
             Toggle("Show page", isOn: $sexualActivityPageVisible)
         } header: {
-            Text("Sexual Activity")
+            Text("Sex")
         } footer: {
-            Text("Shows or hides the Sexual Activity tab on this device.")
+            Text("Shows or hides the Sex tab on this device.")
         }
     }
 

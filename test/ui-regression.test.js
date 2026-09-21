@@ -945,7 +945,7 @@ test('web UI reflects admin-controlled sexual activity feature flag', () => {
   const script = read('public/script.js');
 
   assert.equal(html.includes('class="health-subnav-btn sexual-activity-feature"'), true);
-  assert.equal(html.includes('data-health-page="sexual-activity" hidden>Sexual Activity</button>'), true);
+  assert.equal(html.includes('data-health-page="sexual-activity" hidden>Sex</button>'), true);
   assert.equal(html.includes('class="nav-tab sexual-activity-feature"'), false);
   assert.equal(html.includes('id="sexual-activity-page"'), true);
   assert.equal(html.includes('id="admin-page-btn"'), true);
@@ -1004,7 +1004,7 @@ test('iOS Health hub keeps sleep and optional sexual activity out of primary nav
   assert.equal(tabs.includes('@AppStorage(FeaturePreferenceKeys.sexualActivityPageVisible)'), true);
   assert.equal(tabs.includes('&& sexualActivityPageVisible'), true);
   assert.equal(tabs.includes('SexualActivityView()'), true);
-  assert.equal(tabs.includes('case .sexualActivity: return "Sexual Activity"'), true);
+  assert.equal(tabs.includes('case .sexualActivity: return "Sex"'), true);
   assert.equal(tabs.includes('.onChange(of: navigation.healthArea)'), true);
   assert.equal(tabs.includes('private var healthAreaSelection: Binding<HealthArea>'), true);
   assert.equal(tabs.includes('switch visibleHealthArea'), true);
@@ -1080,7 +1080,7 @@ test('iOS sleep and sexual activity use tab titles with grouped toolbar add acti
   assert.equal(addAction > syncAction, true);
   assert.equal(health.includes('showLogSheetForMode()'), true);
   assert.equal(health.includes('Image(systemName: "plus.circle.fill")'), false);
-  assert.equal(sexualActivitySection.includes('Text("Sexual Activity")'), false);
+  assert.equal(sexualActivitySection.includes('Text("Sex")'), false);
   assert.equal(sleepSection.includes('Text("Sleep")'), false);
   assert.equal(sleepSection.includes('showLogSleep = true'), false);
 });
