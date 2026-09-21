@@ -106,7 +106,7 @@ struct WorkoutsView: View {
                 HStack {
                     Label("Nutrition · Macrovana", systemImage: "leaf").fontWeight(.semibold)
                     Spacer()
-                    Button("Training · Forge") { UIApplication.shared.open(URL(string: "forgeworkout://train")!, options: [:]) { opened in if !opened { DispatchQueue.main.async { UIApplication.shared.open(URL(string: "https://workout-planner.jim-greco.com")!) } } } }
+                    Button("Training · Rep, Mix, Burn") { UIApplication.shared.open(URL(string: "repmixburn://train")!, options: [:]) { opened in if !opened { DispatchQueue.main.async { UIApplication.shared.open(URL(string: "https://repmixburn.com")!) } } } }
                 }.font(.caption).padding(.horizontal, 16).padding(.vertical, 10)
             }
             .navigationTitle("Workouts")
