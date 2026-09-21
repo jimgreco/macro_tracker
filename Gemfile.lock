@@ -219,6 +219,7 @@ GEM
 
 PLATFORMS
   arm64-darwin-25
+  ruby
 
 DEPENDENCIES
   fastlane (>= 2.229, < 3)
