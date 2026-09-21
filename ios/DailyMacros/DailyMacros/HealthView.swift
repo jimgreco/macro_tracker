@@ -8,7 +8,7 @@ enum HealthViewMode: Equatable {
     var navigationTitle: String {
         switch self {
         case .sleep: return "Sleep"
-        case .sexualActivity: return "Sexual Activity"
+        case .sexualActivity: return "Sex"
         }
     }
 
@@ -478,15 +478,27 @@ struct HealthView: View {
         healthScope == "week" ? 58 : 42
     }
 
+    private func activityLabel(_ type: String) -> String {
+        type == "other" ? "Manual Stimulation" : type.capitalized
+    }
+
+    private func activitySummary(_ type: String) -> String {
+        let visibleDays = Set(activityOccurrencePoints.map(\.id))
+        let rows = dailyTypes.filter { visibleDays.contains($0.day) }
+        let total = rows.reduce(0) { $0 + ($1.counts?[type] ?? 0) }
+        let days = rows.filter { ($0.counts?[type] ?? 0) > 0 }.count
+        return "\(total) \(total == 1 ? "entry" : "entries") · \(days) \(days == 1 ? "day" : "days")"
+    }
+
     private var activityLegend: some View {
-        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(activityTypes, id: \.self) { type in
                 HStack(spacing: 4) {
                     Circle()
                         .fill(activityColor(type))
                         .frame(width: 8, height: 8)
-                    Text(type.capitalized)
-                        .font(.system(size: 10))
+                    Text("\(activityLabel(type)): \(activitySummary(type))")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -543,7 +555,7 @@ struct HealthView: View {
             Circle()
                 .fill(activityColor(entry.type))
                 .frame(width: 10, height: 10)
-            Text(entry.type.capitalized)
+            Text(activityLabel(entry.type))
                 .font(.subheadline.bold())
             Spacer()
             Text(formatDate(entry.loggedAt))
@@ -1109,7 +1121,7 @@ struct HealthView: View {
                             .foregroundStyle(.secondary)
                         Picker("Type", selection: $selectedActivityType) {
                             ForEach(activityTypes, id: \.self) { type in
-                                Text(type.capitalized).tag(type)
+                                Text(activityLabel(type)).tag(type)
                             }
                         }
                         .pickerStyle(.menu)
@@ -1341,7 +1353,7 @@ struct HealthView: View {
                             .foregroundStyle(.secondary)
                         Picker("Type", selection: $editHealthType) {
                             ForEach(activityTypes, id: \.self) { type in
-                                Text(type.capitalized).tag(type)
+                                Text(activityLabel(type)).tag(type)
                             }
                         }
                         .pickerStyle(.menu)

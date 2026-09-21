@@ -7645,7 +7645,7 @@ function renderHealthCard(entry) {
   const loggedAt = new Date(entry.loggedAt);
   const dateText = loggedAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const type = EJACULATION_TYPE_COLORS[entry.type] ? entry.type : 'other';
-  const typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
+  const typeLabel = type === 'other' ? 'Manual Stimulation' : type.charAt(0).toUpperCase() + type.slice(1);
   const color = EJACULATION_TYPE_COLORS[type] || '#c48aff';
   const entryId = safeId(entry.id);
   return `
@@ -7681,7 +7681,7 @@ function showHealthEditModal(entry) {
             <option value="masturbation" ${entry.type === 'masturbation' ? 'selected' : ''}>Masturbation</option>
             <option value="oral sex" ${entry.type === 'oral sex' ? 'selected' : ''}>Oral Sex</option>
             <option value="vaginal sex" ${entry.type === 'vaginal sex' ? 'selected' : ''}>Vaginal Sex</option>
-            <option value="other" ${entry.type === 'other' ? 'selected' : ''}>Other</option>
+            <option value="other" ${entry.type === 'other' ? 'selected' : ''}>Manual Stimulation</option>
           </select>
         </div>
       </div>
@@ -7761,13 +7761,30 @@ function drawHealthOccurrenceChart(entries, period) {
     }
   }
 
+  const dayCount = period === 'annual' ? 365 : period === 'monthly' ? 30 : 7;
+  const startDay = shiftIsoDay(today, -(dayCount - 1));
+  document.querySelectorAll('[data-health-summary]').forEach((label) => {
+    const type = label.dataset.healthSummary;
+    let total = 0;
+    const days = new Set();
+    for (const entry of entries || []) {
+      const day = entry.day || getLocalIsoDay(entry.loggedAt);
+      if (day < startDay || day > today) continue;
+      const count = entry.day ? Number(entry.counts?.[type] || 0) : Number(entry.type === type);
+      total += count;
+      if (count > 0) days.add(day);
+    }
+    const name = type === 'other' ? 'Manual Stimulation' : type.replace(/\b\w/g, (letter) => letter.toUpperCase());
+    label.textContent = `${name}: ${total} ${total === 1 ? 'entry' : 'entries'} · ${days.size} ${days.size === 1 ? 'day' : 'days'}`;
+  });
+
   const points = [];
   if (period === 'annual') {
     for (let w = 51; w >= 0; w -= 1) {
       const weekEndDay = shiftIsoDay(today, -w * 7);
-      const weekStartDay = shiftIsoDay(weekEndDay, -6);
+      const weekStartDay = w === 51 ? startDay : shiftIsoDay(weekEndDay, -6);
       const typesInWeek = new Set();
-      for (let d = 0; d <= 6; d += 1) {
+      for (let d = 0; d <= (w === 51 ? 7 : 6); d += 1) {
         const day = shiftIsoDay(weekStartDay, d);
         const types = dayTypesMap.get(day);
         if (types) types.forEach((t) => typesInWeek.add(t));

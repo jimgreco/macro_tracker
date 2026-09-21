@@ -21,13 +21,13 @@ enum HealthArea: String, CaseIterable {
         switch self {
         case .weight: return "Weight"
         case .sleep: return "Sleep"
-        case .sexualActivity: return "Sexual Activity"
+        case .sexualActivity: return "Sex"
         }
     }
 
     var accessibilityLabel: String {
         switch self {
-        case .sexualActivity: return "Sexual Activity"
+        case .sexualActivity: return "Sex"
         default: return label
         }
     }

@@ -35,6 +35,22 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     });
     assert.equal(createdUser.timezone, 'America/Los_Angeles');
 
+    // Totals use all scoped entries, independent of the recent-entry page.
+    const activityAt = new Date().toISOString();
+    const activityOne = await db.addSexualActivityEntry(userId, { type: 'other', loggedAt: activityAt });
+    await db.addSexualActivityEntry(userId, { type: 'other', loggedAt: activityAt });
+    await db.addSexualActivityEntry(userId, { type: 'oral sex', loggedAt: activityAt });
+    for (const scope of ['week', 'month', 'year']) {
+      const activity = await db.listSexualActivityEntries(userId, { scope, timezone: 'UTC', limit: 1 });
+      assert.equal(activity.entries.length, 1);
+      assert.equal(activity.dailyTypes.length, 1);
+      assert.equal(activity.dailyTypes[0].counts.other, 2);
+      assert.equal(activity.dailyTypes[0].counts['oral sex'], 1);
+      assert.equal(activity.dailyTypes[0].counts.masturbation, 0);
+    }
+    await db.deleteSexualActivityEntry(userId, activityOne.id);
+    assert.equal((await db.listSexualActivityEntries(userId, { timezone: 'UTC' })).dailyTypes[0].counts.other, 1);
+
     const waistPayload = { readings: [33, 33.4], unit: 'in', method: 'navel_relaxed', notes: 'Same tape', loggedAt: '2026-09-08T01:00:00Z' };
     const waist = await db.saveWaistEntry(userId, waistPayload);
     const waistRows = await db.listWaistEntries(userId, { timezone: 'America/New_York' });

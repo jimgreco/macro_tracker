@@ -3526,7 +3526,13 @@ async function listSexualActivityEntries(userId, options = {}) {
   const scopeDays = parseScopeDays(options.scope || 'week');
   const dailyResult = await pool.query(
     `SELECT (logged_at AT TIME ZONE $2)::date::text AS day,
-            array_agg(DISTINCT type) AS types
+            array_agg(DISTINCT type) AS types,
+            json_build_object(
+              'masturbation', COUNT(*) FILTER (WHERE type = 'masturbation'),
+              'oral sex', COUNT(*) FILTER (WHERE type = 'oral sex'),
+              'vaginal sex', COUNT(*) FILTER (WHERE type = 'vaginal sex'),
+              'other', COUNT(*) FILTER (WHERE type = 'other')
+            ) AS counts
      FROM sexual_activity_entries
      WHERE user_id = $1 AND deleted_at IS NULL
        AND logged_at >= ((NOW() AT TIME ZONE $2)::date - ($3::text || ' days')::interval) AT TIME ZONE $2
@@ -3545,7 +3551,8 @@ async function listSexualActivityEntries(userId, options = {}) {
     })),
     dailyTypes: dailyResult.rows.map((row) => ({
       day: row.day,
-      types: row.types || []
+      types: row.types || [],
+      counts: row.counts || {}
     })),
     pagination: { limit, offset, returned: rowsResult.rows.length }
   };
