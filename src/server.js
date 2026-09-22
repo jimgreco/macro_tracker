@@ -2249,6 +2249,7 @@ async function lookupOpenFoodFactsBarcode(barcode) {
 
 const loginHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'login.html'), 'utf8');
 const privacyHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'privacy.html'), 'utf8');
+const supportHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'support.html'), 'utf8');
 const termsHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'terms.html'), 'utf8');
 const publicBrandAssetPaths = new Map([
   ['/favicon.svg', path.join(process.cwd(), 'public', 'favicon.svg')],
@@ -2289,6 +2290,11 @@ app.get('/login.js', (req, res) => {
 app.get(['/privacy', '/privacy.html'], (req, res) => {
   res.set('Cache-Control', isProduction ? 'public, max-age=3600' : 'no-cache');
   res.type('html').send(privacyHtmlRaw);
+});
+
+app.get(['/support', '/support.html'], (req, res) => {
+  res.set('Cache-Control', isProduction ? 'public, max-age=3600' : 'no-cache');
+  res.type('html').send(supportHtmlRaw);
 });
 
 app.get(['/terms', '/terms.html'], (req, res) => {

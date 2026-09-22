@@ -10,7 +10,7 @@ SCREENSHOT_SCHEME = "DailyMacrosScreenshots"
 SCREENSHOT_OUTPUT = "fastlane/screenshots"
 
 def screenshot_devices
-  raw_devices = ENV["SCREENSHOT_DEVICES"] || "iPhone 17 Pro Max,iPad Pro 13-inch (M5)"
+  raw_devices = ENV["SCREENSHOT_DEVICES"] || "iPhone 17 Pro Max"
   raw_devices.split(",").map(&:strip).reject(&:empty?)
 end
 
@@ -20,9 +20,11 @@ platform :ios do
     capture_ios_screenshots(
       project: PROJECT_PATH,
       scheme: SCREENSHOT_SCHEME,
+      only_testing: ["DailyMacrosScreenshots/DailyMacrosScreenshots/testAppStoreScreenshots"],
       app_identifier: APP_IDENTIFIER,
       configuration: "Debug",
       devices: screenshot_devices,
+      ios_version: ENV["SCREENSHOT_IOS_VERSION"],
       languages: ["en-US"],
       output_directory: SCREENSHOT_OUTPUT,
       clear_previous_screenshots: true,

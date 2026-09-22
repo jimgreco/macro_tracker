@@ -511,6 +511,15 @@ async function request(pathname, options = {}) {
   return { res, body };
 }
 
+test('public support page serves the App Store contact without a login redirect', routeTestOptions, async () => {
+  for (const route of ['/support', '/support.html']) {
+    const response = await fetch(`${baseUrl}${route}`, { redirect: 'manual' });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') || '', /text\/html/);
+    assert.match(await response.text(), /info@macrovana\.com/);
+  }
+});
+
 test('account preferences route persists validated timezone', routeTestOptions, async () => {
   resetCalls();
   const { res, body } = await request('/api/account/preferences', {

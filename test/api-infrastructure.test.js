@@ -1160,7 +1160,7 @@ test('production database backup script supports Docker Postgres restore drills'
   assert.ok(timer.includes('OnCalendar=*-*-* 02:35:00'));
 });
 
-test('public privacy policy is served before frontend auth guard', () => {
+test('public privacy policy and support are served before frontend auth guard', () => {
   const server = read('src/server.js');
   const privacyHtml = read('public/privacy.html');
   const policy = read('docs/privacy-policy.md');
@@ -1171,6 +1171,7 @@ test('public privacy policy is served before frontend auth guard', () => {
   assert.ok(server.includes("fs.readFileSync(path.join(process.cwd(), 'public', 'privacy.html')"));
   assert.ok(server.includes("app.get(['/privacy', '/privacy.html']"));
   assert.ok(server.indexOf("app.get(['/privacy', '/privacy.html']") < server.indexOf('app.use(requireAuth, enforceActiveAccount);'));
+  assert.ok(server.indexOf("app.get(['/support', '/support.html']") < server.indexOf('app.use(requireAuth, enforceActiveAccount);'));
   assert.ok(privacyHtml.includes('DailyMacros Privacy Policy'));
   assert.ok(privacyHtml.includes('OpenAI'));
   assert.ok(privacyHtml.includes('HealthKit'));

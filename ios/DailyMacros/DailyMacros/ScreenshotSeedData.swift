@@ -443,7 +443,7 @@ enum ScreenshotSeedData {
                 goalAlignment: GoalAlignment(
                     goal: "Lean fat loss while keeping strength",
                     status: "On track",
-                    score: 0.88,
+                    score: 88,
                     reason: "Average calories are near target while protein and training consistency support lean mass."
                 ),
                 progress: [
@@ -487,7 +487,7 @@ enum ScreenshotSeedData {
                     plannedWorkoutCount: 4
                 ),
                 dataConfidence: DataConfidence(
-                    score: 0.93,
+                    score: 93,
                     notes: "Recent nutrition, weight, workout, and sleep logs are all present."
                 ),
                 confidence: "High"

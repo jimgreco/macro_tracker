@@ -19,7 +19,7 @@ on:
         description: Comma-separated simulator names
         required: true
         type: string
-        default: "iPhone 17 Pro Max,iPad Pro 13-inch (M5)"
+        default: "iPhone 17 Pro Max"
 
 jobs:
   screenshots:
@@ -52,6 +52,7 @@ jobs:
       - name: Generate screenshots
         env:
           SCREENSHOT_DEVICES: ${{ inputs.devices }}
+          SCREENSHOT_IOS_VERSION: "26.4.1"
         run: bundle exec fastlane ios screenshots
 
       - name: Upload screenshot artifact
