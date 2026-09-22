@@ -59,7 +59,6 @@ Set these on the remote compose environment for the `macros` service:
 - `OURA_RECONCILIATION_MINUTES=60` (optional)
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
-- `STRIPE_PRO_PRICE_ID`
 - `STRIPE_REQUEST_TIMEOUT_MS` (optional; defaults to `15000`)
 - `WEBHOOK_MAX_ATTEMPTS` (optional; defaults to `8`)
 - `WEBHOOK_LEASE_MS` (optional; defaults to `120000`)

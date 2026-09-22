@@ -520,6 +520,11 @@ test('public support page serves the App Store contact without a login redirect'
   }
 });
 
+test('subscription checkout is unavailable while upgrades are off', routeTestOptions, async () => {
+  const { res } = await request('/api/subscription/checkout', { method: 'POST' });
+  assert.equal(res.status, 404);
+});
+
 test('account preferences route persists validated timezone', routeTestOptions, async () => {
   resetCalls();
   const { res, body } = await request('/api/account/preferences', {

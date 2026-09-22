@@ -1052,13 +1052,11 @@ test('server.js handles key Stripe webhook events', () => {
   assert.ok(stripeWebhooks.includes('subscriptionMetadataUserId'));
 });
 
-test('server.js has subscription, checkout, and portal endpoints', () => {
+test('server.js preserves existing billing access without opening new checkout', () => {
   const server = read('src/server.js');
   assert.ok(server.includes("apiRouter.get('/subscription'"));
-  assert.ok(server.includes("apiRouter.post('/subscription/checkout'"));
   assert.ok(server.includes("apiRouter.post('/subscription/portal'"));
-  assert.ok(server.includes('subscription_data:'));
-  assert.ok(server.includes('app_user_id: userId'));
+  assert.ok(!server.includes("apiRouter.post('/subscription/checkout'"));
 });
 
 test('server.js has durable plan-based feature gating infrastructure', () => {
