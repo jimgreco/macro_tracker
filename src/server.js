@@ -3596,7 +3596,14 @@ apiRouter.put('/meal-group/:mealGroup/scale', async (req, res) => {
     }
     const unit = String(req.body.unit || 'serving').trim();
     const name = req.body.name ? String(req.body.name).trim() : null;
-    const updated = await scaleMealGroup(userIdFromReq(req), mealGroup, quantity, unit, name);
+    let consumedAt;
+    if (Object.prototype.hasOwnProperty.call(req.body, 'consumedAt')) {
+      if (typeof req.body.consumedAt !== 'string' || !req.body.consumedAt.trim()) {
+        return res.status(400).json({ error: 'consumedAt must be a valid date/time.' });
+      }
+      consumedAt = normalizeIsoDateTime(req.body.consumedAt, 'consumedAt');
+    }
+    const updated = await scaleMealGroup(userIdFromReq(req), mealGroup, quantity, unit, name, consumedAt);
     if (!updated) {
       return res.status(404).json({ error: 'Meal group not found.' });
     }

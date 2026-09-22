@@ -851,6 +851,26 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     });
     assert.equal((await db.listOuraDocuments(userId)).length, 0);
 
+    // Moving a meal updates every live child atomically, without touching tombstones or other accounts.
+    const movedGroup = crypto.randomUUID();
+    const originalTime = '2026-09-21T12:00:00.000Z';
+    const movedTime = '2026-09-22T23:30:00.000Z';
+    const mealRow = { itemName: 'Move fixture', quantity: 1, unit: 'serving', calories: 100,
+      protein: 10, carbs: 10, fat: 2, consumedAt: originalTime, mealGroup: movedGroup,
+      mealName: 'Move meal', mealQuantity: 1, mealUnit: 'serving' };
+    await db.addEntries(userId, [mealRow, mealRow, mealRow]);
+    const groupRows = await db.getPool().query('SELECT id FROM entries WHERE user_id = $1 AND meal_group = $2 ORDER BY id', [userId, movedGroup]);
+    await db.deleteEntry(userId, groupRows.rows[2].id);
+    assert.equal(await db.scaleMealGroup(`${userId}-other`, movedGroup, 1, 'serving', null, movedTime), 0);
+    assert.equal(await db.scaleMealGroup(userId, movedGroup, 1, 'serving', null, movedTime), 2);
+    const movedRows = await db.getPool().query('SELECT consumed_at, deleted_at, calories FROM entries WHERE user_id = $1 AND meal_group = $2 ORDER BY id', [userId, movedGroup]);
+    assert.deepEqual(movedRows.rows.map(row => row.consumed_at.toISOString()), [movedTime, movedTime, originalTime]);
+    assert.ok(movedRows.rows[2].deleted_at);
+    assert.ok(movedRows.rows.every(row => Number(row.calories) === 100));
+    await db.scaleMealGroup(userId, movedGroup, 2, 'serving', 'Renamed meal');
+    const legacyRows = await db.getPool().query('SELECT consumed_at FROM entries WHERE user_id = $1 AND meal_group = $2 AND deleted_at IS NULL', [userId, movedGroup]);
+    assert.ok(legacyRows.rows.every(row => row.consumed_at.toISOString() === movedTime));
+
     await db.deleteUserAccount(userId);
     const { accountDeletionInventory } = require('../src/data-inventory');
     for (const item of accountDeletionInventory()) {

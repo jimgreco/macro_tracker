@@ -2217,19 +2217,16 @@ async function deleteEntry(userId, id) {
   return result.rowCount || 0;
 }
 
-async function scaleMealGroup(userId, mealGroup, newQuantity, newUnit, newName) {
-  const existing = await pool.query(
-    'SELECT id, quantity, calories, protein, carbs, fat, meal_quantity FROM entries WHERE user_id = $1 AND meal_group = $2 AND deleted_at IS NULL',
-    [userId, mealGroup]
-  );
-  if (!existing.rows.length) return 0;
-
-  const oldMealQty = Number(existing.rows[0].meal_quantity || 1);
-  const scale = Number(newQuantity) / oldMealQty;
-
+async function scaleMealGroup(userId, mealGroup, newQuantity, newUnit, newName, consumedAt) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const existing = await client.query(
+      'SELECT id, meal_quantity FROM entries WHERE user_id = $1 AND meal_group = $2 AND deleted_at IS NULL ORDER BY id FOR UPDATE',
+      [userId, mealGroup]
+    );
+    const oldMealQty = Number(existing.rows[0]?.meal_quantity || 1);
+    const scale = Number(newQuantity) / oldMealQty;
     for (const row of existing.rows) {
       await client.query(
         `UPDATE entries
@@ -2239,12 +2236,11 @@ async function scaleMealGroup(userId, mealGroup, newQuantity, newUnit, newName) 
              carbs = ROUND(($1 * carbs)::numeric, 2),
              fat = ROUND(($1 * fat)::numeric, 2),
              meal_quantity = $2,
-             meal_unit = $3
-             ${newName ? ', meal_name = $6' : ''}
+             meal_unit = $3,
+             meal_name = COALESCE($6, meal_name),
+             consumed_at = COALESCE($7::timestamptz, consumed_at)
          WHERE id = $4 AND user_id = $5 AND deleted_at IS NULL`,
-        newName
-          ? [scale, Number(newQuantity), newUnit, row.id, userId, newName]
-          : [scale, Number(newQuantity), newUnit, row.id, userId]
+        [scale, Number(newQuantity), newUnit, row.id, userId, newName || null, consumedAt ?? null]
       );
     }
     await client.query('COMMIT');

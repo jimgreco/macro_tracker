@@ -173,6 +173,7 @@ struct MacrosView: View {
     // Meal editing state
     @State private var editingMeal: EditingMealContext?
     @State private var editMealName = ""
+    @State private var editMealDate = Date()
     @State private var editMealQuantity = ""
     @State private var editMealUnit = ""
     @State private var saveEditedMealAsQuickAdd = false
@@ -1471,6 +1472,7 @@ struct MacrosView: View {
 
     private func beginEditMeal(items: [Entry]) {
         guard let first = items.first, let mealGroup = first.mealGroup else { return }
+        editMealDate = parseISO(first.consumedAt)
         editMealName = first.mealName ?? "Meal"
         editMealQuantity = "\(first.mealQuantity ?? 1)"
         editMealUnit = first.mealUnit ?? "serving"
@@ -1489,6 +1491,10 @@ struct MacrosView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     editEntryField("Meal Name", text: $editMealName, keyboard: .default)
+                    DatePicker("Meal date and time", selection: $editMealDate)
+                    Text("Changing this moves every item in the meal to the selected time.")
+                        .font(.caption)
+                        .foregroundStyle(Color.mutedText)
 
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
@@ -1647,7 +1653,7 @@ struct MacrosView: View {
         let quantityChanged = abs(quantity - meal.originalQuantity) > 0.001
         let unitChanged = unit != normalizedUnit(first.mealUnit ?? "serving")
 
-        return nameChanged || quantityChanged || unitChanged || saveEditedMealAsQuickAdd
+        return nameChanged || quantityChanged || unitChanged || !isSameDisplayedMinute(editMealDate, parseISO(first.consumedAt)) || saveEditedMealAsQuickAdd
     }
 
     private func mealScaleFactor(for meal: EditingMealContext) -> Double? {
@@ -3585,7 +3591,9 @@ struct MacrosView: View {
                 mealGroup: meal.mealGroup,
                 quantity: newQty,
                 unit: editMealUnit,
-                name: editMealName
+                name: editMealName,
+                consumedAt: meal.first.map { isSameDisplayedMinute(editMealDate, parseISO($0.consumedAt)) } == true
+                    ? nil : isoString(from: editMealDate)
             )
             editingMeal = nil
             await loadDashboard()

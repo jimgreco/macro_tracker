@@ -1076,6 +1076,7 @@ test('subscription indexes exist', () => {
 
 test('deploy workflow verifies SSH host and smokes production endpoints', () => {
   const workflow = read('.github/workflows/deploy.yml');
+  assert.ok(workflow.includes('OPENAI_MODEL: gpt-6-sol'));
   const script = read('scripts/production-smoke.sh');
   assert.ok(workflow.includes('actions/checkout@v5'));
   assert.ok(workflow.includes('workflow_call:'));

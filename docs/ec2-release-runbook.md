@@ -33,7 +33,7 @@ Set these on the remote compose environment for the `macros` service:
 - `DATABASE_URL`
 - `PGSSL=false`
 - `OPENAI_API_KEY`
-- `OPENAI_MODEL`
+- `OPENAI_MODEL=gpt-6-sol` (pinned by the deploy Compose override)
 - `OPEN_FOOD_FACTS_USER_AGENT` (optional; identifies barcode lookup traffic; use `Macrovana/1.0 (https://macrovana.com)`)
 - `AI_DAILY_MEAL_PARSE_LIMIT`
 - `AI_DAILY_WORKOUT_PARSE_LIMIT`

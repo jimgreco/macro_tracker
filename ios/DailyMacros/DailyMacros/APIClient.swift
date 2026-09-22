@@ -764,9 +764,10 @@ class APIClient: ObservableObject {
         let _: OkResponse = try await perform(request)
     }
 
-    func scaleMealGroup(mealGroup: String, quantity: Double, unit: String = "serving", name: String? = nil) async throws {
+    func scaleMealGroup(mealGroup: String, quantity: Double, unit: String = "serving", name: String? = nil, consumedAt: String? = nil) async throws {
         var payload: [String: Any] = ["quantity": quantity, "unit": unit]
         if let name { payload["name"] = name }
+        if let consumedAt { payload["consumedAt"] = consumedAt }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let request = try authorizedRequest(apiURL("/meal-group/\(mealGroup)/scale"), method: "PUT", body: body)
         let _: OkResponse = try await perform(request)

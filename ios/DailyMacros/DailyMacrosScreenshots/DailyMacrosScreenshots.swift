@@ -51,6 +51,21 @@ final class DailyMacrosScreenshots: XCTestCase {
         snapshot("05-Insights")
     }
 
+    func testMealEditorShowsSharedDateAndTime() throws {
+        selectTab("Macros")
+        let meal = app.staticTexts["Breakfast Burrito"].firstMatch
+        for _ in 0..<5 where !meal.isHittable { app.swipeUp() }
+        XCTAssertTrue(meal.waitForExistence(timeout: 10))
+        meal.tap()
+        XCTAssertTrue(app.staticTexts["Meal date and time"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.datePickers.firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["Changing this moves every item in the meal to the selected time."].exists)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Meal date and time editor"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testSexCategorySummaries() throws {
         selectTab("Health")
         selectHealthSection("Sex")

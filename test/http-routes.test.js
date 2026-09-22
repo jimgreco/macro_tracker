@@ -211,7 +211,10 @@ const fakeDb = {
   },
   updateEntry: async () => 1,
   deleteEntry: async () => 1,
-  scaleMealGroup: async () => 1,
+  scaleMealGroup: async (userId, mealGroup, quantity, unit, name, consumedAt) => {
+    record('scaleMealGroup', { userId, mealGroup, quantity, unit, name, consumedAt });
+    return mealGroup === 'missing' ? 0 : 2;
+  },
   combineEntries: async () => 'meal-group-id',
   splitMealGroup: async () => 2,
   removeFromMealGroup: async () => 1,
@@ -1117,4 +1120,32 @@ test('waist routes validate measurements, isolate users and support replay-safe 
   assert.equal((await request('/api/waist/-1', { method: 'DELETE' })).res.status, 400);
   await request('/api/waist?offset=50');
   assert.equal(latestCall('listWaistEntries').payload.options.timezone, fakeUser.timezone);
+});
+
+
+test('meal edits move all items with a validated optional timestamp', routeTestOptions, async () => {
+  resetCalls();
+  const body = { quantity: 1, unit: 'serving', name: 'Lunch' };
+  const moved = await request('/api/meal-group/meal-group-id/scale', {
+    method: 'PUT', body: JSON.stringify({ ...body, consumedAt: '2026-09-22T19:30:00-04:00' })
+  });
+  assert.equal(moved.res.status, 200);
+  assert.equal(moved.body.updated, 2);
+  assert.equal(latestCall('scaleMealGroup').payload.consumedAt, '2026-09-22T23:30:00.000Z');
+  const legacy = await request('/api/meal-group/meal-group-id/scale', {
+    method: 'PUT', body: JSON.stringify(body)
+  });
+  assert.equal(legacy.res.status, 200);
+  assert.equal(latestCall('scaleMealGroup').payload.consumedAt, undefined);
+  for (const consumedAt of ['', null, 'not-a-date', 123]) {
+    const invalid = await request('/api/meal-group/meal-group-id/scale', {
+      method: 'PUT', body: JSON.stringify({ ...body, consumedAt })
+    });
+    assert.equal(invalid.res.status, 400);
+  }
+  assert.equal(calls.filter(call => call.name === 'scaleMealGroup').length, 2);
+  const missing = await request('/api/meal-group/missing/scale', {
+    method: 'PUT', body: JSON.stringify({ ...body, consumedAt: '2026-09-22T23:30:00Z' })
+  });
+  assert.equal(missing.res.status, 404);
 });

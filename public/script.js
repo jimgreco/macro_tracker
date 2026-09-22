@@ -5065,12 +5065,13 @@ entriesByDayEl.addEventListener('click', (event) => {
       quantity: mealEntry.mealQuantity || 1,
       unit: mealEntry.mealUnit || 'serving',
       mealGroup: groupId,
+      consumedAt: mealEntry?.consumedAt,
       onCopyToToday: buildCopyMealToTodayHandler(groupId, mealEntry),
-      onSave: async (name, quantity, unit) => {
+      onSave: async (name, quantity, unit, consumedAt) => {
         try {
           await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
             method: 'PUT',
-            body: JSON.stringify({ quantity, unit, name: name || undefined })
+            body: JSON.stringify({ quantity, unit, name: name || undefined, consumedAt })
           });
           setActionBanner('Meal updated.', 'success');
           await refreshDashboard();
@@ -5228,12 +5229,13 @@ entriesByDayEl.addEventListener('click', async (event) => {
       quantity: mealEntry?.mealQuantity || 1,
       unit: mealEntry?.mealUnit || 'serving',
       mealGroup: groupId,
+      consumedAt: mealEntry?.consumedAt,
       onCopyToToday: buildCopyMealToTodayHandler(groupId, mealEntry),
-      onSave: async (name, quantity, unit) => {
+      onSave: async (name, quantity, unit, consumedAt) => {
         try {
           await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
             method: 'PUT',
-            body: JSON.stringify({ quantity, unit, name: name || undefined })
+            body: JSON.stringify({ quantity, unit, name: name || undefined, consumedAt })
           });
           clearSelection();
           setActionBanner('Meal updated.', 'success');
@@ -5328,6 +5330,7 @@ function showCombineModal(entryIds, options) {
   const defaultQty = (options && options.quantity) || 1;
   const defaultUnit = (options && options.unit) || 'serving';
   const canCopyToToday = Boolean(isEdit && options?.onCopyToToday);
+  const originalTime = isEdit ? isoToLocalInputValue(options.consumedAt) : '';
 
   let overlay = document.getElementById('combine-modal-overlay');
   if (overlay) overlay.remove();
@@ -5340,6 +5343,9 @@ function showCombineModal(entryIds, options) {
       <h3>${escapeHtml(title)}</h3>
       <label for="combine-name">Meal Name</label>
       <input id="combine-name" type="text" value="${escapeAttr(defaultName)}" />
+      ${isEdit ? `<label for="combine-time">Meal date and time</label>
+      <input id="combine-time" type="datetime-local" required value="${escapeAttr(originalTime)}" />
+      <p class="muted">Changing this moves every item in the meal to the selected time.</p>` : ''}
       <label for="combine-qty">Quantity</label>
       <input id="combine-qty" type="number" step="0.1" min="0.1" value="${escapeAttr(defaultQty)}" />
       <label for="combine-unit">Unit</label>
@@ -5376,6 +5382,10 @@ function showCombineModal(entryIds, options) {
     const mealName = nameInput.value.trim() || 'Meal';
     const quantity = Number(document.getElementById('combine-qty').value) || 1;
     const unit = document.getElementById('combine-unit').value.trim() || 'serving';
+    const timeInput = document.getElementById('combine-time');
+    if (isEdit && !timeInput.reportValidity()) return;
+    const consumedAt = isEdit && timeInput.value !== originalTime
+      ? new Date(timeInput.value).toISOString() : undefined;
     const saveQuickAdd = isEdit && document.getElementById('combine-save-quickadd')?.checked;
     overlay.remove();
 
@@ -5399,7 +5409,7 @@ function showCombineModal(entryIds, options) {
           setActionBanner(error.message, 'error');
         }
       }
-      options.onSave(mealName, quantity, unit);
+      options.onSave(mealName, quantity, unit, consumedAt);
       return;
     }
 
@@ -6146,12 +6156,13 @@ entriesByDayEl.addEventListener('click', async (event) => {
       quantity: mealEntry?.mealQuantity || 1,
       unit: mealEntry?.mealUnit || 'serving',
       mealGroup: groupId,
+      consumedAt: mealEntry?.consumedAt,
       onCopyToToday: buildCopyMealToTodayHandler(groupId, mealEntry),
-      onSave: async (name, quantity, unit) => {
+      onSave: async (name, quantity, unit, consumedAt) => {
         try {
           await api(`/api/meal-group/${encodeURIComponent(groupId)}/scale`, {
             method: 'PUT',
-            body: JSON.stringify({ quantity, unit, name: name || undefined })
+            body: JSON.stringify({ quantity, unit, name: name || undefined, consumedAt })
           });
           setActionBanner('Meal updated.', 'success');
           await refreshDashboard();
