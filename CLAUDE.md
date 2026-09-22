@@ -10,7 +10,7 @@ Full-stack macro/nutrition tracking web app with iOS companion. Node.js + Expres
 - **Frontend**: Vanilla JS, HTML5, CSS3 (no frameworks)
 - **iOS App**: SwiftUI (iOS 17+), AuthenticationServices (Sign in with Apple), AVFoundation barcode scanning, Keychain token storage, HealthKit sync, local reminders, pending-log retry
 - **Database**: PostgreSQL 16 (Docker locally and in the current EC2/Docker Compose production stack; RDS notes are legacy)
-- **AI**: OpenAI API (`gpt-4.1-mini` by default) for meal/workout parsing
+- **AI**: OpenAI API (`gpt-6-sol` by default) for meal/workout parsing
 - **Billing**: Stripe (checkout sessions, customer portal, webhooks)
 - **Deployment**: GitHub Actions to EC2/Docker Compose, with legacy Elastic Beanstalk notes retained only for historical recovery context
 
