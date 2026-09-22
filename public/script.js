@@ -3162,7 +3162,7 @@ function showAccountPrivacyModal() {
     >
       <h3 id="${headingId}" tabindex="-1">Account & Privacy</h3>
       <div class="account-privacy-copy">
-        <p><strong>Support</strong><span>Contact the person who invited you. Include any request reference shown in an error message and the build details below.</span></p>
+        <p><strong>Support</strong><span>Email <a href="mailto:info@macrovana.com">info@macrovana.com</a> or visit our <a href="/support.html">support page</a>. Include any request reference shown in an error message and the build details below.</span></p>
         <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, optional Oura aggregate metrics, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
         <p><strong>AI processing</strong><span>${escapeHtml(aiProcessingCopy)}</span></p>
         <p><strong>Diagnostics</strong><span>Optional browser diagnostics contain only a generic error category, route template, status, request reference, app version, and script location. They are retained for 30 days and never include request bodies, meal or health values, tokens, query strings, stacks, or full user agents.</span></p>
