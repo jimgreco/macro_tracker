@@ -1188,6 +1188,15 @@ test('public privacy policy and support are served before frontend auth guard', 
   assert.ok(disclosureCopy.includes('audit events for 365 days'));
 });
 
+test('iOS App Store build has no external subscription purchase entry point', () => {
+  const settings = read('ios/DailyMacros/DailyMacros/SettingsView.swift');
+  const client = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  assert.ok(!settings.includes('Upgrade to Pro'));
+  assert.ok(!settings.includes('Manage Subscription'));
+  assert.ok(!client.includes('/subscription/checkout'));
+  assert.ok(!client.includes('/subscription/portal'));
+});
+
 test('barcode lookup uses Open Food Facts with normalized nutrition output', () => {
   const server = read('src/server.js');
 

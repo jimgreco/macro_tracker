@@ -31,7 +31,6 @@ struct SettingsView: View {
     @StateObject private var offlineQueue = OfflineMutationStore.shared
     @StateObject private var diagnostics = Diagnostics.shared
     @StateObject private var coachDismissals = CoachDismissalStore.shared
-    @State private var subscription: SubscriptionResponse?
     @State private var version: VersionResponse?
     @State private var showDeleteConfirm = false
     @State private var isExporting = false
@@ -66,7 +65,6 @@ struct SettingsView: View {
                 }
                 compassSection
                 remindersSection
-                subscriptionSection
                 dataSection
                 tutorialSection
                 pendingSyncSection
@@ -693,49 +691,6 @@ struct SettingsView: View {
         )
     }
 
-    // MARK: - Subscription
-
-    private var subscriptionSection: some View {
-        Section("Subscription") {
-            if let sub = subscription {
-                HStack {
-                    Text("Plan")
-                    Spacer()
-                    Text(sub.subscription.plan.capitalized)
-                        .foregroundStyle(sub.subscription.plan == "pro" ? .cyan : .secondary)
-                        .fontWeight(sub.subscription.plan == "pro" ? .bold : .regular)
-                }
-
-                HStack {
-                    Text("Status")
-                    Spacer()
-                    Text(sub.subscription.status.capitalized)
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack {
-                    Text("Daily Parses")
-                    Spacer()
-                    Text("\(sub.limits.dailyParses)")
-                        .foregroundStyle(.secondary)
-                }
-
-                if sub.subscription.plan == "free" {
-                    Button("Upgrade to Pro") {
-                        Task { await openCheckout() }
-                    }
-                    .foregroundStyle(.cyan)
-                } else {
-                    Button("Manage Subscription") {
-                        Task { await openPortal() }
-                    }
-                }
-            } else {
-                ProgressView()
-            }
-        }
-    }
-
     // MARK: - Data
 
     private var dataSection: some View {
@@ -908,7 +863,6 @@ struct SettingsView: View {
             api: api,
             userID: auth.user?.id ?? ""
         )
-        await loadSubscription()
         await loadVersion()
         await loadOuraStatus()
     }
@@ -1044,41 +998,11 @@ struct SettingsView: View {
         showOuraDataAccess = true
     }
 
-    private func loadSubscription() async {
-        do {
-            subscription = try await api.getSubscription()
-        } catch {
-            // Non-critical, just show empty state
-        }
-    }
-
     private func loadVersion() async {
         do {
             version = try await api.getVersion()
         } catch {
             // Non-critical troubleshooting metadata.
-        }
-    }
-
-    private func openCheckout() async {
-        do {
-            let urlString = try await api.createCheckoutSession()
-            if let url = URL(string: urlString) {
-                await MainActor.run { UIApplication.shared.open(url) }
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func openPortal() async {
-        do {
-            let urlString = try await api.createPortalSession()
-            if let url = URL(string: urlString) {
-                await MainActor.run { UIApplication.shared.open(url) }
-            }
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 

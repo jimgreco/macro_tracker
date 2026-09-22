@@ -66,7 +66,7 @@ SwiftUI app targeting iOS 17+. Uses token-based auth (either via Sign in with Ap
 | `WeightView.swift` | Weight logging, Canvas trend chart, history |
 | `WorkoutsView.swift` | Workout logging/parsing, intensity cards |
 | `AICoach.swift` | Shared iOS Coach Tony P. suggestion model, deterministic candidate rules, dismissals, settings keys, and coach card UI |
-| `SettingsView.swift` | Account, Oura OAuth/status/sync/disconnect, subscription, timezone picker, reminder controls, optional Sexual Activity page toggle when admin-enabled, pending-log sync, data and diagnostics export, delete account |
+| `SettingsView.swift` | Account, Oura OAuth/status/sync/disconnect, timezone picker, reminder controls, optional Sexual Activity page toggle when admin-enabled, pending-log sync, data and diagnostics export, delete account |
 | `IntegrationDataAccess.swift` | Provider-neutral missing-choice coordinator, required post-connect access screen, Settings editor, and fail-closed HealthKit access plan |
 | `ReminderScheduler.swift` | Local daily log notification scheduling |
 | `OfflineMutationStore.swift` | File-protected, account-scoped pending mutation queue |

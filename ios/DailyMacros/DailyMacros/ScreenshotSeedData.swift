@@ -496,25 +496,6 @@ enum ScreenshotSeedData {
         )
     }
 
-    static func subscription() -> SubscriptionResponse {
-        SubscriptionResponse(
-            subscription: SubscriptionInfo(
-                plan: "pro",
-                status: "active",
-                stripeCustomerId: "cus_screenshot",
-                currentPeriodEnd: "2026-07-17T00:00:00.000-0400",
-                cancelAtPeriodEnd: false
-            ),
-            limits: PlanLimits(
-                dailyParses: 200,
-                mealParsesPerDay: 150,
-                workoutParsesPerDay: 50,
-                photoParsesPerDay: 40,
-                analysisPerDay: 10
-            )
-        )
-    }
-
     static func version() -> VersionResponse {
         VersionResponse(
             appBuild: "screenshots",
