@@ -190,7 +190,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
-                Text("Contact the person who invited you. Include any request reference shown in an error message and the build details below.")
+                Text("Email info@macrovana.com. Include any request reference shown in an error message and the build details below.")
                     .font(.subheadline)
             }
 

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macrovana Support</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --text: #17202a;
+      --muted: #5d6b7a;
+      --accent: #0f766e;
+      --border: #d9e2ec;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101418;
+        --panel: #171d22;
+        --text: #eef4f8;
+        --muted: #aab7c3;
+        --accent: #2dd4bf;
+        --border: #2d3742;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 20px 64px;
+    }
+
+    article {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: clamp(24px, 5vw, 44px);
+    }
+
+    h1,
+    h2 {
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 7vw, 3.5rem);
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 1.15rem;
+      margin-top: 2rem;
+    }
+
+    p,
+    li {
+      color: var(--muted);
+    }
+
+    a {
+      color: var(--accent);
+    }
+
+    .updated {
+      margin-top: 0.5rem;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    ul {
+      padding-left: 1.2rem;
+    }
+
+    .legal-links {
+      margin-top: 2.5rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      <h1>Macrovana Support</h1>
+      <p>Get help with meal logging, your account, connected health data, or the Macrovana iPhone app.</p>
+      <h2>Contact us</h2>
+      <p>Email <a href="mailto:info@macrovana.com">info@macrovana.com</a>. Include your app version, a description of the problem, and any request reference shown in an error message. Please do not send passwords or private health records.</p>
+      <h2>Signing in</h2>
+      <p>Use Continue with Apple or Continue with Google. Use the same sign-in account each time to access your existing history.</p>
+      <h2>Apple Health and Oura</h2>
+      <p>Connections are optional. In Settings, review each source's Read and Write choices and its latest sync status. Apple Health also requires permission in Apple's Health settings. You can disconnect Oura and delete its imported data from Settings.</p>
+      <h2>Correcting nutrition estimates</h2>
+      <p>Review calories and macros before saving AI or barcode estimates. You can edit saved meal entries when a portion or nutrition value needs correcting.</p>
+      <h2>Export or delete your account</h2>
+      <p>Open Settings in the iPhone app, or Account &amp; Privacy on the website, to export your account data or delete your account. Individual progress photos can be exported from their check-in.</p>
+      <p class="legal-links"><a href="/">Open Macrovana</a> · <a href="/privacy">Privacy Policy</a> · <a href="/terms">Terms of Service</a></p>
+    </article>
+  </main>
+</body>
+</html>
