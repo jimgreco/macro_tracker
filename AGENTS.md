@@ -122,7 +122,6 @@ ADMIN_EMAILS=            # Comma-separated admin email allowlist for /admin and 
 ADMIN_USER_IDS=          # Comma-separated admin user ID allowlist
 STRIPE_SECRET_KEY=       # Stripe secret key
 STRIPE_WEBHOOK_SECRET=   # Stripe webhook signing secret
-STRIPE_PRO_PRICE_ID=     # Stripe Price ID for the Pro plan
 ```
 
 See `.env.example` for full list.
@@ -168,6 +167,8 @@ preserved there.
 - Public privacy policy: `/privacy`; source copy in `docs/privacy-policy.md`, App Store privacy notes in `docs/app-store-privacy.md`.
 - App Store screenshots: `bundle exec fastlane ios screenshots` drives the `DailyMacrosScreenshots` UI-test target. The app runs with `--app-store-screenshots`, uses debug-only deterministic data from `ScreenshotSeedData.swift`, and writes review assets to `fastlane/screenshots/`. The manual GitHub workflow is `.github/workflows/app-store-screenshots.yml`; leave `upload_to_app_store=false` until screenshots are reviewed.
 - Public support: `/support.html` and `info@macrovana.com`; keep web/native support instructions and privacy-policy contact details consistent.
+- Register the support page before `requireAuth`, so App Store visitors can open it without an account. The App Store target is iPhone-only; screenshot capture defaults to iPhone and pins a simulator runtime available on the GitHub runner.
+- Do not present upgrade prompts or new Stripe checkout in web, iOS, or the API while plan gating is disabled. Preserve historical Stripe webhook processing and portal access for existing subscribers. Apple requires in-app purchase for digital upgrades in many storefronts.
 - Screenshot tooling: keep the generic `ruby` platform in `Gemfile.lock` for CI portability. CFPropertyList 3.0.9 requires Ruby < 3.2, so the Ruby 3.3 workflow uses the compatible 3.0.7 pin.
 - TestFlight signing: `.github/workflows/testflight.yml` verifies the App Store distribution `.p12` before import. Keep the `openssl pkcs12 -legacy` fallback because GitHub `macos-latest` OpenSSL can reject older Apple certificate bundles encrypted with legacy ciphers such as `RC2-40-CBC`.
 - Legacy Elastic Beanstalk material remains in `docs/aws-production-security-audit.md`; do not use it as the current deploy source of truth unless that platform is intentionally revived.

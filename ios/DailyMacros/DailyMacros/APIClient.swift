@@ -1352,31 +1352,6 @@ class APIClient: ObservableObject {
         )
     }
 
-    // MARK: - Subscription
-
-    func getSubscription() async throws -> SubscriptionResponse {
-        #if DEBUG
-        if ScreenshotSeedData.isEnabled {
-            return ScreenshotSeedData.subscription()
-        }
-        #endif
-
-        let request = try authorizedRequest(apiURL("/subscription"))
-        return try await perform(request)
-    }
-
-    func createCheckoutSession() async throws -> String {
-        let request = try authorizedRequest(apiURL("/subscription/checkout"), method: "POST")
-        let response: CheckoutResponse = try await perform(request)
-        return response.url
-    }
-
-    func createPortalSession() async throws -> String {
-        let request = try authorizedRequest(apiURL("/subscription/portal"), method: "POST")
-        let response: CheckoutResponse = try await perform(request)
-        return response.url
-    }
-
     // MARK: - Integration data access
 
     func getIntegrationDataAccess() async throws -> IntegrationDataAccessResponse {

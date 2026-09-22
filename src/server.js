@@ -533,7 +533,6 @@ if (googleClientId && googleClientSecret) {
 // ── Stripe setup ──
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
-const stripePriceId = process.env.STRIPE_PRO_PRICE_ID || '';
 const stripeRequestTimeoutMs = parsePositiveIntegerEnv('STRIPE_REQUEST_TIMEOUT_MS', 15_000);
 const webhookShutdownTimeoutMs = parsePositiveIntegerEnv(
   'WEBHOOK_SHUTDOWN_TIMEOUT_MS',
@@ -2249,6 +2248,7 @@ async function lookupOpenFoodFactsBarcode(barcode) {
 
 const loginHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'login.html'), 'utf8');
 const privacyHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'privacy.html'), 'utf8');
+const supportHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'support.html'), 'utf8');
 const termsHtmlRaw = fs.readFileSync(path.join(process.cwd(), 'public', 'terms.html'), 'utf8');
 const publicBrandAssetPaths = new Map([
   ['/favicon.svg', path.join(process.cwd(), 'public', 'favicon.svg')],
@@ -2289,6 +2289,11 @@ app.get('/login.js', (req, res) => {
 app.get(['/privacy', '/privacy.html'], (req, res) => {
   res.set('Cache-Control', isProduction ? 'public, max-age=3600' : 'no-cache');
   res.type('html').send(privacyHtmlRaw);
+});
+
+app.get(['/support', '/support.html'], (req, res) => {
+  res.set('Cache-Control', isProduction ? 'public, max-age=3600' : 'no-cache');
+  res.type('html').send(supportHtmlRaw);
 });
 
 app.get(['/terms', '/terms.html'], (req, res) => {
@@ -4654,45 +4659,6 @@ apiRouter.get('/subscription', async (req, res) => {
   }
 });
 
-apiRouter.post('/subscription/checkout', async (req, res) => {
-  try {
-    if (!stripe || !stripePriceId) {
-      return res.status(503).json({ error: 'Billing is not configured.' });
-    }
-    const userId = userIdFromReq(req);
-    const user = req.user;
-    const appBaseUrl = String(process.env.APP_BASE_URL || `http://localhost:${port}`).replace(/\/+$/, '');
-
-    const sessionParams = {
-      mode: 'subscription',
-      payment_method_types: ['card'],
-      line_items: [{ price: stripePriceId, quantity: 1 }],
-      success_url: `${appBaseUrl}/?checkout=success`,
-      cancel_url: `${appBaseUrl}/?checkout=cancel`,
-      client_reference_id: userId,
-      subscription_data: {
-        metadata: {
-          app_user_id: userId
-        }
-      }
-    };
-
-    // Reuse existing Stripe customer if available
-    const sub = await getSubscription(userId);
-    if (sub.stripeCustomerId) {
-      sessionParams.customer = sub.stripeCustomerId;
-    } else {
-      sessionParams.customer_email = user.email || undefined;
-    }
-
-    const checkoutSession = await stripe.checkout.sessions.create(sessionParams);
-    logAudit(userId, 'create', 'checkout_session');
-    res.json({ url: checkoutSession.url });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
 apiRouter.post('/subscription/portal', async (req, res) => {
   try {
     if (!stripe) {
@@ -4702,7 +4668,7 @@ apiRouter.post('/subscription/portal', async (req, res) => {
     const sub = await getSubscription(userId);
 
     if (!sub.stripeCustomerId) {
-      return res.status(400).json({ error: 'No billing account found. Subscribe first.' });
+      return res.status(400).json({ error: 'No billing account found.' });
     }
 
     const appBaseUrl = String(process.env.APP_BASE_URL || `http://localhost:${port}`).replace(/\/+$/, '');

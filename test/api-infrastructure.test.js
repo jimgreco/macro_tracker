@@ -1052,13 +1052,11 @@ test('server.js handles key Stripe webhook events', () => {
   assert.ok(stripeWebhooks.includes('subscriptionMetadataUserId'));
 });
 
-test('server.js has subscription, checkout, and portal endpoints', () => {
+test('server.js preserves existing billing access without opening new checkout', () => {
   const server = read('src/server.js');
   assert.ok(server.includes("apiRouter.get('/subscription'"));
-  assert.ok(server.includes("apiRouter.post('/subscription/checkout'"));
   assert.ok(server.includes("apiRouter.post('/subscription/portal'"));
-  assert.ok(server.includes('subscription_data:'));
-  assert.ok(server.includes('app_user_id: userId'));
+  assert.ok(!server.includes("apiRouter.post('/subscription/checkout'"));
 });
 
 test('server.js has durable plan-based feature gating infrastructure', () => {
@@ -1160,7 +1158,7 @@ test('production database backup script supports Docker Postgres restore drills'
   assert.ok(timer.includes('OnCalendar=*-*-* 02:35:00'));
 });
 
-test('public privacy policy is served before frontend auth guard', () => {
+test('public privacy policy and support are served before frontend auth guard', () => {
   const server = read('src/server.js');
   const privacyHtml = read('public/privacy.html');
   const policy = read('docs/privacy-policy.md');
@@ -1171,6 +1169,7 @@ test('public privacy policy is served before frontend auth guard', () => {
   assert.ok(server.includes("fs.readFileSync(path.join(process.cwd(), 'public', 'privacy.html')"));
   assert.ok(server.includes("app.get(['/privacy', '/privacy.html']"));
   assert.ok(server.indexOf("app.get(['/privacy', '/privacy.html']") < server.indexOf('app.use(requireAuth, enforceActiveAccount);'));
+  assert.ok(server.indexOf("app.get(['/support', '/support.html']") < server.indexOf('app.use(requireAuth, enforceActiveAccount);'));
   assert.ok(privacyHtml.includes('DailyMacros Privacy Policy'));
   assert.ok(privacyHtml.includes('OpenAI'));
   assert.ok(privacyHtml.includes('HealthKit'));
@@ -1185,6 +1184,15 @@ test('public privacy policy is served before frontend auth guard', () => {
   assert.ok(disclosureCopy.includes('retained for 30 days'));
   assert.ok(disclosureCopy.includes('usage counters for 90 days'));
   assert.ok(disclosureCopy.includes('audit events for 365 days'));
+});
+
+test('iOS App Store build has no external subscription purchase entry point', () => {
+  const settings = read('ios/DailyMacros/DailyMacros/SettingsView.swift');
+  const client = read('ios/DailyMacros/DailyMacros/APIClient.swift');
+  assert.ok(!settings.includes('Upgrade to Pro'));
+  assert.ok(!settings.includes('Manage Subscription'));
+  assert.ok(!client.includes('/subscription/checkout'));
+  assert.ok(!client.includes('/subscription/portal'));
 });
 
 test('barcode lookup uses Open Food Facts with normalized nutrition output', () => {
