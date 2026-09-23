@@ -3411,7 +3411,19 @@ async function listWorkoutEntries(userId, options = {}) {
   ]);
   const targetsByDay = new Map(targetHistory.map((row) => [row.day, row.targets]));
 
+  // Calendar-date subtraction includes quiet days and is safe across DST.
+  const coverageResult = await pool.query(
+    `SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE LEAST($3::int,
+              (NOW() AT TIME ZONE $2)::date - MIN((logged_at AT TIME ZONE $2)::date) + 1
+            ) END AS "daysCounted"
+     FROM workout_entries
+     WHERE user_id = $1 AND deleted_at IS NULL
+       AND (logged_at AT TIME ZONE $2)::date <= (NOW() AT TIME ZONE $2)::date`,
+    [userId, timezone, scopeDays]
+  );
+
   return {
+    daysCounted: Number(coverageResult.rows[0].daysCounted),
     entries: rowsResult.rows.map((row) => ({
       id: Number(row.id),
       description: row.description,
@@ -3537,7 +3549,19 @@ async function listSexualActivityEntries(userId, options = {}) {
     [userId, timezone, String(scopeDays)]
   );
 
+  // Calendar-date subtraction includes quiet days and is safe across DST.
+  const coverageResult = await pool.query(
+    `SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE LEAST($3::int,
+              (NOW() AT TIME ZONE $2)::date - MIN((logged_at AT TIME ZONE $2)::date) + 1
+            ) END AS "daysCounted"
+     FROM sexual_activity_entries
+     WHERE user_id = $1 AND deleted_at IS NULL
+       AND (logged_at AT TIME ZONE $2)::date <= (NOW() AT TIME ZONE $2)::date`,
+    [userId, timezone, scopeDays]
+  );
+
   return {
+    daysCounted: Number(coverageResult.rows[0].daysCounted),
     entries: rowsResult.rows.map((row) => ({
       id: Number(row.id),
       type: row.type,

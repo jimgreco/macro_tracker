@@ -66,10 +66,25 @@ final class DailyMacrosScreenshots: XCTestCase {
         add(attachment)
     }
 
+    func testWorkoutHistoryCoverage() throws {
+        selectTab("Workouts")
+        let year = app.segmentedControls.buttons["Year"]
+        for _ in 0..<4 where !year.isHittable { app.swipeUp() }
+        XCTAssertTrue(year.isHittable)
+        year.tap()
+        let summary = app.staticTexts["8 / 26 days active"]
+        for _ in 0..<4 where !summary.isHittable { app.swipeUp() }
+        XCTAssertTrue(summary.waitForExistence(timeout: 10))
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Workout history coverage"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testSexCategorySummaries() throws {
         selectTab("Health")
         selectHealthSection("Sex")
-        XCTAssertTrue(app.staticTexts["Manual Stimulation: 0 entries · 0 days"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Manual Stimulation: 0 entries · 0 days counted"].waitForExistence(timeout: 10))
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Sex category summaries"
         attachment.lifetime = .keepAlways

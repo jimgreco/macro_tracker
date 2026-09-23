@@ -40,12 +40,14 @@ const state = {
   sleepTargetHours: 8,
   healthEntries: [],
   healthOccurrenceRows: [],
+  healthDaysCounted: 0,
   sleepEntries: [],
   sleepChartRows: [],
   weightEntries: [],
   weightChartEntries: [],
   workoutEntries: [],
   workoutOccurrenceRows: [],
+  workoutDaysCounted: 0,
   coachDismissalsLoaded: false,
   coachDismissals: {
     today: new Map(),
@@ -1502,6 +1504,7 @@ function syncFeatureVisibility() {
   if (!sexualActivityVisible) {
     state.healthEntries = [];
     state.healthOccurrenceRows = [];
+    state.healthDaysCounted = 0;
     resetLogPaging('health');
     if (healthLogListEl) {
       healthLogListEl.innerHTML = '';
@@ -5768,6 +5771,7 @@ function hydrateStateFromToday(response) {
 
   if (context.workouts) {
     state.workoutEntries = context.workouts.entries || [];
+    state.workoutDaysCounted = context.workouts.daysCounted ?? 0;
     state.workoutOccurrenceRows = context.workouts.dailyCalories || [];
     state.workoutCalChartRows = (context.workouts.dailyCalories || []).map((row) => ({
       label: fromIsoDayLocal(row.day).toLocaleDateString(),
@@ -6756,21 +6760,23 @@ function renderWeightChart() {
 }
 
 function renderWorkoutStats(entries) {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 30);
-  cutoff.setHours(0, 0, 0, 0);
+  const periodDays = state.workoutSnapshotPeriod === 'annual' ? 365 : state.workoutSnapshotPeriod === 'monthly' ? 30 : 7;
+  const daysCounted = Math.min(periodDays, state.workoutDaysCounted);
+  const today = getLocalIsoDay();
+  const startDay = shiftIsoDay(today, -(periodDays - 1));
   const recent = (entries || []).filter((e) => {
-    const rawDate = e.day ? `${e.day}T00:00:00` : e.loggedAt;
-    return new Date(rawDate) >= cutoff;
+    const day = e.day || getLocalIsoDay(e.loggedAt);
+    return day >= startDay && day <= today;
   });
-  const weeks = 30 / 7;
-  const avgWorkouts = recent.length / weeks;
+  const activeDays = new Set(recent.map((e) => e.day || getLocalIsoDay(e.loggedAt))).size;
+  const weeks = Math.max(daysCounted, 1) / 7;
+  const avgWorkouts = activeDays / weeks;
   const avgCal = recent.reduce((sum, e) => sum + Number(e.caloriesBurned ?? e.calories ?? 0), 0) / weeks;
   if (avgWorkoutsPerWeekEl) {
-    avgWorkoutsPerWeekEl.textContent = recent.length ? avgWorkouts.toFixed(1) : '—';
+    avgWorkoutsPerWeekEl.textContent = daysCounted ? avgWorkouts.toFixed(1) : '—';
   }
   if (avgCalBurnedPerWeekEl) {
-    avgCalBurnedPerWeekEl.textContent = recent.length ? Math.round(avgCal).toLocaleString() : '—';
+    avgCalBurnedPerWeekEl.textContent = daysCounted ? Math.round(avgCal).toLocaleString() : '—';
   }
   const targets = state.dashboardData?.targets || {};
   const wktTarget = Number(targets.workouts || 0);
@@ -6783,7 +6789,7 @@ function renderWorkoutStats(entries) {
   }
   if (workoutStatsNoteEl) {
     workoutStatsNoteEl.textContent = recent.length
-      ? `Based on ${recent.length} workout${recent.length === 1 ? '' : 's'} in the last 30 days.`
+      ? `Based on ${activeDays} active ${activeDays === 1 ? 'day' : 'days'} across ${daysCounted} days counted.`
       : '';
   }
 }
@@ -6816,13 +6822,15 @@ function drawWorkoutOccurrenceChart(entries, period) {
     }
   }
 
+  const periodDays = period === 'annual' ? 365 : period === 'monthly' ? 30 : 7;
+  const startDay = shiftIsoDay(today, -(periodDays - 1));
   const points = [];
   if (period === 'annual') {
     for (let w = 51; w >= 0; w -= 1) {
       const weekEndDay = shiftIsoDay(today, -w * 7);
-      const weekStartDay = shiftIsoDay(weekEndDay, -6);
+      const weekStartDay = w === 51 ? startDay : shiftIsoDay(weekEndDay, -6);
       let count = 0;
-      for (let d = 0; d <= 6; d += 1) {
+      for (let d = 0; d <= (w === 51 ? 7 : 6); d += 1) {
         if (workoutDays.has(shiftIsoDay(weekStartDay, d))) {
           count += 1;
         }
@@ -6837,11 +6845,9 @@ function drawWorkoutOccurrenceChart(entries, period) {
     }
   }
 
-  const activeCount = points.filter((p) => p.active).length;
+  const activeCount = [...workoutDays].filter((day) => day >= startDay && day <= today).length;
   if (workoutOccurrenceStatEl) {
-    const total = points.length;
-    const unit = period === 'annual' ? 'weeks active' : period === 'monthly' ? 'days active' : 'days active';
-    workoutOccurrenceStatEl.textContent = `${activeCount} / ${total} ${unit}`;
+    workoutOccurrenceStatEl.textContent = `${activeCount} / ${Math.min(periodDays, state.workoutDaysCounted)} days active`;
   }
 
   const padX = 10;
@@ -7777,16 +7783,15 @@ function drawHealthOccurrenceChart(entries, period) {
   document.querySelectorAll('[data-health-summary]').forEach((label) => {
     const type = label.dataset.healthSummary;
     let total = 0;
-    const days = new Set();
+    const days = Math.min(dayCount, state.healthDaysCounted);
     for (const entry of entries || []) {
       const day = entry.day || getLocalIsoDay(entry.loggedAt);
       if (day < startDay || day > today) continue;
       const count = entry.day ? Number(entry.counts?.[type] || 0) : Number(entry.type === type);
       total += count;
-      if (count > 0) days.add(day);
     }
     const name = type === 'other' ? 'Manual Stimulation' : type.replace(/\b\w/g, (letter) => letter.toUpperCase());
-    label.textContent = `${name}: ${total} ${total === 1 ? 'entry' : 'entries'} · ${days.size} ${days.size === 1 ? 'day' : 'days'}`;
+    label.textContent = `${name}: ${total} ${total === 1 ? 'entry' : 'entries'} · ${days} ${days === 1 ? 'day' : 'days'} counted`;
   });
 
   const points = [];
@@ -7931,6 +7936,7 @@ async function refreshHealthData(options = {}) {
     paging.hasMore = entries.length === LOG_PAGE_SIZE;
 
     if (reset) {
+      state.healthDaysCounted = data.daysCounted ?? 0;
       state.healthOccurrenceRows = Array.isArray(data.dailyTypes) ? data.dailyTypes : [];
       drawHealthOccurrenceChart(state.healthOccurrenceRows, state.healthSnapshotPeriod || 'weekly');
     }
@@ -7972,6 +7978,7 @@ function renderWorkoutQuickAdds(entries) {
 }
 
 async function refreshWorkoutData(options = {}) {
+  bindSnapshotToggles();
   if (!workoutLogListEl) {
     return;
   }
@@ -8005,6 +8012,7 @@ async function refreshWorkoutData(options = {}) {
     renderWorkoutQuickAdds(state.workoutEntries);
 
     if (reset) {
+      state.workoutDaysCounted = data.daysCounted ?? 0;
       state.workoutOccurrenceRows = dailyCalories;
       state.workoutCalChartRows = dailyCalories.map((d) => ({
         label: new Date(d.day + 'T00:00:00').toLocaleDateString(),

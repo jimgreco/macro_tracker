@@ -44,6 +44,7 @@ struct HealthView: View {
     // Sexual activity state
     @State private var healthEntries: [HealthEntry] = []
     @State private var dailyTypes: [HealthDailyTypes] = []
+    @State private var healthDaysCounted = 0
     @State private var healthScope = "week"
     @State private var showLogHealth = false
     @State private var selectedActivityType = "masturbation"
@@ -486,8 +487,8 @@ struct HealthView: View {
         let visibleDays = Set(activityOccurrencePoints.map(\.id))
         let rows = dailyTypes.filter { visibleDays.contains($0.day) }
         let total = rows.reduce(0) { $0 + ($1.counts?[type] ?? 0) }
-        let days = rows.filter { ($0.counts?[type] ?? 0) > 0 }.count
-        return "\(total) \(total == 1 ? "entry" : "entries") · \(days) \(days == 1 ? "day" : "days")"
+        let days = min(activityOccurrenceDayCount, healthDaysCounted)
+        return "\(total) \(total == 1 ? "entry" : "entries") · \(days) \(days == 1 ? "day" : "days") counted"
     }
 
     private var activityLegend: some View {
@@ -1589,6 +1590,7 @@ struct HealthView: View {
             } else {
                 healthEntries = []
                 dailyTypes = []
+                healthDaysCounted = 0
             }
         }
     }
@@ -1616,6 +1618,7 @@ struct HealthView: View {
         guard sexualActivityEnabled else {
             healthEntries = []
             dailyTypes = []
+            healthDaysCounted = 0
             healthOffset = 0
             hasMoreHealthEntries = false
             return
@@ -1634,6 +1637,7 @@ struct HealthView: View {
                 appendUniqueHealthEntries(response.entries)
             }
             dailyTypes = response.dailyTypes
+            healthDaysCounted = response.daysCounted ?? 0
             healthOffset = offset + response.entries.count
             hasMoreHealthEntries = response.entries.count == logPageSize
         } catch {

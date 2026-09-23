@@ -331,6 +331,7 @@ struct WorkoutDailyCalories: Codable, Sendable {
 }
 
 struct WorkoutsResponse: Codable {
+    var daysCounted: Int? = nil
     let entries: [WorkoutEntry]
     let dailyCalories: [WorkoutDailyCalories]
     let pagination: Pagination?
@@ -739,6 +740,7 @@ struct HealthDailyTypes: Codable {
 }
 
 struct HealthEntriesResponse: Codable {
+    var daysCounted: Int? = nil
     let entries: [HealthEntry]
     let dailyTypes: [HealthDailyTypes]
     let pagination: Pagination?

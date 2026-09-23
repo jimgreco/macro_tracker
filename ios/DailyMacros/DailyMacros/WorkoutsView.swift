@@ -24,6 +24,7 @@ struct WorkoutsView: View {
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var workouts: [WorkoutEntry] = []
     @State private var dailyCalories: [WorkoutDailyCalories] = []
+    @State private var workoutDaysCounted = 0
     @State private var sleepDailyTotals: [SleepDailyTotals] = []
     @State private var includesOuraSleepData = false
     @State private var coachSuggestions: [CoachSuggestion] = []
@@ -285,7 +286,7 @@ struct WorkoutsView: View {
                 Text(occurrenceTitle)
                     .font(.subheadline.bold())
                 Spacer()
-                Text("\(activeCount) / \(points.count) \(unit)")
+                Text("\(activeCount) / \(min(workoutDaysCounted, occurrenceDayCount)) \(unit)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -448,7 +449,7 @@ struct WorkoutsView: View {
     private var activeWorkoutDaysPerWeek: Double {
         let activeDays = visibleDailyCalories.count
         guard activeDays > 0 else { return 0 }
-        let weeks = max(Double(scopeWeeks), 1)
+        let weeks = Double(max(min(workoutDaysCounted, occurrenceDayCount), 1)) / 7
         return Double(activeDays) / weeks
     }
 
@@ -463,22 +464,13 @@ struct WorkoutsView: View {
         let visible = visibleDailyCalories
         guard !visible.isEmpty else { return 0 }
         let totalCal = visible.reduce(0.0) { $0 + $1.calories }
-        let weeks = max(Double(scopeWeeks), 1)
+        let weeks = Double(max(min(workoutDaysCounted, occurrenceDayCount), 1)) / 7
         return totalCal / weeks
     }
 
     private var visibleDailyCalories: [WorkoutDailyCalories] {
         let visibleDays = Set(workoutOccurrencePoints.map(\.id))
         return dailyCalories.filter { visibleDays.contains($0.day) }
-    }
-
-    private var scopeWeeks: Int {
-        switch scope {
-        case "week": return 1
-        case "month": return 4
-        case "year": return 52
-        default: return 1
-        }
     }
 
     private var occurrenceDayCount: Int {
@@ -1002,6 +994,7 @@ struct WorkoutsView: View {
                 appendUniqueWorkouts(response.entries)
             }
             dailyCalories = response.dailyCalories
+            workoutDaysCounted = response.daysCounted ?? occurrenceDayCount
             workoutOffset = offset + response.entries.count
             hasMoreWorkouts = response.entries.count == logPageSize
         } catch {

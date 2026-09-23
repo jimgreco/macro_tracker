@@ -207,9 +207,13 @@ The server sets a strict CSP header. Key constraints for frontend development:
 - Meal photo previews: use base64 data URLs from `state.mealImageAttachments` for `<img src>` — not blob URLs (blocked by CSP)
 - OpenAI API key is required; no fallback parsing exists
 
+## Workout period coverage
+
+Workout responses include `daysCounted`: calendar days from the earliest non-deleted workout through today, capped at the selected 7/30/365 days. Use it for days-active denominators and weekly pace (days counted / 7), independently of paginated entries.
+
 ## Sex activity summaries
 
-The Health subtab is labeled Sex. Keep the stored activity type `other` for compatibility and display it as Manual Stimulation. Graph category totals use the full-scope `dailyTypes[].counts` from `listSexualActivityEntries`, never the paginated recent-entry list. Filter summaries to the same 7/30/365 local-calendar days shown in the graph and count distinct active days separately from entries.
+The Health subtab is labeled Sex. Keep the stored activity type `other` for compatibility and display it as Manual Stimulation. Graph category totals use the full-scope `dailyTypes[].counts` from `listSexualActivityEntries`, never the paginated recent-entry list. Filter summaries to the same 7/30/365 local-calendar days shown in the graph and use the shared response `daysCounted` for each category: calendar days since the earliest non-deleted activity across all categories, including today and quiet days, capped at 7/30/365 (zero without history).
 
 ## Waist evidence tracking
 

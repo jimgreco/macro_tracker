@@ -324,6 +324,7 @@ enum ScreenshotSeedData {
     static func workouts(limit: Int, offset: Int, scope: String) -> WorkoutsResponse {
         let page = Array(workoutEntries.dropFirst(offset).prefix(limit))
         return WorkoutsResponse(
+            daysCounted: scope == "week" ? 7 : 26,
             entries: page,
             dailyCalories: workoutDailyCalories(scope: scope),
             pagination: Pagination(limit: limit, offset: offset, returned: page.count)

@@ -36,12 +36,14 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     assert.equal(createdUser.timezone, 'America/Los_Angeles');
 
     // Totals use all scoped entries, independent of the recent-entry page.
+    assert.equal((await db.listSexualActivityEntries(userId)).daysCounted, 0);
     const activityAt = new Date().toISOString();
     const activityOne = await db.addSexualActivityEntry(userId, { type: 'other', loggedAt: activityAt });
     await db.addSexualActivityEntry(userId, { type: 'other', loggedAt: activityAt });
     await db.addSexualActivityEntry(userId, { type: 'oral sex', loggedAt: activityAt });
     for (const scope of ['week', 'month', 'year']) {
       const activity = await db.listSexualActivityEntries(userId, { scope, timezone: 'UTC', limit: 1 });
+      assert.equal(activity.daysCounted, 1);
       assert.equal(activity.entries.length, 1);
       assert.equal(activity.dailyTypes.length, 1);
       assert.equal(activity.dailyTypes[0].counts.other, 2);
@@ -50,6 +52,15 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     }
     await db.deleteSexualActivityEntry(userId, activityOne.id);
     assert.equal((await db.listSexualActivityEntries(userId, { timezone: 'UTC' })).dailyTypes[0].counts.other, 1);
+
+    const olderActivity = await db.addSexualActivityEntry(userId, {
+      type: 'masturbation', loggedAt: new Date(Date.now() - 19 * 86400000).toISOString()
+    });
+    for (const [scope, expected] of [['week', 7], ['month', 20], ['year', 20]]) {
+      assert.equal((await db.listSexualActivityEntries(userId, { scope, timezone: 'UTC', limit: 1 })).daysCounted, expected);
+    }
+    await db.deleteSexualActivityEntry(userId, olderActivity.id);
+    assert.equal((await db.listSexualActivityEntries(userId, { scope: 'year', timezone: 'UTC' })).daysCounted, 1);
 
     const waistPayload = { readings: [33, 33.4], unit: 'in', method: 'navel_relaxed', notes: 'Same tape', loggedAt: '2026-09-08T01:00:00Z' };
     const waist = await db.saveWaistEntry(userId, waistPayload);
@@ -387,6 +398,17 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     assert.equal(starterSecond.addedCount, 0);
     const savedItems = await db.listSavedItems(userId);
     assert.equal(savedItems.filter((item) => item.source === 'starter_template').length, 5);
+
+    assert.equal((await db.listWorkoutEntries(userId)).daysCounted, 0);
+    const coverageWorkout = await db.addWorkoutEntry(userId, {
+      description: 'Coverage workout', intensity: 'medium', durationHours: 0.5,
+      caloriesBurned: 250, loggedAt: new Date(Date.now() - 19 * 86400000).toISOString()
+    });
+    for (const [scope, expected] of [['week', 7], ['month', 20], ['year', 20]]) {
+      assert.equal((await db.listWorkoutEntries(userId, { scope, timezone: 'UTC', limit: 1 })).daysCounted, expected);
+    }
+    await db.deleteWorkoutEntry(userId, coverageWorkout.id);
+    assert.equal((await db.listWorkoutEntries(userId)).daysCounted, 0);
 
     for (const source of ['healthkit', 'workout_planner']) {
       const externalId = `${source}-${crypto.randomUUID()}`;
