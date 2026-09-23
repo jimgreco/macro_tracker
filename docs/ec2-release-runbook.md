@@ -160,6 +160,7 @@ curl --fail --show-error "$PRODUCTION_BASE_URL/version"
 If the database migration is the suspected cause, stop and restore from the latest verified database backup before restarting the app.
 
 ## Incident Notes
+- The shared database connection limit was raised from 20 to 60 on 2026-09-23 after concurrent apps exhausted its slots and `/api/v1/today` failed. The durable host config is `~/deploy/postgresql.conf`, bind-mounted into `shared_db`; current memory settings are `shared_buffers=256MB` and `work_mem=4MB` on the 2 GiB host. Preserve these settings during host/container recreation, and budget connection pools across all shared apps before increasing individual pool limits. Verification held 25 concurrent read-only connections and rebuilt the affected account Today snapshot.
 - Every API error response includes a `requestId`; ask beta users for that reference.
 - Server logs are JSON lines with `requestId`, method, path, status, duration, and user id when available.
 - Verified Stripe deliveries are acknowledged only after the minimized event is committed to `webhook_events`. Processing is leased from PostgreSQL and resumes after a process restart or stale lease.
