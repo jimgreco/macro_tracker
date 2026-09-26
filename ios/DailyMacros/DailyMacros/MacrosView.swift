@@ -589,9 +589,24 @@ struct MacrosView: View {
                 Image(systemName: "chevron.left")
                     .foregroundStyle(Color.neonCyan)
             }
+            .accessibilityLabel("Previous day")
             Spacer()
-            Text(selectedDate, style: .date)
-                .font(.headline)
+            VStack(spacing: 0) {
+                Text(selectedDate, style: .date)
+                    .font(.headline)
+                if !accountCalendar.isDate(selectedDate, inSameDayAs: AppClock.now) {
+                    Button("Back to today") {
+                        selectedDate = AppClock.now
+                        clearMealSelection()
+                        Task { await loadDashboard() }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.neonCyan)
+                    .buttonStyle(.plain)
+                    .frame(minHeight: 32)
+                }
+            }
+            .padding(.vertical, 6)
             Spacer()
             Button {
                 selectedDate = accountCalendar.date(byAdding: .day, value: 1, to: selectedDate)!
@@ -601,6 +616,7 @@ struct MacrosView: View {
                 Image(systemName: "chevron.right")
                     .foregroundStyle(Color.neonCyan)
             }
+            .accessibilityLabel("Next day")
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 48)

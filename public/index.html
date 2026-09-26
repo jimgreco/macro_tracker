@@ -316,7 +316,10 @@
             <h2 id="entries-heading">Logged Entries <a href="#" id="edit-targets-link" class="edit-items-link">(edit targets)</a></h2>
             <div class="entries-nav" aria-label="Logged entries day navigation">
               <button id="entries-prev-day-btn" class="entries-day-btn" type="button" aria-label="Previous day">‹</button>
-              <div id="entries-day-label" class="entries-day-label" aria-live="polite"></div>
+              <div class="entries-day-heading">
+                <div id="entries-day-label" class="entries-day-label" aria-live="polite"></div>
+                <button id="entries-today-btn" class="today-text-action" type="button" hidden>Back to today</button>
+              </div>
               <button id="entries-next-day-btn" class="entries-day-btn" type="button" aria-label="Next day">›</button>
             </div>
             <div id="entries-completeness" class="day-completeness" aria-live="polite">

@@ -3525,15 +3525,10 @@ apiRouter.post('/entries/bulk', async (req, res) => {
       row.mealUnit = mealUnit;
     }
 
+    const saveItems = (Array.isArray(body.saveItems) ? body.saveItems.slice(0, 50) : [])
+      .map(validateSavedItemBody);
     const userId = userIdFromReq(req);
-    await addEntries(userId, rows);
-
-    const saveItems = Array.isArray(body.saveItems) ? body.saveItems.slice(0, 50) : [];
-    const savedIds = [];
-    for (const saveItem of saveItems) {
-      const id = await addSavedItem(userId, validateSavedItemBody(saveItem));
-      savedIds.push(id);
-    }
+    const savedIds = await addEntries(userId, rows, saveItems);
 
     logAudit(userId, 'create', 'entries', null, { count: rows.length });
     return res.json({ ok: true, savedIds });
@@ -3590,10 +3585,7 @@ apiRouter.put('/meal-group/:mealGroup/scale', async (req, res) => {
     if (!mealGroup) {
       return res.status(400).json({ error: 'mealGroup is required.' });
     }
-    const quantity = Number(req.body.quantity);
-    if (!quantity || quantity <= 0) {
-      return res.status(400).json({ error: 'quantity must be a positive number.' });
-    }
+    const quantity = normalizeNumber(req.body.quantity, 'quantity', { min: 0.001, max: 10000, required: true });
     const unit = String(req.body.unit || 'serving').trim();
     const name = req.body.name ? String(req.body.name).trim() : null;
     let consumedAt;
@@ -3624,7 +3616,7 @@ apiRouter.post('/entries/combine', async (req, res) => {
     if (ids.length < 2) {
       return res.status(400).json({ error: 'At least two valid entry IDs are required.' });
     }
-    const quantity = Number(req.body.quantity) || 1;
+    const quantity = normalizeNumber(req.body.quantity, 'quantity', { min: 0.001, max: 10000, fallback: 1 });
     const unit = req.body.unit ? String(req.body.unit).trim() : 'serving';
     const mealGroup = await combineEntries(userId, ids, mealName ? String(mealName).trim() : null, quantity, unit);
     logAudit(userId, 'combine', 'entries', mealGroup);

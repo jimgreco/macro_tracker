@@ -198,8 +198,9 @@ const fakeDb = {
     Object.assign(mutation, result, { state: 'completed' });
     return mutation;
   },
-  addEntries: async (userId, rows) => {
-    record('addEntries', { userId, rows });
+  addEntries: async (userId, rows, saveItems = []) => {
+    record('addEntries', { userId, rows, saveItems });
+    return saveItems.map((_, index) => 99 + index);
   },
   copyEntriesForLocalDay: async (userId, sourceDay, targetDay, timezone) => {
     record('copyEntriesForLocalDay', { userId, sourceDay, targetDay, timezone });
@@ -215,7 +216,10 @@ const fakeDb = {
     record('scaleMealGroup', { userId, mealGroup, quantity, unit, name, consumedAt });
     return mealGroup === 'missing' ? 0 : 2;
   },
-  combineEntries: async () => 'meal-group-id',
+  combineEntries: async (userId, ids, mealName, quantity, unit) => {
+    record('combineEntries', { userId, ids, mealName, quantity, unit });
+    return 'meal-group-id';
+  },
   splitMealGroup: async () => 2,
   removeFromMealGroup: async () => 1,
   addSavedItem: async () => 99,
@@ -813,6 +817,45 @@ test('bulk entries route preserves source metadata and applies corrections', rou
   assert.equal(latestCall('applyFoodCorrections').payload[0].source, 'ai_text');
   assert.equal(latestCall('addEntries').payload.rows[0].source, 'ai_text');
   assert.equal(latestCall('addEntries').payload.rows[0].confidence, 0.7);
+});
+
+test('bulk meal saves validate every Quick Add before persisting entries', routeTestOptions, async () => {
+  const payload = { consumedAt: '2026-06-11T12:00:00Z', items: [
+    { itemName: 'Yogurt', quantity: 1, unit: 'serving', calories: 120, protein: 18, carbs: 8, fat: 0 }
+  ] };
+  resetCalls();
+  const invalid = await request('/api/entries/bulk', {
+    method: 'POST', body: JSON.stringify({ ...payload, saveItems: [{ name: 'Valid' }, { name: '' }] })
+  });
+  assert.equal(invalid.res.status, 400);
+  assert.equal(latestCall('addEntries'), undefined, 'invalid Quick Adds must not leave a logged meal behind');
+
+  const saved = await request('/api/entries/bulk', {
+    method: 'POST', body: JSON.stringify({ ...payload, saveItems: [{ name: 'Yogurt', calories: 120 }] })
+  });
+  assert.equal(saved.res.status, 200);
+  assert.deepEqual(saved.body.savedIds, [99]);
+  assert.equal(latestCall('addEntries').payload.saveItems[0].name, 'Yogurt');
+});
+
+test('meal combine and scaling reject invalid quantities before writing', routeTestOptions, async () => {
+  for (const [path, method, extra] of [
+    ['/api/entries/combine', 'POST', { entryIds: [1, 2] }],
+    ['/api/meal-group/meal-group-id/scale', 'PUT', {}]
+  ]) {
+    resetCalls();
+    for (const quantity of [-1, 0, 0.0001, 10001, 'Infinity', 'NaN']) {
+      const result = await request(path, { method, body: JSON.stringify({ ...extra, quantity }) });
+      assert.equal(result.res.status, 400, `${path}: ${quantity}`);
+    }
+    assert.equal(latestCall('combineEntries'), undefined);
+    assert.equal(latestCall('scaleMealGroup'), undefined);
+    const valid = await request(path, { method, body: JSON.stringify({ ...extra, quantity: 0.5 }) });
+    assert.equal(valid.res.status, 200);
+  }
+  const legacy = await request('/api/entries/combine', { method: 'POST', body: JSON.stringify({ entryIds: [1, 2] }) });
+  assert.equal(legacy.res.status, 200);
+  assert.equal(latestCall('combineEntries').payload.quantity, 1);
 });
 
 test('client mutation ids make concurrent and repeated writes idempotent', routeTestOptions, async () => {

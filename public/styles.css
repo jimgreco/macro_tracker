@@ -2374,9 +2374,12 @@ button[disabled] {
   margin-bottom: 0.55rem;
 }
 
-.entries-day-label {
+.entries-day-heading {
   flex: 1;
   text-align: center;
+}
+
+.entries-day-label {
   font-weight: 700;
   font-size: 0.9rem;
   color: #dce9ff;

@@ -81,3 +81,17 @@ test('remembered corrections do not cross incompatible measurement units', () =>
 
   assert.deepEqual(applyFoodCorrectionToItem(weighedItem, twoEggCorrection), weighedItem);
 });
+
+test('generic servings cannot be scaled as remembered grams or item counts', () => {
+  const serving = { itemName: 'Eggs', quantity: 1, unit: 'serving', calories: 140,
+    protein: 12, carbs: 1, fat: 10, source: 'ai_text' };
+  for (const unit of ['serving', 'portions', undefined]) {
+    const item = { ...serving, unit };
+    for (const correction of [twoEggCorrection, { ...twoEggCorrection, quantity: 100, unit: 'g' }]) {
+      assert.deepEqual(applyFoodCorrectionToItem(item, correction), item);
+    }
+  }
+  const corrected = applyFoodCorrectionToItem({ ...serving, quantity: 2, unit: 'portions' },
+    { ...twoEggCorrection, quantity: 1, unit: 'serving' });
+  assert.equal(corrected.calories, 280);
+});

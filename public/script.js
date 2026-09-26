@@ -155,6 +155,7 @@ const workoutStatsNoteEl = document.getElementById('workout-stats-note');
 const entriesByDayEl = document.getElementById('entries-by-day');
 const entriesPrevDayBtnEl = document.getElementById('entries-prev-day-btn');
 const entriesNextDayBtnEl = document.getElementById('entries-next-day-btn');
+const entriesTodayBtnEl = document.getElementById('entries-today-btn');
 const entriesDayLabelEl = document.getElementById('entries-day-label');
 const entriesCompletenessEl = document.getElementById('entries-completeness');
 const entriesCompletenessStatusEl = document.getElementById('entries-completeness-status');
@@ -1438,6 +1439,21 @@ if (entriesNextDayBtnEl) {
     }
 
     state.selectedEntriesDay = shiftIsoDay(state.selectedEntriesDay, 1);
+    try {
+      await refreshDayCompleteness(state.selectedEntriesDay);
+    } catch (_error) {
+      // Dashboard data still provides the best available offline state.
+    }
+    renderDashboard(state.dashboardData);
+  });
+}
+
+if (entriesTodayBtnEl) {
+  entriesTodayBtnEl.addEventListener('click', async () => {
+    if (!state.dashboardData) return;
+
+    state.selectedEntriesDay = getLocalIsoDay();
+    clearSelection();
     try {
       await refreshDayCompleteness(state.selectedEntriesDay);
     } catch (_error) {
@@ -4814,6 +4830,9 @@ function renderDashboard(data) {
   }
   if (entriesNextDayBtnEl) {
     entriesNextDayBtnEl.disabled = state.selectedEntriesDay >= baseDay;
+  }
+  if (entriesTodayBtnEl) {
+    entriesTodayBtnEl.hidden = state.selectedEntriesDay === baseDay;
   }
   renderSelectedDayCompleteness();
 

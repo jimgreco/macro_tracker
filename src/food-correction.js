@@ -54,7 +54,7 @@ function canApplyFoodCorrection(item) {
 function correctionUnitsAreCompatible(itemUnit, correctionUnit) {
   const requestedUnit = normalizeUnitKey(itemUnit);
   const rememberedUnit = normalizeUnitKey(correctionUnit);
-  return requestedUnit === rememberedUnit || requestedUnit === 'serving';
+  return requestedUnit === rememberedUnit;
 }
 
 function applyFoodCorrectionToItem(item, correction, correctionKey) {

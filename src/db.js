@@ -1936,8 +1936,8 @@ async function applyFoodCorrections(userId, items) {
   });
 }
 
-async function addEntries(userId, entries) {
-  if (!entries.length) return;
+async function addEntries(userId, entries, saveItems = []) {
+  if (!entries.length) return [];
 
   const client = await pool.connect();
   try {
@@ -1990,7 +1990,13 @@ async function addEntries(userId, entries) {
       ]);
     }
 
+    const savedIds = [];
+    for (const item of saveItems) {
+      savedIds.push(await addSavedItem(userId, item, client));
+    }
+
     await client.query('COMMIT');
+    return savedIds;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -2256,19 +2262,19 @@ async function scaleMealGroup(userId, mealGroup, newQuantity, newUnit, newName, 
 async function combineEntries(userId, entryIds, mealName, quantity, unit) {
   if (!entryIds || entryIds.length < 2) throw new Error('At least two entries are required.');
   const placeholders = entryIds.map((_, i) => `$${i + 2}`).join(', ');
-  const existing = await pool.query(
-    `SELECT id, meal_group FROM entries WHERE user_id = $1 AND id IN (${placeholders}) AND deleted_at IS NULL`,
-    [userId, ...entryIds]
-  );
-  if (existing.rows.length !== entryIds.length) throw new Error('One or more entries not found.');
-  if (existing.rows.some((r) => r.meal_group)) throw new Error('Cannot combine entries that are already part of a meal.');
-
   const mealGroup = require('crypto').randomUUID();
   const mealQty = Number(quantity) || 1;
   const mealUnit = unit || 'serving';
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const existing = await client.query(
+      `SELECT id, meal_group FROM entries WHERE user_id = $1 AND id IN (${placeholders}) AND deleted_at IS NULL ORDER BY id FOR UPDATE`,
+      [userId, ...entryIds]
+    );
+    if (existing.rows.length !== entryIds.length) throw new Error('One or more entries not found.');
+    if (existing.rows.some((r) => r.meal_group)) throw new Error('Cannot combine entries that are already part of a meal.');
+
     for (const id of entryIds) {
       await client.query(
         `UPDATE entries SET meal_group = $1, meal_name = $2, meal_quantity = $3, meal_unit = $4
@@ -2350,9 +2356,9 @@ function savedItemComponentsJson(item) {
   return components.length ? JSON.stringify(components) : null;
 }
 
-async function addSavedItem(userId, item) {
+async function addSavedItem(userId, item, queryable = pool) {
   const source = normalizeEntrySource(item.source);
-  const result = await pool.query(
+  const result = await queryable.query(
     `INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat, components, source, source_detail)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)
      RETURNING id`,

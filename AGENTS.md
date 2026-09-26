@@ -29,6 +29,11 @@
   the current CI/release runbooks for shipping. Preserve all required release gates.
 - Keep account isolation, durable deletion tombstones, replay-safe mutations,
   and independent fail-closed integration Read/Write choices intact.
+- Bulk meal entries and requested Quick Adds must validate before writing and
+  commit in the same transaction. Combining entries must lock and validate the
+  live rows inside its transaction so overlapping requests cannot regroup them.
+- Remembered nutrition corrections require matching normalized units; a generic
+  serving is not interchangeable with grams or an item count.
 - Oura API data and derived values must stay out of every AI/ML input, including
   OpenAI, Apple Foundation Models, narration, and ChatGPT-targeted exports.
 - Progress check-in forms stage photos until Save. Preserve the returned check-in
