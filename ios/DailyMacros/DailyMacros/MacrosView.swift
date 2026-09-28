@@ -1330,7 +1330,7 @@ struct MacrosView: View {
                         Button(role: .destructive) {
                             if let entry = editingEntry {
                                 Task {
-                                    await deleteEntry(entry.id)
+                                    guard await deleteEntry(entry.id) else { return }
                                     showEditEntry = false
                                     editingEntry = nil
                                 }
@@ -1342,6 +1342,7 @@ struct MacrosView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.red)
+                        .disabled(isSaving)
 
                         Button {
                             Task { await saveEditedEntry() }
@@ -3620,7 +3621,7 @@ struct MacrosView: View {
 
     private func deleteEditedMeal(_ meal: EditingMealContext) async {
         let ids = meal.items.map(\.id)
-        guard !ids.isEmpty else { return }
+        guard !ids.isEmpty, !isSaving, !isApplyingMealSelectionAction else { return }
         isSaving = true
         defer { isSaving = false }
         do {
@@ -3719,7 +3720,7 @@ struct MacrosView: View {
     }
 
     private func performMealSelectionAction(_ operation: () async throws -> Void) async {
-        guard !isApplyingMealSelectionAction else { return }
+        guard !isApplyingMealSelectionAction, !isSaving else { return }
         isApplyingMealSelectionAction = true
         isDragging = false
         defer { isApplyingMealSelectionAction = false }
@@ -3795,13 +3796,19 @@ struct MacrosView: View {
         }
     }
 
-    private func deleteEntry(_ id: Int) async {
+    @discardableResult
+    private func deleteEntry(_ id: Int) async -> Bool {
+        guard !isSaving, !isApplyingMealSelectionAction else { return false }
+        isSaving = true
+        defer { isSaving = false }
         isDragging = false
         do {
             try await api.deleteEntry(id: id)
             await loadDashboard()
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 

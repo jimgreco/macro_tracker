@@ -73,4 +73,24 @@ test('meal writes are atomic under failures and concurrent edits', { skip: !proc
     assert.equal(grouped.rowCount, 2);
     assert.equal(new Set(grouped.rows.map(row => row.meal_group)).size, 1);
   });
+
+  await t.test('repeated and concurrent deletes preserve the original account-owned tombstone', async () => {
+    await db.addEntries(userId, [{ ...entry, itemName: 'Delete fixture' }]);
+    const { rows } = await pool.query('SELECT id FROM entries WHERE user_id=$1 AND item_name=$2', [userId, 'Delete fixture']);
+    const id = Number(rows[0].id);
+
+    assert.equal(await db.deleteEntry(`${userId}-other`, id), 0);
+    assert.deepEqual(await Promise.all([db.deleteEntry(userId, id), db.deleteEntry(userId, id)]), [1, 1]);
+    const original = await pool.query('SELECT deleted_at FROM entries WHERE id=$1', [id]);
+    assert.ok(original.rows[0].deleted_at);
+    // An older tombstone makes replacing its timestamp observable without sleeps.
+    await pool.query("UPDATE entries SET deleted_at = deleted_at - INTERVAL '1 day' WHERE id=$1", [id]);
+    const before = await pool.query('SELECT deleted_at FROM entries WHERE id=$1', [id]);
+    assert.equal(await db.deleteEntry(userId, id), 1);
+    const after = await pool.query('SELECT deleted_at FROM entries WHERE id=$1', [id]);
+    assert.equal(after.rows[0].deleted_at.getTime(), before.rows[0].deleted_at.getTime());
+    assert.equal(await db.deleteEntry(`${userId}-other`, id), 0);
+    assert.equal(await db.deleteEntry(userId, -1), 0);
+    assert.equal((await pool.query('SELECT id FROM entries WHERE id=$1 AND deleted_at IS NULL', [id])).rowCount, 0);
+  });
 });

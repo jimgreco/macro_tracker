@@ -332,7 +332,7 @@ test('delete operations use soft delete (UPDATE SET deleted_at)', () => {
   const db = read('src/db.js');
 
   // deleteEntry
-  assert.ok(db.includes("UPDATE entries SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL"));
+  assert.ok(db.includes("UPDATE entries SET deleted_at = COALESCE(deleted_at, NOW()) WHERE id = $1 AND user_id = $2"));
   // deleteSavedItem
   assert.ok(db.includes("UPDATE saved_items SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL"));
   // deleteWeightEntry

@@ -50,6 +50,7 @@ const originalLoad = Module._load;
 const calls = [];
 let workoutAddResult = { id: 1, created: true };
 let weightAddDelayMs = 0;
+let entryDeleteResult = 1;
 const clientMutations = new Map();
 const webSessions = new Map();
 const rateLimits = new Map();
@@ -211,7 +212,10 @@ const fakeDb = {
     return { copiedCount: payload.mealGroup ? 2 : 1 };
   },
   updateEntry: async () => 1,
-  deleteEntry: async () => 1,
+  deleteEntry: async (userId, id) => {
+    record('deleteEntry', { userId, id });
+    return entryDeleteResult;
+  },
   scaleMealGroup: async (userId, mealGroup, quantity, unit, name, consumedAt) => {
     record('scaleMealGroup', { userId, mealGroup, quantity, unit, name, consumedAt });
     return mealGroup === 'missing' ? 0 : 2;
@@ -836,6 +840,31 @@ test('bulk meal saves validate every Quick Add before persisting entries', route
   assert.equal(saved.res.status, 200);
   assert.deepEqual(saved.body.savedIds, [99]);
   assert.equal(latestCall('addEntries').payload.saveItems[0].name, 'Yogurt');
+});
+
+test('meal deletes accept separate successful requests while retaining missing-entry errors', routeTestOptions, async () => {
+  resetCalls();
+  try {
+    for (const clientMutationId of ['5327e791-e8bf-4660-8acd-d3a482ac2b73', 'd3cfc90f-ddd2-49f4-8888-fcbd5a2f3337']) {
+      const response = await request('/api/v1/entries/5590', {
+        method: 'DELETE', headers: { Origin: 'http://localhost:3000', 'X-Client-Mutation-Id': clientMutationId }
+      });
+      assert.equal(response.res.status, 200);
+      assert.equal(response.body.ok, true);
+    }
+    assert.deepEqual(calls.filter(call => call.name === 'deleteEntry').map(call => call.payload), [
+      { userId: fakeUser.id, id: 5590 }, { userId: fakeUser.id, id: 5590 }
+    ]);
+
+    entryDeleteResult = 0;
+    const missing = await request('/api/v1/entries/5591', { method: 'DELETE' });
+    assert.equal(missing.res.status, 404);
+    assert.equal(missing.body.error, 'Entry not found.');
+    const invalid = await request('/api/v1/entries/-1', { method: 'DELETE' });
+    assert.equal(invalid.res.status, 400);
+  } finally {
+    entryDeleteResult = 1;
+  }
 });
 
 test('meal combine and scaling reject invalid quantities before writing', routeTestOptions, async () => {

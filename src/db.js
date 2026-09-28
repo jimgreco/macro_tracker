@@ -2216,8 +2216,10 @@ async function updateEntry(userId, id, entry) {
 }
 
 async function deleteEntry(userId, id) {
+  // A stale screen or a second tap may repeat a completed deletion. Keep the
+  // original tombstone and treat an already-deleted, account-owned row as success.
   const result = await pool.query(
-    'UPDATE entries SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+    'UPDATE entries SET deleted_at = COALESCE(deleted_at, NOW()) WHERE id = $1 AND user_id = $2',
     [id, userId]
   );
   return result.rowCount || 0;

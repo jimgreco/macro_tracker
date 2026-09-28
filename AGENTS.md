@@ -29,6 +29,9 @@
   the current CI/release runbooks for shipping. Preserve all required release gates.
 - Keep account isolation, durable deletion tombstones, replay-safe mutations,
   and independent fail-closed integration Read/Write choices intact.
+- Repeated meal entry deletes succeed for account-owned tombstones and preserve
+  the original deletion timestamp; missing or other-account entries still return
+  404. iOS must block overlapping entry and meal deletion actions.
 - Bulk meal entries and requested Quick Adds must validate before writing and
   commit in the same transaction. Combining entries must lock and validate the
   live rows inside its transaction so overlapping requests cannot regroup them.
