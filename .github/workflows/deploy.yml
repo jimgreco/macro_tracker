@@ -37,13 +37,19 @@ jobs:
         env:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KNOWN_HOSTS: ${{ secrets.EC2_SSH_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/macros_deploy_key
           chmod 600 ~/.ssh/macros_deploy_key
-          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+          if [ -z "$EC2_SSH_KNOWN_HOSTS" ]; then
+            echo "A verified EC2_SSH_KNOWN_HOSTS secret is required for CI deployment."
+            exit 1
+          fi
+          printf '%s\n' "$EC2_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: Transfer files to EC2
         env:

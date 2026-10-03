@@ -250,3 +250,10 @@ inputs and only the `macros` service; do not rerun historical deployment workflo
 that prune images or rewrite settings. The receipt change needs no schema change,
 but an older mutation writer can again produce ambiguous processing receipts.
 Retain legacy receipts and client queues; historical repair is a separate action.
+
+Optional CI deployment requires an already verified `EC2_SSH_KNOWN_HOSTS` secret
+and fails closed when it is absent. It never obtains fresh trust with
+`ssh-keyscan`. The coordinator may instead use the existing pinned local SSH
+connection for the authorized, serialized release; configuring new trust is
+a separate action. Base-image environment changes also fail the equality guard
+and require review instead of automatically changing effective app settings.

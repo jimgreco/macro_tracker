@@ -1081,7 +1081,8 @@ test('deploy workflow verifies SSH host and smokes production endpoints', () => 
   assert.ok(workflow.includes('workflow_call:'));
   assert.equal(workflow.includes('workflow_dispatch:'), false);
   assert.equal(/^\s{2}push:/m.test(workflow), false);
-  assert.ok(workflow.includes('ssh-keyscan -H "$EC2_HOST"'));
+  assert.equal(workflow.includes('ssh-keyscan'), false);
+  assert.ok(workflow.includes('EC2_SSH_KNOWN_HOSTS'));
   assert.ok(workflow.includes('UserKnownHostsFile=~/.ssh/known_hosts'));
   assert.equal(workflow.includes('StrictHostKeyChecking=no'), false);
   assert.ok(workflow.includes('scripts/safe-compose-release.py macros'));
