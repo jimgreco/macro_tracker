@@ -9,3 +9,23 @@ output/**
 .elasticbeanstalk
 .elasticbeanstalk/**
 *.zip
+
+# Host-only configuration, keys, credential directories, and local data must
+# never enter image layers, including files nested under copied source folders.
+.env*
+**/.env*
+*.pem
+**/*.pem
+*.key
+**/*.key
+.ssh
+**/.ssh
+.aws
+**/.aws
+data
+data/**
+backups
+backups/**
+
+# Reviewed public CA certificates support optional PGSSL_CA_FILE users.
+!certs/us-east-2-rds-bundle.pem

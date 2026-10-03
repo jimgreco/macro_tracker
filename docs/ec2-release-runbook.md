@@ -265,3 +265,24 @@ hash. It then removes only external `depends_on` entries and requires every
 resulting hash to match live. Internal dependencies and all other configuration
 remain unchanged; full effective-environment comparison still runs. Resolved
 configuration stays in process memory/stdin and is never written or logged.
+
+## Private build-context exclusions
+
+The application reads public local assets, PostgreSQL data, and S3 photos; host
+`data` and `backups` folders are not runtime data sources. Keep them, `.env*`,
+private PEM/key files, and credential folders out of Docker contexts at every
+depth. Existing host files are preserved. The reviewed public RDS CA bundle is
+explicitly allowlisted for optional `PGSSL_CA_FILE` users; CI verifies it contains
+only valid public certificates and is preserved byte-for-byte in the image.
+
+The Docker gate builds an isolated clean Git archive with exclusive-created
+synthetic sentinels and asserts all private paths are absent. It never injects
+fixtures into the source checkout or host. Cleanup removes only its temporary
+archive and disposable inspection container. Failed fixture creation/builds fail
+the gate. Actual Docker exclusions require the remote CI build result, separate
+from local fixture-orchestration tests.
+
+Pre-hardening Macrovana images were confirmed to include host configuration,
+key material, and data. Treat them as sensitive recovery material: do not publish,
+prune indiscriminately, or reuse them for routine rollback. Prefer a clean forward
+rebuild. This change neither removes existing host files nor rotates credentials.

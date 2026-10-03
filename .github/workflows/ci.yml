@@ -123,12 +123,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build production image
+      - name: Build production image and verify private context exclusions
         run: |
           set -o pipefail
           mkdir -p output/ci
-          docker build --tag "macro-tracker-ci:${GITHUB_SHA}" . 2>&1 | tee output/ci/docker-build.log
-          docker image inspect "macro-tracker-ci:${GITHUB_SHA}" > output/ci/docker-image.json
+          python3 scripts/test-docker-context-fixtures.py
+          bash scripts/check-docker-context.sh macros 2>&1 | tee output/ci/docker-build.log
+          docker image inspect "macros-context-ci:$(git rev-parse HEAD)" > output/ci/docker-image.json
 
       - name: Upload Docker diagnostics
         if: always()

@@ -237,3 +237,9 @@ Direct Oura workout projections use `workout_entries.source = 'oura'` and are re
 Compose 2.26.1 may hash `--no-deps` releases without external dependency edges.
 The release helper accepts only the exact scoped hash after a lossless full JSON
 roundtrip; preserve internal app dependencies and the effective-environment guard.
+
+Docker builds must exclude root/nested `.env*`, private key files, credential
+folders, and host `data`/`backups`. The only PEM exception is the reviewed public
+`certs/us-east-2-rds-bundle.pem`; CI validates certificate-only content and exact
+image bytes. `scripts/check-docker-context.sh macros` injects synthetic sentinels
+only into a disposable clean Git archive and verifies real image exclusions.
