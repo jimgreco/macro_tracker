@@ -5,6 +5,7 @@ No shared configuration, credentials, database grants, or image cleanup is chang
 Requires the same Compose implementation used to create the running containers.
 """
 import argparse
+import copy
 import fcntl
 import json
 import os
@@ -20,8 +21,8 @@ APPS = {
 }
 
 
-def run(args):
-    result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def run(args, input_text=None):
+    result = subprocess.run(args, input=input_text, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode:
         # Config/build stderr may contain interpolated credentials. Do not echo it.
         raise RuntimeError('Command failed: ' + args[0] + ' ' + args[1] + ' (details withheld)')
@@ -46,6 +47,55 @@ def decoded_config(compose, execute):
             return yaml.safe_load(source)
         except yaml.YAMLError:
             raise RuntimeError('Compose configuration could not be parsed (details withheld)') from None
+
+
+def verify_live_hashes(compose, compose_base, config, live, services, execute):
+    def hashes(command, document=None):
+        result = {}
+        for service in services:
+            args = command + ['config', '--hash', service]
+            raw = execute(args) if document is None else execute(args, input_text=json.dumps(document))
+            fields = raw.strip().split()
+            if len(fields) != 2 or fields[0] != service:
+                raise RuntimeError('Could not verify Compose configuration hash for ' + service)
+            result[service] = fields[1]
+        return result
+
+    expected = {service: live[service]['Config']['Labels'].get('com.docker.compose.config-hash') for service in services}
+    original = hashes(compose)
+    if original == expected:
+        return
+
+    # Compose 2.26.1 `up --no-deps` hashes the selected service set after removing
+    # dependencies outside that set. Preserve internal edges and their options;
+    # never drop environment, security, network, volume, or other service fields.
+    scoped = copy.deepcopy(config)
+    for service in services:
+        definition = scoped['services'][service]
+        dependencies = definition.get('depends_on')
+        if isinstance(dependencies, dict):
+            retained = {name: options for name, options in dependencies.items() if name in services}
+        elif isinstance(dependencies, list):
+            retained = [name for name in dependencies if name in services]
+        elif dependencies is None:
+            continue
+        else:
+            raise RuntimeError('Unsupported Compose dependency configuration for ' + service)
+        if retained:
+            definition['depends_on'] = retained
+        else:
+            definition.pop('depends_on', None)
+
+    if scoped != config:
+        rendered = compose_base + ['-f', '-']
+        # stdin avoids writing resolved credentials to disk or exposing them in
+        # command arguments. Require a lossless full-document roundtrip first:
+        # interpolation/normalization changes cannot masquerade as --no-deps.
+        if hashes(rendered, config) != original:
+            raise RuntimeError('Compose JSON roundtrip changed configuration hashes; reconcile before release')
+        if hashes(rendered, scoped) == expected:
+            return
+    raise RuntimeError('Live Compose configuration drift; reconcile before release')
 
 
 def release(app, sha, execute=run, home=None, preflight_only=False):
@@ -82,7 +132,8 @@ def release(app, sha, execute=run, home=None, preflight_only=False):
     # Prefer legacy Compose when installed so config hashes remain comparable.
     import shutil
     binary = ['docker-compose'] if shutil.which('docker-compose') else ['docker', 'compose']
-    compose = binary + ['--project-directory', workdir, '-p', project]
+    compose_base = binary + ['--project-directory', workdir, '-p', project]
+    compose = list(compose_base)
     for path in paths:
         compose += ['-f', str(path)]
     # Prior Macrovana releases provided this public interpolation value in the
@@ -90,13 +141,9 @@ def release(app, sha, execute=run, home=None, preflight_only=False):
     if app == 'macros':
         os.environ['APP_BUILD'] = envmap(live['macros']['Config'].get('Env')).get('APP_BUILD', '')
     config = decoded_config(compose, execute)
+    verify_live_hashes(compose, compose_base, config, live, services, execute)
     for service in services:
         item = live[service]
-        # This blocks any on-disk drift, including security, volumes, and networking.
-        calculated = execute(compose + ['config', '--hash', service]).strip().split()
-        expected = item['Config']['Labels'].get('com.docker.compose.config-hash')
-        if len(calculated) != 2 or calculated[0] != service or calculated[1] != expected:
-            raise RuntimeError('Live Compose configuration drift for ' + service + '; reconcile before release')
         svc = config['services'][service]
         build = svc.get('build', {})
         context = build.get('context') if isinstance(build, dict) else build

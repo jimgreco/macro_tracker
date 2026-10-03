@@ -257,3 +257,11 @@ and fails closed when it is absent. It never obtains fresh trust with
 connection for the authorized, serialized release; configuring new trust is
 a separate action. Base-image environment changes also fail the equality guard
 and require review instead of automatically changing effective app settings.
+
+Compose 2.26.1 records a scoped hash after `up --no-deps`: dependencies outside
+the selected app services are omitted. Preflight accepts that exact alternate
+only after hashing the full rendered JSON reproduces every original service
+hash. It then removes only external `depends_on` entries and requires every
+resulting hash to match live. Internal dependencies and all other configuration
+remain unchanged; full effective-environment comparison still runs. Resolved
+configuration stays in process memory/stdin and is never written or logged.
