@@ -66,7 +66,9 @@ A web app for tracking macros with:
 - Start DB: `npm run db:up`
 - Stop DB: `npm run db:down`
 - Tail DB logs: `npm run db:logs`
-- Validate DB init: `npm run check`
+- Initialize an empty database with separately supplied `MIGRATION_DATABASE_URL`: `npm run db:migrate`.
+- Validate runtime schema compatibility without writes: `npm run check`.
+- Existing databases need reviewed adoption first; see [database runtime access](docs/database-runtime-access.md).
 - Load local test data for the preview user: `npm run db:seed:local`
 - Rotate prod DB password safely: `npm run ops:rotate-prod-db-password`
 
@@ -81,7 +83,7 @@ What it runs:
 - JS syntax checks for `public/login.js`, `public/script.js`, and `src/server.js`
 - Backend, web, release, and iOS source regression tests that do not require Postgres or OAuth
 
-If you want a full runtime test, start Postgres first (`npm run db:up`) and then run `npm start`.
+If you want a full runtime test, start Postgres (`npm run db:up`), prepare its schema with `npm run db:migrate`, then run `npm start`.
 For a preloaded local preview, run `npm run db:seed:local` after Postgres is up.
 
 ## Production Setup Notes

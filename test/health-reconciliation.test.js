@@ -68,7 +68,7 @@ test('PostgreSQL transport reconciliation is order-independent, annotation-prese
   const userId = `transport-${require('node:crypto').randomUUID()}`;
   const pool = db.getPool();
   try {
-    await db.initDb();
+    await require('./helpers/database').initializeTestSchema(db);
     await db.upsertUser({ id: userId, provider: 'local-dev', providerUserId: userId, timezone: 'America/New_York' });
     const first = await db.addSleepEntry(userId, payload);
     assert.equal(first.created, true);

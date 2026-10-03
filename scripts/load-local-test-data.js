@@ -122,7 +122,7 @@ function buildSavedItems(userId) {
 
 async function seed() {
   assertSafeLocalDatabase();
-  await initDb();
+  await require('../src/schema-contract').migrateSchema(getPool(), initDb, { adoptExisting: true });
 
   const pool = getPool();
   const userId = String(process.env.LOCAL_DEV_USER_ID || 'local-dev-user');

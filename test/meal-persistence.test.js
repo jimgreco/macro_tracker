@@ -7,16 +7,18 @@ test('meal writes are atomic under failures and concurrent edits', { skip: !proc
   process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
   const db = require('../src/db');
   const pool = db.getPool();
+  const observer = require('./helpers/database').createObserverPool(process.env.TEST_DATABASE_URL);
   const userId = `meal-regression-${crypto.randomUUID()}`;
   t.after(async () => {
     try { await db.deleteUserAccount(userId); }
     finally {
+      await observer.end();
       await pool.end();
       if (previousUrl === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = previousUrl;
     }
   });
-  await db.initDb();
+  await require('./helpers/database').initializeTestSchema(db);
   await db.upsertUser({ id: userId, provider: 'local-dev', providerUserId: userId,
     email: `${userId}@example.test`, name: 'Meal regression' });
   const entry = { itemName: 'Atomic meal', quantity: 1, unit: 'serving', calories: 100,
@@ -55,7 +57,7 @@ test('meal writes are atomic under failures and concurrent edits', { skip: !proc
       const deadline = Date.now() + 5000;
       let waiting = 0;
       while (waiting < 2 && Date.now() < deadline) {
-        const result = await pool.query(`SELECT COUNT(*)::int AS count FROM pg_stat_activity
+        const result = await observer.query(`SELECT COUNT(*)::int AS count FROM pg_stat_activity
           WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%meal_group%'`);
         waiting = result.rows[0].count;
         if (waiting < 2) await new Promise(resolve => setTimeout(resolve, 10));

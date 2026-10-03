@@ -70,14 +70,14 @@ test('the stable Required Checks context aggregates every required surface', () 
   }
 });
 
-test('PostgreSQL CI fails if either mandatory database suite skips', () => {
+test('PostgreSQL CI fails if any mandatory database suite skips', () => {
   const postgres = jobBlock(read('.github/workflows/ci.yml'), 'postgres');
   assert.match(postgres, /npm run test:db:integration/);
   assert.match(postgres, /macro_tracker_fresh_test/);
   assert.match(postgres, /npm run test:db:upgrade/);
   assert.equal(
     (postgres.match(/grep -Eq '\^# skipped 0\$'/g) || []).length,
-    2
+    3
   );
 });
 

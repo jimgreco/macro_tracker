@@ -1,0 +1,290 @@
+{
+  "status": "proposal; not applied; requires exact live catalog and owner approval",
+  "database": "macro_tracker",
+  "roles": {
+    "owner": "macrovana_owner",
+    "migration": "macrovana_migrator",
+    "runtime": "macrovana_runtime"
+  },
+  "role_flags": {
+    "owner": "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
+    "migration": "LOGIN only by secure owner handoff; NOINHERIT; SET ROLE owner; no elevated flags",
+    "runtime": "LOGIN only by secure owner handoff; no owner/migration membership; no elevated flags"
+  },
+  "schema": "public",
+  "schema_owner_proposal": "macrovana_owner",
+  "database_owner": "retain existing; do not reassign database or extension ownership",
+  "runtime_table_privileges": {
+    "analysis_reports": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "api_tokens": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "audit_log": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "billing_events": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "client_diagnostics": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "client_mutations": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "coach_dismissals": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "daily_usage_counts": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "entries": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "food_corrections": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "health_transport_coverage": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "integration_data_permissions": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "macro_targets": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "nutrition_day_completeness": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "oura_connections": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "oura_documents": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "oura_oauth_states": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "oura_webhook_subscriptions": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "progress_checkins": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "progress_photos": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "rate_limit_counters": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "saved_items": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "sexual_activity_entries": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "sleep_entries": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "subscriptions": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "user_identities": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "users": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "waist_entries": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "web_sessions": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "webhook_events": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "weight_entries": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "weight_targets": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "workout_entries": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "runtime_metadata_privileges": {
+    "app_schema_versions": [
+      "SELECT"
+    ],
+    "schema_migrations": [
+      "SELECT"
+    ]
+  },
+  "runtime_sequence_privileges": {
+    "analysis_reports_id_seq": [
+      "USAGE"
+    ],
+    "api_tokens_id_seq": [
+      "USAGE"
+    ],
+    "audit_log_id_seq": [
+      "USAGE"
+    ],
+    "billing_events_id_seq": [
+      "USAGE"
+    ],
+    "client_diagnostics_id_seq": [
+      "USAGE"
+    ],
+    "entries_id_seq": [
+      "USAGE"
+    ],
+    "saved_items_id_seq": [
+      "USAGE"
+    ],
+    "sexual_activity_entries_id_seq": [
+      "USAGE"
+    ],
+    "sleep_entries_id_seq": [
+      "USAGE"
+    ],
+    "subscriptions_id_seq": [
+      "USAGE"
+    ],
+    "waist_entries_id_seq": [
+      "USAGE"
+    ],
+    "webhook_events_id_seq": [
+      "USAGE"
+    ],
+    "weight_entries_id_seq": [
+      "USAGE"
+    ],
+    "workout_entries_id_seq": [
+      "USAGE"
+    ]
+  },
+  "runtime_function_execute": [],
+  "owned_functions": [],
+  "extensions": [
+    "plpgsql (existing; no CREATE EXTENSION required)"
+  ],
+  "default_privileges": "No blanket table/sequence runtime defaults. Explicit grants per reviewed migration. Revoke default PUBLIC EXECUTE globally for the actual owner in this database; revoke existing app-function PUBLIC EXECUTE.",
+  "denied": [
+    "CREATE schema/table",
+    "ALTER/DROP app objects",
+    "TRUNCATE",
+    "sequence UPDATE/setval",
+    "migration ledger writes",
+    "owner role membership",
+    "CREATE ROLE/DATABASE",
+    "superuser catalog reads",
+    "cross-app table DML"
+  ],
+  "sequence_aliases": {
+    "sexual_activity_entries_id_seq": "ejaculation_entries_id_seq (supported legacy rename; exactly one must exist and be owned by sexual_activity_entries.id)"
+  },
+  "database_acl_proposal": "REVOKE ALL on selected database FROM PUBLIC; CONNECT to migration/runtime only plus any explicitly inventoried legitimate consumers; superuser admin retained. Do not apply before consumer review."
+}

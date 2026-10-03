@@ -1,0 +1,2606 @@
+{
+  "app": "macros",
+  "version": 1,
+  "objects": [
+    {
+      "kind": "column",
+      "name": "analysis_reports.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "analysis_reports.deleted_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "analysis_reports.id",
+      "definition": "[\"bigint\", true, \"nextval('analysis_reports_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "analysis_reports.period_days",
+      "definition": "[\"integer\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "analysis_reports.report_json",
+      "definition": "[\"jsonb\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "analysis_reports.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "api_tokens.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "api_tokens.expires_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "api_tokens.id",
+      "definition": "[\"bigint\", true, \"nextval('api_tokens_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "api_tokens.last_used_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "api_tokens.name",
+      "definition": "[\"text\", true, \"'default'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "api_tokens.token_hash",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "api_tokens.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "audit_log.action",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "audit_log.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "audit_log.details",
+      "definition": "[\"jsonb\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "audit_log.entity_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "audit_log.entity_type",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "audit_log.id",
+      "definition": "[\"bigint\", true, \"nextval('audit_log_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "audit_log.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "billing_events.applied_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "billing_events.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "billing_events.event_type",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "billing_events.id",
+      "definition": "[\"bigint\", true, \"nextval('billing_events_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "billing_events.payload",
+      "definition": "[\"jsonb\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "billing_events.stripe_event_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "billing_events.user_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_diagnostics.app_platform",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_diagnostics.app_version",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_diagnostics.category",
+      "definition": "[\"text\", true, \"'client'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "client_diagnostics.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "client_diagnostics.details",
+      "definition": "[\"jsonb\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_diagnostics.id",
+      "definition": "[\"bigint\", true, \"nextval('client_diagnostics_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "client_diagnostics.level",
+      "definition": "[\"text\", true, \"'info'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "client_diagnostics.message",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_diagnostics.request_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_diagnostics.user_agent",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_diagnostics.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_mutations.client_mutation_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_mutations.completed_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_mutations.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "client_mutations.request_hash",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_mutations.request_method",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_mutations.request_path",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_mutations.response_body",
+      "definition": "[\"jsonb\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_mutations.response_status",
+      "definition": "[\"integer\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "client_mutations.state",
+      "definition": "[\"text\", true, \"'processing'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "client_mutations.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "coach_dismissals.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "coach_dismissals.dismissal_key",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "coach_dismissals.dismissal_type",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "coach_dismissals.dismissed_until",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "coach_dismissals.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "coach_dismissals.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "daily_usage_counts.count",
+      "definition": "[\"integer\", true, \"0\"]"
+    },
+    {
+      "kind": "column",
+      "name": "daily_usage_counts.feature",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "daily_usage_counts.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "daily_usage_counts.usage_date",
+      "definition": "[\"date\", true, \"CURRENT_DATE\"]"
+    },
+    {
+      "kind": "column",
+      "name": "daily_usage_counts.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.calories",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.carbs",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.confidence",
+      "definition": "[\"double precision\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.consumed_at",
+      "definition": "[\"timestamp with time zone\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.correction_key",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.deleted_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.fat",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.id",
+      "definition": "[\"bigint\", true, \"nextval('entries_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.item_name",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.meal_group",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.meal_name",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.meal_quantity",
+      "definition": "[\"double precision\", false, \"1\"]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.meal_unit",
+      "definition": "[\"text\", false, \"'serving'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.needs_review",
+      "definition": "[\"boolean\", true, \"false\"]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.protein",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.quantity",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.source",
+      "definition": "[\"text\", true, \"'manual'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.source_detail",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.unit",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.calories",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.carbs",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.correction_key",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.fat",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.item_name",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.protein",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.quantity",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.source",
+      "definition": "[\"text\", true, \"'manual_correction'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.unit",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "health_transport_coverage.covered_day",
+      "definition": "[\"date\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "health_transport_coverage.data_type",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "health_transport_coverage.ignored_ids",
+      "definition": "[\"text[]\", true, \"'{}'::text[]\"]"
+    },
+    {
+      "kind": "column",
+      "name": "health_transport_coverage.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "integration_data_permissions.configured_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "integration_data_permissions.data_type",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "integration_data_permissions.read_enabled",
+      "definition": "[\"boolean\", true, \"false\"]"
+    },
+    {
+      "kind": "column",
+      "name": "integration_data_permissions.source",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "integration_data_permissions.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "integration_data_permissions.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "integration_data_permissions.write_enabled",
+      "definition": "[\"boolean\", true, \"false\"]"
+    },
+    {
+      "kind": "column",
+      "name": "macro_targets.effective_date",
+      "definition": "[\"date\", true, \"'1970-01-01'::date\"]",
+      "alternatives": [
+        {
+          "name": "macro_targets.effective_date",
+          "definition": "[\"date\", true, null]"
+        }
+      ]
+    },
+    {
+      "kind": "column",
+      "name": "macro_targets.macro",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "macro_targets.target",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "macro_targets.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "macro_targets.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "nutrition_day_completeness.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "nutrition_day_completeness.local_date",
+      "definition": "[\"date\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "nutrition_day_completeness.state",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "nutrition_day_completeness.timezone",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "nutrition_day_completeness.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "nutrition_day_completeness.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_connections.access_token_encrypted",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_connections.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_connections.last_error",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_connections.last_synced_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_connections.last_webhook_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_connections.oura_user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_connections.refresh_token_encrypted",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_connections.scopes",
+      "definition": "[\"text[]\", true, \"'{}'::text[]\"]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_connections.status",
+      "definition": "[\"text\", true, \"'connected'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_connections.token_expires_at",
+      "definition": "[\"timestamp with time zone\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_connections.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_connections.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_documents.annotations",
+      "definition": "[\"jsonb\", true, \"'{}'::jsonb\"]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_documents.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_documents.data_type",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_documents.day",
+      "definition": "[\"date\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_documents.deleted_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_documents.ignored_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_documents.normalized_data",
+      "definition": "[\"jsonb\", true, \"'{}'::jsonb\"]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_documents.provider_document_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_documents.recorded_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_documents.synced_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_documents.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_documents.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_oauth_states.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_oauth_states.expires_at",
+      "definition": "[\"timestamp with time zone\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_oauth_states.return_to",
+      "definition": "[\"text\", true, \"'web'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_oauth_states.state_hash",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_oauth_states.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_webhook_subscriptions.callback_url",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_webhook_subscriptions.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_webhook_subscriptions.data_type",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_webhook_subscriptions.event_type",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_webhook_subscriptions.expiration_time",
+      "definition": "[\"timestamp with time zone\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_webhook_subscriptions.id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "oura_webhook_subscriptions.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_checkins.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_checkins.day",
+      "definition": "[\"date\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_checkins.id",
+      "definition": "[\"uuid\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_checkins.notes",
+      "definition": "[\"text\", true, \"''::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_checkins.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_checkins.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_checkins.waist_entry_id",
+      "definition": "[\"bigint\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_photos.checkin_id",
+      "definition": "[\"uuid\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_photos.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_photos.id",
+      "definition": "[\"uuid\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_photos.object_key",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_photos.ready",
+      "definition": "[\"boolean\", true, \"false\"]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_photos.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "progress_photos.view",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "rate_limit_counters.bucket_key",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "rate_limit_counters.count",
+      "definition": "[\"integer\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "rate_limit_counters.expires_at",
+      "definition": "[\"timestamp with time zone\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "rate_limit_counters.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.calories",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.carbs",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.components",
+      "definition": "[\"jsonb\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.deleted_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.fat",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.id",
+      "definition": "[\"bigint\", true, \"nextval('saved_items_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.name",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.protein",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.quantity",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.source",
+      "definition": "[\"text\", true, \"'manual'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.source_detail",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.unit",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.usage_count",
+      "definition": "[\"integer\", true, \"0\"]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "schema_migrations.applied_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "schema_migrations.name",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sexual_activity_entries.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "sexual_activity_entries.deleted_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sexual_activity_entries.external_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sexual_activity_entries.id",
+      "definition": "[\"bigint\", true, \"nextval('sexual_activity_entries_id_seq'::regclass)\"]",
+      "alternatives": [
+        {
+          "name": "sexual_activity_entries.id",
+          "definition": "[\"bigint\", true, \"nextval('ejaculation_entries_id_seq'::regclass)\"]"
+        }
+      ]
+    },
+    {
+      "kind": "column",
+      "name": "sexual_activity_entries.logged_at",
+      "definition": "[\"timestamp with time zone\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sexual_activity_entries.source",
+      "definition": "[\"text\", true, \"'manual'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "sexual_activity_entries.type",
+      "definition": "[\"text\", true, \"'masturbation'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "sexual_activity_entries.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.deleted_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.duration_hours",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.external_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.healthkit_metadata",
+      "definition": "[\"jsonb\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.id",
+      "definition": "[\"bigint\", true, \"nextval('sleep_entries_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.logged_at",
+      "definition": "[\"timestamp with time zone\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.notes",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.oura_document_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.oura_ignored",
+      "definition": "[\"boolean\", true, \"false\"]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.provider_day",
+      "definition": "[\"date\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.quality",
+      "definition": "[\"integer\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.source",
+      "definition": "[\"text\", true, \"'manual'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.wake_ups",
+      "definition": "[\"integer\", true, \"0\"]"
+    },
+    {
+      "kind": "column",
+      "name": "sleep_entries.wake_ups_annotated",
+      "definition": "[\"boolean\", true, \"false\"]"
+    },
+    {
+      "kind": "column",
+      "name": "subscriptions.cancel_at_period_end",
+      "definition": "[\"boolean\", true, \"false\"]"
+    },
+    {
+      "kind": "column",
+      "name": "subscriptions.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "subscriptions.current_period_end",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "subscriptions.current_period_start",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "subscriptions.id",
+      "definition": "[\"bigint\", true, \"nextval('subscriptions_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "subscriptions.plan",
+      "definition": "[\"text\", true, \"'free'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "subscriptions.provider_observed_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "subscriptions.status",
+      "definition": "[\"text\", true, \"'active'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "subscriptions.stripe_customer_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "subscriptions.stripe_subscription_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "subscriptions.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "subscriptions.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "user_identities.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "user_identities.provider",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "user_identities.provider_user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "user_identities.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "user_identities.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "users.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "users.email",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "users.id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "users.is_disabled",
+      "definition": "[\"boolean\", true, \"false\"]"
+    },
+    {
+      "kind": "column",
+      "name": "users.last_login_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "users.login_count",
+      "definition": "[\"integer\", true, \"0\"]"
+    },
+    {
+      "kind": "column",
+      "name": "users.name",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "users.optional_diagnostics_enabled",
+      "definition": "[\"boolean\", true, \"true\"]"
+    },
+    {
+      "kind": "column",
+      "name": "users.picture",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "users.provider",
+      "definition": "[\"text\", true, \"'google'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "users.setup_tutorial_reset_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "users.sexual_activity_enabled",
+      "definition": "[\"boolean\", true, \"false\"]"
+    },
+    {
+      "kind": "column",
+      "name": "users.timezone",
+      "definition": "[\"text\", true, \"'America/New_York'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "users.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "waist_entries.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "waist_entries.deleted_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "waist_entries.id",
+      "definition": "[\"bigint\", true, \"nextval('waist_entries_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "waist_entries.logged_at",
+      "definition": "[\"timestamp with time zone\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "waist_entries.method",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "waist_entries.notes",
+      "definition": "[\"text\", true, \"''::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "waist_entries.readings",
+      "definition": "[\"jsonb\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "waist_entries.unit",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "waist_entries.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "waist_entries.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "waist_entries.value_cm",
+      "definition": "[\"numeric\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "web_sessions.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "web_sessions.expires_at",
+      "definition": "[\"timestamp with time zone\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "web_sessions.public_id",
+      "definition": "[\"uuid\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "web_sessions.session_data",
+      "definition": "[\"jsonb\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "web_sessions.sid",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "web_sessions.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "web_sessions.user_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.attempt_count",
+      "definition": "[\"integer\", true, \"0\"]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.delivery_kind",
+      "definition": "[\"text\", true, \"'webhook'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.event_type",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.failure_code",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.id",
+      "definition": "[\"bigint\", true, \"nextval('webhook_events_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.last_failed_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.lease_expires_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.max_attempts",
+      "definition": "[\"integer\", true, \"8\"]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.next_attempt_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.occurred_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.payload",
+      "definition": "[\"jsonb\", true, \"'{}'::jsonb\"]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.processed_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.processing_started_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.provider",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.provider_event_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.purge_after",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.received_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.status",
+      "definition": "[\"text\", true, \"'received'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.user_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "webhook_events.worker_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "weight_entries.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "weight_entries.deleted_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "weight_entries.external_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "weight_entries.id",
+      "definition": "[\"bigint\", true, \"nextval('weight_entries_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "weight_entries.logged_at",
+      "definition": "[\"timestamp with time zone\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "weight_entries.source",
+      "definition": "[\"text\", true, \"'manual'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "weight_entries.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "weight_entries.weight",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "weight_targets.effective_date",
+      "definition": "[\"date\", true, \"'1970-01-01'::date\"]",
+      "alternatives": [
+        {
+          "name": "weight_targets.effective_date",
+          "definition": "[\"date\", true, null]"
+        }
+      ]
+    },
+    {
+      "kind": "column",
+      "name": "weight_targets.target_date",
+      "definition": "[\"date\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "weight_targets.target_weight",
+      "definition": "[\"double precision\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "weight_targets.updated_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "weight_targets.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.calories_burned",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.created_at",
+      "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.deleted_at",
+      "definition": "[\"timestamp with time zone\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.description",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.duration_hours",
+      "definition": "[\"double precision\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.external_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.healthkit_metadata",
+      "definition": "[\"jsonb\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.id",
+      "definition": "[\"bigint\", true, \"nextval('workout_entries_id_seq'::regclass)\"]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.intensity",
+      "definition": "[\"text\", true, \"'medium'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.logged_at",
+      "definition": "[\"timestamp with time zone\", true, null]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.oura_document_id",
+      "definition": "[\"text\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.oura_ignored",
+      "definition": "[\"boolean\", true, \"false\"]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.provider_day",
+      "definition": "[\"date\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.source",
+      "definition": "[\"text\", true, \"'manual'::text\"]"
+    },
+    {
+      "kind": "column",
+      "name": "workout_entries.user_id",
+      "definition": "[\"text\", true, null]"
+    },
+    {
+      "kind": "constraint",
+      "name": "analysis_reports:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "api_tokens:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "api_tokens:UNIQUE (token_hash)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "audit_log:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "billing_events:FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "billing_events:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "billing_events:UNIQUE (stripe_event_id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "client_diagnostics:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "client_mutations:CHECK ((state = ANY (ARRAY['processing'::text, 'completed'::text])))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "client_mutations:PRIMARY KEY (user_id, client_mutation_id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "coach_dismissals:CHECK ((dismissal_type = ANY (ARRAY['today'::text, 'pattern'::text])))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "coach_dismissals:PRIMARY KEY (user_id, dismissal_type, dismissal_key)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "daily_usage_counts:PRIMARY KEY (user_id, feature, usage_date)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "entries:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "food_corrections:PRIMARY KEY (user_id, correction_key)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "health_transport_coverage:PRIMARY KEY (user_id, data_type)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "integration_data_permissions:PRIMARY KEY (user_id, source, data_type)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "macro_targets:PRIMARY KEY (user_id, macro, effective_date)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "nutrition_day_completeness:CHECK ((state = ANY (ARRAY['complete'::text, 'partial'::text])))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "nutrition_day_completeness:PRIMARY KEY (user_id, local_date)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "oura_connections:PRIMARY KEY (user_id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "oura_connections:UNIQUE (oura_user_id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "oura_documents:PRIMARY KEY (user_id, data_type, provider_document_id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "oura_oauth_states:CHECK ((return_to = ANY (ARRAY['web'::text, 'ios'::text])))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "oura_oauth_states:PRIMARY KEY (state_hash)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "oura_webhook_subscriptions:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "oura_webhook_subscriptions:UNIQUE (callback_url, data_type, event_type)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "progress_checkins:FOREIGN KEY (user_id) REFERENCES users(id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "progress_checkins:FOREIGN KEY (waist_entry_id) REFERENCES waist_entries(id) ON DELETE SET NULL",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "progress_checkins:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "progress_checkins:UNIQUE (user_id, day)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "progress_photos:CHECK ((view = ANY (ARRAY['front'::text, 'side'::text, 'back'::text])))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "progress_photos:FOREIGN KEY (checkin_id) REFERENCES progress_checkins(id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "progress_photos:FOREIGN KEY (user_id) REFERENCES users(id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "progress_photos:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "progress_photos:UNIQUE (checkin_id, view)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "rate_limit_counters:CHECK ((count > 0))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "rate_limit_counters:PRIMARY KEY (bucket_key)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "saved_items:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "schema_migrations:PRIMARY KEY (name)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "sexual_activity_entries:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "sleep_entries:CHECK (((quality IS NULL) OR ((quality >= 1) AND (quality <= 5))))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "sleep_entries:CHECK (((quality IS NULL) OR ((quality >= 1) AND (quality <= 5))))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "sleep_entries:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "subscriptions:FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "subscriptions:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "subscriptions:UNIQUE (stripe_customer_id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "subscriptions:UNIQUE (stripe_subscription_id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "subscriptions:UNIQUE (user_id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "user_identities:PRIMARY KEY (provider, provider_user_id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "users:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "waist_entries:CHECK (((value_cm > (0)::numeric) AND (value_cm <= (400)::numeric)))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "waist_entries:CHECK ((method = ANY (ARRAY['navel_relaxed'::text, 'midpoint_relaxed'::text])))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "waist_entries:CHECK ((unit = ANY (ARRAY['in'::text, 'cm'::text])))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "waist_entries:FOREIGN KEY (user_id) REFERENCES users(id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "waist_entries:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "web_sessions:PRIMARY KEY (sid)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "web_sessions:UNIQUE (public_id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "webhook_events:CHECK ((attempt_count >= 0))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "webhook_events:CHECK ((delivery_kind = ANY (ARRAY['webhook'::text, 'reconciliation'::text])))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "webhook_events:CHECK ((max_attempts > 0))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "webhook_events:CHECK ((status = ANY (ARRAY['received'::text, 'processing'::text, 'processed'::text, 'failed'::text])))",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "webhook_events:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "webhook_events:UNIQUE (provider, provider_event_id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "weight_entries:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "weight_targets:PRIMARY KEY (user_id, effective_date)",
+      "definition": "true"
+    },
+    {
+      "kind": "constraint",
+      "name": "workout_entries:PRIMARY KEY (id)",
+      "definition": "true"
+    },
+    {
+      "kind": "extension",
+      "name": "plpgsql",
+      "definition": "pg_catalog"
+    },
+    {
+      "kind": "index",
+      "name": "analysis_reports_pkey",
+      "definition": "CREATE UNIQUE INDEX analysis_reports_pkey ON public.analysis_reports USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "api_tokens_pkey",
+      "definition": "CREATE UNIQUE INDEX api_tokens_pkey ON public.api_tokens USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "api_tokens_token_hash_key",
+      "definition": "CREATE UNIQUE INDEX api_tokens_token_hash_key ON public.api_tokens USING btree (token_hash)"
+    },
+    {
+      "kind": "index",
+      "name": "audit_log_pkey",
+      "definition": "CREATE UNIQUE INDEX audit_log_pkey ON public.audit_log USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "billing_events_pkey",
+      "definition": "CREATE UNIQUE INDEX billing_events_pkey ON public.billing_events USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "billing_events_stripe_event_id_key",
+      "definition": "CREATE UNIQUE INDEX billing_events_stripe_event_id_key ON public.billing_events USING btree (stripe_event_id)"
+    },
+    {
+      "kind": "index",
+      "name": "client_diagnostics_pkey",
+      "definition": "CREATE UNIQUE INDEX client_diagnostics_pkey ON public.client_diagnostics USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "client_mutations_pkey",
+      "definition": "CREATE UNIQUE INDEX client_mutations_pkey ON public.client_mutations USING btree (user_id, client_mutation_id)"
+    },
+    {
+      "kind": "index",
+      "name": "coach_dismissals_pkey",
+      "definition": "CREATE UNIQUE INDEX coach_dismissals_pkey ON public.coach_dismissals USING btree (user_id, dismissal_type, dismissal_key)"
+    },
+    {
+      "kind": "index",
+      "name": "daily_usage_counts_pkey",
+      "definition": "CREATE UNIQUE INDEX daily_usage_counts_pkey ON public.daily_usage_counts USING btree (user_id, feature, usage_date)"
+    },
+    {
+      "kind": "index",
+      "name": "entries_pkey",
+      "definition": "CREATE UNIQUE INDEX entries_pkey ON public.entries USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "food_corrections_pkey",
+      "definition": "CREATE UNIQUE INDEX food_corrections_pkey ON public.food_corrections USING btree (user_id, correction_key)"
+    },
+    {
+      "kind": "index",
+      "name": "health_transport_coverage_pkey",
+      "definition": "CREATE UNIQUE INDEX health_transport_coverage_pkey ON public.health_transport_coverage USING btree (user_id, data_type)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_analysis_reports_user_created",
+      "definition": "CREATE INDEX idx_analysis_reports_user_created ON public.analysis_reports USING btree (user_id, created_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_api_tokens_hash",
+      "definition": "CREATE INDEX idx_api_tokens_hash ON public.api_tokens USING btree (token_hash)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_api_tokens_user",
+      "definition": "CREATE INDEX idx_api_tokens_user ON public.api_tokens USING btree (user_id)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_audit_log_user",
+      "definition": "CREATE INDEX idx_audit_log_user ON public.audit_log USING btree (user_id, created_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_billing_events_stripe",
+      "definition": "CREATE INDEX idx_billing_events_stripe ON public.billing_events USING btree (stripe_event_id)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_checkin_waist_entry",
+      "definition": "CREATE UNIQUE INDEX idx_checkin_waist_entry ON public.progress_checkins USING btree (waist_entry_id) WHERE (waist_entry_id IS NOT NULL)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_client_diagnostics_level_created",
+      "definition": "CREATE INDEX idx_client_diagnostics_level_created ON public.client_diagnostics USING btree (level, created_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_client_diagnostics_user_created",
+      "definition": "CREATE INDEX idx_client_diagnostics_user_created ON public.client_diagnostics USING btree (user_id, created_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_client_mutations_completed",
+      "definition": "CREATE INDEX idx_client_mutations_completed ON public.client_mutations USING btree (completed_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_coach_dismissals_user_updated",
+      "definition": "CREATE INDEX idx_coach_dismissals_user_updated ON public.coach_dismissals USING btree (user_id, updated_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_daily_usage_counts_user_date",
+      "definition": "CREATE INDEX idx_daily_usage_counts_user_date ON public.daily_usage_counts USING btree (user_id, usage_date DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_entries_user_consumed",
+      "definition": "CREATE INDEX idx_entries_user_consumed ON public.entries USING btree (user_id, consumed_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_entries_user_review",
+      "definition": "CREATE INDEX idx_entries_user_review ON public.entries USING btree (user_id, needs_review) WHERE ((deleted_at IS NULL) AND (needs_review IS TRUE))"
+    },
+    {
+      "kind": "index",
+      "name": "idx_entries_user_source",
+      "definition": "CREATE INDEX idx_entries_user_source ON public.entries USING btree (user_id, source)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_food_corrections_user_updated",
+      "definition": "CREATE INDEX idx_food_corrections_user_updated ON public.food_corrections USING btree (user_id, updated_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_macro_targets_user",
+      "definition": "CREATE INDEX idx_macro_targets_user ON public.macro_targets USING btree (user_id)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_macro_targets_user_macro_effective",
+      "definition": "CREATE INDEX idx_macro_targets_user_macro_effective ON public.macro_targets USING btree (user_id, macro, effective_date DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_nutrition_day_completeness_user_date",
+      "definition": "CREATE INDEX idx_nutrition_day_completeness_user_date ON public.nutrition_day_completeness USING btree (user_id, local_date DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_oura_connections_status",
+      "definition": "CREATE INDEX idx_oura_connections_status ON public.oura_connections USING btree (status, updated_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_oura_documents_provider_id",
+      "definition": "CREATE INDEX idx_oura_documents_provider_id ON public.oura_documents USING btree (provider_document_id, data_type)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_oura_documents_user_day",
+      "definition": "CREATE INDEX idx_oura_documents_user_day ON public.oura_documents USING btree (user_id, day DESC, data_type) WHERE (deleted_at IS NULL)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_oura_oauth_states_expires",
+      "definition": "CREATE INDEX idx_oura_oauth_states_expires ON public.oura_oauth_states USING btree (expires_at)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_oura_webhook_subscriptions_expiration",
+      "definition": "CREATE INDEX idx_oura_webhook_subscriptions_expiration ON public.oura_webhook_subscriptions USING btree (expiration_time)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_rate_limit_counters_expires",
+      "definition": "CREATE INDEX idx_rate_limit_counters_expires ON public.rate_limit_counters USING btree (expires_at)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_saved_items_user_name",
+      "definition": "CREATE INDEX idx_saved_items_user_name ON public.saved_items USING btree (user_id, lower(name))"
+    },
+    {
+      "kind": "index",
+      "name": "idx_sexual_activity_entries_user_source_external",
+      "definition": "CREATE UNIQUE INDEX idx_sexual_activity_entries_user_source_external ON public.sexual_activity_entries USING btree (user_id, source, external_id) WHERE ((external_id IS NOT NULL) AND (deleted_at IS NULL))"
+    },
+    {
+      "kind": "index",
+      "name": "idx_sleep_entries_user_logged",
+      "definition": "CREATE INDEX idx_sleep_entries_user_logged ON public.sleep_entries USING btree (user_id, logged_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_sleep_entries_user_source_external",
+      "definition": "CREATE UNIQUE INDEX idx_sleep_entries_user_source_external ON public.sleep_entries USING btree (user_id, source, external_id) WHERE ((external_id IS NOT NULL) AND (deleted_at IS NULL))"
+    },
+    {
+      "kind": "index",
+      "name": "idx_subscriptions_stripe_customer",
+      "definition": "CREATE INDEX idx_subscriptions_stripe_customer ON public.subscriptions USING btree (stripe_customer_id)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_subscriptions_stripe_sub",
+      "definition": "CREATE INDEX idx_subscriptions_stripe_sub ON public.subscriptions USING btree (stripe_subscription_id)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_user_identities_user",
+      "definition": "CREATE INDEX idx_user_identities_user ON public.user_identities USING btree (user_id)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_users_last_login",
+      "definition": "CREATE INDEX idx_users_last_login ON public.users USING btree (last_login_at DESC NULLS LAST)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_users_normalized_email",
+      "definition": "CREATE INDEX idx_users_normalized_email ON public.users USING btree (lower(email))"
+    },
+    {
+      "kind": "index",
+      "name": "idx_waist_user_logged",
+      "definition": "CREATE INDEX idx_waist_user_logged ON public.waist_entries USING btree (user_id, logged_at DESC, id DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_web_sessions_expires",
+      "definition": "CREATE INDEX idx_web_sessions_expires ON public.web_sessions USING btree (expires_at)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_web_sessions_user",
+      "definition": "CREATE INDEX idx_web_sessions_user ON public.web_sessions USING btree (user_id, updated_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_webhook_events_claim",
+      "definition": "CREATE INDEX idx_webhook_events_claim ON public.webhook_events USING btree (status, next_attempt_at, received_at)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_webhook_events_lease",
+      "definition": "CREATE INDEX idx_webhook_events_lease ON public.webhook_events USING btree (lease_expires_at) WHERE (status = 'processing'::text)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_webhook_events_processed",
+      "definition": "CREATE INDEX idx_webhook_events_processed ON public.webhook_events USING btree (processed_at) WHERE (processed_at IS NOT NULL)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_webhook_events_purge",
+      "definition": "CREATE INDEX idx_webhook_events_purge ON public.webhook_events USING btree (purge_after) WHERE (purge_after IS NOT NULL)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_webhook_events_user",
+      "definition": "CREATE INDEX idx_webhook_events_user ON public.webhook_events USING btree (user_id, received_at DESC) WHERE (user_id IS NOT NULL)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_weight_entries_user_logged",
+      "definition": "CREATE INDEX idx_weight_entries_user_logged ON public.weight_entries USING btree (user_id, logged_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_weight_entries_user_source_external",
+      "definition": "CREATE UNIQUE INDEX idx_weight_entries_user_source_external ON public.weight_entries USING btree (user_id, source, external_id) WHERE ((external_id IS NOT NULL) AND (deleted_at IS NULL))"
+    },
+    {
+      "kind": "index",
+      "name": "idx_weight_targets_user_effective",
+      "definition": "CREATE INDEX idx_weight_targets_user_effective ON public.weight_targets USING btree (user_id, effective_date DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_workout_entries_user_logged",
+      "definition": "CREATE INDEX idx_workout_entries_user_logged ON public.workout_entries USING btree (user_id, logged_at DESC)"
+    },
+    {
+      "kind": "index",
+      "name": "idx_workout_entries_user_source_external",
+      "definition": "CREATE UNIQUE INDEX idx_workout_entries_user_source_external ON public.workout_entries USING btree (user_id, source, external_id) WHERE ((external_id IS NOT NULL) AND (deleted_at IS NULL))"
+    },
+    {
+      "kind": "index",
+      "name": "integration_data_permissions_pkey",
+      "definition": "CREATE UNIQUE INDEX integration_data_permissions_pkey ON public.integration_data_permissions USING btree (user_id, source, data_type)"
+    },
+    {
+      "kind": "index",
+      "name": "macro_targets_pkey",
+      "definition": "CREATE UNIQUE INDEX macro_targets_pkey ON public.macro_targets USING btree (user_id, macro, effective_date)"
+    },
+    {
+      "kind": "index",
+      "name": "nutrition_day_completeness_pkey",
+      "definition": "CREATE UNIQUE INDEX nutrition_day_completeness_pkey ON public.nutrition_day_completeness USING btree (user_id, local_date)"
+    },
+    {
+      "kind": "index",
+      "name": "oura_connections_oura_user_id_key",
+      "definition": "CREATE UNIQUE INDEX oura_connections_oura_user_id_key ON public.oura_connections USING btree (oura_user_id)"
+    },
+    {
+      "kind": "index",
+      "name": "oura_connections_pkey",
+      "definition": "CREATE UNIQUE INDEX oura_connections_pkey ON public.oura_connections USING btree (user_id)"
+    },
+    {
+      "kind": "index",
+      "name": "oura_documents_pkey",
+      "definition": "CREATE UNIQUE INDEX oura_documents_pkey ON public.oura_documents USING btree (user_id, data_type, provider_document_id)"
+    },
+    {
+      "kind": "index",
+      "name": "oura_oauth_states_pkey",
+      "definition": "CREATE UNIQUE INDEX oura_oauth_states_pkey ON public.oura_oauth_states USING btree (state_hash)"
+    },
+    {
+      "kind": "index",
+      "name": "oura_webhook_subscriptions_callback_url_data_type_event_typ_key",
+      "definition": "CREATE UNIQUE INDEX oura_webhook_subscriptions_callback_url_data_type_event_typ_key ON public.oura_webhook_subscriptions USING btree (callback_url, data_type, event_type)"
+    },
+    {
+      "kind": "index",
+      "name": "oura_webhook_subscriptions_pkey",
+      "definition": "CREATE UNIQUE INDEX oura_webhook_subscriptions_pkey ON public.oura_webhook_subscriptions USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "progress_checkins_pkey",
+      "definition": "CREATE UNIQUE INDEX progress_checkins_pkey ON public.progress_checkins USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "progress_checkins_user_id_day_key",
+      "definition": "CREATE UNIQUE INDEX progress_checkins_user_id_day_key ON public.progress_checkins USING btree (user_id, day)"
+    },
+    {
+      "kind": "index",
+      "name": "progress_photos_checkin_id_view_key",
+      "definition": "CREATE UNIQUE INDEX progress_photos_checkin_id_view_key ON public.progress_photos USING btree (checkin_id, view)"
+    },
+    {
+      "kind": "index",
+      "name": "progress_photos_pkey",
+      "definition": "CREATE UNIQUE INDEX progress_photos_pkey ON public.progress_photos USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "rate_limit_counters_pkey",
+      "definition": "CREATE UNIQUE INDEX rate_limit_counters_pkey ON public.rate_limit_counters USING btree (bucket_key)"
+    },
+    {
+      "kind": "index",
+      "name": "saved_items_pkey",
+      "definition": "CREATE UNIQUE INDEX saved_items_pkey ON public.saved_items USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "schema_migrations_pkey",
+      "definition": "CREATE UNIQUE INDEX schema_migrations_pkey ON public.schema_migrations USING btree (name)"
+    },
+    {
+      "kind": "index",
+      "name": "sexual_activity_entries_pkey",
+      "definition": "CREATE UNIQUE INDEX sexual_activity_entries_pkey ON public.sexual_activity_entries USING btree (id)",
+      "alternatives": [
+        {
+          "name": "ejaculation_entries_pkey",
+          "definition": "CREATE UNIQUE INDEX ejaculation_entries_pkey ON public.sexual_activity_entries USING btree (id)"
+        }
+      ]
+    },
+    {
+      "kind": "index",
+      "name": "sleep_entries_pkey",
+      "definition": "CREATE UNIQUE INDEX sleep_entries_pkey ON public.sleep_entries USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "subscriptions_pkey",
+      "definition": "CREATE UNIQUE INDEX subscriptions_pkey ON public.subscriptions USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "subscriptions_stripe_customer_id_key",
+      "definition": "CREATE UNIQUE INDEX subscriptions_stripe_customer_id_key ON public.subscriptions USING btree (stripe_customer_id)"
+    },
+    {
+      "kind": "index",
+      "name": "subscriptions_stripe_subscription_id_key",
+      "definition": "CREATE UNIQUE INDEX subscriptions_stripe_subscription_id_key ON public.subscriptions USING btree (stripe_subscription_id)"
+    },
+    {
+      "kind": "index",
+      "name": "subscriptions_user_id_key",
+      "definition": "CREATE UNIQUE INDEX subscriptions_user_id_key ON public.subscriptions USING btree (user_id)"
+    },
+    {
+      "kind": "index",
+      "name": "user_identities_pkey",
+      "definition": "CREATE UNIQUE INDEX user_identities_pkey ON public.user_identities USING btree (provider, provider_user_id)"
+    },
+    {
+      "kind": "index",
+      "name": "users_pkey",
+      "definition": "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "waist_entries_pkey",
+      "definition": "CREATE UNIQUE INDEX waist_entries_pkey ON public.waist_entries USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "web_sessions_pkey",
+      "definition": "CREATE UNIQUE INDEX web_sessions_pkey ON public.web_sessions USING btree (sid)"
+    },
+    {
+      "kind": "index",
+      "name": "web_sessions_public_id_key",
+      "definition": "CREATE UNIQUE INDEX web_sessions_public_id_key ON public.web_sessions USING btree (public_id)"
+    },
+    {
+      "kind": "index",
+      "name": "webhook_events_pkey",
+      "definition": "CREATE UNIQUE INDEX webhook_events_pkey ON public.webhook_events USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "webhook_events_provider_provider_event_id_key",
+      "definition": "CREATE UNIQUE INDEX webhook_events_provider_provider_event_id_key ON public.webhook_events USING btree (provider, provider_event_id)"
+    },
+    {
+      "kind": "index",
+      "name": "weight_entries_pkey",
+      "definition": "CREATE UNIQUE INDEX weight_entries_pkey ON public.weight_entries USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "name": "weight_targets_pkey",
+      "definition": "CREATE UNIQUE INDEX weight_targets_pkey ON public.weight_targets USING btree (user_id, effective_date)"
+    },
+    {
+      "kind": "index",
+      "name": "workout_entries_pkey",
+      "definition": "CREATE UNIQUE INDEX workout_entries_pkey ON public.workout_entries USING btree (id)"
+    },
+    {
+      "kind": "sequence",
+      "name": "analysis_reports_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "sequence",
+      "name": "api_tokens_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "sequence",
+      "name": "audit_log_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "sequence",
+      "name": "billing_events_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "sequence",
+      "name": "client_diagnostics_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "sequence",
+      "name": "entries_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "sequence",
+      "name": "saved_items_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "sequence",
+      "name": "sexual_activity_entries_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]",
+      "alternatives": [
+        {
+          "name": "ejaculation_entries_id_seq",
+          "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+        }
+      ]
+    },
+    {
+      "kind": "sequence",
+      "name": "sleep_entries_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "sequence",
+      "name": "subscriptions_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "sequence",
+      "name": "waist_entries_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "sequence",
+      "name": "webhook_events_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "sequence",
+      "name": "weight_entries_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "sequence",
+      "name": "workout_entries_id_seq",
+      "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+    },
+    {
+      "kind": "table",
+      "name": "analysis_reports",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "api_tokens",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "audit_log",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "billing_events",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "client_diagnostics",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "client_mutations",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "coach_dismissals",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "daily_usage_counts",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "entries",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "food_corrections",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "health_transport_coverage",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "integration_data_permissions",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "macro_targets",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "nutrition_day_completeness",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "oura_connections",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "oura_documents",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "oura_oauth_states",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "oura_webhook_subscriptions",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "progress_checkins",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "progress_photos",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "rate_limit_counters",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "saved_items",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "schema_migrations",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "sexual_activity_entries",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "sleep_entries",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "subscriptions",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "user_identities",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "users",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "waist_entries",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "web_sessions",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "webhook_events",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "weight_entries",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "weight_targets",
+      "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "table",
+      "name": "workout_entries",
+      "definition": "[\"r\", \"p\", false, false]"
+    }
+  ]
+}

@@ -8,7 +8,7 @@ before(async () => {
   if (!process.env.TEST_DATABASE_URL) return;
   const previous = process.env.DATABASE_URL;
   process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
-  try { database = require('../src/db'); await database.initDb(); }
+  try { database = require('../src/db'); await require('./helpers/database').initializeTestSchema(database); }
   finally {
     if (previous === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = previous;

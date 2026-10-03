@@ -16,7 +16,7 @@ test('PostgreSQL webhook inbox deduplicates, leases, recovers, and applies billi
   const providerPrefix = `integration-${runId}`;
 
   try {
-    await db.initDb();
+    await require('./helpers/database').initializeTestSchema(db);
     await db.upsertUser({
       id: userId,
       provider: 'local-dev',

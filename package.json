@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "check": "node -e \"require('./src/db').initDb().then(() => console.log('DB initialized')).catch((err) => { console.error(err.message); process.exit(1); })\"",
+    "check": "node scripts/check-db.js",
     "ops:rotate-prod-db-password": "bash scripts/rotate-prod-db-password.sh",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
@@ -18,7 +18,8 @@
     "test:db:upgrade": "node --test test/db-upgrade-path.test.js",
     "test:e2e": "playwright test --config playwright.config.js",
     "test:e2e:accessibility": "playwright test --config playwright.config.js test/e2e/accessibility.spec.js",
-    "test:check": "node --check public/login.js && node --check public/today-state.js && node --check public/coach-rules.js && node --check public/script.js && node --check src/today-summary.js && node --check src/server.js && npm test"
+    "test:check": "node --check public/login.js && node --check public/today-state.js && node --check public/coach-rules.js && node --check public/script.js && node --check src/today-summary.js && node --check src/server.js && npm test",
+    "db:migrate": "node scripts/migrate-db.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1127.0",

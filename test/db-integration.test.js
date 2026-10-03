@@ -22,7 +22,7 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     new Date(nutritionDate.getTime() + days * 86_400_000).toISOString().slice(0, 10);
 
   try {
-    await db.initDb();
+    await require('./helpers/database').initializeTestSchema(db);
     await db.deleteUserAccount(userId).catch(() => {});
 
     const createdUser = await db.upsertUser({

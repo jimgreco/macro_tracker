@@ -66,7 +66,8 @@ Full-stack macro/nutrition tracking web app with iOS companion. Node.js + Expres
 ```bash
 npm run db:up       # Start PostgreSQL via Docker
 cp .env.example .env  # Configure env vars
-npm run check       # Initialize DB schema
+npm run db:migrate  # Initialize an empty DB with MIGRATION_DATABASE_URL
+npm run check       # Read-only schema compatibility check
 npm run db:seed:local  # Optional: seed preview data
 npm run dev         # Start with file watcher
 ```
@@ -243,3 +244,11 @@ folders, and host `data`/`backups`. The only PEM exception is the reviewed publi
 `certs/us-east-2-rds-bundle.pem`; CI validates certificate-only content and exact
 image bytes. `scripts/check-docker-context.sh macros` injects synthetic sentinels
 only into a disposable clean Git archive and verifies real image exclusions.
+
+## Database runtime and migration boundary
+
+- Normal startup only checks the reviewed schema contract; it never creates or repairs tables.
+- Run `npm run db:migrate` as a separate process with `MIGRATION_DATABASE_URL` supplied by the owner. It never falls back to runtime `DATABASE_URL`.
+- Existing databases require reviewed `--adopt-existing` (with `--` before that flag for npm). Adoption validates structure and adds only compatibility metadata; it does not replay historical data repairs. Fresh initialization requires an empty public schema.
+- See `docs/database-runtime-access.md` for the owner/runtime split, rollout ordering and rollback limits. Do not deploy this startup change before schema adoption is approved and completed.
+- Runtime must not receive migration credentials or membership in its object-owner role. Schema changes require an updated contract, an explicit migration, reviewed grants and a compatible rollback floor.

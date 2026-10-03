@@ -15,14 +15,14 @@ test('atomic mutation recovery and concurrent retries on disposable PostgreSQL',
   assert.ok(['127.0.0.1', 'localhost'].includes(url.hostname), 'Synthetic recovery tests require loopback');
   process.env.DATABASE_URL = url.href;
   const db = require('../src/db');
-  const observer = new Pool({ connectionString: url.href, ssl: false });
+  const observer = require('./helpers/database').createObserverPool(url.href);
   const user = `mutation-test-${crypto.randomUUID()}`;
   const pool = db.getPool();
   const count = async () => Number((await observer.query('SELECT COUNT(*) FROM weight_entries WHERE user_id=$1', [user])).rows[0].count);
   const write = async () => ({ status: 200, body: await db.addWeightEntry(user, { weight: 100, loggedAt: '2026-10-03T00:00:00Z' }) });
   const run = (id, execute = write, owner = user, request = descriptor) => db.runClientMutation(owner, id, request, execute);
   try {
-    await db.initDb();
+    await require('./helpers/database').initializeTestSchema(db);
     await db.upsertUser({ id: user, provider: 'local-dev', providerUserId: user, email: `${user}@example.invalid`, name: 'Synthetic' });
     await t.test('parallel identical retries commit one effect and one completed receipt', async () => {
       const id = crypto.randomUUID(); const before = await count();

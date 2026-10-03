@@ -15,7 +15,6 @@ const Stripe = require('stripe');
 const appleSignin = require('apple-signin-auth');
 const heicConvert = require('heic-convert');
 const {
-  initDb,
   getPool,
   checkDatabaseHealth,
   upsertUser,
@@ -4712,7 +4711,8 @@ let activeHttpServer = null;
 let shutdownPromise = null;
 
 async function startServer() {
-  await initDb();
+  if (process.env.MIGRATION_DATABASE_URL) throw new Error('Remove MIGRATION_DATABASE_URL from the runtime environment; use the separate migration command.');
+  await require('./schema-contract').assertSchemaCompatible(getPool());
   await performDataRetentionCleanup();
   scheduleDataRetentionCleanup();
   if (stripeWebhookHandler || ouraWebhookHandler) {

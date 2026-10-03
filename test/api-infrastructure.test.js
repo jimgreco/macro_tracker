@@ -125,7 +125,7 @@ test('nutrition day completeness is explicit, timezone-aware, exportable, and de
   assert.ok(db.includes('PRIMARY KEY (user_id, local_date)'));
   assert.ok(db.includes('timezone TEXT NOT NULL'));
   assert.ok(db.includes('idx_nutrition_day_completeness_user_date'));
-  assert.ok(db.includes("recordSchemaMigration('2026-07-27_nutrition_day_completeness')"));
+  assert.ok(db.includes("recordSchemaMigration('2026-07-27_nutrition_day_completeness', pool)"));
   const { accountDeletionInventory, accountExportInventory } = require('../src/data-inventory');
   assert.ok(accountDeletionInventory().some((item) => item.table === 'nutrition_day_completeness'));
   assert.ok(accountExportInventory().some((item) => (
@@ -258,7 +258,7 @@ test('direct Oura integration persists encrypted connections and normalized tomb
   assert.ok(db.includes('CREATE TABLE IF NOT EXISTS oura_documents'));
   assert.ok(db.includes('PRIMARY KEY (user_id, data_type, provider_document_id)'));
   assert.ok(db.includes('WHEN oura_documents.deleted_at IS NOT NULL AND NOT $7'));
-  assert.ok(db.includes("recordSchemaMigration('2026-07-20_direct_oura_integration')"));
+  assert.ok(db.includes("recordSchemaMigration('2026-07-20_direct_oura_integration', pool)"));
 
   assert.ok(oura.includes("createCipheriv('aes-256-gcm'"));
   assert.ok(oura.includes("grant_type: 'refresh_token'"));
@@ -292,7 +292,7 @@ test('integration access is provider-neutral, exportable, default-denied, and en
 
   assert.ok(db.includes('CREATE TABLE IF NOT EXISTS integration_data_permissions'));
   assert.ok(db.includes('PRIMARY KEY (user_id, source, data_type)'));
-  assert.ok(db.includes("recordSchemaMigration('2026-07-31_integration_data_access')"));
+  assert.ok(db.includes("recordSchemaMigration('2026-07-31_integration_data_access', pool)"));
   assert.ok(accountDeletionInventory().some((item) => item.table === 'integration_data_permissions'));
   assert.ok(accountExportInventory().some((item) => item.table === 'integration_data_permissions'));
   assert.ok(server.includes("apiRouter.get('/integrations/access'"));
@@ -561,7 +561,7 @@ test('coach dismissals are durable and user scoped', () => {
 test('feature foundation persistence schema is present', () => {
   const db = read('src/db.js');
   assert.ok(db.includes('CREATE TABLE IF NOT EXISTS schema_migrations'));
-  assert.ok(db.includes("recordSchemaMigration('2026-06-11_feature_foundations')"));
+  assert.ok(db.includes("recordSchemaMigration('2026-06-11_feature_foundations', pool)"));
   assert.ok(db.includes("timezone TEXT NOT NULL DEFAULT 'America/New_York'"));
   assert.ok(db.includes('CREATE TABLE IF NOT EXISTS food_corrections'));
   assert.ok(db.includes('CREATE TABLE IF NOT EXISTS client_diagnostics'));

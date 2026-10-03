@@ -82,8 +82,8 @@ async function checkDatabaseHealth() {
   };
 }
 
-async function recordSchemaMigration(name) {
-  await pool.query(
+async function recordSchemaMigration(name, queryable = pool) {
+  await queryable.query(
     `INSERT INTO schema_migrations (name, applied_at)
      VALUES ($1, NOW())
      ON CONFLICT (name) DO NOTHING`,
@@ -184,10 +184,11 @@ async function deduplicateHealthKitSleepRevisions(queryable = pool) {
   return result.rows.filter((row) => row.deleted_at != null).length;
 }
 
-async function applyHealthKitSleepRevisionMigration() {
-  const client = await pool.connect();
+async function applyHealthKitSleepRevisionMigration(queryable = pool) {
+  const client = queryable === pool ? await pool.connect() : queryable;
+  const ownsTransaction = queryable === pool;
   try {
-    await client.query('BEGIN');
+    if (ownsTransaction) await client.query('BEGIN');
     const migration = await client.query(
       `INSERT INTO schema_migrations (name, applied_at)
        VALUES ($1, NOW())
@@ -198,16 +199,18 @@ async function applyHealthKitSleepRevisionMigration() {
     if (migration.rows.length) {
       await deduplicateHealthKitSleepRevisions(client);
     }
-    await client.query('COMMIT');
+    if (ownsTransaction) await client.query('COMMIT');
   } catch (error) {
-    await client.query('ROLLBACK');
+    if (ownsTransaction) await client.query('ROLLBACK');
     throw error;
   } finally {
-    client.release();
+    if (ownsTransaction) client.release();
   }
 }
 
-async function initDb() {
+async function initDb(queryable = pool) {
+  // Explicit migration API only. Runtime startup uses assertSchemaCompatible.
+  const pool = queryable;
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       name TEXT PRIMARY KEY,
@@ -932,22 +935,22 @@ async function initDb() {
   `);
 
   await healthReconciliation.initHealthReconciliation(pool);
-  await recordSchemaMigration('2026-09-08_health_transport_reconciliation');
+  await recordSchemaMigration('2026-09-08_health_transport_reconciliation', pool);
   await initWaistDb(pool);
-  await recordSchemaMigration('2026-09-08_waist_measurements');
+  await recordSchemaMigration('2026-09-08_waist_measurements', pool);
   await initCheckinDb(pool);
-  await recordSchemaMigration('2026-09-08_progress_checkins');
-  await recordSchemaMigration('2026-09-19_checkin_waist_measurements');
-  await recordSchemaMigration('2026-06-11_feature_foundations');
-  await recordSchemaMigration('2026-07-20_direct_oura_integration');
-  await recordSchemaMigration('2026-07-27_client_mutation_idempotency');
-  await recordSchemaMigration('2026-07-27_shared_auth_state');
-  await recordSchemaMigration('2026-07-27_nutrition_day_completeness');
-  await recordSchemaMigration('2026-07-28_data_inventory_and_retention');
-  await recordSchemaMigration('2026-07-29_durable_webhook_inbox');
-  await recordSchemaMigration('2026-07-31_durable_oura_webhooks');
-  await recordSchemaMigration('2026-07-31_integration_data_access');
-  await applyHealthKitSleepRevisionMigration();
+  await recordSchemaMigration('2026-09-08_progress_checkins', pool);
+  await recordSchemaMigration('2026-09-19_checkin_waist_measurements', pool);
+  await recordSchemaMigration('2026-06-11_feature_foundations', pool);
+  await recordSchemaMigration('2026-07-20_direct_oura_integration', pool);
+  await recordSchemaMigration('2026-07-27_client_mutation_idempotency', pool);
+  await recordSchemaMigration('2026-07-27_shared_auth_state', pool);
+  await recordSchemaMigration('2026-07-27_nutrition_day_completeness', pool);
+  await recordSchemaMigration('2026-07-28_data_inventory_and_retention', pool);
+  await recordSchemaMigration('2026-07-29_durable_webhook_inbox', pool);
+  await recordSchemaMigration('2026-07-31_durable_oura_webhooks', pool);
+  await recordSchemaMigration('2026-07-31_integration_data_access', pool);
+  await applyHealthKitSleepRevisionMigration(pool);
 
   await pool.query('DELETE FROM web_sessions WHERE expires_at <= NOW()');
   await pool.query('DELETE FROM rate_limit_counters WHERE expires_at <= NOW()');
