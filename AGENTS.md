@@ -150,6 +150,7 @@ Uses Node's built-in `node:test` module.
 
 Run `npm run test:check` for fast syntax + test pass (no database required).
 Run `TEST_DATABASE_URL=postgres://... npm run test:db:integration` before pushing DB/schema-heavy work, and use a separate empty disposable database with `TEST_UPGRADE_DATABASE_URL=postgres://... npm run test:db:upgrade` for migration changes.
+The client-mutation recovery suite terminates synthetic database connections and requires a loopback database whose name ends in `_test`; CI uses `macro_tracker_fresh_test`. Preserve that guard when updating CI database names.
 Fixtures asserted through rolling analysis windows must use dates relative to the test run; fixed historical dates eventually age out. Keep explicit fixed dates for DST/travel cases that query those dates directly.
 
 ## Feature Reference
@@ -184,7 +185,7 @@ preserved there.
 
 ### Deployment Process
 
-Deployment is automated by `.github/workflows/ci.yml`. Every push to `main` must pass the full `Required Checks` aggregate before the reusable EC2 deploy and TestFlight jobs can run. No direct deploy/TestFlight dispatch or manual `eb deploy` step is part of the active path.
+Deployment is automated by `.github/workflows/ci.yml`. Every push to `main` runs the full `Required Checks` aggregate. The reusable EC2 deploy and TestFlight jobs additionally require explicit `workflow_dispatch` inputs, default false; pushes never release automatically. No direct deploy/TestFlight dispatch or manual `eb deploy` step is part of the active path.
 
 When asked to deploy or "push live", always run these steps in order — no skipping:
 
@@ -192,9 +193,9 @@ When asked to deploy or "push live", always run these steps in order — no skip
 2. **`git add`** all changed files relevant to the work
 3. **Update `AGENTS.md`** if anything was learned (new gotchas, architecture decisions, changed patterns) — then `git add AGENTS.md`
 4. **`git commit`** with a clear message describing what changed and why
-5. **`git push origin main`** — GitHub Actions runs all required gates, then deploys to EC2 and uploads TestFlight only after the aggregate succeeds
+5. **`git push origin main`** — GitHub Actions runs all required gates; dispatch deployment and TestFlight separately only after the release safety gate and applicable approvals
 
-The orchestrator retains diagnostics for failed gates. The reusable deploy job uses `EC2_SSH_KEY`, `EC2_USER`, and `EC2_HOST`, builds the `macros` service through the remote Compose project, and runs post-deploy `/healthz` and `/version` checks when `PRODUCTION_BASE_URL` is configured. Configure and verify strict main protection only after the `Required Checks` context has completed successfully; see `docs/ci-release-gates.md`. GitHub only enables `allow_fork_syncing` for a read-only locked branch, so the current writable protected-main policy must keep both `lock_branch` and `allow_fork_syncing` false.
+The orchestrator retains diagnostics for failed gates. The reusable deploy job uses `EC2_SSH_KEY`, `EC2_USER`, and `EC2_HOST`, validates the live Compose configuration and builds/recreates only `macros` through `scripts/safe-compose-release.py` (rollback images retained; `--no-deps`; no shared config writes or image prune), and runs post-deploy `/healthz` and `/version` checks when `PRODUCTION_BASE_URL` is configured. Configure and verify strict main protection only after the `Required Checks` context has completed successfully; see `docs/ci-release-gates.md`. GitHub only enables `allow_fork_syncing` for a read-only locked branch, so the current writable protected-main policy must keep both `lock_branch` and `allow_fork_syncing` false.
 
 ## Content Security Policy
 

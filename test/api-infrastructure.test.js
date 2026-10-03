@@ -1076,7 +1076,6 @@ test('subscription indexes exist', () => {
 
 test('deploy workflow verifies SSH host and smokes production endpoints', () => {
   const workflow = read('.github/workflows/deploy.yml');
-  assert.ok(workflow.includes('OPENAI_MODEL: gpt-6-sol'));
   const script = read('scripts/production-smoke.sh');
   assert.ok(workflow.includes('actions/checkout@v5'));
   assert.ok(workflow.includes('workflow_call:'));
@@ -1085,16 +1084,11 @@ test('deploy workflow verifies SSH host and smokes production endpoints', () => 
   assert.ok(workflow.includes('ssh-keyscan -H "$EC2_HOST"'));
   assert.ok(workflow.includes('UserKnownHostsFile=~/.ssh/known_hosts'));
   assert.equal(workflow.includes('StrictHostKeyChecking=no'), false);
-  assert.ok(workflow.includes('docker-compose.macros-build.yml'));
-  assert.ok(workflow.includes('APP_BUILD: \\${APP_BUILD}'));
-  assert.ok(workflow.includes('APP_BASE_URL: \\"https://macrovana.com\\"'));
-  assert.ok(workflow.includes('GOOGLE_CALLBACK_URL: \\"https://macrovana.com/auth/google/callback\\"'));
-  assert.ok(workflow.includes('APPLE_REDIRECT_URI: \\"https://macrovana.com/auth/apple/callback\\"'));
-  assert.ok(workflow.includes('SHORT_GITHUB_SHA="${GITHUB_SHA::7}"'));
-  assert.ok(workflow.includes('APP_BUILD=$SHORT_GITHUB_SHA docker-compose'));
-  assert.ok(workflow.includes('docker-compose -f docker-compose.yml -f docker-compose.macros-build.yml up -d macros'));
+  assert.ok(workflow.includes('scripts/safe-compose-release.py macros'));
+  assert.ok(workflow.includes('StrictHostKeyChecking=yes'));
+  assert.equal(workflow.includes('docker system prune'), false);
+  assert.equal(workflow.includes('docker-compose.macros-build.yml'), false);
   assert.ok(workflow.includes('PRODUCTION_BASE_URL'));
-  assert.ok(workflow.includes('PRODUCTION_SMOKE_API_TOKEN'));
   assert.ok(workflow.includes('Skip post-deploy smoke when production URL is not configured'));
   assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL == ''"));
   assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL != ''"));

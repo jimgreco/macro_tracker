@@ -5,6 +5,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy_production:
+        description: Deploy this verified main commit after host preflight approval
+        type: boolean
+        default: false
+      upload_testflight:
+        description: Upload to TestFlight after explicit distribution approval
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,6 +43,7 @@ jobs:
           set -o pipefail
           mkdir -p output/ci
           npm run test:check 2>&1 | tee output/ci/javascript.log
+          python3 scripts/test-safe-compose-release.py
 
       - name: Upload JavaScript diagnostics
         if: always()
@@ -78,11 +88,11 @@ jobs:
           CI_POSTGRES_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
         run: |
           node --check scripts/ci-create-test-databases.js
-          node scripts/ci-create-test-databases.js macro_tracker_fresh_ci macro_tracker_upgrade_ci
+          node scripts/ci-create-test-databases.js macro_tracker_fresh_test macro_tracker_upgrade_ci
 
       - name: Fresh-schema integration
         env:
-          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/macro_tracker_fresh_ci
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/macro_tracker_fresh_test
         run: |
           set -o pipefail
           mkdir -p output/ci
@@ -273,14 +283,14 @@ jobs:
 
   deploy:
     name: Deploy to EC2
-    if: needs.required.result == 'success' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: needs.required.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.deploy_production && github.ref == 'refs/heads/main'
     needs: required
     uses: ./.github/workflows/deploy.yml
     secrets: inherit
 
   testflight:
     name: TestFlight
-    if: needs.required.result == 'success' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: needs.required.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.upload_testflight && github.ref == 'refs/heads/main'
     needs: required
     uses: ./.github/workflows/testflight.yml
     secrets: inherit

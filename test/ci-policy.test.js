@@ -49,6 +49,8 @@ test('release workflows are reusable only and cannot bypass required CI', () => 
     const block = jobBlock(orchestrator, jobName);
     assert.match(block, /^\s{4}needs: required\s*$/m);
     assert.match(block, /if: needs\.required\.result == 'success'/);
+    assert.match(block, /github\.event_name == 'workflow_dispatch'/);
+    assert.match(block, new RegExp(`inputs\\.${jobName === 'deploy' ? 'deploy_production' : 'upload_testflight'}`));
     assert.match(block, new RegExp(`uses: \\.\\/\\.github\\/workflows\\/${workflow}`));
   }
 });
@@ -71,6 +73,7 @@ test('the stable Required Checks context aggregates every required surface', () 
 test('PostgreSQL CI fails if either mandatory database suite skips', () => {
   const postgres = jobBlock(read('.github/workflows/ci.yml'), 'postgres');
   assert.match(postgres, /npm run test:db:integration/);
+  assert.match(postgres, /macro_tracker_fresh_test/);
   assert.match(postgres, /npm run test:db:upgrade/);
   assert.equal(
     (postgres.match(/grep -Eq '\^# skipped 0\$'/g) || []).length,

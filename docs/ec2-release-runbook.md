@@ -226,3 +226,27 @@ Local verification does not close the real-ring acceptance requirement. After re
 6. Keep `OURA_INCLUDE_WORKOUTS=false` until the real-device deduplication check passes. When opted in, only direct workout calories count as workout calories; all-day activity energy never changes workouts or macro targets. Direct workout projections are excluded from AI snapshots and HealthKit exports.
 
 Run `TEST_DATABASE_URL=... node --test test/health-reconciliation.test.js` for transactional replay/tombstone/annotation tests, in addition to the standard fresh schema, legacy upgrade and native test gates. Fixtures and simulator screenshots must be labeled as local evidence, never real-ring acceptance.
+
+## Audited release safety gate (October 2026)
+
+A main push runs Required Checks only. After live-host preflight and the separately
+required approvals, dispatch `Required CI and Release` on main with
+`deploy_production=true`; leave `upload_testflight=false` unless distribution and
+any signing/profile actions are approved. TestFlight upload is a separate result
+from an installed or App Store release.
+
+`scripts/safe-compose-release.py macros <full-sha> --check` reads the running
+service's Compose labels, exact existing files, config hash, and environment.
+Missing files or drift fail closed with key names only; reconcile them before
+release. The helper never fetches shared deployment configuration or rewrites
+`.env`, grants, security settings, or credentials. It serializes the host with
+`/tmp/codex-shared-host-release.lock`, retains old images under rollback tags,
+builds only `macros`, and recreates with `--no-deps --no-build`. It preserves a
+metadata-only release overlay referenced by the new container's Compose labels.
+No global prune runs. Keep the overlay and rollback images until acceptance.
+
+For rollback, use the recorded old image with the exact same effective Compose
+inputs and only the `macros` service; do not rerun historical deployment workflows
+that prune images or rewrite settings. The receipt change needs no schema change,
+but an older mutation writer can again produce ambiguous processing receipts.
+Retain legacy receipts and client queues; historical repair is a separate action.
