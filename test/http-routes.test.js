@@ -1221,3 +1221,20 @@ test('meal edits move all items with a validated optional timestamp', routeTestO
   });
   assert.equal(missing.res.status, 404);
 });
+
+test('request logs omit OAuth codes, webhook verification tokens and other query values', routeTestOptions, async () => {
+  const originalLog = console.log;
+  const logs = [];
+  console.log = (line) => logs.push(String(line));
+  try {
+    const response = await fetch(`${baseUrl}/version?code=synthetic-oauth-code&verification_token=synthetic-webhook-secret&notes=synthetic-private-note`);
+    assert.equal(response.status, 200);
+    await response.text();
+    const requestLog = logs.map(line => { try { return JSON.parse(line); } catch { return {}; } })
+      .find(line => line.event === 'http_request');
+    assert.equal(requestLog.path, '/version');
+    assert.doesNotMatch(logs.join('\n'), /synthetic-oauth-code|synthetic-webhook-secret|synthetic-private-note/);
+  } finally {
+    console.log = originalLog;
+  }
+});

@@ -150,6 +150,7 @@ const {
 const { createClientMutationMiddleware } = require('./idempotency');
 const { PostgresSessionStore } = require('./postgres-session-store');
 const { sanitizeClientDiagnostic } = require('./client-diagnostics');
+const { requestLogPath } = require('./request-log');
 const { DATA_INVENTORY_VERSION, retentionInventory } = require('./data-inventory');
 const { createWebhookWorker } = require('./webhook-inbox');
 const {
@@ -330,7 +331,7 @@ function logServerError(req, error, context = {}) {
   logJson('error', 'server_error', {
     requestId: req?.requestId,
     method: req?.method,
-    path: req?.originalUrl || req?.url,
+    path: requestLogPath(req),
     message: safeErrorMessage(error),
     ...context
   });
@@ -394,7 +395,7 @@ app.use((req, res, next) => {
     logJson(res.statusCode >= 500 ? 'error' : 'info', 'http_request', {
       requestId: req.requestId,
       method: req.method,
-      path: req.originalUrl || req.url,
+      path: requestLogPath(req),
       status: res.statusCode,
       durationMs: Date.now() - startedAt,
       userId: req.user?.id || null
@@ -511,7 +512,9 @@ if (googleClientId && googleClientSecret) {
       {
         clientID: googleClientId,
         clientSecret: googleClientSecret,
-        callbackURL: oauthCallbackUrl
+        callbackURL: oauthCallbackUrl,
+        // Passport chooses its state store at construction, not per request.
+        state: true
       },
       (accessToken, refreshToken, profile, done) => {
         const email = profile.emails && profile.emails[0] ? profile.emails[0].value : null;
