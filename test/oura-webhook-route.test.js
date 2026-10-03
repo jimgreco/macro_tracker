@@ -107,7 +107,7 @@ test('Oura route verifies fresh exact bytes and acknowledges only after durable 
     delete require.cache[serverPath];
     const { app } = require(serverPath);
     httpServer = await new Promise((resolve) => {
-      const server = app.listen(0, () => resolve(server));
+      const server = app.listen(0, '127.0.0.1', () => resolve(server));
     });
     const baseUrl = `http://127.0.0.1:${httpServer.address().port}`;
 

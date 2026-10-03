@@ -238,11 +238,11 @@ test('client mutation idempotency ledger is per-user and stores no request paylo
   const { accountDeletionInventory } = require('../src/data-inventory');
   assert.ok(accountDeletionInventory().some((item) => item.table === 'client_mutations'));
   assert.ok(server.includes('createClientMutationMiddleware'));
-  assert.ok(server.includes('claimClientMutation'));
+  assert.ok(server.includes('runClientMutation'));
   assert.ok(middleware.includes("const CLIENT_MUTATION_HEADER = 'x-client-mutation-id'"));
-  assert.ok(middleware.includes("claim.disposition === 'processing'"));
-  assert.ok(middleware.includes("claim.disposition === 'replay'"));
-  assert.ok(middleware.includes("claim.disposition === 'conflict'"));
+  assert.ok(middleware.includes("result.disposition === 'processing'"));
+  assert.ok(middleware.includes("result.disposition === 'replay'"));
+  assert.ok(middleware.includes("result.disposition === 'conflict'"));
   assert.ok(middleware.includes("res.set('X-Idempotent-Replay', 'true')"));
 });
 

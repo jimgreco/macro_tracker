@@ -17,8 +17,7 @@ test('Google OAuth callbacks require the single-use state from the initiating se
       if (request === './db' && parent?.filename === serverPath) {
         return {
           getPool: () => ({}),
-          claimClientMutation: async () => {}, getClientMutation: async () => {},
-          completeClientMutation: async () => {},
+          runClientMutation: async () => {},
         };
       }
       return originalLoad.call(this, request, parent, isMain);

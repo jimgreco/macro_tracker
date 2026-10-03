@@ -94,7 +94,21 @@ const fakeUser = {
   updatedAt: new Date().toISOString()
 };
 
+const mutationLocks = new Map();
 const fakeDb = {
+  runClientMutation: (userId, clientMutationId, descriptor, execute) => {
+    const key = clientMutationKey(userId, clientMutationId);
+    const result = (mutationLocks.get(key) || Promise.resolve()).then(async () => {
+      const claim = await fakeDb.claimClientMutation(userId, clientMutationId, descriptor);
+      if (claim.disposition !== 'acquired') return claim;
+      const response = await execute();
+      if (response.status >= 400) clientMutations.delete(key);
+      else await fakeDb.completeClientMutation(userId, clientMutationId, { responseStatus: response.status, responseBody: response.body });
+      return { disposition: 'response', response };
+    });
+    mutationLocks.set(key, result.catch(() => {}));
+    return result;
+  },
   getPool: () => ({ query: async () => ({ rows: [] }) }),
   initDb: async () => {},
   checkDatabaseHealth: async () => ({ ok: true, latencyMs: 1 }),
@@ -491,7 +505,7 @@ test.before(async () => {
   delete require.cache[serverPath];
   app = require(serverPath).app;
   httpServer = await new Promise((resolve) => {
-    const server = app.listen(0, () => resolve(server));
+    const server = app.listen(0, '127.0.0.1', () => resolve(server));
   });
   const { port } = httpServer.address();
   baseUrl = `http://127.0.0.1:${port}`;

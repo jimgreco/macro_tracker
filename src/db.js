@@ -62,11 +62,12 @@ function buildSslConfig(connectionString) {
   return ssl;
 }
 
-const pool = new Pool({
+const { createTransactionalPool } = require('./transactional-pool');
+const { pool, transaction: mutationTransaction } = createTransactionalPool(new Pool({
   connectionString: databaseUrl,
   ssl: buildSslConfig(databaseUrl),
   max: Number(process.env.PG_POOL_MAX || 10)
-});
+}));
 
 function getPool() {
   return pool;
@@ -1487,6 +1488,25 @@ async function getClientMutation(userId, clientMutationId) {
     [userId, clientMutationId]
   );
   return mapClientMutation(result.rows[0]);
+}
+
+// The advisory transaction lock is a fenced, database-owned lease. Waiting
+// retries either observe a committed receipt or acquire a rolled-back mutation.
+// We never steal a legacy processing row: its original effect may have committed.
+async function runClientMutation(userId, clientMutationId, descriptor, execute) {
+  return mutationTransaction(async () => {
+    await pool.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      [JSON.stringify(['client-mutation', userId, clientMutationId])]);
+    const claim = await claimClientMutation(userId, clientMutationId, descriptor);
+    if (claim.disposition !== 'acquired') return claim;
+    const response = await execute();
+    if (response.status >= 400) return { disposition: 'response', response, rollback: true };
+    await completeClientMutation(userId, clientMutationId, {
+      responseStatus: response.status,
+      responseBody: response.body
+    });
+    return { disposition: 'response', response };
+  });
 }
 
 async function claimClientMutation(userId, clientMutationId, descriptor) {
@@ -5955,6 +5975,7 @@ module.exports = {
   listUserWebSessions,
   deleteUserWebSession,
   consumeRateLimit,
+  runClientMutation,
   claimClientMutation,
   getClientMutation,
   completeClientMutation,

@@ -110,7 +110,7 @@ test('Stripe route verifies exact bytes and acknowledges only after durable rece
     delete require.cache[serverPath];
     const { app } = require(serverPath);
     httpServer = await new Promise((resolve) => {
-      const server = app.listen(0, () => resolve(server));
+      const server = app.listen(0, '127.0.0.1', () => resolve(server));
     });
     const baseUrl = `http://127.0.0.1:${httpServer.address().port}`;
     const rawPayload = '{ "id":"evt_route", "type":"checkout.session.completed", "created":1700000000, "data":{"object":{"mode":"subscription","client_reference_id":"route-user","customer":"cus_route","subscription":"sub_route"}} }';

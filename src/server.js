@@ -37,9 +37,7 @@ const {
   listUserWebSessions,
   deleteUserWebSession,
   consumeRateLimit,
-  claimClientMutation,
-  getClientMutation,
-  completeClientMutation,
+  runClientMutation,
   addEntries,
   copyEntriesForLocalDay,
   copyEntriesToLocalDay,
@@ -2808,18 +2806,8 @@ app.get('/healthz', async (req, res) => {
 const apiRouter = express.Router();
 
 apiRouter.use(createClientMutationMiddleware({
-  claimClientMutation,
-  getClientMutation,
-  completeClientMutation,
-  userIdFromRequest: userIdFromReq,
-  onPersistenceError: (error, context) => {
-    logServerError(null, error, {
-      status: 500,
-      category: 'client_mutation',
-      method: context.method,
-      path: context.path
-    });
-  }
+  runClientMutation,
+  userIdFromRequest: userIdFromReq
 }));
 
 // ── Durable plan-based feature gating for AI endpoints ──
