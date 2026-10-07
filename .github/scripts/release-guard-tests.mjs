@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { policy as basePolicy, digest, readClient, audience, preflight, verifyUploaded, validateCertificate, validateProfile, validateBundle, releaseIdentity, discoverAudience } from './asc-readonly.mjs';
 
 const policy = { ...basePolicy, appId: 'synthetic-app',
@@ -100,7 +101,7 @@ test('build check accepts advancing iOS commit count only', async () => {
 });
 test('compares builds within the pinned iOS marketing version', async () => {
   const f = fixture();
-  f.routes[`/v1/preReleaseVersions?filter[app]=${f.p.appId}&filter[platform]=IOS&limit=200`].data.push({ type: 'preReleaseVersions', id: 'old', attributes: { platform: 'IOS', version: '0.9' } });
+  f.routes[`/v1/preReleaseVersions?filter[app]=${f.p.appId}&filter[platform]=IOS&limit=200`].data.push({ type: 'preReleaseVersions', id: 'old', attributes: { platform: 'IOS', version: '1.0' } });
   f.routes['/v1/preReleaseVersions/old/builds?limit=200'] = { data: [{ type: 'builds', id: 'old-high', attributes: { version: '900' } }] };
   assert.equal((await preflight(f.client, '3', 'a'.repeat(40), f.p)).build, '3');
   f.routes['/v1/preReleaseVersions/ios-train/builds?limit=200'].data.push({ type: 'builds', id: 'same-train-high', attributes: { version: '4' } });
@@ -181,3 +182,12 @@ for (const change of ['no-app', 'duplicate-app', 'external-tester', 'public-link
     await assert.rejects(() => discoverAudience(f.client, f.p));
   });
 }
+
+
+test('every Xcode target configuration matches the pinned marketing version', () => {
+  const project = readFileSync(new URL('../../ios/DailyMacros/DailyMacros.xcodeproj/project.pbxproj', import.meta.url), 'utf8');
+  const versions = [...project.matchAll(/MARKETING_VERSION = ([0-9.]+);/g)].map(match => match[1]);
+  assert.equal(versions.length, 6, 'Check Debug and Release for the app and both test targets.');
+  assert.match(basePolicy.marketingVersion, /^[0-9]+\.[0-9]+\.[0-9]+$/);
+  assert.deepEqual([...new Set(versions)], [basePolicy.marketingVersion]);
+});

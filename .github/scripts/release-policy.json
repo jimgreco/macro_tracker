@@ -13,7 +13,7 @@
       "healthkitBackgroundDelivery": true
     }
   },
-  "marketingVersion": "1.0",
+  "marketingVersion": "1.0.1",
   "apiOrigin": "https://macrovana.com",
   "infoPlists": ["ios/DailyMacros/DailyMacros/Info.plist"],
   "configuredPlistKeys": []

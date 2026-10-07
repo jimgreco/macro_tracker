@@ -18,3 +18,5 @@ npm run test:check
 ```
 
 Live Macros signing/audience state has not been verified by local tests. Missing, revoked, expired, mismatched or insufficient assets; unavailable app-specific authentication; broader audience; new Apple terms; or changed capabilities/settings are one explicit prerequisite decision for the coordinator. Never create/renew resources, copy credentials between apps, relax these checks, or change TestFlight distribution to unblock a release. No app code or restricted-database startup behavior changes in this guard.
+
+On October 7, run `37649759421` passed Required Checks, signing, audience and artifact checks, but Apple rejected build 275 because marketing version `1.0` was closed (90186/90062). A GET-only Apple lookup at 16:21 UTC confirmed app `6770046577`, bundle `com.dailymacros.app`, was published at `1.0`. The next candidate uses `1.0.1` consistently across Xcode configurations and the release policy. Signing assets, capabilities, audience and manual release gates are unchanged. The sole release coordinator must run the normal checks and verify upload/processing; the version bump itself is not upload acceptance.
