@@ -1209,12 +1209,35 @@ test('TestFlight workflow requires the canonical Macrovana API origin and passes
   const workflow = read('.github/workflows/testflight.yml');
   assert.ok(workflow.includes('if [ "$IOS_API_BASE_URL" != "https://macrovana.com" ]'));
   assert.ok(workflow.includes('IOS_API_BASE_URL must be exactly https://macrovana.com.'));
-  assert.ok(workflow.includes('openssl pkcs12 -legacy -in "$RUNNER_TEMP/cert.p12"'));
+  assert.ok(workflow.includes('openssl pkcs12 -legacy -in "$RELEASE_TEMP/cert.p12"'));
   assert.ok(workflow.includes('openssl pkcs12 verification: OK (legacy provider)'));
   assert.ok(workflow.indexOf('/Applications/Xcode_26.2.app') < workflow.indexOf('/Applications/Xcode_26.app'));
   assert.ok(workflow.includes('GIT_COMMIT_HASH="$(git rev-parse --short=7 HEAD)"'));
   assert.ok(workflow.includes('APP_BUILD="$BUILD_NUMBER"'));
   assert.ok(workflow.includes('GIT_COMMIT_HASH="$GIT_COMMIT_HASH"'));
+});
+
+test('TestFlight retains manual CI gating and verifies existing scope around its only upload', () => {
+  const workflow = read('.github/workflows/testflight.yml');
+  const ci = read('.github/workflows/ci.yml');
+  assert.ok(workflow.includes('workflow_call:'));
+  assert.ok(!workflow.includes('  push:'));
+  assert.ok(workflow.includes("github.event_name == 'workflow_dispatch'"));
+  assert.ok(ci.includes("needs.required.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.upload_testflight"));
+  assert.ok(!workflow.includes('-allowProvisioningUpdates'));
+  assert.ok(!workflow.includes('-authenticationKeyPath'));
+  assert.ok(!workflow.includes('security default-keychain'));
+  assert.ok(workflow.indexOf('asc-readonly.mjs scope-policy') < workflow.indexOf('xcodebuild archive'));
+  assert.ok(workflow.indexOf('cmp "$RELEASE_TEMP/configured.mobileprovision"') < workflow.indexOf('xcodebuild archive'));
+  const upload = workflow.indexOf('xcrun altool --upload-app');
+  assert.equal(workflow.match(/xcrun altool --upload-app/g).length, 1);
+  const recheck = workflow.indexOf('name: Verify artifact and recheck');
+  assert.ok(recheck < upload);
+  assert.ok(workflow.slice(recheck, upload).includes('asc-readonly.mjs profiles'));
+  assert.ok(workflow.slice(recheck, upload).includes('asc-readonly.mjs preflight'));
+  assert.ok(workflow.indexOf('asc-readonly.mjs verify-upload') > upload);
+  assert.ok(ci.includes('node --test .github/scripts/release-guard-tests.mjs'));
+  assert.ok(ci.includes('python3 .github/scripts/test_release.py'));
 });
 
 test('iOS settings exposes support privacy and build metadata', () => {

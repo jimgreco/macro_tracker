@@ -182,6 +182,7 @@ preserved there.
 - Do not present upgrade prompts or new Stripe checkout in web, iOS, or the API while plan gating is disabled. Preserve historical Stripe webhook processing and portal access for existing subscribers. Apple requires in-app purchase for digital upgrades in many storefronts.
 - Screenshot tooling: keep the generic `ruby` platform in `Gemfile.lock` for CI portability. CFPropertyList 3.0.9 requires Ruby < 3.2, so the Ruby 3.3 workflow uses the compatible 3.0.7 pin.
 - TestFlight signing: `.github/workflows/testflight.yml` verifies the App Store distribution `.p12` before import. Keep the `openssl pkcs12 -legacy` fallback because GitHub `macos-latest` OpenSSL can reject older Apple certificate bundles encrypted with legacy ciphers such as `RC2-40-CBC`.
+- TestFlight uses only this repository's existing configured identity/profile. Preserve GET-only live signing/audience checks, manual archive/export without provisioning updates, internal-only export, source/artifact verification and processed-build/group verification. See [docs/native-testflight-existing-assets.md](docs/native-testflight-existing-assets.md). Missing resources or broader audiences stop the release; never repair Apple configuration or copy another app's credentials to pass a guard.
 - Legacy Elastic Beanstalk material remains in `docs/aws-production-security-audit.md`; do not use it as the current deploy source of truth unless that platform is intentionally revived.
 
 ### Deployment Process

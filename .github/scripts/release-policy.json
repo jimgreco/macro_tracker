@@ -1,0 +1,20 @@
+{
+  "app": "macros",
+  "bundleId": "com.dailymacros.app",
+  "teamId": "V6JPQCD336",
+  "testerEmailSha256": "a46343858cf3e5e2fda6339f7063190f295ece10dea50979932e69ec57ea4baa",
+  "profiles": {
+    "app": {
+      "bundleId": "com.dailymacros.app",
+      "groups": [],
+      "appleSignin": ["Default"],
+      "push": null,
+      "healthkit": true,
+      "healthkitBackgroundDelivery": true
+    }
+  },
+  "marketingVersion": "1.0",
+  "apiOrigin": "https://macrovana.com",
+  "infoPlists": ["ios/DailyMacros/DailyMacros/Info.plist"],
+  "configuredPlistKeys": []
+}
