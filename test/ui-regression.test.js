@@ -1656,8 +1656,9 @@ test('iOS offline replay is protected, account-scoped, and lifecycle-safe', () =
   assert.ok(offline.includes('let clientMutationId: UUID'));
   assert.ok(offline.includes('let ownerUserId: String'));
   assert.ok(offline.includes('activeOwnerUserId == ownerUserId'));
-  assert.ok(offline.includes('.filter { $0.ownerUserId == ownerUserId }'));
-  assert.ok(offline.includes('pending-mutations-v2.json'));
+  assert.ok(offline.includes('.filter { $0.ownerUserId == ownerUserId && $0.reviewReason == nil && $0.archivedAt == nil }'));
+  assert.ok(offline.includes('pending-mutations-v3.json'));
+  assert.ok(offline.includes('fileManager.moveItem(at: oldURL, to: self.storageURL)'));
   assert.ok(offline.includes('Data(contentsOf: storageURL)'));
   assert.ok(offline.includes('.completeFileProtection'));
   assert.ok(offline.includes('FileProtectionType.complete'));
@@ -1666,7 +1667,8 @@ test('iOS offline replay is protected, account-scoped, and lifecycle-safe', () =
 
   assert.ok(offline.includes('pending_mutations_v1'));
   assert.ok(offline.includes('LegacyPendingMutation'));
-  assert.ok(offline.includes('defaults.removeObject(forKey: legacyStorageKey)'));
+  assert.equal(offline.includes('defaults.removeObject(forKey: legacyStorageKey)'), false);
+  assert.ok(offline.includes('func recoveryExport'));
   assert.ok(offline.includes('discardPendingWorkForDeletedAccount'));
   assert.ok(offline.includes('deletedOwnerUserIds.insert'));
   assert.ok(offline.includes('func deactivateAccount()'));

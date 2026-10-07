@@ -28,7 +28,8 @@ enum APIError: LocalizedError {
 class APIClient: ObservableObject {
     static let shared = APIClient()
 
-    private let session = URLSession.shared
+    private let session: URLSession
+    private let offlineStore: OfflineMutationStore
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
         return d
@@ -57,8 +58,9 @@ class APIClient: ObservableObject {
     @Published var token: String? {
         didSet {
             if oldValue != token {
+                sessionGeneration = UUID()
                 authenticatedUserId = nil
-                OfflineMutationStore.shared.deactivateAccount()
+                offlineStore.deactivateAccount()
             }
             if let token {
                 isLocalDevOfflineSession = false
@@ -71,9 +73,11 @@ class APIClient: ObservableObject {
     @Published private(set) var isLocalDevOfflineSession = false
     @Published private(set) var authenticatedUserId: String?
     private var isFlushingPendingMutations = false
-    private var didReportLegacyQueueDiscard = false
+    private var sessionGeneration = UUID()
 
-    init() {
+    init(session: URLSession = .shared, offlineStore: OfflineMutationStore? = nil) {
+        self.session = session
+        self.offlineStore = offlineStore ?? .shared
         #if DEBUG
         if ScreenshotSeedData.isEnabled {
             ScreenshotSeedData.prepareRuntimeStateIfNeeded()
@@ -119,25 +123,15 @@ class APIClient: ObservableObject {
             return
         }
 
+        if authenticatedUserId != normalizedUserId { sessionGeneration = UUID() }
         authenticatedUserId = normalizedUserId
-        OfflineMutationStore.shared.activateAccount(userId: normalizedUserId)
-        if !didReportLegacyQueueDiscard,
-           OfflineMutationStore.shared.legacyDiscardedCount > 0 {
-            didReportLegacyQueueDiscard = true
-            Diagnostics.shared.record(
-                level: "warning",
-                category: "offline",
-                message: "Discarded legacy unowned pending mutations",
-                details: [
-                    "count": "\(OfflineMutationStore.shared.legacyDiscardedCount)"
-                ]
-            )
-        }
+        offlineStore.activateAccount(userId: normalizedUserId)
     }
 
     func deactivateAuthenticatedAccount() {
+        sessionGeneration = UUID()
         authenticatedUserId = nil
-        OfflineMutationStore.shared.deactivateAccount()
+        offlineStore.deactivateAccount()
     }
 
     func beginLocalDevOfflineSession() {
@@ -150,12 +144,15 @@ class APIClient: ObservableObject {
     }
 
     private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
+        let generation = sessionGeneration
         let data: Data
         let response: URLResponse
 
         do {
             (data, response) = try await session.data(for: request)
+            guard generation == sessionGeneration else { throw CancellationError() }
         } catch {
+            guard generation == sessionGeneration else { throw CancellationError() }
             Diagnostics.shared.record(
                 level: "error",
                 category: "api",
@@ -212,12 +209,15 @@ class APIClient: ObservableObject {
     }
 
     private func performData(_ request: URLRequest) async throws -> Data {
+        let generation = sessionGeneration
         let data: Data
         let response: URLResponse
 
         do {
             (data, response) = try await session.data(for: request)
+            guard generation == sessionGeneration else { throw CancellationError() }
         } catch {
+            guard generation == sessionGeneration else { throw CancellationError() }
             Diagnostics.shared.record(
                 level: "error",
                 category: "api",
@@ -293,11 +293,11 @@ class APIClient: ObservableObject {
         queuedResponse: T
     ) async throws -> T {
         guard let ownerUserId = authenticatedUserId,
-              OfflineMutationStore.shared.activeOwnerUserId == ownerUserId else {
+              offlineStore.activeOwnerUserId == ownerUserId else {
             throw APIError.notAuthenticated
         }
 
-        let mutation = OfflineMutationStore.shared.makeMutation(
+        let mutation = offlineStore.makeMutation(
             ownerUserId: ownerUserId,
             method: method,
             path: path,
@@ -311,11 +311,16 @@ class APIClient: ObservableObject {
             clientMutationId: mutation.clientMutationId
         )
 
+        try offlineStore.enqueue(mutation)
         do {
-            return try await perform(request)
+            let result: T = try await perform(request)
+            try offlineStore.remove(clientMutationId: mutation.id, ownerUserId: ownerUserId)
+            return result
         } catch {
+            if isTerminalReplayConflict(error) {
+                try offlineStore.hold(mutation, reason: "The server could not confirm this change. Review history before retrying the same request.")
+            }
             guard shouldQueueMutation(after: error) else { throw error }
-            try OfflineMutationStore.shared.enqueue(mutation)
             Diagnostics.shared.record(
                 level: "warning",
                 category: "offline",
@@ -324,7 +329,7 @@ class APIClient: ObservableObject {
                     "kind": kind.rawValue,
                     "method": method,
                     "path": path,
-                    "pending": "\(OfflineMutationStore.shared.pendingCount)"
+                    "pending": "\(offlineStore.pendingCount)"
                 ]
             )
             return queuedResponse
@@ -332,12 +337,10 @@ class APIClient: ObservableObject {
     }
 
     private func isTerminalReplayConflict(_ error: Error) -> Bool {
-        guard case APIError.httpError(let status, let message) = error else {
+        guard case APIError.httpError(let status, _) = error else {
             return false
         }
-        if status == 409 && message.localizedCaseInsensitiveContains("still processing") {
-            return false
-        }
+        // All conflicts are retained for explicit review, including ambiguous receipts.
         return [400, 403, 404, 409, 410, 422].contains(status)
     }
 
@@ -347,15 +350,18 @@ class APIClient: ObservableObject {
         isFlushingPendingMutations = true
         defer { isFlushingPendingMutations = false }
 
-        let pending = OfflineMutationStore.shared.snapshot(for: ownerUserId)
+        let pending = offlineStore.snapshot(for: ownerUserId)
         guard !pending.isEmpty else { return }
 
         for mutation in pending {
             guard authenticatedUserId == ownerUserId,
-                  OfflineMutationStore.shared.activeOwnerUserId == ownerUserId else {
+                  offlineStore.activeOwnerUserId == ownerUserId else {
                 throw APIError.notAuthenticated
             }
 
+            // A review action may set aside a later item while an earlier request
+            // is awaiting its response. Recheck eligibility immediately before send.
+            guard offlineStore.snapshot(for: ownerUserId).contains(where: { $0.id == mutation.id && $0.method == mutation.method && $0.path == mutation.path && $0.body == mutation.body && $0.kind == mutation.kind }) else { continue }
             let request = try authorizedRequest(
                 apiURL(mutation.path),
                 method: mutation.method,
@@ -364,7 +370,7 @@ class APIClient: ObservableObject {
             )
             do {
                 _ = try await performData(request)
-                try OfflineMutationStore.shared.remove(
+                try offlineStore.remove(
                     clientMutationId: mutation.clientMutationId,
                     ownerUserId: ownerUserId
                 )
@@ -379,20 +385,7 @@ class APIClient: ObservableObject {
                 )
             } catch {
                 if isTerminalReplayConflict(error) {
-                    try OfflineMutationStore.shared.remove(
-                        clientMutationId: mutation.clientMutationId,
-                        ownerUserId: ownerUserId
-                    )
-                    Diagnostics.shared.record(
-                        level: "warning",
-                        category: "offline",
-                        message: "Discarded pending mutation after conflict",
-                        details: [
-                            "kind": mutation.kind.rawValue,
-                            "method": mutation.method,
-                            "path": mutation.path
-                        ]
-                    )
+                    try offlineStore.hold(mutation, reason: "The server could not confirm this change. An older receipt may already have written it. Review history; never recreate it with a new ID.")
                     continue
                 }
                 Diagnostics.shared.record(
@@ -412,7 +405,7 @@ class APIClient: ObservableObject {
 
     private func discardPendingMutationsForDeletedAccount() throws {
         guard let ownerUserId = authenticatedUserId else { return }
-        try OfflineMutationStore.shared.discardPendingWorkForDeletedAccount(userId: ownerUserId)
+        try offlineStore.discardPendingWorkForDeletedAccount(userId: ownerUserId)
         Diagnostics.shared.record(
             category: "offline",
             message: "Discarded pending work for account deletion"
@@ -991,7 +984,7 @@ class APIClient: ObservableObject {
         return try await perform(authorizedRequest(components.url!))
     }
     func saveCheckin(id: String?, createID: String, day: String, notes: String, waist: CheckinWaistInput?, mutationID: UUID) async throws -> CheckinSaveResult {
-        guard let ownerUserId = authenticatedUserId, OfflineMutationStore.shared.activeOwnerUserId == ownerUserId else { throw APIError.notAuthenticated }
+        guard let ownerUserId = authenticatedUserId, offlineStore.activeOwnerUserId == ownerUserId else { throw APIError.notAuthenticated }
         var request = try authorizedRequest(apiURL("/checkins"))
         request.httpMethod = "POST"
         request.setValue(mutationID.uuidString, forHTTPHeaderField: "X-Client-Mutation-Id")
@@ -1000,19 +993,22 @@ class APIClient: ObservableObject {
         if let waist { body["waist"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(waist)) }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         struct Saved: Decodable { let id: String }
+        let mutation = PendingMutation(clientMutationId: mutationID, ownerUserId: ownerUserId, createdAt: Date(), method: "POST", path: "/checkins", body: request.httpBody, kind: .waist)
+        try offlineStore.enqueue(mutation)
         do {
             let saved: Saved = try await perform(request)
+            try offlineStore.remove(clientMutationId: mutationID, ownerUserId: ownerUserId)
             return CheckinSaveResult(id: saved.id, queued: false)
         } catch {
+            if isTerminalReplayConflict(error) {
+                try offlineStore.hold(mutation, reason: "The server could not confirm this check-in. Review history before retrying the same request.")
+            }
             guard shouldQueueMutation(after: error) else { throw error }
             guard authenticatedUserId == ownerUserId else { throw APIError.notAuthenticated }
-            try OfflineMutationStore.shared.enqueue(PendingMutation(
-                clientMutationId: mutationID, ownerUserId: ownerUserId, createdAt: Date(),
-                method: "POST", path: "/checkins", body: request.httpBody, kind: .waist
-            ))
             return CheckinSaveResult(id: id ?? createID, queued: true)
         }
     }
+
     func saveProgressPhoto(checkin: String, view: String, data: Data) async throws {
         var request = try authorizedRequest(apiURL("/checkins/\(checkin)/photos/\(view)"))
         request.httpMethod = "PUT"
@@ -1484,14 +1480,16 @@ class APIClient: ObservableObject {
 
     func deleteAccount() async throws {
         let ownerUserId = authenticatedUserId
+        let generation = sessionGeneration
         try discardPendingMutationsForDeletedAccount()
         do {
             let request = try authorizedRequest(apiURL("/account"), method: "DELETE")
             let _: OkResponse = try await perform(request)
             token = nil
         } catch {
+            guard generation == sessionGeneration else { throw CancellationError() }
             if let ownerUserId {
-                OfflineMutationStore.shared.restoreAccountAfterFailedDeletion(
+                offlineStore.restoreAccountAfterFailedDeletion(
                     userId: ownerUserId
                 )
             }

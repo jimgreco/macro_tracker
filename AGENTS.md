@@ -252,3 +252,7 @@ only into a disposable clean Git archive and verifies real image exclusions.
 - Existing databases require reviewed `--adopt-existing` (with `--` before that flag for npm). Adoption validates structure and adds only compatibility metadata; it does not replay historical data repairs. Fresh initialization requires an empty public schema.
 - See `docs/database-runtime-access.md` for the owner/runtime split, rollout ordering and rollback limits. Do not deploy this startup change before schema adoption is approved and completed.
 - Runtime must not receive migration credentials or membership in its object-owner role. Schema changes require an updated contract, an explicit migration, reviewed grants and a compatible rollback floor.
+
+## Native offline recovery
+
+`OfflineMutationStore` preserves ownerless legacy bytes and unreadable protected files. Owned queues migrate by exact-byte rename to `pending-mutations-v3.json`, away from older clients' replay path; a post-downgrade v2 file stays quarantined. Journal replayable requests before sending, hold rejected/ambiguous requests for explicit review, and keep retry UUID/body unchanged. Set aside is a retained local archive, not irreversible deletion. Recovery exports and actions are account/session fenced. See `docs/client-mutation-recovery.md`; never infer a legacy owner or recreate an uncertain request under a new UUID.

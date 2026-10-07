@@ -766,6 +766,8 @@ struct SettingsView: View {
 
     private var pendingSyncSection: some View {
         Section("Offline Queue") {
+            NavigationLink("Review & Recover Offline Work") { OfflineRecoveryView() }
+            if offlineQueue.reviewCount > 0 { Text("\(offlineQueue.reviewCount) change(s) need review before retrying.") }
             HStack {
                 Text("Pending for This Account")
                 Spacer()
@@ -1134,6 +1136,8 @@ private struct AccountDetailsView: View {
                         syncStatusRow
                         accountDivider
                         syncNowButton
+                        NavigationLink("Review & Recover Offline Work") { OfflineRecoveryView() }
+                            .padding()
                     }
 
                     groupedSection(title: "Signed-in Devices") {
@@ -1704,5 +1708,98 @@ private final class OuraAuthenticationContextProvider: NSObject, ASWebAuthentica
             return ASPresentationAnchor()
         }
         return window
+    }
+}
+
+
+/// Recovery stays on this device until the user chooses a share destination.
+private struct OfflineRecoveryView: View {
+    @StateObject private var queue = OfflineMutationStore.shared
+    @State private var owner: String?
+    @State private var generation = UUID()
+    @State private var typedAccount = ""
+    @State private var confirmsOriginalAccount = false
+    @State private var includeLegacy = false
+    @State private var packet: String?
+    @State private var error: String?
+    @State private var selected: PendingMutation?
+
+    private var current: Bool { owner != nil && owner == queue.activeOwnerUserId && generation == queue.accountGeneration }
+
+    var body: some View {
+        List {
+            if current, let owner {
+                Section("This account") {
+                    Text(owner).font(.caption.monospaced()).textSelection(.enabled)
+                    Text("Review your cloud history before retrying. Retry keeps the original request and ID. Set aside stops retries but retains a recoverable local copy; it does not undo a cloud change.")
+                    ForEach((try? queue.reviewItems(owner: owner, generation: generation)) ?? []) { item in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("\(item.kind.rawValue) · \(item.method)").font(.headline)
+                            Text(item.createdAt, style: .date)
+                            Text(item.path).font(.caption.monospaced())
+                            Text(item.id.uuidString).font(.caption2.monospaced()).textSelection(.enabled)
+                            Text(item.archivedAt != nil ? "Set aside; original retained" : item.reviewReason ?? "Waiting to sync")
+                            if let body = item.body, let preview = String(data: body, encoding: .utf8) {
+                                DisclosureGroup("Review saved request") { Text(preview).font(.caption.monospaced()).textSelection(.enabled) }
+                            }
+                            Button("Review retry / set aside") { selected = item }
+                        }
+                    }
+                }
+                if queue.hasLegacyWork || queue.hasUnreadableStorage {
+                    Section("Older preserved work") {
+                        Text("These bytes have no verified owner or cannot be decoded. They are never assigned or replayed automatically. Confirm the original account before viewing or exporting; leave them preserved if unsure. Work deleted by an earlier app version cannot be restored here.")
+                        TextField("Type the account ID above", text: $typedAccount).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        Toggle("I verified this device's older work belongs to this original account", isOn: $confirmsOriginalAccount)
+                        Button("Review preserved bytes") {
+                            includeLegacy = true
+                            makePacket(owner)
+                        }.disabled(typedAccount != owner || !confirmsOriginalAccount)
+                        Text("Legacy recovery requires matching the original request to cloud history. Export for review; do not re-enter an uncertain change or use a new mutation ID. Contact support if its outcome cannot be proved.").font(.footnote)
+                    }
+                }
+                Section("Local recovery export") {
+                    Button("Prepare recovery export") { makePacket(owner) }
+                    if let packet {
+                        DisclosureGroup("Review export contents") { Text(packet).font(.caption.monospaced()).textSelection(.enabled) }
+                        ShareLink("Export reviewed copy…", item: packet)
+                        Text("Contains private health data. Choose a destination you trust. Nothing is sent automatically.").font(.footnote)
+                    }
+                }
+            } else {
+                Text("The account changed. Close this screen and reopen it from the correct account.")
+            }
+            if let error { Text(error).foregroundStyle(.red) }
+        }
+        .navigationTitle("Offline Recovery")
+        .task {
+            if owner == nil { owner = queue.activeOwnerUserId; generation = queue.accountGeneration }
+        }
+        .onChange(of: queue.accountGeneration) { _, _ in
+            packet = nil; selected = nil; includeLegacy = false; confirmsOriginalAccount = false; typedAccount = ""
+        }
+        .confirmationDialog("Review this saved change", isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil } }), titleVisibility: .visible) {
+            if let selected, let owner, current {
+                Button("Retry the same request") { act(selected, owner: owner, archive: false) }
+                Button("Set aside; retain original") { act(selected, owner: owner, archive: true) }
+            }
+            Button("Cancel", role: .cancel) { selected = nil }
+        } message: {
+            Text("Retry can apply this exact change to cloud history. An ambiguous receipt stays blocked by the server. Set aside retains the original locally and changes no cloud data.")
+        }
+    }
+
+    private func makePacket(_ owner: String) {
+        do {
+            packet = try queue.recoveryExport(owner: owner, generation: generation, includeLegacy: includeLegacy && confirmsOriginalAccount && typedAccount == owner)
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func act(_ item: PendingMutation, owner: String, archive: Bool) {
+        do {
+            try queue.reviewAction(id: item.id, owner: owner, generation: generation, archive: archive)
+            packet = nil
+        } catch { self.error = error.localizedDescription }
+        selected = nil
     }
 }

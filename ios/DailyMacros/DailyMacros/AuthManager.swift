@@ -36,6 +36,7 @@ class AuthManager: ObservableObject {
                     return
                 }
             } catch {
+                if error is CancellationError { return }
                 Diagnostics.shared.record(level: "warning", category: "auth", message: "Stored token refresh failed", details: ["error": error.localizedDescription])
                 api.token = nil
                 isAuthenticated = false
@@ -64,6 +65,7 @@ class AuthManager: ObservableObject {
             do {
                 try await signInWithDevBypass()
             } catch {
+                if error is CancellationError { return }
                 Diagnostics.shared.record(level: "warning", category: "auth", message: "Local dev token refresh unavailable", details: ["error": error.localizedDescription])
             }
             return
@@ -75,6 +77,7 @@ class AuthManager: ObservableObject {
             user = try await api.getMe()
             isAuthenticated = user != nil
         } catch {
+            if error is CancellationError { return }
             Diagnostics.shared.record(level: "warning", category: "auth", message: "User refresh failed", details: ["error": error.localizedDescription])
         }
     }
@@ -136,6 +139,7 @@ class AuthManager: ObservableObject {
         do {
             try await signInWithDevBypass()
         } catch {
+            if error is CancellationError { return }
             signInWithOfflineLocalDevUser(fallbackError: error)
         }
     }
