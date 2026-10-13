@@ -1516,6 +1516,25 @@ button[disabled] {
   line-height: 1;
 }
 
+.quick-add-preview {
+  margin: 0.7rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.quick-add-preview strong,
+.quick-add-preview span {
+  display: block;
+}
+
+.quick-add-preview span {
+  color: var(--muted);
+}
+
 .quick-shortcut-row {
   display: flex;
   flex-wrap: wrap;

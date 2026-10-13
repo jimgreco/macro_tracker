@@ -107,6 +107,7 @@ const parseNoteEl = document.getElementById('parse-note');
 const parsedItemsContainerEl = document.getElementById('parsed-items-container');
 const quickSelectEl = document.getElementById('quick-entry-select');
 const quickMultiplierEl = document.getElementById('quick-multiplier');
+const quickAddPreviewEl = document.getElementById('quick-add-preview');
 const quickAddBtnEl = document.getElementById('quick-add-btn');
 const quickEditToggleBtnEl = document.getElementById('quick-edit-toggle-btn');
 const copyYesterdayBtnEl = document.getElementById('copy-yesterday-btn');
@@ -4057,6 +4058,35 @@ function findQuickPickerOption(key) {
   return flattenQuickPickerGroups(quickEntryOptionGroups()).find((option) => option.key === key) || null;
 }
 
+function quickAddPortion(template, rawMultiplier) {
+  if (!template) return null;
+  const multiplier = Number(rawMultiplier || 1);
+  if (!Number.isFinite(multiplier) || multiplier <= 0) return null;
+  const portion = { name: template.name, unit: template.unit || 'serving' };
+  for (const field of ['quantity', 'calories', 'protein', 'carbs', 'fat']) {
+    portion[field] = Number(template[field] || 0) * multiplier;
+    if (!Number.isFinite(portion[field])) return null;
+  }
+  return portion;
+}
+
+function renderQuickAddPreview() {
+  if (!quickAddPreviewEl) return;
+  const template = getSelectedQuickTemplate();
+  const portion = quickAddPortion(template, quickMultiplierEl.value);
+  quickAddBtnEl.disabled = state.quickAddBusy || !portion;
+  quickAddPreviewEl.hidden = !template;
+  if (!template) {
+    quickAddPreviewEl.textContent = '';
+    return;
+  }
+  if (!portion) {
+    quickAddPreviewEl.textContent = 'Enter a multiplier greater than 0 to preview this portion.';
+    return;
+  }
+  quickAddPreviewEl.innerHTML = `<strong>${escapeHtml(portion.name)} · ${fmtNumber(portion.quantity)} ${escapeHtml(portion.unit)}</strong><span>${formatMacros(portion)}</span>`;
+}
+
 function selectQuickEntry(key) {
   const option = findQuickPickerOption(key);
   state.quickSelectedKey = option ? option.key : '';
@@ -4066,9 +4096,11 @@ function selectQuickEntry(key) {
   const selectedTemplate = getSelectedQuickTemplate();
   quickAddBtnEl.disabled = state.quickAddBusy || !selectedTemplate;
   quickEditToggleBtnEl.disabled = state.quickAddBusy || !selectedTemplate;
+  renderQuickAddPreview();
 }
 
 function renderQuickEntrySelect(message = '') {
+  renderQuickAddPreview();
   if (!quickSelectEl) {
     return;
   }
@@ -4266,8 +4298,8 @@ function renderSavedItems() {
 
   renderQuickEntrySelect();
   const selectedTemplate = getSelectedQuickTemplate();
-  quickAddBtnEl.disabled = !selectedTemplate;
-  quickEditToggleBtnEl.disabled = !selectedTemplate;
+  quickAddBtnEl.disabled = state.quickAddBusy || !quickAddPortion(selectedTemplate, quickMultiplierEl.value);
+  quickEditToggleBtnEl.disabled = state.quickAddBusy || !selectedTemplate;
 }
 
 function renderMacroCard(entry) {
@@ -6159,7 +6191,7 @@ saveParsedBtnEl.addEventListener('click', async () => {
 quickAddBtnEl.addEventListener('click', async () => {
   if (state.quickAddBusy) return;
   const selectedTemplate = getSelectedQuickTemplate();
-  if (!selectedTemplate) {
+  if (!quickAddPortion(selectedTemplate, quickMultiplierEl.value)) {
     return;
   }
 
@@ -6198,6 +6230,10 @@ if (copyYesterdayBtnEl) {
       copyYesterdayBtnEl.disabled = false;
     }
   });
+}
+
+if (quickMultiplierEl) {
+  quickMultiplierEl.addEventListener('input', renderQuickAddPreview);
 }
 
 if (quickSelectEl) {

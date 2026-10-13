@@ -47,7 +47,7 @@ function harness() {
     parsedItemsContainerEl: { innerHTML: 'draft', querySelector: () => controls.visibleSave },
     setActionBanner: (message, type) => banners.push({ message, type }),
     refreshDashboard: async () => {}, loadQuickEntries: async () => {},
-    clearMealImageSelection() {}, renderParsedItems() {},
+    clearMealImageSelection() {}, renderParsedItems() {}, renderQuickAddPreview() {},
     appendBarcodeItemToParsedMeal(result) { state.parsedMeal.items.push(result.item); },
     collectParsedItemsFromUi: () => [item],
     savedItemComponents: (template) => template.components || [],
@@ -57,7 +57,7 @@ function harness() {
   };
   vm.createContext(context);
   vm.runInContext([
-    ...['createReplaySafePost', 'lockMealEditor', 'refreshAfterMealSave', 'selectQuickEntry',
+    ...['createReplaySafePost', 'lockMealEditor', 'refreshAfterMealSave', 'selectQuickEntry', 'quickAddPortion',
       'quickAddById', 'quickAddByTemplate', 'mealConsumedAt', 'asIso', 'lookupBarcode'].map(browserFunction),
     'const postParsedMeal = createReplaySafePost(); const postQuickAdd = createReplaySafePost();',
     handler('parseBtnEl', "saveParsedBtnEl.addEventListener('click'"),
@@ -247,4 +247,14 @@ test('a failed barcode lookup restores the editor and preserves the existing dra
   assert.equal(state.mealEditorBusy, false);
   assert.equal(controls.parseBtnEl.disabled, false);
   assert.equal(controls.visibleSave.disabled, false);
+});
+
+
+test('Quick Add cannot submit an invalid portion even through a direct handler call', async () => {
+  const { controls, requests } = harness();
+  for (const value of ['0', '-1', 'Infinity']) {
+    controls.quickMultiplierEl.value = value;
+    await controls.quickAddBtnEl.listeners.click();
+  }
+  assert.equal(requests.length, 0);
 });
