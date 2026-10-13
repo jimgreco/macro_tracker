@@ -8460,15 +8460,33 @@ if (editWorkoutTargetLinkEl) {
   });
 }
 
+let workoutFormAction = null;
+function setWorkoutFormAction(action) {
+  workoutFormAction = action;
+  const busy = Boolean(action);
+  [workoutTextEl, workoutLoggedAtEl, workoutDescriptionEl, workoutIntensityEl, workoutHoursEl, workoutCaloriesEl]
+    .filter(Boolean).forEach(control => { control.disabled = busy; });
+  workoutQuickListEl?.querySelectorAll('button').forEach(button => { button.disabled = busy; });
+  if (parseWorkoutBtnEl) {
+    parseWorkoutBtnEl.disabled = busy;
+    parseWorkoutBtnEl.textContent = action === 'parse' ? 'Parsing…' : 'Parse Workout';
+  }
+  if (saveWorkoutBtnEl) {
+    saveWorkoutBtnEl.disabled = busy || !state.pendingWorkout;
+    saveWorkoutBtnEl.textContent = action === 'save' ? 'Saving…' : 'Save';
+  }
+}
+
 if (parseWorkoutBtnEl) {
   parseWorkoutBtnEl.addEventListener('click', async () => {
+    if (workoutFormAction) return;
     const text = String(workoutTextEl?.value || '').trim();
     if (!text) {
       setActionBanner('Add a workout description first.', 'error');
       return;
     }
 
-    parseWorkoutBtnEl.disabled = true;
+    setWorkoutFormAction('parse');
     try {
       let parsed;
       try {
@@ -8499,9 +8517,8 @@ if (parseWorkoutBtnEl) {
       if (workoutCaloriesEl) workoutCaloriesEl.value = String(state.pendingWorkout.caloriesBurned);
       if (workoutIntensityEl) workoutIntensityEl.value = state.pendingWorkout.intensity;
       if (workoutEditorEl) workoutEditorEl.hidden = false;
-      if (saveWorkoutBtnEl) saveWorkoutBtnEl.disabled = false;
     } finally {
-      parseWorkoutBtnEl.disabled = false;
+      setWorkoutFormAction(null);
     }
   });
 }
@@ -8549,6 +8566,8 @@ if (saveWorkoutBtnEl) {
   }
 
   saveWorkoutBtnEl.addEventListener('click', async () => {
+    if (workoutFormAction || !state.pendingWorkout) return;
+    setWorkoutFormAction('save');
     try {
       await api('/api/workouts', {
         method: 'POST',
@@ -8568,6 +8587,8 @@ if (saveWorkoutBtnEl) {
       await refreshWorkoutData();
     } catch (error) {
       setActionBanner(error.message, 'error');
+    } finally {
+      setWorkoutFormAction(null);
     }
   });
 }
@@ -8592,6 +8613,7 @@ if (workoutLogListEl) {
 
 if (workoutQuickListEl) {
   workoutQuickListEl.addEventListener('click', (event) => {
+    if (workoutFormAction) return;
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
       return;
