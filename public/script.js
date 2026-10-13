@@ -4675,11 +4675,15 @@ function syncPeriodToggle(toggleEl, period) {
   }
 }
 
+let macroSnapshotRequestRevision = 0;
+
 async function refreshMacroSnapshotData() {
+  const requestRevision = ++macroSnapshotRequestRevision;
   const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
   const scope = periodToScope[state.macroSnapshotPeriod] || 'week';
   try {
     const data = await api(`/api/daily-totals?scope=${scope}&tz=${encodeURIComponent(getTimezone())}`);
+    if (requestRevision !== macroSnapshotRequestRevision) return;
     state.macroDailyTotals = data.dailyTotals || [];
     cacheDayCompletenessRows(state.macroDailyTotals);
     if (data.targets) {
@@ -4692,6 +4696,7 @@ async function refreshMacroSnapshotData() {
     renderSnapshotStats(state.macroDailyTotals, state.dashboardData.targets);
     renderAllCoachSlots();
   } catch (error) {
+    if (requestRevision !== macroSnapshotRequestRevision) return;
     console.error('Failed to refresh macro snapshot:', error);
   }
 }
@@ -7065,6 +7070,7 @@ async function refreshWeightData(options = {}) {
       reset ? api(`/api/weight-target?tz=${encodeURIComponent(tz)}`) : Promise.resolve(state.weightTargetData || {}),
       reset ? api(`/api/weights?scope=${encodeURIComponent(weightScope)}&tz=${encodeURIComponent(tz)}`) : Promise.resolve({ entries: state.weightChartEntries || [] })
     ]);
+    if (getLogPaging('weight') !== paging) return;
     const entries = Array.isArray(response.entries) ? response.entries : [];
     state.weightEntries = reset ? entries : appendUniqueById(state.weightEntries, entries);
     paging.offset += entries.length;
@@ -7086,17 +7092,20 @@ async function refreshWeightData(options = {}) {
       renderWeightChart();
     }
   } catch (error) {
+    if (getLogPaging('weight') !== paging) return;
     setActionBanner(error.message, 'error');
   } finally {
-    paging.loading = false;
-    renderPagedLogList({
-      kind: 'weight',
-      listEl: weightLogListEl,
-      entries: state.weightEntries,
-      renderCard: renderWeightCard,
-      emptyText: 'No weight entries.'
-    });
-    renderCoachForPage('weight');
+    if (getLogPaging('weight') === paging) {
+      paging.loading = false;
+      renderPagedLogList({
+        kind: 'weight',
+        listEl: weightLogListEl,
+        entries: state.weightEntries,
+        renderCard: renderWeightCard,
+        emptyText: 'No weight entries.'
+      });
+      renderCoachForPage('weight');
+    }
   }
 }
 
@@ -7606,6 +7615,7 @@ async function refreshSleepData(options = {}) {
       reset ? api(`/api/daily-totals?scope=week&tz=${encodeURIComponent(tz)}`) : Promise.resolve(null),
       reset ? api(`/api/oura/recovery?scope=${scope}&tz=${encodeURIComponent(tz)}`) : Promise.resolve(state.recovery)
     ]);
+    if (getLogPaging('sleep') !== paging) return;
     state.recovery = recovery;
     renderRecovery();
     if (reset && targetData?.targets) {
@@ -7636,17 +7646,20 @@ async function refreshSleepData(options = {}) {
       renderSleepChart();
     }
   } catch (error) {
+    if (getLogPaging('sleep') !== paging) return;
     setActionBanner(error.message, 'error');
   } finally {
-    paging.loading = false;
-    renderPagedLogList({
-      kind: 'sleep',
-      listEl: sleepLogListEl,
-      entries: state.sleepEntries,
-      renderCard: renderSleepCard,
-      emptyText: 'No sleep entries.'
-    });
-    renderCoachForPage('sleep');
+    if (getLogPaging('sleep') === paging) {
+      paging.loading = false;
+      renderPagedLogList({
+        kind: 'sleep',
+        listEl: sleepLogListEl,
+        entries: state.sleepEntries,
+        renderCard: renderSleepCard,
+        emptyText: 'No sleep entries.'
+      });
+      renderCoachForPage('sleep');
+    }
   }
 }
 
@@ -7949,6 +7962,7 @@ async function refreshHealthData(options = {}) {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const scope = periodToScope[state.healthSnapshotPeriod] || 'week';
     const data = await api(buildLogPageUrl('/api/sexual-activity', { scope, tz: getTimezone() }, paging));
+    if (getLogPaging('health') !== paging) return;
     const entries = Array.isArray(data.entries) ? data.entries : [];
     state.healthEntries = reset ? entries : appendUniqueById(state.healthEntries, entries);
     paging.offset += entries.length;
@@ -7960,16 +7974,19 @@ async function refreshHealthData(options = {}) {
       drawHealthOccurrenceChart(state.healthOccurrenceRows, state.healthSnapshotPeriod || 'weekly');
     }
   } catch (error) {
+    if (getLogPaging('health') !== paging) return;
     setActionBanner(error.message, 'error');
   } finally {
-    paging.loading = false;
-    renderPagedLogList({
-      kind: 'health',
-      listEl: healthLogListEl,
-      entries: state.healthEntries,
-      renderCard: renderHealthCard,
-      emptyText: 'No entries.'
-    });
+    if (getLogPaging('health') === paging) {
+      paging.loading = false;
+      renderPagedLogList({
+        kind: 'health',
+        listEl: healthLogListEl,
+        entries: state.healthEntries,
+        renderCard: renderHealthCard,
+        emptyText: 'No entries.'
+      });
+    }
   }
 }
 
@@ -8022,6 +8039,7 @@ async function refreshWorkoutData(options = {}) {
     const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
     const workoutScope = periodToScope[state.workoutSnapshotPeriod] || 'week';
     const data = await api(buildLogPageUrl('/api/workouts', { scope: workoutScope, tz: getTimezone() }, paging));
+    if (getLogPaging('workout') !== paging) return;
     const entries = Array.isArray(data.entries) ? data.entries : [];
     const dailyCalories = Array.isArray(data.dailyCalories) ? data.dailyCalories : [];
     state.workoutEntries = reset ? entries : appendUniqueById(state.workoutEntries, entries);
@@ -8042,17 +8060,20 @@ async function refreshWorkoutData(options = {}) {
       renderWorkoutChart();
     }
   } catch (error) {
+    if (getLogPaging('workout') !== paging) return;
     setActionBanner(error.message, 'error');
   } finally {
-    paging.loading = false;
-    renderPagedLogList({
-      kind: 'workout',
-      listEl: workoutLogListEl,
-      entries: state.workoutEntries,
-      renderCard: renderWorkoutCard,
-      emptyText: 'No workouts logged.'
-    });
-    renderCoachForPage('workout');
+    if (getLogPaging('workout') === paging) {
+      paging.loading = false;
+      renderPagedLogList({
+        kind: 'workout',
+        listEl: workoutLogListEl,
+        entries: state.workoutEntries,
+        renderCard: renderWorkoutCard,
+        emptyText: 'No workouts logged.'
+      });
+      renderCoachForPage('workout');
+    }
   }
 }
 
