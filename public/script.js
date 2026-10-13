@@ -2,6 +2,8 @@ let waistEntries = [];
 let waistLoading = false;
 const state = {
   parsedMeal: null,
+  mealEditorBusy: false,
+  quickAddBusy: false,
   savedItems: [],
   historyQuickItems: [],
   quickEntriesLoading: false,
@@ -298,6 +300,13 @@ function isoToLocalInputValue(isoString) {
     return toDateTimeLocalValue();
   }
   return toDateTimeLocalValue(date);
+}
+
+function mealConsumedAt() {
+  if (Number.isNaN(new Date(consumedAtEl.value).getTime())) {
+    consumedAtEl.value = toDateTimeLocalValue();
+  }
+  return asIso(consumedAtEl.value);
 }
 
 function asIso(localValue) {
@@ -1699,6 +1708,56 @@ async function api(path, options = {}) {
     throw err;
   }
   return body;
+}
+
+function createReplaySafePost() {
+  let lastSignature;
+  let mutationId;
+  return async (path, payload) => {
+    const body = JSON.stringify(payload);
+    const signature = JSON.stringify([state.currentUser?.id, path, body]);
+    if (signature !== lastSignature) {
+      mutationId = crypto.randomUUID();
+      lastSignature = signature;
+    }
+    const result = await api(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Client-Mutation-Id': mutationId },
+      body
+    });
+    // A failed response may hide a committed write. Keep its ID for an unchanged
+    // retry, but let the next intentional addition create another entry.
+    lastSignature = undefined;
+    mutationId = undefined;
+    return result;
+  };
+}
+
+const postParsedMeal = createReplaySafePost();
+const postQuickAdd = createReplaySafePost();
+
+function lockMealEditor() {
+  state.mealEditorBusy = true;
+  const section = document.getElementById('log-section');
+  const controls = Array.from(section.querySelectorAll('input, button, textarea, select'));
+  const wasDisabled = controls.map((control) => control.disabled);
+  controls.forEach((control) => { control.disabled = true; });
+  section.setAttribute('aria-busy', 'true');
+  return () => {
+    controls.forEach((control, index) => { control.disabled = wasDisabled[index]; });
+    state.mealEditorBusy = false;
+    section.removeAttribute('aria-busy');
+    saveParsedBtnEl.disabled = !state.parsedMeal?.items?.length;
+  };
+}
+
+async function refreshAfterMealSave(successMessage) {
+  setActionBanner(successMessage, 'success');
+  try {
+    await refreshDashboard();
+  } catch (_error) {
+    setActionBanner(`${successMessage} The log could not refresh. Refresh the page to see it.`, 'info');
+  }
 }
 
 window.addEventListener('error', (event) => {
@@ -3797,6 +3856,7 @@ function renderParsedItems(parsedMeal) {
       const saveBtn = document.createElement('button');
       saveBtn.type = 'button';
       saveBtn.className = 'btn-success table-action-btn';
+      saveBtn.id = 'parsed-meal-save-btn';
       saveBtn.textContent = 'Save';
       saveBtn.addEventListener('click', () => saveParsedBtnEl.click());
       actions.appendChild(saveBtn);
@@ -4005,8 +4065,8 @@ function selectQuickEntry(key) {
     quickSelectEl.value = state.quickSelectedKey;
   }
   const selectedTemplate = getSelectedQuickTemplate();
-  quickAddBtnEl.disabled = !selectedTemplate;
-  quickEditToggleBtnEl.disabled = !selectedTemplate;
+  quickAddBtnEl.disabled = state.quickAddBusy || !selectedTemplate;
+  quickEditToggleBtnEl.disabled = state.quickAddBusy || !selectedTemplate;
 }
 
 function renderQuickEntrySelect(message = '') {
@@ -4058,66 +4118,57 @@ function renderQuickEntrySelect(message = '') {
 
 
 function quickAddById(savedItemId) {
-  return api('/api/quick-add', {
-    method: 'POST',
-    body: JSON.stringify({
-      savedItemId,
-      multiplier: Number(quickMultiplierEl.value || 1),
-      consumedAt: asIso(consumedAtEl.value)
-    })
+  return postQuickAdd('/api/quick-add', {
+    savedItemId,
+    multiplier: Number(quickMultiplierEl.value || 1),
+    consumedAt: mealConsumedAt()
   });
 }
 
 function quickAddByTemplate(template) {
   const multiplier = Number(quickMultiplierEl.value || 1);
-  const consumedAt = asIso(consumedAtEl.value);
+  const consumedAt = mealConsumedAt();
   const components = savedItemComponents(template);
   if (components.length) {
-    return api('/api/entries/bulk', {
-      method: 'POST',
-      body: JSON.stringify({
+    return postQuickAdd('/api/entries/bulk', {
+      consumedAt,
+      items: components.map((component) => ({
+        itemName: component.itemName || component.name || 'Item',
+        quantity: Number(component.quantity || 0),
+        unit: component.unit || 'serving',
+        calories: Number(component.calories || 0),
+        protein: Number(component.protein || 0),
+        carbs: Number(component.carbs || 0),
+        fat: Number(component.fat || 0),
         consumedAt,
-        items: components.map((component) => ({
-          itemName: component.itemName || component.name || 'Item',
-          quantity: Number(component.quantity || 0),
-          unit: component.unit || 'serving',
-          calories: Number(component.calories || 0),
-          protein: Number(component.protein || 0),
-          carbs: Number(component.carbs || 0),
-          fat: Number(component.fat || 0),
-          consumedAt,
-          source: 'quick_add',
-          sourceDetail: template.savedItemId ? `saved_item:${template.savedItemId}` : 'recent_history'
-        })),
-        mealName: template.name || 'Meal',
-        mealQuantity: Math.max(Number(template.quantity || 1) * multiplier, 0.0001),
-        mealUnit: template.unit || 'serving',
-        itemsAreMealUnit: true,
         source: 'quick_add',
         sourceDetail: template.savedItemId ? `saved_item:${template.savedItemId}` : 'recent_history'
-      })
+      })),
+      mealName: template.name || 'Meal',
+      mealQuantity: Math.max(Number(template.quantity || 1) * multiplier, 0.0001),
+      mealUnit: template.unit || 'serving',
+      itemsAreMealUnit: true,
+      source: 'quick_add',
+      sourceDetail: template.savedItemId ? `saved_item:${template.savedItemId}` : 'recent_history'
     });
   }
 
-  return api('/api/entries/bulk', {
-    method: 'POST',
-    body: JSON.stringify({
-      consumedAt,
-      items: [
-        {
-          itemName: template.name,
-          quantity: Number(template.quantity || 0) * multiplier,
-          unit: template.unit || 'serving',
-          calories: Number(template.calories || 0) * multiplier,
-          protein: Number(template.protein || 0) * multiplier,
-          carbs: Number(template.carbs || 0) * multiplier,
-          fat: Number(template.fat || 0) * multiplier,
-          consumedAt,
-          source: 'quick_add',
-          sourceDetail: template.savedItemId ? `saved_item:${template.savedItemId}` : 'recent_history'
-        }
-      ]
-    })
+  return postQuickAdd('/api/entries/bulk', {
+    consumedAt,
+    items: [
+      {
+        itemName: template.name,
+        quantity: Number(template.quantity || 0) * multiplier,
+        unit: template.unit || 'serving',
+        calories: Number(template.calories || 0) * multiplier,
+        protein: Number(template.protein || 0) * multiplier,
+        carbs: Number(template.carbs || 0) * multiplier,
+        fat: Number(template.fat || 0) * multiplier,
+        consumedAt,
+        source: 'quick_add',
+        sourceDetail: template.savedItemId ? `saved_item:${template.savedItemId}` : 'recent_history'
+      }
+    ]
   });
 }
 
@@ -5944,6 +5995,7 @@ async function refreshDashboard() {
 }
 
 parseBtnEl.addEventListener('click', async () => {
+  if (state.mealEditorBusy) return;
   if (state.mealImageLoading) {
     const message = 'Photo is still processing. Please wait a moment and try again.';
     setActionBanner(message, 'info');
@@ -5951,13 +6003,14 @@ parseBtnEl.addEventListener('click', async () => {
   }
 
   setActionBanner('Parsing meal...', 'info');
+  const unlockEditor = lockMealEditor();
 
   try {
     const parsed = await api('/api/parse-meal', {
       method: 'POST',
       body: JSON.stringify({
         text: mealTextEl.value,
-        consumedAt: asIso(consumedAtEl.value),
+        consumedAt: mealConsumedAt(),
         imageDataUrls: state.mealImageAttachments.length
           ? state.mealImageAttachments.map((attachment) => attachment.dataUrl)
           : undefined
@@ -5972,15 +6025,17 @@ parseBtnEl.addEventListener('click', async () => {
     state.parsedMeal = null;
     parsedItemsContainerEl.innerHTML = '';
     saveParsedBtnEl.disabled = true;
+  } finally {
+    unlockEditor();
   }
 });
 
 saveParsedBtnEl.addEventListener('click', async () => {
-  if (!state.parsedMeal) {
+  if (!state.parsedMeal || state.mealEditorBusy) {
     return;
   }
 
-  const consumedAt = asIso(consumedAtEl.value);
+  const consumedAt = mealConsumedAt();
   const editedItems = collectParsedItemsFromUi();
   const parseSource = state.parsedMeal?.review?.source || (state.mealImageAttachments.length ? 'ai_photo' : 'ai_text');
   const parseSourceDetail = state.mealImageAttachments.length ? 'OpenAI meal photo parse' : 'OpenAI meal text parse';
@@ -6030,53 +6085,64 @@ saveParsedBtnEl.addEventListener('click', async () => {
     }
   }
 
+  const unlockEditor = lockMealEditor();
+  const visibleSaveButton = parsedItemsContainerEl.querySelector('#parsed-meal-save-btn');
+  const saveLabel = visibleSaveButton?.textContent;
+  if (visibleSaveButton) visibleSaveButton.textContent = 'Saving…';
   try {
-    await api('/api/entries/bulk', {
-      method: 'POST',
-      body: JSON.stringify({
-        consumedAt,
-        items,
-        saveItems,
-        mealName: state.parsedMeal.mealName || undefined,
-        mealQuantity: state.parsedMeal.mealQuantity || undefined,
-        mealUnit: state.parsedMeal.mealUnit || undefined,
-        itemsAreMealUnit: items.length > 1,
-        source: parseSource,
-        sourceDetail: parseSourceDetail
-      })
+    await postParsedMeal('/api/entries/bulk', {
+      consumedAt,
+      items,
+      saveItems,
+      mealName: state.parsedMeal.mealName || undefined,
+      mealQuantity: state.parsedMeal.mealQuantity || undefined,
+      mealUnit: state.parsedMeal.mealUnit || undefined,
+      itemsAreMealUnit: items.length > 1,
+      source: parseSource,
+      sourceDetail: parseSourceDetail
     });
 
-    setActionBanner('Saved parsed items.', 'success');
     mealTextEl.value = '';
     state.parsedMeal = null;
     clearMealImageSelection();
     parsedItemsContainerEl.innerHTML = '';
     saveParsedBtnEl.disabled = true;
-    await refreshDashboard();
+    await refreshAfterMealSave('Saved parsed items.');
     if (saveItems.length) {
-      loadQuickEntries({ force: true });
+      await loadQuickEntries({ force: true });
     }
   } catch (error) {
     setActionBanner(error.message, 'error');
+  } finally {
+    if (visibleSaveButton) visibleSaveButton.textContent = saveLabel;
+    unlockEditor();
   }
 });
 
 quickAddBtnEl.addEventListener('click', async () => {
+  if (state.quickAddBusy) return;
   const selectedTemplate = getSelectedQuickTemplate();
   if (!selectedTemplate) {
     return;
   }
 
+  state.quickAddBusy = true;
+  quickAddBtnEl.disabled = true;
+  quickEditToggleBtnEl.disabled = true;
+  quickAddBtnEl.textContent = 'Adding…';
   try {
     if (selectedTemplate.type === 'saved') {
       await quickAddById(selectedTemplate.id);
     } else {
       await quickAddByTemplate(selectedTemplate);
     }
-    setActionBanner('Quick add logged.', 'success');
-    await refreshDashboard();
+    await refreshAfterMealSave('Quick add logged.');
   } catch (error) {
     setActionBanner(error.message, 'error');
+  } finally {
+    state.quickAddBusy = false;
+    quickAddBtnEl.textContent = 'Add';
+    selectQuickEntry(state.quickSelectedKey);
   }
 });
 
