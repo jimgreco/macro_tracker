@@ -5703,6 +5703,34 @@ function showEntryModal(entry, { onSave, onDelete, onCopyToToday, title } = {}) 
   });
 }
 
+function createLogEditActions(overlay) {
+  let busy = false;
+  return {
+    close() { if (!busy) overlay.remove(); },
+    async run(operation, successMessage, refresh) {
+      if (busy) return;
+      busy = true;
+      const controls = Array.from(overlay.querySelectorAll('input, select, textarea, button'));
+      const disabled = controls.map(control => control.disabled);
+      controls.forEach(control => { control.disabled = true; });
+      overlay.setAttribute('aria-busy', 'true');
+      try {
+        await operation();
+        overlay.remove();
+        setActionBanner(successMessage, 'success');
+        try { await refresh(); }
+        catch (_error) { setActionBanner(`${successMessage} The log could not refresh. Refresh the page to see it.`, 'info'); }
+      } catch (error) {
+        setActionBanner(error.message, 'error');
+      } finally {
+        busy = false;
+        controls.forEach((control, index) => { control.disabled = disabled[index]; });
+        overlay.removeAttribute('aria-busy');
+      }
+    }
+  };
+}
+
 function showWeightEditModal(entry) {
   let overlay = document.getElementById('entry-modal-overlay');
   if (overlay) overlay.remove();
@@ -5727,41 +5755,30 @@ function showWeightEditModal(entry) {
     </div>
   `;
   document.body.appendChild(overlay);
+  const actions = createLogEditActions(overlay);
   document.getElementById('weight-modal-weight').focus();
 
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-  document.getElementById('weight-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) actions.close(); });
+  document.getElementById('weight-modal-cancel-btn').addEventListener('click', actions.close);
 
   document.getElementById('weight-modal-delete-btn').addEventListener('click', async () => {
     if (!window.confirm('Delete this weight entry?')) return;
-    overlay.remove();
-    try {
-      await deleteWeightEntryApi(entry.id);
-      setActionBanner('Weight entry deleted.', 'success');
-      await refreshWeightData();
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    }
+    await actions.run(() => deleteWeightEntryApi(entry.id), 'Weight entry deleted.', refreshWeightData);
   });
 
   document.getElementById('weight-modal-save-btn').addEventListener('click', async () => {
-    const payload = {
-      weight: parseWeightInputValue(document.getElementById('weight-modal-weight').value),
-      loggedAt: asIso(document.getElementById('weight-modal-time').value || toDateTimeLocalValue())
-    };
-    overlay.remove();
-    try {
-      await api(`/api/weights/${entry.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-      setActionBanner('Weight entry updated.', 'success');
-      await refreshWeightData();
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    }
+    await actions.run(() => {
+      const payload = {
+        weight: parseWeightInputValue(document.getElementById('weight-modal-weight').value),
+        loggedAt: editedLogTimestamp(document.getElementById('weight-modal-time').value, entry.loggedAt)
+      };
+      return api(`/api/weights/${entry.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+    }, 'Weight entry updated.', refreshWeightData);
   });
 
   overlay.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('weight-modal-save-btn').click(); }
-    if (e.key === 'Escape') overlay.remove();
+    if (e.key === 'Escape') actions.close();
   });
 }
 
@@ -5818,10 +5835,11 @@ function showWorkoutEditModal(entry) {
     overlay.querySelector('#workout-modal-save-btn')?.setAttribute('disabled', '');
   }
   document.body.appendChild(overlay);
+  const actions = createLogEditActions(overlay);
   document.getElementById('workout-modal-desc').focus();
 
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-  document.getElementById('workout-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) actions.close(); });
+  document.getElementById('workout-modal-cancel-btn').addEventListener('click', actions.close);
 
   // Duration → calories sync
   const baseDuration = Number(entry.durationHours || 0);
@@ -5835,44 +5853,25 @@ function showWorkoutEditModal(entry) {
 
   document.getElementById('workout-modal-delete-btn').addEventListener('click', async () => {
     if (!window.confirm('Delete this workout?')) return;
-    overlay.remove();
-    try {
-      await api(`/api/workouts/${entry.id}`, { method: 'DELETE' });
-      setActionBanner('Workout deleted.', 'success');
-      await refreshWorkoutData();
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    }
+    await actions.run(() => api(`/api/workouts/${entry.id}`, { method: 'DELETE' }), 'Workout deleted.', refreshWorkoutData);
   });
 
   document.getElementById('workout-modal-save-btn').addEventListener('click', async () => {
-    let loggedAt;
-    try {
-      loggedAt = editedLogTimestamp(document.getElementById('workout-modal-date').value, entry.loggedAt);
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-      return;
-    }
-    const payload = {
-      description: document.getElementById('workout-modal-desc').value.trim(),
-      intensity: normalizeWorkoutIntensity(document.getElementById('workout-modal-intensity').value),
-      durationHours: Number(document.getElementById('workout-modal-duration').value || 0),
-      caloriesBurned: Number(document.getElementById('workout-modal-calories').value || 0),
-      loggedAt
-    };
-    overlay.remove();
-    try {
-      await updateWorkoutEntryApi(entry.id, payload);
-      setActionBanner('Workout updated.', 'success');
-      await refreshWorkoutData();
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    }
+    await actions.run(() => {
+      const payload = {
+        description: document.getElementById('workout-modal-desc').value.trim(),
+        intensity: normalizeWorkoutIntensity(document.getElementById('workout-modal-intensity').value),
+        durationHours: Number(document.getElementById('workout-modal-duration').value || 0),
+        caloriesBurned: Number(document.getElementById('workout-modal-calories').value || 0),
+        loggedAt: editedLogTimestamp(document.getElementById('workout-modal-date').value, entry.loggedAt)
+      };
+      return updateWorkoutEntryApi(entry.id, payload);
+    }, 'Workout updated.', refreshWorkoutData);
   });
 
   overlay.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('workout-modal-save-btn').click(); }
-    if (e.key === 'Escape') overlay.remove();
+    if (e.key === 'Escape') actions.close();
   });
 }
 
@@ -7662,39 +7661,27 @@ function showSleepEditModal(entry) {
     overlay.querySelector('#sleep-modal-hours').disabled = true;
   }
   document.body.appendChild(overlay);
+  const actions = createLogEditActions(overlay);
 
   overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) overlay.remove();
+    if (e.target === overlay) actions.close();
   });
-  document.getElementById('sleep-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  document.getElementById('sleep-modal-cancel-btn').addEventListener('click', actions.close);
   document.getElementById('sleep-modal-save-btn').addEventListener('click', async () => {
-    try {
-      const loggedAt = asIso(document.getElementById('sleep-modal-date').value);
+    await actions.run(() => {
+      const loggedAt = editedLogTimestamp(document.getElementById('sleep-modal-date').value, entry.loggedAt);
       const durationHours = Number(document.getElementById('sleep-modal-hours').value);
       const wakeUps = Number(document.getElementById('sleep-modal-wake-ups').value) || 0;
       const quality = normalizeSleepQuality(document.getElementById('sleep-modal-quality').value);
       const notes = normalizeSleepNotes(document.getElementById('sleep-modal-notes').value);
-      await api(`/api/sleep/${entry.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ durationHours, wakeUps, quality, notes, loggedAt })
+      return api(`/api/sleep/${entry.id}`, {
+        method: 'PUT', body: JSON.stringify({ durationHours, wakeUps, quality, notes, loggedAt })
       });
-      overlay.remove();
-      setActionBanner('Sleep entry updated.', 'success');
-      await refreshSleepData();
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    }
+    }, 'Sleep entry updated.', refreshSleepData);
   });
   document.getElementById('sleep-modal-delete-btn').addEventListener('click', async () => {
     if (!window.confirm('Delete this sleep entry?')) return;
-    try {
-      await api(`/api/sleep/${entry.id}`, { method: 'DELETE' });
-      overlay.remove();
-      setActionBanner('Sleep entry deleted.', 'success');
-      await refreshSleepData();
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    }
+    await actions.run(() => api(`/api/sleep/${entry.id}`, { method: 'DELETE' }), 'Sleep entry deleted.', refreshSleepData);
   });
 }
 
@@ -7854,41 +7841,27 @@ function showHealthEditModal(entry) {
     </div>
   `;
   document.body.appendChild(overlay);
+  const actions = createLogEditActions(overlay);
 
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-  document.getElementById('health-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) actions.close(); });
+  document.getElementById('health-modal-cancel-btn').addEventListener('click', actions.close);
 
   document.getElementById('health-modal-delete-btn').addEventListener('click', async () => {
     if (!window.confirm('Delete this entry?')) return;
-    overlay.remove();
-    try {
-      await api(`/api/sexual-activity/${entry.id}`, { method: 'DELETE' });
-      setActionBanner('Entry deleted.', 'success');
-      await refreshHealthData();
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    }
+    await actions.run(() => api(`/api/sexual-activity/${entry.id}`, { method: 'DELETE' }), 'Entry deleted.', refreshHealthData);
   });
 
   document.getElementById('health-modal-save-btn').addEventListener('click', async () => {
-    const loggedAt = asIso(document.getElementById('health-modal-date').value || toDateTimeLocalValue());
-    const type = document.getElementById('health-modal-type').value;
-    overlay.remove();
-    try {
-      await api(`/api/sexual-activity/${entry.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ type, loggedAt })
-      });
-      setActionBanner('Entry updated.', 'success');
-      await refreshHealthData();
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    }
+    await actions.run(() => {
+      const loggedAt = editedLogTimestamp(document.getElementById('health-modal-date').value, entry.loggedAt);
+      const type = document.getElementById('health-modal-type').value;
+      return api(`/api/sexual-activity/${entry.id}`, { method: 'PUT', body: JSON.stringify({ type, loggedAt }) });
+    }, 'Entry updated.', refreshHealthData);
   });
 
   overlay.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('health-modal-save-btn').click(); }
-    if (e.key === 'Escape') overlay.remove();
+    if (e.key === 'Escape') actions.close();
   });
 }
 
