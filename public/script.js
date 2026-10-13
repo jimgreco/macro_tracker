@@ -4463,6 +4463,21 @@ function buildTrendPoints(dailyTotals, period, baseIsoDay) {
   return points;
 }
 
+function spacedAxisLabels(labels, measureText, gap = 8) {
+  const selected = [];
+  for (const [index, label] of labels.entries()) {
+    const width = measureText(label.text);
+    const left = label.x - (label.align === 'right' ? width : label.align === 'left' ? 0 : width / 2);
+    const candidate = { ...label, left, right: left + width };
+    // Reserve the final date even when the preceding label crowds it.
+    if (index === labels.length - 1) {
+      while (selected.length && left < selected[selected.length - 1].right + gap) selected.pop();
+    }
+    if (!selected.length || left >= selected[selected.length - 1].right + gap) selected.push(candidate);
+  }
+  return selected;
+}
+
 function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
   if (!trendCanvasEl) {
     return;
@@ -4631,7 +4646,9 @@ function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) 
       ctx.textAlign = 'right';
       ctx.fillText(fmtShort(fromIsoDayLocal(points[points.length - 1].day)), w - padX - 2, labelY);
     } else {
-      // Annual: one label per month at the first weekly point in that month.
+      // Annual: candidates stay at the first weekly point of each month. Thin
+      // only their labels to fit the canvas; every data point keeps its tooltip.
+      const monthLabels = [];
       let lastMonthShown = -1;
       for (let i = 0; i < points.length; i += 1) {
         const d = fromIsoDayLocal(points[i].day);
@@ -4639,9 +4656,13 @@ function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) 
         if (month !== lastMonthShown) {
           lastMonthShown = month;
           const x = padX + (i / (points.length - 1)) * usableW;
-          ctx.textAlign = i === 0 ? 'left' : (i >= points.length - 2 ? 'right' : 'center');
-          ctx.fillText(d.toLocaleDateString([], { month: 'short' }), x, labelY);
+          monthLabels.push({ text: d.toLocaleDateString([], { month: 'short' }), x, align: i === 0 ? 'left' : 'center' });
         }
+      }
+      monthLabels[monthLabels.length - 1].align = 'right';
+      for (const label of spacedAxisLabels(monthLabels, (text) => ctx.measureText(text).width)) {
+        ctx.textAlign = label.align;
+        ctx.fillText(label.text, label.x, labelY);
       }
     }
     ctx.restore();
