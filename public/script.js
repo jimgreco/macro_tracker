@@ -5705,11 +5705,17 @@ function showEntryModal(entry, { onSave, onDelete, onCopyToToday, title } = {}) 
 
 function createLogEditActions(overlay) {
   let busy = false;
+  const errorMessage = document.createElement('p');
+  errorMessage.setAttribute('role', 'alert');
+  errorMessage.hidden = true;
+  overlay.querySelector('.combine-modal-actions').before(errorMessage);
   return {
     close() { if (!busy) overlay.remove(); },
     async run(operation, successMessage, refresh) {
       if (busy) return;
       busy = true;
+      errorMessage.textContent = '';
+      errorMessage.hidden = true;
       const controls = Array.from(overlay.querySelectorAll('input, select, textarea, button'));
       const disabled = controls.map(control => control.disabled);
       controls.forEach(control => { control.disabled = true; });
@@ -5721,6 +5727,8 @@ function createLogEditActions(overlay) {
         try { await refresh(); }
         catch (_error) { setActionBanner(`${successMessage} The log could not refresh. Refresh the page to see it.`, 'info'); }
       } catch (error) {
+        errorMessage.textContent = error.message;
+        errorMessage.hidden = false;
         setActionBanner(error.message, 'error');
       } finally {
         busy = false;

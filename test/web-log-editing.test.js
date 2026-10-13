@@ -60,7 +60,10 @@ function modalHarness(kind, { imported = false, refreshFails = false } = {}) {
       setAttribute(name, value) { this.attributes[name] = value; if (name === 'disabled') this.disabled = true; },
       removeAttribute(name) { delete this.attributes[name]; },
       remove() { this.removed = true; }, focus() {},
-      querySelector(selector) { return selector === 'h3' ? {} : elements.get(selector.slice(1)); },
+      querySelector(selector) {
+        if (selector === '.combine-modal-actions') return { before(node) { node.inserted = true; } };
+        return selector === 'h3' ? {} : elements.get(selector.slice(1));
+      },
       querySelectorAll() { return [...elements.values()].filter(control => control !== this); },
       set innerHTML(html) {
         this.html = html;
@@ -92,12 +95,12 @@ function modalHarness(kind, { imported = false, refreshFails = false } = {}) {
   vm.runInContext(['toDateTimeLocalValue', 'isoToLocalInputValue', 'editedLogTimestamp', 'parseWeightInputValue', 'createLogEditActions', name].map(browserFunction).join('\n'), context);
   const entry = { id: 7, loggedAt: '2026-10-12T02:45:37.123Z', weight: 172, description: 'Run', intensity: 'medium', durationHours: 1, caloriesBurned: 350, wakeUps: 1, type: 'other', source: imported ? 'healthkit' : 'manual' };
   context[name](entry);
-  return { entry, overlay: created[0], elements, requests, banners, click: action => elements.get(`${kind}-modal-${action}-btn`).listeners.click() };
+  return { entry, overlay: created[0], errorMessage: created[1], elements, requests, banners, click: action => elements.get(`${kind}-modal-${action}-btn`).listeners.click() };
 }
 
 for (const kind of ['weight', 'workout', 'sleep', 'health']) {
   test(`${kind} edits retain changes after failure and prevent overlapping save/delete or dismissal`, async () => {
-    const { entry, overlay, elements, requests, banners, click } = modalHarness(kind, { imported: kind === 'sleep' });
+    const { entry, overlay, errorMessage, elements, requests, banners, click } = modalHarness(kind, { imported: kind === 'sleep' });
     const field = { weight: 'weight', workout: 'desc', sleep: 'notes', health: 'type' }[kind];
     const input = elements.get(`${kind}-modal-${field}`);
     input.value = kind === 'weight' ? '171.5' : 'Changed value';
@@ -120,11 +123,17 @@ for (const kind of ['weight', 'workout', 'sleep', 'health']) {
     assert.equal(input.value, kind === 'weight' ? '171.5' : 'Changed value');
     assert.equal(elements.get(`${kind}-modal-save-btn`).disabled, false);
     assert.equal(banners.at(-1).message, 'Save unavailable');
+    assert.equal(errorMessage.inserted, true);
+    assert.equal(errorMessage.attributes.role, 'alert');
+    assert.equal(errorMessage.hidden, false);
+    assert.equal(errorMessage.textContent, 'Save unavailable');
     if (kind === 'sleep') {
       assert.equal(elements.get('sleep-modal-hours').disabled, true, 'imported objective sleep data stays read-only');
       assert.equal(elements.get('sleep-modal-date').disabled, true);
     }
     const retry = click('save');
+    assert.equal(errorMessage.hidden, true);
+    assert.equal(errorMessage.textContent, '');
     requests[1].resolve({ ok: true });
     await retry;
     assert.equal(overlay.removed, true);
