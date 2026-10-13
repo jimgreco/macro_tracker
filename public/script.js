@@ -5931,7 +5931,7 @@ function hydrateStateFromToday(response) {
       targetValue: Number(row.targetHours || 0),
       time: fromIsoDayLocal(row.day).getTime()
     }));
-    state.sleepTargetHours = Number(response?.summary?.macros?.targets?.sleepHours || 8);
+    state.sleepTargetHours = Number(response?.summary?.macros?.targets?.sleepHours ?? 8);
   }
 }
 
