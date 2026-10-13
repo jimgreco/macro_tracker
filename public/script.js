@@ -1006,64 +1006,49 @@ function showSleepTargetModal() {
     </div>
   `;
   document.body.appendChild(overlay);
+  const actions = createLogEditActions(overlay);
   const input = document.getElementById('sleep-target-modal-hours');
   input.focus();
   input.select();
 
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-  document.getElementById('sleep-target-modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) actions.close(); });
+  document.getElementById('sleep-target-modal-cancel-btn').addEventListener('click', () => actions.close());
   const clearSleepTargetButton = document.getElementById('sleep-target-modal-clear-btn');
   clearSleepTargetButton.disabled = currentTarget <= 0;
 
-  clearSleepTargetButton.addEventListener('click', async () => {
-    overlay.remove();
-    try {
-      await api('/api/macro-targets/sleep_hours', {
-        method: 'PUT',
-        body: JSON.stringify({ target: 0, effectiveDate: getLocalIsoDay(), tz: getTimezone() })
-      });
-      state.sleepTargetHours = 0;
-      state.dashboardData = state.dashboardData || {};
-      state.dashboardData.targets = state.dashboardData.targets || {};
-      state.dashboardData.targets.sleep_hours = 0;
-      mergeTodayTargets({ sleep_hours: 0 });
-      renderSleepChart();
-      renderCoachForPage('sleep');
-      setActionBanner('Sleep target cleared.', 'success');
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    }
+  const updateTarget = (target, message) => actions.run(async () => {
+    await api('/api/macro-targets/sleep_hours', {
+      method: 'PUT',
+      body: JSON.stringify({ target, effectiveDate: getLocalIsoDay(), tz: getTimezone() })
+    });
+    state.sleepTargetHours = target;
+    state.dashboardData = state.dashboardData || {};
+    state.dashboardData.targets = state.dashboardData.targets || {};
+    state.dashboardData.targets.sleep_hours = target;
+    mergeTodayTargets({ sleep_hours: target });
+  }, message, () => {
+    renderSleepChart();
+    renderCoachForPage('sleep');
   });
 
-  document.getElementById('sleep-target-modal-save-btn').addEventListener('click', async () => {
+  clearSleepTargetButton.addEventListener('click', () => updateTarget(0, 'Sleep target cleared.'));
+
+  document.getElementById('sleep-target-modal-save-btn').addEventListener('click', () => {
     const raw = input.value.trim();
     const targetHours = Number(raw);
-    if (!raw || !Number.isFinite(targetHours) || targetHours <= 0 || targetHours > 24) {
-      setActionBanner('Sleep target must be greater than 0 and no more than 24 hours.', 'error');
+    if (!raw || !Number.isFinite(targetHours) || targetHours < 0.25 || targetHours > 24) {
+      const errorMessage = overlay.querySelector('[role="alert"]');
+      errorMessage.textContent = 'Sleep target must be between 0.25 and 24 hours.';
+      errorMessage.hidden = false;
       return;
     }
     const roundedTarget = Math.round(targetHours * 4) / 4;
-    overlay.remove();
-    try {
-      await api('/api/macro-targets/sleep_hours', {
-        method: 'PUT',
-        body: JSON.stringify({ target: roundedTarget, effectiveDate: getLocalIsoDay(), tz: getTimezone() })
-      });
-      state.sleepTargetHours = roundedTarget;
-      state.dashboardData = state.dashboardData || {};
-      state.dashboardData.targets = state.dashboardData.targets || {};
-      state.dashboardData.targets.sleep_hours = roundedTarget;
-      mergeTodayTargets({ sleep_hours: roundedTarget });
-      renderSleepChart();
-      setActionBanner('Sleep target updated.', 'success');
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    }
+    return updateTarget(roundedTarget, 'Sleep target updated.');
   });
 
   overlay.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('sleep-target-modal-save-btn').click(); }
-    if (e.key === 'Escape') overlay.remove();
+    if (e.key === 'Escape') actions.close();
   });
 }
 

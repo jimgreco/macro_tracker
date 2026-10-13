@@ -277,7 +277,7 @@ test('macro, weight, and sleep target setup can clear current targets across web
   assert.equal(script.includes("method: 'DELETE'"), true);
   assert.equal(script.includes("setActionBanner('Macro targets cleared.'"), true);
   assert.equal(script.includes("setActionBanner('Weight target cleared.'"), true);
-  assert.equal(script.includes("setActionBanner('Sleep target cleared.'"), true);
+  assert.equal(script.includes("updateTarget(0, 'Sleep target cleared.')"), true);
   assert.equal(server.includes("apiRouter.delete('/weight-target'"), true);
 });
 
