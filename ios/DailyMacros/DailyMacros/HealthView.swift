@@ -1755,6 +1755,8 @@ struct HealthView: View {
     }
 
     private func rebuildSleepCoachSuggestions() async {
+        let loadRequest = sleepLoad.currentRequest
+        let loadedScope = sleepScope
         let sleepEntries = sleepEntries
         let sleepDailyTotals = combinedSleepDailyTotals
         let sleepTargetHours = sleepTargetHours
@@ -1765,7 +1767,7 @@ struct HealthView: View {
             targetHours: sleepTargetHours,
             includesOuraData: includesOuraData
         )
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, sleepLoad.currentRequest == loadRequest, sleepScope == loadedScope else { return }
         sleepCoachSuggestions = suggestions
     }
 

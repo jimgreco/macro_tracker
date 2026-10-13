@@ -863,6 +863,8 @@ struct WeightView: View {
     }
 
     private func rebuildCoachSuggestions() async {
+        let loadRequest = weightLoad.currentRequest
+        let loadedScope = scope
         let entries = entries
         let target = target
         let macroDailyTotals = macroDailyTotals
@@ -873,7 +875,7 @@ struct WeightView: View {
             macroDailyTotals: macroDailyTotals,
             macroTargets: macroTargets
         )
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, weightLoad.currentRequest == loadRequest, scope == loadedScope else { return }
         coachSuggestions = suggestions
     }
 

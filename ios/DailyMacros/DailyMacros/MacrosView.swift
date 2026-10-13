@@ -3152,6 +3152,8 @@ struct MacrosView: View {
     }
 
     private func rebuildCoachSuggestions() async {
+        let loadRequest = dashboardLoad.currentRequest
+        let loadedScope = dateString
         guard let dashboard else {
             coachSuggestions = []
             return
@@ -3164,7 +3166,7 @@ struct MacrosView: View {
             selectedDate: selectedDate,
             savedItems: savedItems
         )
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, dashboardLoad.currentRequest == loadRequest, dateString == loadedScope else { return }
         coachSuggestions = suggestions
     }
 

@@ -1063,6 +1063,8 @@ struct WorkoutsView: View {
     }
 
     private func rebuildCoachSuggestions() async {
+        let loadRequest = workoutLoad.currentRequest
+        let loadedScope = scope
         let workouts = workouts.filter { $0.source != "oura" }
         let dailyCalories = self.workouts.contains { $0.source == "oura" } ? [] : dailyCalories
         let workoutsTarget = workoutsTarget
@@ -1079,7 +1081,7 @@ struct WorkoutsView: View {
             sleepTargetHours: sleepTargetHours,
             includesOuraSleepData: includesOuraSleepData
         )
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, workoutLoad.currentRequest == loadRequest, scope == loadedScope else { return }
         coachSuggestions = suggestions
     }
 
