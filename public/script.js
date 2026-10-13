@@ -302,6 +302,16 @@ function isoToLocalInputValue(isoString) {
   return toDateTimeLocalValue(date);
 }
 
+function editedLogTimestamp(localValue, originalTimestamp) {
+  if (!localValue || !Number.isFinite(new Date(localValue).getTime())) {
+    throw new Error('Choose a valid date and time.');
+  }
+  // Preserve seconds and the original DST offset when only other fields change.
+  return localValue === isoToLocalInputValue(originalTimestamp)
+    ? originalTimestamp
+    : new Date(localValue).toISOString();
+}
+
 function mealConsumedAt() {
   if (Number.isNaN(new Date(consumedAtEl.value).getTime())) {
     consumedAtEl.value = toDateTimeLocalValue();
@@ -5759,7 +5769,7 @@ function showWorkoutEditModal(entry) {
   let overlay = document.getElementById('entry-modal-overlay');
   if (overlay) overlay.remove();
 
-  const loggedAtDate = new Date(entry.loggedAt).toISOString().slice(0, 10);
+  const loggedAtValue = isoToLocalInputValue(entry.loggedAt);
   const intensity = normalizeWorkoutIntensity(entry.intensity);
   overlay = document.createElement('div');
   overlay.id = 'entry-modal-overlay';
@@ -5771,8 +5781,8 @@ function showWorkoutEditModal(entry) {
       <input id="workout-modal-desc" type="text" value="${escapeAttr(entry.description || '')}" />
       <div class="entry-modal-row">
         <div class="entry-modal-field">
-          <label for="workout-modal-date">Date</label>
-          <input id="workout-modal-date" type="date" value="${escapeAttr(loggedAtDate)}" />
+          <label for="workout-modal-date">Date and time</label>
+          <input id="workout-modal-date" type="datetime-local" value="${escapeAttr(loggedAtValue)}" />
         </div>
         <div class="entry-modal-field">
           <label for="workout-modal-intensity">Intensity</label>
@@ -5836,8 +5846,13 @@ function showWorkoutEditModal(entry) {
   });
 
   document.getElementById('workout-modal-save-btn').addEventListener('click', async () => {
-    const loggedAtDateVal = document.getElementById('workout-modal-date').value;
-    const loggedAt = loggedAtDateVal ? new Date(`${loggedAtDateVal}T09:00:00`).toISOString() : new Date().toISOString();
+    let loggedAt;
+    try {
+      loggedAt = editedLogTimestamp(document.getElementById('workout-modal-date').value, entry.loggedAt);
+    } catch (error) {
+      setActionBanner(error.message, 'error');
+      return;
+    }
     const payload = {
       description: document.getElementById('workout-modal-desc').value.trim(),
       intensity: normalizeWorkoutIntensity(document.getElementById('workout-modal-intensity').value),
