@@ -62,7 +62,7 @@ test('the axis label selector handles empty and single-date series', () => {
   assert.equal(selected[0].right, 40);
 });
 
-function drawAnnual(width) {
+function drawAnnual(width, calories = 1800) {
   const text = [];
   const arcs = [];
   const attributes = {};
@@ -81,11 +81,11 @@ function drawAnnual(width) {
     targetsForDay: () => ({ calories: 2100 }),
     fromIsoDayLocal: day => new Date(`${day}T12:00:00Z`),
     shiftIsoDay(day, offset) { const date = new Date(`${day}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + offset); return date.toISOString().slice(0, 10); },
-    fmtNumber: value => String(value), updateTrendLegend() {}, bindTrendInteractions() {}
+    updateTrendLegend() {}, bindTrendInteractions() {}
   });
-  vm.runInContext(['let trendPointCoords = [];', ...['spacedAxisLabels', 'buildTrendPoints', 'drawTrend'].map(browserFunction)].join('\n'), data);
-  data.drawTrend([{ day: '2026-10-10', calories: 1800 }], '2026-10-11');
-  return { text: text.filter(label => label.y === 118), arcs, attributes, points: vm.runInContext('trendPointCoords', data) };
+  vm.runInContext(['let trendPointCoords = [];', ...['fmtNumber', 'spacedAxisLabels', 'buildTrendPoints', 'drawTrend'].map(browserFunction)].join('\n'), data);
+  data.drawTrend([{ day: '2026-10-10', calories }], '2026-10-11');
+  return { text: text.filter(label => label.y === 118), yLabels: text.filter(label => label.y !== 118), arcs, attributes, points: vm.runInContext('trendPointCoords', data) };
 }
 
 test('rendering a mobile annual chart preserves all 52 plotted points and tooltip dates', () => {
@@ -104,4 +104,23 @@ test('rendering a mobile annual chart preserves all 52 plotted points and toolti
   const selected = context.spacedAxisLabels(mobile.text, text => text.length * 6);
   assert.equal(selected.length, mobile.text.length, 'rendered month labels should already fit');
   assertSeparated(selected);
+});
+
+
+test('narrow charts reserve measured space for complete y-axis numbers', () => {
+  for (const width of [260, 320, 760]) {
+    const chart = drawAnnual(width, 2169.1);
+    assert.equal(chart.yLabels.length, 5);
+    assert.ok(chart.yLabels.some(label => label.text === '1626.8'));
+    assert.ok(chart.yLabels.some(label => label.text === '1084.5'));
+    for (const label of chart.yLabels) {
+      assert.equal(label.align, 'right');
+      assert.ok(label.x - label.text.length * 6 >= 4, `${label.text} clips at canvas width ${width}`);
+    }
+    assert.equal(chart.points[0].x, 46);
+    assert.equal(chart.points.at(-1).x, width - 34);
+    assert.equal(chart.points.length, 52);
+    assert.equal(chart.points.at(-1).value, 2169.1, 'layout must not round the plotted or tooltip values');
+    assertSeparated(context.spacedAxisLabels(chart.text, text => text.length * 6));
+  }
 });

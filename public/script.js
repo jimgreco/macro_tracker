@@ -4505,10 +4505,17 @@ function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) 
   const range = Math.max(max - min, 1);
   const trendMacro = getTrendMacroConfig();
 
-  const padX = 34;
+  const tickCount = 4;
+  const tickLabels = Array.from({ length: tickCount + 1 }, (_, i) => fmtNumber(max - (i / tickCount) * range));
+  ctx.save();
+  ctx.font = '11px system-ui, -apple-system, sans-serif';
+  const widestTick = Math.max(...tickLabels.map((label) => ctx.measureText(label).width));
+  ctx.restore();
+  const padX = Math.max(34, Math.ceil(widestTick) + 10);
+  const padRight = 34;
   const padY = 14;
   const xLabelH = period !== 'weekly' ? 14 : 0;
-  const usableW = w - padX * 2;
+  const usableW = w - padX - padRight;
   const usableH = h - padY * 2 - xLabelH;
 
   const coords = points.map((p, i) => {
@@ -4592,7 +4599,7 @@ function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) 
     ctx.beginPath();
     ctx.setLineDash([5, 4]);
     ctx.moveTo(padX, avgY);
-    ctx.lineTo(w - padX, avgY);
+    ctx.lineTo(w - padRight, avgY);
     ctx.strokeStyle = averageLineColor;
     ctx.lineWidth = 1.8;
     ctx.stroke();
@@ -4604,7 +4611,6 @@ function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) 
     : 0;
   updateTrendLegend(average, hasAverage, avgTargetValue, targetValues.length > 0, trendMacro.unit);
 
-  const tickCount = 4;
   ctx.save();
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
   ctx.fillStyle = 'rgba(160, 180, 204, 0.85)';
@@ -4615,13 +4621,12 @@ function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) 
 
   for (let i = 0; i <= tickCount; i += 1) {
     const ratio = i / tickCount;
-    const value = max - ratio * range;
     const y = padY + ratio * usableH;
     ctx.beginPath();
     ctx.moveTo(padX, y);
-    ctx.lineTo(w - padX, y);
+    ctx.lineTo(w - padRight, y);
     ctx.stroke();
-    ctx.fillText(fmtNumber(value), padX - 6, y);
+    ctx.fillText(tickLabels[i], padX - 6, y);
   }
 
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
@@ -4644,7 +4649,7 @@ function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) 
       ctx.textAlign = 'left';
       ctx.fillText(fmtShort(fromIsoDayLocal(points[0].day)), padX + 2, labelY);
       ctx.textAlign = 'right';
-      ctx.fillText(fmtShort(fromIsoDayLocal(points[points.length - 1].day)), w - padX - 2, labelY);
+      ctx.fillText(fmtShort(fromIsoDayLocal(points[points.length - 1].day)), w - padRight - 2, labelY);
     } else {
       // Annual: candidates stay at the first weekly point of each month. Thin
       // only their labels to fit the canvas; every data point keeps its tooltip.
