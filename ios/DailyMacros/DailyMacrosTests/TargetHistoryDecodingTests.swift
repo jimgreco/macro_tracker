@@ -1,6 +1,63 @@
 import XCTest
 @testable import DailyMacros
 
+final class ScopedHistoryLoadTests: XCTestCase {
+    func testChangingPeriodStartsNewRequestWhilePreviousPeriodIsLoading() throws {
+        var load = ScopedHistoryLoad()
+        let week = try XCTUnwrap(load.begin(scope: "week"))
+        let month = try XCTUnwrap(load.begin(scope: "month"))
+        XCTAssertFalse(load.isCurrent(week, scope: "month"))
+        XCTAssertTrue(load.isCurrent(month, scope: "month"))
+        load.finish(week)
+        XCTAssertTrue(load.isLoading, "A late response must not dismiss the new period's loading state")
+        load.finish(month)
+        XCTAssertFalse(load.isLoading)
+    }
+
+    func testReturningToSamePeriodDoesNotAcceptItsEarlierResponse() throws {
+        var load = ScopedHistoryLoad()
+        let firstWeek = try XCTUnwrap(load.begin(scope: "week"))
+        _ = load.begin(scope: "month")
+        let latestWeek = try XCTUnwrap(load.begin(scope: "week"))
+        XCTAssertFalse(load.isCurrent(firstWeek, scope: "week"))
+        XCTAssertTrue(load.isCurrent(latestWeek, scope: "week"))
+    }
+
+    func testRefreshSupersedesInFlightNextPageWithoutAllowingOverlappingPagination() throws {
+        var load = ScopedHistoryLoad()
+        let initial = try XCTUnwrap(load.begin(scope: "month"))
+        XCTAssertNil(load.begin(scope: "month", reset: false))
+        load.finish(initial)
+        let nextPage = try XCTUnwrap(load.begin(scope: "month", reset: false))
+        XCTAssertNil(load.begin(scope: "month", reset: false))
+        let refresh = try XCTUnwrap(load.begin(scope: "month"))
+        XCTAssertFalse(load.isCurrent(nextPage, scope: "month"))
+        load.finish(nextPage)
+        XCTAssertTrue(load.isLoading)
+        XCTAssertTrue(load.isCurrent(refresh, scope: "month"))
+    }
+
+    func testScopeChangeRejectsLateDataBeforeTheNextRefreshTaskBegins() throws {
+        var load = ScopedHistoryLoad()
+        let oldDay = try XCTUnwrap(load.begin(scope: "2026-10-11"))
+        XCTAssertFalse(load.isCurrent(oldDay, scope: "2026-10-12"))
+        XCTAssertNil(load.begin(scope: "2026-10-12", reset: false))
+        load.finish(oldDay)
+        XCTAssertNil(load.begin(scope: "2026-10-12", reset: false), "Do not page the previous date's list")
+        XCTAssertNotNil(load.begin(scope: "2026-10-12"))
+    }
+
+    func testLatestRequestCanFinishAndRetryAfterFailure() throws {
+        var load = ScopedHistoryLoad()
+        let failed = try XCTUnwrap(load.begin(scope: "year"))
+        load.finish(failed)
+        XCTAssertFalse(load.isLoading)
+        let retry = try XCTUnwrap(load.begin(scope: "year"))
+        XCTAssertFalse(load.isCurrent(failed, scope: "year"))
+        XCTAssertTrue(load.isCurrent(retry, scope: "year"))
+    }
+}
+
 final class TargetHistoryDecodingTests: XCTestCase {
     func testDayScopedWeightAndWorkoutTargetsRemainAttachedToHistoryRows() throws {
         let weightJSON = Data(

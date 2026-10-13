@@ -52,7 +52,8 @@ struct HealthView: View {
     @State private var isSavingHealth = false
     @State private var healthOffset = 0
     @State private var hasMoreHealthEntries = true
-    @State private var isLoadingHealthPage = false
+    @State private var healthLoad = ScopedHistoryLoad()
+    private var isLoadingHealthPage: Bool { healthLoad.isLoading }
 
     // Sleep state
     @State private var sleepEntries: [SleepEntry] = []
@@ -72,7 +73,9 @@ struct HealthView: View {
     @State private var isSavingSleepTarget = false
     @State private var sleepOffset = 0
     @State private var hasMoreSleepEntries = true
-    @State private var isLoadingSleepPage = false
+    @State private var sleepLoad = ScopedHistoryLoad()
+    private var isLoadingSleepPage: Bool { sleepLoad.isLoading }
+    @State private var sleepSurfaceLoad = ScopedHistoryLoad()
     @State private var recovery: RecoveryResponse?
     @State private var recoveryDetail: RecoverySession?
     @State private var ouraSleepSummaries: [OuraSleepSummary] = []
@@ -1596,9 +1599,18 @@ struct HealthView: View {
     }
 
     private func loadSleepSurface() async {
+        if sleepSurfaceLoad.currentRequest?.scope != sleepScope {
+            recovery = nil
+            ouraSleepSummaries = []
+            ouraSleepLastSyncedAt = nil
+        }
+        guard let request = sleepSurfaceLoad.begin(scope: sleepScope) else { return }
+        defer { sleepSurfaceLoad.finish(request) }
         await loadSleep(reset: true)
+        guard sleepSurfaceLoad.isCurrent(request, scope: sleepScope), !Task.isCancelled else { return }
         do {
-            let response = try await api.getRecovery(scope: sleepScope)
+            let response = try await api.getRecovery(scope: request.scope)
+            guard sleepSurfaceLoad.isCurrent(request, scope: sleepScope), !Task.isCancelled else { return }
             recovery = response
             ouraSleepSummaries = response.sessions.map { session in
                 OuraSleepSummary(id: session.id, day: session.day, startedAt: parseISO(session.startedAt),
@@ -1610,7 +1622,11 @@ struct HealthView: View {
             }
             ouraSleepLastSyncedAt = response.lastSyncedAt.map(parseISO)
         }
-        catch { recovery = nil; showErrorUnlessCancelled(error) }
+        catch {
+            guard sleepSurfaceLoad.isCurrent(request, scope: sleepScope), !Task.isCancelled else { return }
+            recovery = nil
+            showErrorUnlessCancelled(error)
+        }
         await rebuildSleepCoachSuggestions()
     }
 
@@ -1623,14 +1639,19 @@ struct HealthView: View {
             hasMoreHealthEntries = false
             return
         }
-        guard !isLoadingHealthPage else { return }
-        isLoadingHealthPage = true
-        defer { isLoadingHealthPage = false }
+        if reset && healthLoad.currentRequest?.scope != healthScope {
+            healthEntries = []
+            dailyTypes = []
+            healthDaysCounted = 0
+        }
+        guard let request = healthLoad.begin(scope: healthScope, reset: reset) else { return }
+        defer { healthLoad.finish(request) }
 
         let offset = reset ? 0 : healthOffset
 
         do {
-            let response = try await api.getHealthEntries(scope: healthScope, limit: logPageSize, offset: offset)
+            let response = try await api.getHealthEntries(scope: request.scope, limit: logPageSize, offset: offset)
+            guard healthLoad.isCurrent(request, scope: healthScope), !Task.isCancelled else { return }
             if reset {
                 healthEntries = response.entries
             } else {
@@ -1641,19 +1662,25 @@ struct HealthView: View {
             healthOffset = offset + response.entries.count
             hasMoreHealthEntries = response.entries.count == logPageSize
         } catch {
+            guard healthLoad.isCurrent(request, scope: healthScope), !Task.isCancelled else { return }
             showErrorUnlessCancelled(error)
         }
     }
 
     private func loadSleep(reset: Bool = true) async {
-        guard !isLoadingSleepPage else { return }
-        isLoadingSleepPage = true
-        defer { isLoadingSleepPage = false }
+        if reset && sleepLoad.currentRequest?.scope != sleepScope {
+            sleepEntries = []
+            sleepDailyTotals = []
+            sleepCoachSuggestions = []
+        }
+        guard let request = sleepLoad.begin(scope: sleepScope, reset: reset) else { return }
+        defer { sleepLoad.finish(request) }
 
         let offset = reset ? 0 : sleepOffset
 
         do {
-            let response = try await api.getSleepEntries(scope: sleepScope, limit: logPageSize, offset: offset)
+            let response = try await api.getSleepEntries(scope: request.scope, limit: logPageSize, offset: offset)
+            guard sleepLoad.isCurrent(request, scope: sleepScope), !Task.isCancelled else { return }
             if reset {
                 sleepEntries = response.entries
             } else {
@@ -1663,6 +1690,7 @@ struct HealthView: View {
             sleepOffset = offset + response.entries.count
             hasMoreSleepEntries = response.entries.count == logPageSize
         } catch {
+            guard sleepLoad.isCurrent(request, scope: sleepScope), !Task.isCancelled else { return }
             showErrorUnlessCancelled(error)
         }
         guard reset else {
@@ -1670,6 +1698,7 @@ struct HealthView: View {
             return
         }
         await loadSleepTarget()
+        guard sleepLoad.isCurrent(request, scope: sleepScope), !Task.isCancelled else { return }
         await rebuildSleepCoachSuggestions()
     }
 

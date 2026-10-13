@@ -45,7 +45,8 @@ struct WorkoutsView: View {
     @State private var scope = "week"
     @State private var workoutOffset = 0
     @State private var hasMoreWorkouts = true
-    @State private var isLoadingWorkoutPage = false
+    @State private var workoutLoad = ScopedHistoryLoad()
+    private var isLoadingWorkoutPage: Bool { workoutLoad.isLoading }
 
     // Stats from dashboard targets
     @State private var workoutsTarget: Double = 5
@@ -980,14 +981,20 @@ struct WorkoutsView: View {
     }
 
     private func loadWorkouts(reset: Bool = true) async {
-        guard !isLoadingWorkoutPage else { return }
-        isLoadingWorkoutPage = true
-        defer { isLoadingWorkoutPage = false }
+        if reset && workoutLoad.currentRequest?.scope != scope {
+            workouts = []
+            dailyCalories = []
+            workoutDaysCounted = 0
+            coachSuggestions = []
+        }
+        guard let request = workoutLoad.begin(scope: scope, reset: reset) else { return }
+        defer { workoutLoad.finish(request) }
 
         let offset = reset ? 0 : workoutOffset
 
         do {
-            let response = try await api.getWorkouts(limit: logPageSize, offset: offset, scope: scope)
+            let response = try await api.getWorkouts(limit: logPageSize, offset: offset, scope: request.scope)
+            guard workoutLoad.isCurrent(request, scope: scope), !Task.isCancelled else { return }
             if reset {
                 workouts = response.entries
             } else {
@@ -998,6 +1005,7 @@ struct WorkoutsView: View {
             workoutOffset = offset + response.entries.count
             hasMoreWorkouts = response.entries.count == logPageSize
         } catch {
+            guard workoutLoad.isCurrent(request, scope: scope), !Task.isCancelled else { return }
             showErrorUnlessCancelled(error)
         }
 
@@ -1006,7 +1014,9 @@ struct WorkoutsView: View {
             return
         }
         await loadWorkoutTargets()
+        guard workoutLoad.isCurrent(request, scope: scope), !Task.isCancelled else { return }
         await loadWorkoutRecoveryContext()
+        guard workoutLoad.isCurrent(request, scope: scope), !Task.isCancelled else { return }
         await rebuildCoachSuggestions()
     }
 

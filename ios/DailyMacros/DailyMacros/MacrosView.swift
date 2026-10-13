@@ -229,6 +229,8 @@ struct MacrosView: View {
     @State private var isDragging = false
 
     // Trend chart state
+    @State private var dashboardLoad = ScopedHistoryLoad()
+    @State private var trendLoad = ScopedHistoryLoad()
     @State private var trendPeriod = "week"
     @State private var trendData: [DailyTotals] = []
     @State private var trendTargets: MacroTargets?
@@ -3131,11 +3133,20 @@ struct MacrosView: View {
     }
 
     private func loadDashboard() async {
+        if dashboardLoad.currentRequest?.scope != dateString {
+            dashboard = nil
+            coachSuggestions = []
+        }
+        guard let request = dashboardLoad.begin(scope: dateString) else { return }
+        defer { dashboardLoad.finish(request) }
         do {
-            dashboard = try await api.getDashboard(date: dateString)
+            let response = try await api.getDashboard(date: request.scope)
+            guard dashboardLoad.isCurrent(request, scope: dateString), !Task.isCancelled else { return }
+            dashboard = response
             rebuildQuickTemplates()
             await rebuildCoachSuggestions()
         } catch {
+            guard dashboardLoad.isCurrent(request, scope: dateString), !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -3158,8 +3169,11 @@ struct MacrosView: View {
     }
 
     private func loadTrend() async {
+        guard let request = trendLoad.begin(scope: trendPeriod) else { return }
+        defer { trendLoad.finish(request) }
         do {
-            let response = try await api.getDailyTotals(scope: trendPeriod)
+            let response = try await api.getDailyTotals(scope: request.scope)
+            guard trendLoad.isCurrent(request, scope: trendPeriod), !Task.isCancelled else { return }
             trendData = response.dailyTotals
             trendTargets = response.targets
         } catch {

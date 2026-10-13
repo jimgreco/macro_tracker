@@ -1020,3 +1020,33 @@ struct RecoveryResponse: Codable, Sendable {
     let trends: [RecoveryMetric]
     let dailyTotals: [SleepDailyTotals]
 }
+
+
+// MARK: - History request ordering
+
+/// A refresh supersedes older pages; only its response may update the current scope.
+struct ScopedHistoryLoad {
+    struct Request: Equatable {
+        let id = UUID()
+        let scope: String
+    }
+
+    private(set) var currentRequest: Request?
+    private(set) var isLoading = false
+
+    mutating func begin(scope: String, reset: Bool = true) -> Request? {
+        if !reset && (isLoading || currentRequest?.scope != scope) { return nil }
+        let request = Request(scope: scope)
+        currentRequest = request
+        isLoading = true
+        return request
+    }
+
+    func isCurrent(_ request: Request, scope: String) -> Bool {
+        currentRequest == request && request.scope == scope
+    }
+
+    mutating func finish(_ request: Request) {
+        if currentRequest == request { isLoading = false }
+    }
+}

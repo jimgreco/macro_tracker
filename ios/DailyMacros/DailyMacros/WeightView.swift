@@ -23,7 +23,8 @@ struct WeightView: View {
     @State private var isSavingTarget = false
     @State private var weightOffset = 0
     @State private var hasMoreWeightEntries = true
-    @State private var isLoadingWeightPage = false
+    @State private var weightLoad = ScopedHistoryLoad()
+    private var isLoadingWeightPage: Bool { weightLoad.isLoading }
     @State private var errorMessage: String?
 
     // Target editing state
@@ -816,14 +817,18 @@ struct WeightView: View {
     }
 
     private func loadEntries(reset: Bool = true) async {
-        guard !isLoadingWeightPage else { return }
-        isLoadingWeightPage = true
-        defer { isLoadingWeightPage = false }
+        if reset && weightLoad.currentRequest?.scope != scope {
+            entries = []
+            coachSuggestions = []
+        }
+        guard let request = weightLoad.begin(scope: scope, reset: reset) else { return }
+        defer { weightLoad.finish(request) }
 
         let offset = reset ? 0 : weightOffset
 
         do {
-            let response = try await api.getWeights(scope: scope, limit: logPageSize, offset: offset)
+            let response = try await api.getWeights(scope: request.scope, limit: logPageSize, offset: offset)
+            guard weightLoad.isCurrent(request, scope: scope), !Task.isCancelled else { return }
             if reset {
                 entries = response.entries
             } else {
@@ -832,6 +837,7 @@ struct WeightView: View {
             weightOffset = offset + response.entries.count
             hasMoreWeightEntries = response.entries.count == logPageSize
         } catch {
+            guard weightLoad.isCurrent(request, scope: scope), !Task.isCancelled else { return }
             showErrorUnlessCancelled(error)
         }
 
