@@ -8242,11 +8242,33 @@ if (analysisGenerateBtnEl) {
   });
 }
 
+function bindExclusiveLogSave(button, inputs, save) {
+  let busy = false;
+  button.addEventListener('click', async () => {
+    if (busy) return;
+    busy = true;
+    const controls = [button, ...inputs].filter(Boolean);
+    const disabled = controls.map(control => control.disabled);
+    const label = button.textContent;
+    controls.forEach(control => { control.disabled = true; });
+    button.textContent = 'Saving…';
+    button.setAttribute('aria-busy', 'true');
+    try {
+      await save();
+    } finally {
+      controls.forEach((control, index) => { control.disabled = disabled[index]; });
+      button.textContent = label;
+      button.removeAttribute('aria-busy');
+      busy = false;
+    }
+  });
+}
+
 if (saveWeightBtnEl) {
   if (weightLoggedAtEl) {
     weightLoggedAtEl.value = toDateTimeLocalValue();
   }
-  saveWeightBtnEl.addEventListener('click', async () => {
+  bindExclusiveLogSave(saveWeightBtnEl, [weightValueEl, weightLoggedAtEl], async () => {
     try {
       await api('/api/weights', {
         method: 'POST',
@@ -8297,7 +8319,7 @@ if (saveSleepBtnEl) {
   if (sleepLoggedAtEl) {
     sleepLoggedAtEl.value = toDateTimeLocalValue();
   }
-  saveSleepBtnEl.addEventListener('click', async () => {
+  bindExclusiveLogSave(saveSleepBtnEl, [sleepHoursEl, sleepWakeUpsEl, sleepQualityEl, sleepNotesEl, sleepLoggedAtEl], async () => {
     try {
       const durationHours = Number(sleepHoursEl?.value);
       if (!Number.isFinite(durationHours) || durationHours <= 0) {
@@ -8374,7 +8396,7 @@ if (saveHealthBtnEl) {
   if (healthLoggedAtEl) {
     healthLoggedAtEl.value = toDateTimeLocalValue();
   }
-  saveHealthBtnEl.addEventListener('click', async () => {
+  bindExclusiveLogSave(saveHealthBtnEl, [healthActivityTypeEl, healthLoggedAtEl], async () => {
     if (!state.features?.sexualActivity) {
       setActionBanner('Sexual activity tracking is not enabled for this account.', 'error');
       return;
