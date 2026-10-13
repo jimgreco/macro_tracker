@@ -8821,6 +8821,49 @@ document.getElementById('waist-more-btn')?.addEventListener('click', () => { voi
 
 let checkinEntries = [];
 let checkinPhotosConfigured = false;
+
+function appendCheckinPhotoPreview(cell, photo, day) {
+  const img = document.createElement('img');
+  img.alt = `${day} ${photo.view} progress photo`;
+  img.referrerPolicy = 'no-referrer';
+  img.hidden = true;
+  const status = document.createElement('span');
+  status.setAttribute('role', 'status');
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.textContent = 'Retry photo';
+  retry.setAttribute('aria-label', `Retry ${photo.view} photo for ${day}`);
+  retry.hidden = true;
+  cell.append(img, status, retry);
+
+  let loading = false;
+  const failed = () => {
+    img.hidden = true;
+    status.textContent = 'Photo preview unavailable.';
+    retry.hidden = false;
+  };
+  img.onload = () => { img.hidden = false; status.textContent = ''; retry.hidden = true; };
+  img.onerror = failed;
+  async function load() {
+    if (loading) return;
+    loading = true;
+    retry.disabled = true;
+    retry.hidden = true;
+    status.textContent = 'Loading photo…';
+    try {
+      const signed = await api(`/api/checkin-photos/${photo.id}`);
+      if (img.isConnected) img.src = signed.url;
+    } catch (_error) {
+      if (img.isConnected) failed();
+    } finally {
+      loading = false;
+      retry.disabled = false;
+    }
+  }
+  retry.onclick = load;
+  void load();
+}
+
 async function refreshCheckins(more = false) {
   const list = document.getElementById('checkins-list');
   if (!list) return;
@@ -8846,8 +8889,7 @@ async function refreshCheckins(more = false) {
         const cell = document.createElement('div'); const label = document.createElement('strong'); label.textContent = view; cell.append(label);
         const photo = entry.photos.find(p => p.view === view);
         if (photo) {
-          const signed = await api(`/api/checkin-photos/${photo.id}`);
-          const img = document.createElement('img'); img.src = signed.url; img.alt = `${entry.day} ${view} progress photo`; img.referrerPolicy = 'no-referrer'; cell.append(img);
+          appendCheckinPhotoPreview(cell, photo, entry.day);
           const download = document.createElement('button'); download.textContent = 'Export photo'; download.type = 'button';
           download.onclick = async () => { try { const fresh = await api(`/api/checkin-photos/${photo.id}`); window.open(fresh.url, '_blank', 'noopener,noreferrer'); } catch(e) { alert(e.message); } }; cell.append(download);
           const remove = document.createElement('button'); remove.textContent = 'Delete photo'; remove.type='button';
