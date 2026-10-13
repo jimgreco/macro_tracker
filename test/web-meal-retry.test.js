@@ -48,6 +48,7 @@ function harness() {
     setActionBanner: (message, type) => banners.push({ message, type }),
     refreshDashboard: async () => {}, loadQuickEntries: async () => {},
     clearMealImageSelection() {}, renderParsedItems() {},
+    appendBarcodeItemToParsedMeal(result) { state.parsedMeal.items.push(result.item); },
     collectParsedItemsFromUi: () => [item],
     savedItemComponents: (template) => template.components || [],
     getSelectedQuickTemplate: () => ({ type: 'saved', id: 1 }),
@@ -57,7 +58,7 @@ function harness() {
   vm.createContext(context);
   vm.runInContext([
     ...['createReplaySafePost', 'lockMealEditor', 'refreshAfterMealSave', 'selectQuickEntry',
-      'quickAddById', 'quickAddByTemplate', 'mealConsumedAt', 'asIso'].map(browserFunction),
+      'quickAddById', 'quickAddByTemplate', 'mealConsumedAt', 'asIso', 'lookupBarcode'].map(browserFunction),
     'const postParsedMeal = createReplaySafePost(); const postQuickAdd = createReplaySafePost();',
     handler('parseBtnEl', "saveParsedBtnEl.addEventListener('click'"),
     handler('saveParsedBtnEl', "quickAddBtnEl.addEventListener('click'"),
@@ -215,4 +216,35 @@ test('parsing disables duplicate requests and blocks saving a previous draft unt
   assert.equal(state.parsedMeal.items[0].itemName, 'New meal');
   assert.equal(controls.parseBtnEl.disabled, false);
   assert.equal(controls.saveParsedBtnEl.disabled, false);
+});
+
+
+test('barcode lookup finishes before a draft can be parsed or saved', async () => {
+  const { controls, context, requests, state } = harness();
+  const lookup = context.lookupBarcode('123456789012');
+  assert.equal(controls.parseBtnEl.disabled, true);
+  assert.equal(controls.visibleSave.disabled, true);
+  await controls.saveParsedBtnEl.listeners.click();
+  await controls.parseBtnEl.listeners.click();
+  await context.lookupBarcode('123456789012');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, '/api/barcode/123456789012');
+  requests[0].resolve({ item: { itemName: 'Scanned yogurt' } });
+  await lookup;
+  assert.equal(state.parsedMeal.items[1].itemName, 'Scanned yogurt');
+  assert.equal(controls.parseBtnEl.disabled, false);
+  assert.equal(controls.visibleSave.disabled, false);
+});
+
+test('a failed barcode lookup restores the editor and preserves the existing draft', async () => {
+  const { controls, context, requests, state } = harness();
+  const lookup = context.lookupBarcode('123456789012');
+  requests[0].reject(new Error('Lookup unavailable'));
+  await lookup;
+  assert.equal(state.parsedMeal.items.length, 1);
+  assert.equal(state.parsedMeal.items[0].itemName, 'Oatmeal');
+  assert.equal(controls.mealTextEl.value, 'oatmeal');
+  assert.equal(state.mealEditorBusy, false);
+  assert.equal(controls.parseBtnEl.disabled, false);
+  assert.equal(controls.visibleSave.disabled, false);
 });

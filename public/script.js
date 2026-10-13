@@ -1356,6 +1356,7 @@ function appendBarcodeItemToParsedMeal(result, barcode) {
 }
 
 async function lookupBarcode(codeInput) {
+  if (state.mealEditorBusy) return;
   const barcode = String(codeInput || '').replace(/\D/g, '');
   if (!/^\d{6,18}$/.test(barcode)) {
     setActionBanner('Enter a 6 to 18 digit barcode.', 'error');
@@ -1363,6 +1364,7 @@ async function lookupBarcode(codeInput) {
   }
 
   setActionBanner('Looking up barcode...', 'info');
+  const unlockEditor = lockMealEditor();
   try {
     const result = await api(`/api/barcode/${encodeURIComponent(barcode)}`);
     if (!result.item) {
@@ -1373,6 +1375,8 @@ async function lookupBarcode(codeInput) {
     setActionBanner(state.parsedMeal.notes, 'success');
   } catch (error) {
     setActionBanner(error.message, 'error');
+  } finally {
+    unlockEditor();
   }
 }
 
