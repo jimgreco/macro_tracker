@@ -18,7 +18,7 @@ final class DailyMacrosScreenshots: XCTestCase {
         if name.contains("testRapidPrimaryAndHealthTabSwitchingStaysStable") || name.contains("testSexCategorySummaries") {
             app.launchArguments.append("--tab-stability-testing")
         }
-        if name.contains("testDataSourceMatrixUsesLargeTextOverview") {
+        if name.contains("testDataSourceMatrixUsesLargeTextOverview") || name.contains("testQuickAddPortionPreviewAtLargeText") {
             app.launchArguments += [
                 "-UIPreferredContentSizeCategoryName",
                 "UICTContentSizeCategoryAccessibilityXXXL"
@@ -64,6 +64,51 @@ final class DailyMacrosScreenshots: XCTestCase {
         attachment.name = "Meal date and time editor"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testQuickAddPortionPreviewMatchesQueue() throws {
+        selectTab("Macros")
+        app.buttons["Log meal"].tap()
+        let multiplier = app.textFields["quick-multiplier"]
+        for _ in 0..<5 where !multiplier.isHittable { app.swipeUp() }
+        XCTAssertTrue(multiplier.waitForExistence(timeout: 5))
+        multiplier.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        multiplier.typeText(XCUIKeyboardKey.delete.rawValue + "0")
+        XCTAssertEqual(multiplier.value as? String, "0")
+        let yogurt = app.buttons["Add Greek Yogurt Bowl to meal queue"]
+        XCTAssertTrue(yogurt.waitForExistence(timeout: 5))
+        XCTAssertFalse(yogurt.isEnabled)
+        multiplier.typeText(XCUIKeyboardKey.delete.rawValue + "0.5")
+        XCTAssertTrue(yogurt.isEnabled)
+        XCTAssertEqual(yogurt.value as? String, "0.5 bowl · 155 kcal | Protein 16g | Carbs 17g | Fat 3g")
+        let meal = app.buttons["Add Chicken Rice Bowl to meal queue"]
+        XCTAssertEqual(meal.value as? String, "0.5 bowl · 320 kcal | Protein 27g | Carbs 33g | Fat 9g")
+        if !name.contains("AtLargeText") {
+            let quarterCup = app.buttons["Add Avocado Salsa to meal queue"]
+            XCTAssertTrue((quarterCup.value as? String)?.hasPrefix("0.25 cup ·") == true)
+        }
+        for _ in 0..<5 where !meal.isHittable { app.swipeUp() }
+        XCTAssertTrue(meal.isHittable)
+        snapshot("06-Quick-Add-Portion" + (name.contains("AtLargeText") ? "-Large" : ""))
+        meal.tap()
+        XCTAssertTrue(app.staticTexts["0.5 bowl queued"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["320 kcal"].exists)
+        XCTAssertTrue(app.staticTexts["Ingredients shown per 1 bowl"].exists)
+        snapshot("07-Quick-Add-Queue" + (name.contains("AtLargeText") ? "-Large" : ""))
+        let save = app.buttons["Save"].firstMatch
+        if name.contains("AtLargeText") {
+            let queue = app.scrollViews["quick-meal-queue"]
+            for _ in 0..<12 where !save.isHittable { queue.swipeUp() }
+            snapshot("08-Quick-Add-Queue-Actions-Large")
+        }
+        XCTAssertTrue(save.isHittable)
+        save.tap()
+        XCTAssertTrue(app.alerts["Name Meal"].waitForExistence(timeout: 5))
+        app.alerts["Name Meal"].buttons["Cancel"].tap()
+    }
+
+    func testQuickAddPortionPreviewAtLargeText() throws {
+        try testQuickAddPortionPreviewMatchesQueue()
     }
 
     func testWorkoutHistoryCoverage() throws {

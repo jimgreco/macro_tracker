@@ -154,3 +154,16 @@ test('scales meal-unit rows back to consumed totals before persistence', () => {
   assert.deepEqual(rows.map((row) => row.calories), [180, 100]);
   assert.deepEqual(rows.map((row) => row.carbs), [32, 26]);
 });
+
+test('a half-bowl quick meal persists the consumed amount from per-bowl ingredient rows', () => {
+  const rows = scaleMealUnitRows([
+    { itemName: 'Grilled Chicken', quantity: 6, unit: 'oz', calories: 280, protein: 48, carbs: 0, fat: 7 },
+    { itemName: 'Jasmine Rice', quantity: 1, unit: 'cup', calories: 205, protein: 4, carbs: 45, fat: 1 },
+    { itemName: 'Avocado Salsa', quantity: 0.5, unit: 'cup', calories: 155, protein: 2, carbs: 21, fat: 10 }
+  ], 0.5);
+  assert.deepEqual(rows.map(row => row.quantity), [3, 0.5, 0.25]);
+  assert.equal(rows.reduce((sum, row) => sum + row.calories, 0), 320);
+  assert.equal(rows.reduce((sum, row) => sum + row.protein, 0), 27);
+  assert.equal(rows.reduce((sum, row) => sum + row.carbs, 0), 33);
+  assert.equal(rows.reduce((sum, row) => sum + row.fat, 0), 9);
+});

@@ -560,8 +560,8 @@ test('iOS quick-add meals carry saved component rows', () => {
   assert.equal(api.includes('payload["components"] = components'), true);
   assert.equal(swift.includes('let components: [SavedItemComponent]'), true);
   assert.equal(swift.includes('components: item.components ?? []'), true);
-  assert.equal(swift.includes('if !template.components.isEmpty'), true);
-  assert.equal(swift.includes('for (index, component) in template.components.enumerated()'), true);
+  assert.equal(swift.includes('if !portion.components.isEmpty'), true);
+  assert.equal(swift.includes('for (index, component) in portion.components.enumerated()'), true);
   assert.equal(swift.includes('let components = parsedItems.map(savedComponentPayload)'), true);
   assert.equal(swift.includes('"components": components'), true);
   assert.equal(swift.includes('components: components.map(savedComponentPayload)'), true);

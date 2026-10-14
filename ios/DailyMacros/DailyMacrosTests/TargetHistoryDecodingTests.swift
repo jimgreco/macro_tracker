@@ -135,3 +135,50 @@ final class TargetHistoryDecodingTests: XCTestCase {
         XCTAssertEqual(targets.sleepHours, 8)
     }
 }
+
+final class QuickAddPortionTests: XCTestCase {
+    private var yogurt: QuickAddTemplate {
+        QuickAddTemplate(id: "recent-yogurt", savedItemId: nil, name: "Yogurt", quantity: 170,
+                         unit: "g", calories: 120, protein: 18, carbs: 9, fat: 1, lastUsedAt: nil)
+    }
+
+    func testHalfPortionScalesQuantityAndNutritionWithoutMutatingTemplate() throws {
+        let template = yogurt
+        let portion = try XCTUnwrap(template.portion(multiplierText: "0.5"))
+        XCTAssertEqual(portion.quantity, 85)
+        XCTAssertEqual(portion.calories, 60)
+        XCTAssertEqual(portion.protein, 9)
+        XCTAssertEqual(portion.carbs, 4.5)
+        XCTAssertEqual(portion.fat, 0.5)
+        XCTAssertEqual(template.quantity, 170)
+        XCTAssertEqual(template.calories, 120)
+    }
+
+    func testMealPreviewExactlyMatchesScaledComponentsUsedByQueue() throws {
+        let components = [
+            SavedItemComponent(itemName: "Yogurt", quantity: 170, unit: "g", calories: 120, protein: 10, carbs: 15, fat: 5),
+            SavedItemComponent(itemName: "Granola", quantity: 20, unit: "g", calories: 80, protein: 5, carbs: 5, fat: 2)
+        ]
+        let template = QuickAddTemplate(id: "saved-meal", savedItemId: 1, name: "Breakfast", quantity: 2,
+                                        unit: "serving", calories: 400, protein: 30, carbs: 40, fat: 14,
+                                        components: components, lastUsedAt: nil)
+        let portion = try XCTUnwrap(template.portion(multiplierText: "1.5"))
+        XCTAssertEqual(portion.quantity, 3)
+        XCTAssertEqual(portion.components.map(\.quantity), [510, 60])
+        XCTAssertEqual(portion.calories, 600)
+        XCTAssertEqual(portion.calories, portion.components.reduce(0) { $0 + $1.calories })
+        XCTAssertEqual(portion.protein, portion.components.reduce(0) { $0 + $1.protein })
+        XCTAssertEqual(portion.carbs, portion.components.reduce(0) { $0 + $1.carbs })
+        XCTAssertEqual(portion.fat, portion.components.reduce(0) { $0 + $1.fat })
+        XCTAssertEqual(template.components, components)
+    }
+
+    func testBlankMultiplierDefaultsToOneAndInvalidValuesCannotBeQueued() throws {
+        for text in ["", "  \n ", "1"] {
+            XCTAssertEqual(try XCTUnwrap(yogurt.portion(multiplierText: text)).quantity, 170)
+        }
+        for text in ["0", "-1", "banana", "nan", "inf", "1e300"] {
+            XCTAssertNil(yogurt.portion(multiplierText: text), text)
+        }
+    }
+}

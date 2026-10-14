@@ -19,7 +19,7 @@ extension UTType {
     static let entryDrag = UTType(exportedAs: "com.dailymacros.entry-drag")
 }
 
-private struct QuickAddTemplate: Identifiable {
+struct QuickAddTemplate: Identifiable {
     let id: String
     let savedItemId: Int?
     let name: String
@@ -35,6 +35,35 @@ private struct QuickAddTemplate: Identifiable {
 
     var isSaved: Bool { savedItemId != nil }
     var isMeal: Bool { !components.isEmpty }
+
+
+    func portion(multiplierText: String) -> QuickAddPortion? {
+        let text = multiplierText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let multiplier = text.isEmpty ? 1 : Double(text),
+              multiplier.isFinite, multiplier > 0 else { return nil }
+        let portionQuantity = quantity * multiplier
+        let scaledComponents = components.map { component in
+            SavedItemComponent(
+                itemName: component.itemName, quantity: component.quantity * portionQuantity,
+                unit: component.unit, calories: component.calories * portionQuantity,
+                protein: component.protein * portionQuantity, carbs: component.carbs * portionQuantity,
+                fat: component.fat * portionQuantity
+            )
+        }
+        let portion = QuickAddPortion(
+            quantity: portionQuantity,
+            calories: scaledComponents.isEmpty ? calories * multiplier : scaledComponents.reduce(0) { $0 + $1.calories },
+            protein: scaledComponents.isEmpty ? protein * multiplier : scaledComponents.reduce(0) { $0 + $1.protein },
+            carbs: scaledComponents.isEmpty ? carbs * multiplier : scaledComponents.reduce(0) { $0 + $1.carbs },
+            fat: scaledComponents.isEmpty ? fat * multiplier : scaledComponents.reduce(0) { $0 + $1.fat },
+            components: scaledComponents
+        )
+        let values = [portion.quantity, portion.calories, portion.protein, portion.carbs, portion.fat]
+            + scaledComponents.flatMap { [$0.quantity, $0.calories, $0.protein, $0.carbs, $0.fat] }
+        guard portion.quantity > 0,
+              values.allSatisfy({ $0.isFinite && $0 >= 0 && $0 < Double(Int.max) }) else { return nil }
+        return portion
+    }
 
     init(
         id: String,
@@ -76,6 +105,15 @@ private struct QuickAddTemplate: Identifiable {
     }
 }
 
+struct QuickAddPortion {
+    let quantity: Double
+    let calories: Double
+    let protein: Double
+    let carbs: Double
+    let fat: Double
+    let components: [SavedItemComponent]
+}
+
 private struct QuickMealQueueItem: Identifiable {
     let id: UUID
     let sourceTemplateId: String
@@ -109,6 +147,7 @@ private struct MealImageAttachment: Identifiable {
 
 struct MacrosView: View {
     @EnvironmentObject var api: APIClient
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appNavigation: AppNavigationModel
     @StateObject private var coachDismissals = CoachDismissalStore.shared
@@ -2265,7 +2304,17 @@ struct MacrosView: View {
     @ViewBuilder
     private func quickMealQueueFloatingOverlay(topPadding: CGFloat) -> some View {
         if !showParsed && !quickMealQueue.isEmpty {
-            quickMealQueueSection
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    ScrollView {
+                        quickMealQueueSection
+                    }
+                    .accessibilityIdentifier("quick-meal-queue")
+                    .scrollDismissesKeyboard(.interactively)
+                } else {
+                    quickMealQueueSection
+                }
+            }
                 .padding(.horizontal, 12)
                 .padding(.top, max(topPadding, 8))
                 .padding(.bottom, 8)
@@ -2297,6 +2346,8 @@ struct MacrosView: View {
                         .foregroundStyle(Color.mutedText)
 
                     TextField("1", text: $quickMultiplier)
+                        .accessibilityIdentifier("quick-multiplier")
+                        .accessibilityLabel("Quick item multiplier")
                         .textFieldStyle(.roundedBorder)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.center)
@@ -2367,6 +2418,13 @@ struct MacrosView: View {
 
     private func quickAddRow(_ template: QuickAddTemplate) -> some View {
         let isRecentlyQueued = recentlyQueuedQuickTemplateId == template.id
+        let portion = template.portion(multiplierText: quickMultiplier)
+        let titleLayout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(spacing: 5))
+        let preview = portion.map {
+            "\($0.quantity.formatted(.number.precision(.significantDigits(1...6)))) \(template.unit) · \(Int($0.calories)) kcal | \(macroBreakdownText(protein: $0.protein, carbs: $0.carbs, fat: $0.fat))"
+        } ?? "Enter a valid multiplier greater than 0."
 
         return HStack(spacing: 10) {
             Button {
@@ -2374,11 +2432,11 @@ struct MacrosView: View {
             } label: {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 5) {
+                        titleLayout {
                             Text(template.name)
                                 .font(.subheadline)
                                 .foregroundStyle(.primary)
-                                .lineLimit(1)
+                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
 
                             if !template.isSaved {
                                 Text("recent")
@@ -2395,18 +2453,17 @@ struct MacrosView: View {
                             }
                         }
 
-                        Text("\(compactNumberText(template.quantity)) \(template.unit) · \(Int(template.calories)) kcal | \(macroBreakdownText(protein: template.protein, carbs: template.carbs, fat: template.fat))")
+                        Text(preview)
                             .font(.caption2)
                             .foregroundStyle(Color.mutedText)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Spacer(minLength: 8)
 
                     VStack(alignment: .trailing, spacing: 2) {
                         Image(systemName: isRecentlyQueued ? "checkmark.circle.fill" : "plus.circle.fill")
-                            .font(.title3)
+                            .font(.system(size: 20))
                             .foregroundStyle(isRecentlyQueued ? Color.neonGreen : Color.neonCyan)
                             .scaleEffect(isRecentlyQueued ? 1.18 : 1.0)
                             .animation(.spring(response: 0.22, dampingFraction: 0.58), value: isRecentlyQueued)
@@ -2422,12 +2479,14 @@ struct MacrosView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Add \(template.name) to meal queue")
+            .accessibilityValue(preview)
+            .disabled(portion == nil)
 
             Button {
                 beginEditQuickAdd(template)
             } label: {
                 Image(systemName: "pencil")
-                    .font(.subheadline)
+                    .font(.system(size: 17))
                     .foregroundStyle(Color.neonYellow)
                     .frame(width: 28, height: 28)
             }
@@ -2441,21 +2500,30 @@ struct MacrosView: View {
     private var quickMealQueueSection: some View {
         let totals = quickMealQueueTotals
         let mealUnitContext = queuedMealUnitContext()
+        let headerLayout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: 8))
         let queueLabel = mealUnitContext.map {
             "\(compactNumberText($0.quantity)) \($0.unit) queued"
         } ?? "\(quickMealQueue.count) item\(quickMealQueue.count == 1 ? "" : "s") queued"
 
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+            headerLayout {
                 Label(queueLabel, systemImage: "tray.full")
                     .font(.subheadline.bold())
                     .foregroundStyle(Color.neonGreen)
 
-                Spacer()
+                if !dynamicTypeSize.isAccessibilitySize { Spacer() }
 
                 Text("\(Int(totals.calories)) kcal")
                     .font(.subheadline.bold())
                     .foregroundStyle(Color.neonYellow)
+            }
+
+            if let mealUnitContext {
+                Text("Ingredients shown per 1 \(mealUnitContext.unit)")
+                    .font(.caption2)
+                    .foregroundStyle(Color.mutedText)
             }
 
             if quickMealQueue.count > 3 {
@@ -2470,7 +2538,7 @@ struct MacrosView: View {
             Text(macroBreakdownText(protein: totals.protein, carbs: totals.carbs, fat: totals.fat))
                 .font(.caption2)
                 .foregroundStyle(Color.mutedText)
-                .lineLimit(1)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                 .minimumScaleFactor(0.75)
 
             HStack(spacing: 10) {
@@ -2526,24 +2594,27 @@ struct MacrosView: View {
 
     private func quickMealQueueRow(_ item: QuickMealQueueItem) -> some View {
         let displayScale = queuedQuickItemDisplayScale(item)
+        let rowLayout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
 
-        return HStack(spacing: 10) {
+        return rowLayout {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
 
                 Text("\(compactNumberText(item.quantity / displayScale)) \(item.unit)")
                     .font(.caption2)
                     .foregroundStyle(Color.mutedText)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
             }
             .layoutPriority(1)
 
-            Spacer(minLength: 8)
+            if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
 
-            VStack(alignment: .trailing, spacing: 2) {
+            VStack(alignment: dynamicTypeSize.isAccessibilitySize ? .leading : .trailing, spacing: 2) {
                 Text("\(Int(item.calories / displayScale)) kcal")
                     .font(.subheadline)
                     .foregroundStyle(.white)
@@ -2555,31 +2626,33 @@ struct MacrosView: View {
                 ))
                     .font(.caption2)
                     .foregroundStyle(Color.mutedText)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                     .minimumScaleFactor(0.75)
             }
 
-            Button {
-                beginEditQueuedQuickItem(item)
-            } label: {
-                Image(systemName: "pencil")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.neonYellow)
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Edit \(item.name)")
+            HStack(spacing: 10) {
+                Button {
+                    beginEditQueuedQuickItem(item)
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: dynamicTypeSize.isAccessibilitySize ? 24 : 15))
+                        .foregroundStyle(Color.neonYellow)
+                        .frame(width: dynamicTypeSize.isAccessibilitySize ? 44 : 28, height: dynamicTypeSize.isAccessibilitySize ? 44 : 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit \(item.name)")
 
-            Button(role: .destructive) {
-                deleteQueuedQuickItem(id: item.id)
-            } label: {
-                Image(systemName: "trash")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.neonPink)
-                    .frame(width: 28, height: 28)
+                Button(role: .destructive) {
+                    deleteQueuedQuickItem(id: item.id)
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: dynamicTypeSize.isAccessibilitySize ? 24 : 15))
+                        .foregroundStyle(Color.neonPink)
+                        .frame(width: dynamicTypeSize.isAccessibilitySize ? 44 : 28, height: dynamicTypeSize.isAccessibilitySize ? 44 : 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove \(item.name) from meal queue")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(item.name) from meal queue")
         }
         .padding(.vertical, 4)
     }
@@ -3332,8 +3405,11 @@ struct MacrosView: View {
     }
 
     private func addQuickTemplateToQueue(_ template: QuickAddTemplate) {
-        let multiplier = max(Double(quickMultiplier) ?? 1, 0.0001)
-        if !template.components.isEmpty {
+        guard let portion = template.portion(multiplierText: quickMultiplier) else {
+            errorMessage = "Enter a valid multiplier greater than 0."
+            return
+        }
+        if !portion.components.isEmpty {
             guard quickMealQueue.count + template.components.count <= 50 else {
                 errorMessage = "A meal can include at most 50 items."
                 return
@@ -3343,14 +3419,14 @@ struct MacrosView: View {
                 quickMealName = template.name
             }
 
-            for (index, component) in template.components.enumerated() {
+            for (index, component) in portion.components.enumerated() {
                 let sourceTemplateId = "\(template.id):component:\(index)"
-                let componentScale = template.quantity * multiplier
-                let addedQuantity = component.quantity * componentScale
-                let addedCalories = component.calories * componentScale
-                let addedProtein = component.protein * componentScale
-                let addedCarbs = component.carbs * componentScale
-                let addedFat = component.fat * componentScale
+                let componentScale = portion.quantity
+                let addedQuantity = component.quantity
+                let addedCalories = component.calories
+                let addedProtein = component.protein
+                let addedCarbs = component.carbs
+                let addedFat = component.fat
 
                 if let queueIndex = quickMealQueue.firstIndex(where: { $0.sourceTemplateId == sourceTemplateId }) {
                     quickMealQueue[queueIndex].quantity += addedQuantity
@@ -3382,11 +3458,11 @@ struct MacrosView: View {
             return
         }
 
-        let addedQuantity = template.quantity * multiplier
-        let addedCalories = template.calories * multiplier
-        let addedProtein = template.protein * multiplier
-        let addedCarbs = template.carbs * multiplier
-        let addedFat = template.fat * multiplier
+        let addedQuantity = portion.quantity
+        let addedCalories = portion.calories
+        let addedProtein = portion.protein
+        let addedCarbs = portion.carbs
+        let addedFat = portion.fat
 
         if let index = quickMealQueue.firstIndex(where: { $0.sourceTemplateId == template.id }) {
             quickMealQueue[index].quantity += addedQuantity
