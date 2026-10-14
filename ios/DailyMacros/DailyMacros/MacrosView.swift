@@ -2503,6 +2503,9 @@ struct MacrosView: View {
         let headerLayout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
             : AnyLayout(HStackLayout(spacing: 8))
+        let actionLayout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
         let queueLabel = mealUnitContext.map {
             "\(compactNumberText($0.quantity)) \($0.unit) queued"
         } ?? "\(quickMealQueue.count) item\(quickMealQueue.count == 1 ? "" : "s") queued"
@@ -2541,7 +2544,7 @@ struct MacrosView: View {
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                 .minimumScaleFactor(0.75)
 
-            HStack(spacing: 10) {
+            actionLayout {
                 Button {
                     cancelQueuedQuickMeal(dismiss: true)
                 } label: {
