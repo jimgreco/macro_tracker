@@ -182,3 +182,27 @@ final class QuickAddPortionTests: XCTestCase {
         }
     }
 }
+
+final class QuickAddSourceFilterTests: XCTestCase {
+    private func item(_ id: Int, saved: Bool, name: String = "Rice bowl") -> QuickAddTemplate {
+        QuickAddTemplate(id: "item-\(id)", savedItemId: saved ? id : nil, name: name, quantity: 1, unit: "bowl", calories: 200, protein: 10, carbs: 20, fat: 5, lastUsedAt: nil)
+    }
+    func testSourceFiltersBeforeTheDisplayLimitAndKeepsSearchWithinSource() {
+        let templates = (1...45).map { item($0, saved: true) } + [item(46, saved: false, name: "Recent rice")]
+        let recent = QuickAddSourceFilter.recent.display(templates: templates, query: " RICE  recent ", limit: 40)
+        XCTAssertEqual(recent.items.map(\.id), ["item-46"])
+        XCTAssertFalse(recent.hasMore)
+        XCTAssertTrue(recent.isSearching)
+        let saved = QuickAddSourceFilter.saved.display(templates: templates, query: "", limit: 40)
+        XCTAssertEqual(saved.items.count, 40)
+        XCTAssertTrue(saved.hasMore)
+        XCTAssertTrue(saved.items.allSatisfy(\.isSaved))
+        XCTAssertTrue(QuickAddSourceFilter.saved.display(templates: templates, query: "recent", limit: 40).items.isEmpty)
+        XCTAssertEqual(QuickAddSourceFilter.all.display(templates: templates, query: "recent", limit: 40).items.first?.id, "item-46")
+    }
+    func testEmptySourceDoesNotFallbackToOtherItems() {
+        let templates = [item(1, saved: true)]
+        XCTAssertTrue(QuickAddSourceFilter.recent.display(templates: templates, query: "", limit: 40).items.isEmpty)
+        XCTAssertEqual(templates.count, 1)
+    }
+}

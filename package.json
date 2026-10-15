@@ -1,6 +1,6 @@
 {
   "name": "macro-tracker-app",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "description": "Web macro tracker with natural language meal parsing",
   "main": "src/server.js",
   "type": "commonjs",

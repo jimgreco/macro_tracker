@@ -10,6 +10,7 @@ const state = {
   quickEntriesLoaded: false,
   quickEntriesError: '',
   quickSelectedKey: '',
+  quickSourceFilter: 'all',
   editingEntryId: null,
   mealImageAttachments: [],
   mealImageLoading: false,
@@ -4029,7 +4030,7 @@ function getSelectedQuickTemplate() {
 
 function quickEntryOptionGroups() {
   const groups = [];
-  if (state.savedItems.length) {
+  if (state.quickSourceFilter !== 'recent' && state.savedItems.length) {
     groups.push({
       label: 'Saved quick entries',
       items: state.savedItems.map((item) => ({
@@ -4038,7 +4039,7 @@ function quickEntryOptionGroups() {
       }))
     });
   }
-  if (state.historyQuickItems.length) {
+  if (state.quickSourceFilter !== 'saved' && state.historyQuickItems.length) {
     groups.push({
       label: 'Recent from previous days',
       items: state.historyQuickItems.map((item) => ({
@@ -4048,6 +4049,17 @@ function quickEntryOptionGroups() {
     });
   }
   return groups;
+}
+
+function setQuickSourceFilter(source) {
+  if (!['all', 'saved', 'recent'].includes(source)) return;
+  state.quickSourceFilter = source;
+  document.querySelectorAll('[data-quick-source]').forEach((button) => {
+    const selected = button.dataset.quickSource === source;
+    button.setAttribute('aria-pressed', String(selected));
+    button.classList.toggle('active', selected);
+  });
+  renderSavedItems();
 }
 
 function flattenQuickPickerGroups(groups) {
@@ -4127,7 +4139,7 @@ function renderQuickEntrySelect(message = '') {
     return;
   }
   if (!options.length) {
-    quickSelectEl.append(new Option(message || 'No quick entries', ''));
+    quickSelectEl.append(new Option(message || (state.quickSourceFilter === 'saved' ? 'No saved quick entries' : 'No recent quick entries'), ''));
     quickSelectEl.disabled = true;
     return;
   }
@@ -6231,6 +6243,10 @@ if (copyYesterdayBtnEl) {
     }
   });
 }
+
+document.querySelectorAll('[data-quick-source]').forEach((button) => {
+  button.addEventListener('click', () => setQuickSourceFilter(button.dataset.quickSource));
+});
 
 if (quickMultiplierEl) {
   quickMultiplierEl.addEventListener('input', renderQuickAddPreview);

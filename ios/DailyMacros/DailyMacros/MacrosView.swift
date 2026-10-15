@@ -105,6 +105,20 @@ struct QuickAddTemplate: Identifiable {
     }
 }
 
+enum QuickAddSourceFilter: String, CaseIterable, Identifiable {
+    case all = "All", saved = "Saved", recent = "Recent"
+    var id: String { rawValue }
+
+    func display(templates: [QuickAddTemplate], query: String, limit: Int) -> (items: [QuickAddTemplate], hasMore: Bool, isSearching: Bool) {
+        let tokens = query.lowercased().split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let matches = templates.filter { template in
+            (self == .all || (self == .saved ? template.isSaved : !template.isSaved))
+                && tokens.allSatisfy { template.searchText.contains($0) }
+        }
+        return (Array(matches.prefix(limit)), matches.count > limit, !tokens.isEmpty)
+    }
+}
+
 struct QuickAddPortion {
     let quantity: Double
     let calories: Double
@@ -235,6 +249,7 @@ struct MacrosView: View {
     // Quick add editing state
     @State private var quickMultiplier = "1"
     @State private var quickSearchText = ""
+    @State private var quickSourceFilter: QuickAddSourceFilter = .all
     @State private var quickMealName = ""
     @State private var showQuickMealNamePrompt = false
     @State private var isLoadingSavedItems = false
@@ -371,27 +386,7 @@ struct MacrosView: View {
     }
 
     private func quickTemplateDisplay() -> (items: [QuickAddTemplate], hasMore: Bool, isSearching: Bool) {
-        let query = quickSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else {
-            return (
-                Array(quickTemplates.prefix(quickItemsVisibleLimit)),
-                quickTemplates.count > quickItemsVisibleLimit,
-                false
-            )
-        }
-
-        let tokens = query.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        var matches: [QuickAddTemplate] = []
-        matches.reserveCapacity(min(quickItemsVisibleLimit, quickTemplates.count))
-
-        for template in quickTemplates where tokens.allSatisfy({ template.searchText.contains($0) }) {
-            guard matches.count < quickItemsVisibleLimit else {
-                return (matches, true, true)
-            }
-            matches.append(template)
-        }
-
-        return (matches, false, true)
+        quickSourceFilter.display(templates: quickTemplates, query: quickSearchText, limit: quickItemsVisibleLimit)
     }
 
     private var accountTimeZone: TimeZone {
@@ -562,6 +557,7 @@ struct MacrosView: View {
         mealText = ""
         consumedAt = Date()
         quickSearchText = ""
+        quickSourceFilter = .all
         quickMealName = ""
         quickMealQueue = []
         recentlyQueuedQuickTemplateId = nil
@@ -2354,6 +2350,14 @@ struct MacrosView: View {
                         .frame(width: 58)
                 }
 
+                Picker("Quick Add source", selection: $quickSourceFilter) {
+                    ForEach(QuickAddSourceFilter.allCases) { source in
+                        Text(source.rawValue).tag(source)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("quick-source-filter")
+
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .font(.subheadline)
@@ -2381,7 +2385,7 @@ struct MacrosView: View {
                 .frame(maxWidth: .infinity)
                 .padding()
             } else if visibleTemplates.isEmpty {
-                Text(quickSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No quick entries yet." : "No matching quick entries.")
+                Text(quickSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No \(quickSourceFilter == .all ? "quick" : quickSourceFilter.rawValue.lowercased()) entries yet." : "No matching quick entries.")
                     .font(.caption)
                     .foregroundStyle(Color.mutedText)
                     .frame(maxWidth: .infinity)

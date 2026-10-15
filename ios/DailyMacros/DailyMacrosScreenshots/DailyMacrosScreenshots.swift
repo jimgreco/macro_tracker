@@ -66,6 +66,28 @@ final class DailyMacrosScreenshots: XCTestCase {
         add(attachment)
     }
 
+    func testQuickAddSourceFilters() throws {
+        selectTab("Macros")
+        app.buttons["Log meal"].tap()
+        let filters = app.segmentedControls["quick-source-filter"]
+        for _ in 0..<5 where !filters.isHittable { app.swipeUp() }
+        XCTAssertTrue(filters.waitForExistence(timeout: 5))
+        filters.buttons["Saved"].tap()
+        XCTAssertTrue(app.buttons["Add Greek Yogurt Bowl to meal queue"].exists)
+        XCTAssertFalse(app.buttons["Add Grilled Chicken to meal queue"].exists)
+        snapshot("09-Quick-Add-Saved")
+        filters.buttons["Recent"].tap()
+        XCTAssertTrue(app.buttons["Add Grilled Chicken to meal queue"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Add Greek Yogurt Bowl to meal queue"].exists)
+        snapshot("10-Quick-Add-Recent")
+        let search = app.textFields["Search quick entries"]
+        search.tap(); search.typeText("rice")
+        XCTAssertTrue(app.buttons["Add Jasmine Rice to meal queue"].exists)
+        XCTAssertFalse(app.buttons["Add Chicken Rice Bowl to meal queue"].exists)
+        filters.buttons["All"].tap()
+        XCTAssertTrue(app.buttons["Add Chicken Rice Bowl to meal queue"].waitForExistence(timeout: 5))
+    }
+
     func testQuickAddPortionPreviewMatchesQueue() throws {
         selectTab("Macros")
         app.buttons["Log meal"].tap()
