@@ -1222,6 +1222,8 @@ test('meal edits move all items with a validated optional timestamp', routeTestO
     method: 'PUT', body: JSON.stringify(body)
   });
   assert.equal(legacy.res.status, 200);
+  assert.equal(latestCall('scaleMealGroup').payload.name, 'Lunch');
+  assert.equal(latestCall('scaleMealGroup').payload.quantity, 1);
   assert.equal(latestCall('scaleMealGroup').payload.consumedAt, undefined);
   for (const consumedAt of ['', null, 'not-a-date', 123]) {
     const invalid = await request('/api/meal-group/meal-group-id/scale', {

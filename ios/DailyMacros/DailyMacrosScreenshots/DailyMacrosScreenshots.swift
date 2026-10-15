@@ -66,6 +66,49 @@ final class DailyMacrosScreenshots: XCTestCase {
         add(attachment)
     }
 
+    func testMealEditorSaveIsAvailableWithoutChangesAndForNameOnlyEdits() throws {
+        selectTab("Macros")
+        let meal = app.staticTexts["Breakfast Burrito"].firstMatch
+        for _ in 0..<5 where !meal.isHittable { app.swipeUp() }
+        XCTAssertTrue(meal.waitForExistence(timeout: 10))
+        meal.tap()
+        try assertEditorSaveIsAvailable(nameField: "Meal Name", missingNameMessage: "Enter a meal name.")
+    }
+
+    func testEntryEditorSaveIsAvailableWithoutChangesAndForNameOnlyEdits() throws {
+        selectTab("Macros")
+        let entry = app.staticTexts["Greek Yogurt Bowl"].firstMatch
+        for _ in 0..<5 where !entry.isHittable { app.swipeUp() }
+        XCTAssertTrue(entry.waitForExistence(timeout: 10))
+        entry.tap()
+        try assertEditorSaveIsAvailable(nameField: "Item Name", missingNameMessage: "Enter an item name.")
+    }
+
+    private func assertEditorSaveIsAvailable(nameField: String, missingNameMessage: String) throws {
+        let field = app.textFields[nameField]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        let save = app.buttons["Save"].firstMatch
+        XCTAssertTrue(save.isEnabled, "Save must be enabled before making any changes")
+        field.tap()
+        field.typeText(" renamed")
+        XCTAssertTrue((field.value as? String)?.contains("renamed") == true)
+        XCTAssertTrue(save.isEnabled, "Changing only the name must not disable Save")
+
+        let value = try XCTUnwrap(field.value as? String)
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count))
+        XCTAssertTrue(save.isEnabled, "Validation happens when Save is tapped")
+        for _ in 0..<5 where !save.isHittable { app.swipeUp() }
+        XCTAssertTrue(save.isHittable)
+        save.tap()
+        XCTAssertTrue(app.staticTexts[missingNameMessage].waitForExistence(timeout: 5))
+        XCTAssertTrue(field.exists, "Invalid input must keep the editor open")
+        XCTAssertTrue(save.isEnabled, "Validation must leave Save available for retry")
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "\(nameField) editor Save and validation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testQuickAddSourceFilters() throws {
         selectTab("Macros")
         app.buttons["Log meal"].tap()

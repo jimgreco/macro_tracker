@@ -32,6 +32,9 @@
 - Repeated meal entry deletes succeed for account-owned tombstones and preserve
   the original deletion timestamp; missing or other-account entries still return
   404. iOS must block overlapping entry and meal deletion actions.
+- iOS meal and entry edit sheets keep Save available unless a save is running.
+  Validate on Save and show errors inside the editor; do not gate Save on change
+  detection.
 - Bulk meal entries and requested Quick Adds must validate before writing and
   commit in the same transaction. Combining entries must lock and validate the
   live rows inside its transaction so overlapping requests cannot regroup them.

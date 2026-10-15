@@ -281,7 +281,7 @@ test('macro, weight, and sleep target setup can clear current targets across web
   assert.equal(server.includes("apiRouter.delete('/weight-target'"), true);
 });
 
-test('iOS macro edit sheets use disabled saves and left-side destructive actions', () => {
+test('iOS meal and entry editors keep Save available and destructive actions on the left', () => {
   const swift = read('ios/DailyMacros/DailyMacros/MacrosView.swift');
   const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
   const models = read('ios/DailyMacros/DailyMacros/Models.swift');
@@ -302,17 +302,12 @@ test('iOS macro edit sheets use disabled saves and left-side destructive actions
     swift.indexOf('// MARK: - Actions')
   );
 
-  assert.equal(entryEdit.includes('let canSave = canSaveEditedEntry'), true);
-  assert.equal(entryEdit.includes('.tint(canSave ? Color.neonCyan : .gray)'), true);
-  assert.equal(entryEdit.includes('.disabled(!canSave)'), true);
+  assert.equal(swift.includes('canSaveEditedEntry'), false);
+  assert.equal(entryEdit.includes('.disabled(!canSave)'), false);
+  assert.equal(entryEdit.includes('.disabled(isSaving)'), true);
   assert.equal(entryEdit.indexOf('Text("Delete")') < entryEdit.indexOf('Text("Save")'), true);
-  assert.equal(entryEdit.includes('DatePicker("Logged At", selection: editEntryDateBinding)'), true);
-  assert.equal(swift.includes('@State private var originalEditEntryDate = Date()'), true);
-  assert.equal(swift.includes('@State private var editEntryDateChanged = false'), true);
-  assert.equal(swift.includes('originalEditEntryDate = loggedAt'), true);
-  assert.equal(swift.includes('editEntryDateChanged = !isSameDisplayedMinute(newValue, originalEditEntryDate)'), true);
-  assert.equal(swift.includes('let loggedAtChanged = editEntryDateChanged || !isSameDisplayedMinute(editEntryDate, originalEditEntryDate)'), true);
-  assert.equal(swift.includes('editableWholeNumberBaseline(for: entry.calories)'), true);
+  assert.equal(entryEdit.includes('DatePicker("Logged At", selection: $editEntryDate)'), true);
+  assert.equal(swift.includes('editEntryDate = parseISO(entry.consumedAt)'), true);
   assert.equal(entryEdit.includes('Label("Copy to Today", systemImage: "doc.on.doc")'), true);
   assert.equal(entryEdit.includes('if let entry = editingEntry, canCopyToToday(entry)'), true);
 
@@ -320,9 +315,9 @@ test('iOS macro edit sheets use disabled saves and left-side destructive actions
   assert.equal(swift.includes('@State private var editingMeal: EditingMealContext?'), true);
   assert.equal(swift.includes('.sheet(item: $editingMeal) { meal in'), true);
   assert.equal(swift.includes('@State private var showEditMeal'), false);
-  assert.equal(mealEdit.includes('let canSave = canSaveEditedMeal(meal: meal)'), true);
-  assert.equal(mealEdit.includes('.tint(canSave ? Color.neonGreen : .gray)'), true);
-  assert.equal(mealEdit.includes('.disabled(!canSave)'), true);
+  assert.equal(swift.includes('canSaveEditedMeal'), false);
+  assert.equal(mealEdit.includes('.disabled(!canSave)'), false);
+  assert.equal(mealEdit.includes('.disabled(isSaving)'), true);
   assert.equal(mealEdit.includes('meal.items.reduce(0)'), true);
   assert.equal(mealEdit.includes('ForEach(meal.items)'), true);
   assert.equal(mealEdit.includes('Label("Delete", systemImage: "trash")'), true);
