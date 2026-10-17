@@ -33,7 +33,7 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "pg": "^8.18.0",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "stripe": "^20.4.1"
   },
   "overrides": {
