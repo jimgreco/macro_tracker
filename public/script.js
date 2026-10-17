@@ -4082,7 +4082,22 @@ function quickAddPortion(template, rawMultiplier) {
   return portion;
 }
 
+function renderQuickMultiplierShortcuts() {
+  const multiplier = Number(quickMultiplierEl.value);
+  document.querySelectorAll('[data-quick-multiplier]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(multiplier === Number(button.dataset.quickMultiplier)));
+    button.disabled = state.quickAddBusy;
+  });
+}
+
+function setQuickMultiplierShortcut(multiplier) {
+  if (state.quickAddBusy || !['0.5', '1', '2'].includes(multiplier)) return;
+  quickMultiplierEl.value = multiplier;
+  renderQuickAddPreview();
+}
+
 function renderQuickAddPreview() {
+  renderQuickMultiplierShortcuts();
   if (!quickAddPreviewEl) return;
   const template = getSelectedQuickTemplate();
   const portion = quickAddPortion(template, quickMultiplierEl.value);
@@ -6211,6 +6226,7 @@ quickAddBtnEl.addEventListener('click', async () => {
   quickAddBtnEl.disabled = true;
   quickEditToggleBtnEl.disabled = true;
   quickAddBtnEl.textContent = 'Adding…';
+  renderQuickMultiplierShortcuts();
   try {
     if (selectedTemplate.type === 'saved') {
       await quickAddById(selectedTemplate.id);
@@ -6246,6 +6262,10 @@ if (copyYesterdayBtnEl) {
 
 document.querySelectorAll('[data-quick-source]').forEach((button) => {
   button.addEventListener('click', () => setQuickSourceFilter(button.dataset.quickSource));
+});
+
+document.querySelectorAll('[data-quick-multiplier]').forEach((button) => {
+  button.addEventListener('click', () => setQuickMultiplierShortcut(button.dataset.quickMultiplier));
 });
 
 if (quickMultiplierEl) {

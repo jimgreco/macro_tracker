@@ -18,7 +18,7 @@ final class DailyMacrosScreenshots: XCTestCase {
         if name.contains("testRapidPrimaryAndHealthTabSwitchingStaysStable") || name.contains("testSexCategorySummaries") {
             app.launchArguments.append("--tab-stability-testing")
         }
-        if name.contains("testDataSourceMatrixUsesLargeTextOverview") || name.contains("testQuickAddPortionPreviewAtLargeText") {
+        if name.contains("testDataSourceMatrixUsesLargeTextOverview") || name.contains("testQuickAddPortionPreviewAtLargeText") || name.contains("testQuickAddPortionShortcutsAtLargeText") {
             app.launchArguments += [
                 "-UIPreferredContentSizeCategoryName",
                 "UICTContentSizeCategoryAccessibilityXXXL"
@@ -174,6 +174,39 @@ final class DailyMacrosScreenshots: XCTestCase {
 
     func testQuickAddPortionPreviewAtLargeText() throws {
         try testQuickAddPortionPreviewMatchesQueue()
+    }
+
+    func testQuickAddPortionShortcuts() throws {
+        selectTab("Macros")
+        app.buttons["Log meal"].tap()
+        let multiplier = app.textFields["quick-multiplier"]
+        for _ in 0..<5 where !multiplier.isHittable { app.swipeUp() }
+        XCTAssertTrue(multiplier.waitForExistence(timeout: 5))
+        multiplier.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        multiplier.typeText(XCUIKeyboardKey.delete.rawValue + "1.25")
+        let original = app.buttons["quick-multiplier-1"]
+        XCTAssertEqual(multiplier.value as? String, "1.25")
+        XCTAssertFalse(original.isSelected)
+
+        let filters = app.segmentedControls["quick-source-filter"]
+        for _ in 0..<5 where !filters.isHittable { app.swipeUp() }
+        filters.buttons["Saved"].tap()
+        XCTAssertEqual(multiplier.value as? String, "1.25", "Filtering must preserve custom portions")
+        let yogurt = app.buttons["Add Greek Yogurt Bowl to meal queue"]
+        for (value, preview) in [("0.5", "0.5 bowl · 155 kcal"), ("2", "2 bowl · 620 kcal"), ("1", "1 bowl · 310 kcal")] {
+            let shortcut = app.buttons["quick-multiplier-\(value)"]
+            for _ in 0..<5 where !shortcut.isHittable { app.swipeDown() }
+            XCTAssertTrue(shortcut.isHittable)
+            shortcut.tap()
+            XCTAssertEqual(multiplier.value as? String, value)
+            XCTAssertTrue(shortcut.isSelected)
+            XCTAssertTrue((yogurt.value as? String)?.hasPrefix(preview) == true)
+        }
+        snapshot("11-Quick-Add-Shortcuts" + (name.contains("AtLargeText") ? "-Large" : ""))
+    }
+
+    func testQuickAddPortionShortcutsAtLargeText() throws {
+        try testQuickAddPortionShortcuts()
     }
 
     func testWorkoutHistoryCoverage() throws {

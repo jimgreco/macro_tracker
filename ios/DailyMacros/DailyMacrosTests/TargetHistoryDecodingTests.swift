@@ -154,6 +154,22 @@ final class QuickAddPortionTests: XCTestCase {
         XCTAssertEqual(template.calories, 120)
     }
 
+    func testShortcutsUseTheSamePortionCalculationAsCustomInput() throws {
+        for shortcut in QuickAddMultiplierShortcut.allCases {
+            let multiplier = try XCTUnwrap(Double(shortcut.rawValue))
+            let portion = try XCTUnwrap(yogurt.portion(multiplierText: shortcut.rawValue))
+            XCTAssertEqual(portion.quantity, 170 * multiplier)
+            XCTAssertEqual(portion.calories, 120 * multiplier)
+            XCTAssertTrue(shortcut.isSelected(multiplierText: shortcut.rawValue))
+        }
+        XCTAssertTrue(QuickAddMultiplierShortcut.half.isSelected(multiplierText: ".50"))
+        XCTAssertTrue(QuickAddMultiplierShortcut.original.isSelected(multiplierText: "1.0"))
+        XCTAssertTrue(QuickAddMultiplierShortcut.double.isSelected(multiplierText: "2.00"))
+        for text in ["1.25", "0.75", "", "  ", "0", "-1", "banana", "nan", "inf"] {
+            XCTAssertFalse(QuickAddMultiplierShortcut.allCases.contains { $0.isSelected(multiplierText: text) }, text)
+        }
+    }
+
     func testMealPreviewExactlyMatchesScaledComponentsUsedByQueue() throws {
         let components = [
             SavedItemComponent(itemName: "Yogurt", quantity: 170, unit: "g", calories: 120, protein: 10, carbs: 15, fat: 5),

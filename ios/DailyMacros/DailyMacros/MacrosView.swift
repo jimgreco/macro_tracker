@@ -105,6 +105,31 @@ struct QuickAddTemplate: Identifiable {
     }
 }
 
+enum QuickAddMultiplierShortcut: String, CaseIterable, Identifiable {
+    case half = "0.5", original = "1", double = "2"
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .half: "½×"
+        case .original: "1×"
+        case .double: "2×"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .half: "Half portion"
+        case .original: "Original portion"
+        case .double: "Double portion"
+        }
+    }
+
+    func isSelected(multiplierText: String) -> Bool {
+        Double(multiplierText.trimmingCharacters(in: .whitespacesAndNewlines)) == Double(rawValue)
+    }
+}
+
 enum QuickAddSourceFilter: String, CaseIterable, Identifiable {
     case all = "All", saved = "Saved", recent = "Recent"
     var id: String { rawValue }
@@ -2304,6 +2329,25 @@ struct MacrosView: View {
                         .multilineTextAlignment(.center)
                         .frame(width: 58)
                 }
+
+                HStack(spacing: 8) {
+                    ForEach(QuickAddMultiplierShortcut.allCases) { shortcut in
+                        let isSelected = shortcut.isSelected(multiplierText: quickMultiplier)
+                        Button {
+                            quickMultiplier = shortcut.rawValue
+                        } label: {
+                            Text(shortcut.label)
+                                .font(.body.weight(.semibold))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(isSelected ? Color.neonCyan : Color.mutedText)
+                        .accessibilityLabel(shortcut.accessibilityLabel)
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
+                        .accessibilityIdentifier("quick-multiplier-\(shortcut.rawValue)")
+                    }
+                }
+                .disabled(isSaving)
 
                 Picker("Quick Add source", selection: $quickSourceFilter) {
                     ForEach(QuickAddSourceFilter.allCases) { source in

@@ -10,17 +10,22 @@ function browserFunction(name) {
 }
 function fixture(template, multiplier = '1') {
   const requests = [];
+  const shortcuts = ['0.5', '1', '2'].map(quickMultiplier => ({
+    dataset: { quickMultiplier }, attributes: {}, disabled: false,
+    setAttribute(name, value) { this.attributes[name] = value; }
+  }));
   const context = vm.createContext({
     state: { quickAddBusy: false }, quickAddBtnEl: { disabled: false },
     getSelectedQuickTemplate: () => template,
     quickAddPreviewEl: { hidden: false, textContent: '', innerHTML: '' },
     quickMultiplierEl: { value: multiplier },
+    document: { querySelectorAll: () => shortcuts },
     escapeHtml: value => String(value).replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
     mealConsumedAt: () => '2026-10-13T12:00:00.000Z',
     postQuickAdd: (url, body) => requests.push({ url, body })
   });
-  vm.runInContext(['quickAddPortion', 'renderQuickAddPreview', 'fmtNumber', 'formatMacros', 'savedItemComponents', 'quickAddByTemplate'].map(browserFunction).join('\n'), context);
-  return { context, requests };
+  vm.runInContext(['quickAddPortion', 'renderQuickMultiplierShortcuts', 'setQuickMultiplierShortcut', 'renderQuickAddPreview', 'fmtNumber', 'formatMacros', 'savedItemComponents', 'quickAddByTemplate', 'quickAddById'].map(browserFunction).join('\n'), context);
+  return { context, requests, shortcuts };
 }
 const item = { name: 'Yogurt', quantity: 170, unit: 'g', calories: 120, protein: 18, carbs: 9, fat: 1 };
 
@@ -94,4 +99,54 @@ test('a valid preview never re-enables Add during an in-flight save', () => {
   context.state.quickAddBusy = false;
   context.renderQuickAddPreview();
   assert.equal(context.quickAddBtnEl.disabled, false);
+});
+
+test('portion shortcuts preview and log the exact multiplier without submitting on selection', () => {
+  for (const multiplier of ['0.5', '1', '2']) {
+    const { context, requests, shortcuts } = fixture(item, '1.25');
+    context.setQuickMultiplierShortcut(multiplier);
+    assert.equal(context.quickMultiplierEl.value, multiplier);
+    assert.equal(requests.length, 0, 'choosing a portion must not log a meal');
+    assert.deepEqual(shortcuts.map(button => button.attributes['aria-pressed']),
+      ['0.5', '1', '2'].map(value => String(value === multiplier)));
+    assert.match(context.quickAddPreviewEl.innerHTML, new RegExp(`${170 * Number(multiplier)} g`));
+    context.quickAddById(42);
+    assert.equal(requests[0].body.multiplier, Number(multiplier));
+    context.quickAddByTemplate(item);
+    assert.equal(requests[1].body.items[0].quantity, 170 * Number(multiplier));
+  }
+});
+
+test('custom and invalid multiplier text is retained until a shortcut is explicitly tapped', () => {
+  for (const value of ['1.25', '0.75', '', '0', '-1', 'NaN']) {
+    const { context, shortcuts } = fixture(item, value);
+    context.renderQuickAddPreview();
+    assert.equal(context.quickMultiplierEl.value, value);
+    assert.ok(shortcuts.every(button => button.attributes['aria-pressed'] === 'false'));
+    context.setQuickMultiplierShortcut('3');
+    assert.equal(context.quickMultiplierEl.value, value, 'unknown shortcut values are ignored');
+    context.setQuickMultiplierShortcut('0.5');
+    assert.equal(context.quickMultiplierEl.value, '0.5');
+  }
+});
+
+test('equivalent decimal input selects its shortcut without rewriting the input', () => {
+  for (const [value, selected] of [['.5', '0.5'], ['0.50', '0.5'], ['1.0', '1'], ['2.00', '2']]) {
+    const { context, shortcuts } = fixture(item, value);
+    context.renderQuickAddPreview();
+    assert.equal(context.quickMultiplierEl.value, value);
+    assert.equal(shortcuts.find(button => button.attributes['aria-pressed'] === 'true').dataset.quickMultiplier, selected);
+  }
+});
+
+test('portion shortcuts cannot change the multiplier while a save is running', () => {
+  const { context, shortcuts } = fixture(item, '1.25');
+  context.state.quickAddBusy = true;
+  context.renderQuickAddPreview();
+  assert.ok(shortcuts.every(button => button.disabled));
+  context.setQuickMultiplierShortcut('2');
+  assert.equal(context.quickMultiplierEl.value, '1.25');
+  context.state.quickAddBusy = false;
+  context.renderQuickAddPreview();
+  assert.ok(shortcuts.every(button => !button.disabled));
 });

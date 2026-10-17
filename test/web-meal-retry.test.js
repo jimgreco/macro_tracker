@@ -47,7 +47,7 @@ function harness() {
     parsedItemsContainerEl: { innerHTML: 'draft', querySelector: () => controls.visibleSave },
     setActionBanner: (message, type) => banners.push({ message, type }),
     refreshDashboard: async () => {}, loadQuickEntries: async () => {},
-    clearMealImageSelection() {}, renderParsedItems() {}, renderQuickAddPreview() {},
+    clearMealImageSelection() {}, renderParsedItems() {}, renderQuickAddPreview() {}, renderQuickMultiplierShortcuts() {},
     appendBarcodeItemToParsedMeal(result) { state.parsedMeal.items.push(result.item); },
     collectParsedItemsFromUi: () => [item],
     savedItemComponents: (template) => template.components || [],
