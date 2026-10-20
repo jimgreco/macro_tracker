@@ -2330,23 +2330,36 @@ struct MacrosView: View {
                         .frame(width: 58)
                 }
 
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ForEach(QuickAddMultiplierShortcut.allCases) { shortcut in
                         let isSelected = shortcut.isSelected(multiplierText: quickMultiplier)
                         Button {
                             quickMultiplier = shortcut.rawValue
                         } label: {
                             Text(shortcut.label)
-                                .font(.body.weight(.semibold))
-                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .font(.subheadline.weight(.semibold))
+                                .frame(minWidth: 44, minHeight: 32)
+                                .padding(.horizontal, 8)
+                                .foregroundStyle(isSelected ? Color.neonCyan : Color.mutedText)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(isSelected ? Color.neonCyan.opacity(0.18) : Color.panelBg)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(isSelected ? Color.neonCyan : Color.clear, lineWidth: 1)
+                                )
+                                // Keep a full touch target around the compact visual control.
+                                .padding(.vertical, 6)
+                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.bordered)
-                        .tint(isSelected ? Color.neonCyan : Color.mutedText)
+                        .buttonStyle(.plain)
                         .accessibilityLabel(shortcut.accessibilityLabel)
                         .accessibilityAddTraits(isSelected ? .isSelected : [])
                         .accessibilityIdentifier("quick-multiplier-\(shortcut.rawValue)")
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .disabled(isSaving)
 
                 Picker("Quick Add source", selection: $quickSourceFilter) {

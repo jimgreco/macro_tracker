@@ -182,11 +182,27 @@ final class DailyMacrosScreenshots: XCTestCase {
         let multiplier = app.textFields["quick-multiplier"]
         for _ in 0..<5 where !multiplier.isHittable { app.swipeUp() }
         XCTAssertTrue(multiplier.waitForExistence(timeout: 5))
+        let original = app.buttons["quick-multiplier-1"]
+        for _ in 0..<5 where !original.isHittable || original.frame.maxY > app.frame.maxY - 40 { app.swipeUp() }
+        XCTAssertTrue(original.isHittable)
+        let screenshotName = "11-Quick-Add-Shortcuts" + (name.contains("AtLargeText") ? "-Large" : "")
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = screenshotName
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        snapshot(screenshotName)
+        for _ in 0..<5 where !multiplier.isHittable { app.swipeDown() }
         multiplier.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         multiplier.typeText(XCUIKeyboardKey.delete.rawValue + "1.25")
-        let original = app.buttons["quick-multiplier-1"]
         XCTAssertEqual(multiplier.value as? String, "1.25")
         XCTAssertFalse(original.isSelected)
+        XCTAssertEqual(original.label, "Original portion")
+        XCTAssertGreaterThanOrEqual(original.frame.width, 44, "Compact shortcuts must retain accessible touch targets")
+        XCTAssertGreaterThanOrEqual(original.frame.height, 44)
+        XCTAssertLessThan(original.frame.width, app.frame.width / 4, "Portion shortcuts must not expand across the sheet")
+        if !name.contains("AtLargeText") {
+            XCTAssertLessThanOrEqual(original.frame.height, 44, "The compact row must not inherit bordered-button padding")
+        }
 
         let filters = app.segmentedControls["quick-source-filter"]
         for _ in 0..<5 where !filters.isHittable { app.swipeUp() }
@@ -201,8 +217,10 @@ final class DailyMacrosScreenshots: XCTestCase {
             XCTAssertEqual(multiplier.value as? String, value)
             XCTAssertTrue(shortcut.isSelected)
             XCTAssertTrue((yogurt.value as? String)?.hasPrefix(preview) == true)
+            for otherValue in ["0.5", "1", "2"] where otherValue != value {
+                XCTAssertFalse(app.buttons["quick-multiplier-\(otherValue)"].isSelected)
+            }
         }
-        snapshot("11-Quick-Add-Shortcuts" + (name.contains("AtLargeText") ? "-Large" : ""))
     }
 
     func testQuickAddPortionShortcutsAtLargeText() throws {
