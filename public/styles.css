@@ -1884,6 +1884,10 @@ button[disabled] {
   display: block;
 }
 
+#trend-canvas[hidden] {
+  display: none;
+}
+
 .trend-legend {
   margin-top: 0.45rem;
   display: flex;
@@ -5909,3 +5913,7 @@ button[disabled] {
 .quick-portion-shortcuts { display: flex; gap: 6px; margin-top: 12px; }
 .quick-portion-shortcuts button { flex: 1; min-height: 44px; padding: 6px 12px; background: transparent; color: var(--text-secondary); border: 1px solid var(--line-strong); }
 .quick-portion-shortcuts button[aria-pressed="true"] { color: var(--text); background: var(--panel); border-color: var(--accent); }
+
+/* Nutrition trends distinguish absent evidence from a completed zero-intake day. */
+.trend-empty-state { padding: 24px 12px; text-align: center; color: var(--muted); }
+.trend-empty-state p { margin: 8px auto 0; max-width: 38rem; }

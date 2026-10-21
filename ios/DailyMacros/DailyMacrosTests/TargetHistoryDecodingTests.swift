@@ -222,3 +222,71 @@ final class QuickAddSourceFilterTests: XCTestCase {
         XCTAssertEqual(templates.count, 1)
     }
 }
+
+
+final class MacroTrendSummaryTests: XCTestCase {
+    private let zone = TimeZone(identifier: "America/New_York")!
+    private let now = ISO8601DateFormatter().date(from: "2026-10-21T02:00:00Z")!
+
+    private func row(_ day: String, _ state: NutritionDayState?, _ calories: Double) -> DailyTotals {
+        DailyTotals(day: day, calories: calories, protein: calories / 20,
+                    carbs: calories / 10, fat: calories / 40,
+                    completeness: state.map {
+                        DayCompleteness(day: day, state: $0, explicit: $0 != .unknown,
+                                        eligibleForNutritionAnalysis: true, suggestedState: .complete,
+                                        suggestionReason: nil, timezone: zone.identifier, updatedAt: nil)
+                    })
+    }
+
+    func testAllMacrosUseOnlyExplicitlyCompleteDaysIncludingZeroEntryDays() throws {
+        let input = [row("2026-10-20", .partial, 400), row("2026-10-19", .complete, 2000),
+                     row("2026-10-18", .unknown, 3000), row("2026-10-17", .complete, 0),
+                     row("2026-10-16", nil, 9000)]
+        let summary = MacroTrendSummary(rows: input, scope: "week", today: now, timeZone: zone)
+        XCTAssertEqual(summary.rows.map(\.day), ["2026-10-19", "2026-10-17"])
+        for (macro, expected) in [("calories", 1000.0), ("protein", 50.0), ("carbs", 100.0), ("fat", 25.0)] {
+            XCTAssertEqual(try XCTUnwrap(summary.average(for: macro)), expected)
+        }
+        XCTAssertEqual(input.count, 5, "Raw rows remain available to unrelated consumers")
+        XCTAssertEqual(input[0].completeness?.state, .partial)
+    }
+
+    func testTodayEntersAndLeavesSampleWhenCompletedAndReopened() throws {
+        for (status, expected, count) in [(NutritionDayState.partial, 2000.0, 1), (.complete, 1200.0, 2), (.partial, 2000.0, 1)] {
+            let summary = MacroTrendSummary(rows: [row("2026-10-19", .complete, 2000), row("2026-10-20", status, 400)],
+                                            scope: "week", today: now, timeZone: zone)
+            XCTAssertEqual(summary.rows.count, count)
+            XCTAssertEqual(try XCTUnwrap(summary.average(for: "calories")), expected)
+        }
+    }
+
+    func testAllRangesUseAccountLocalTodayAndExactInclusiveBoundaries() {
+        for (scope, firstDay, excludedDay) in [("week", "2026-10-14", "2026-10-13"),
+                                              ("month", "2026-09-21", "2026-09-20"),
+                                              ("year", "2025-10-21", "2025-10-20")] {
+            let summary = MacroTrendSummary(rows: [row(excludedDay, .complete, 9000), row(firstDay, .complete, 1000),
+                                                   row("2026-10-20", .complete, 2000), row("2026-10-21", .complete, 9000)],
+                                            scope: scope, today: now, timeZone: zone)
+            XCTAssertEqual(summary.rows.map(\.day), [firstDay, "2026-10-20"], scope)
+        }
+    }
+
+    func testNoCompletedDaysHasNoAverageButOneCompleteEmptyDayHasZeroAverage() throws {
+        for scope in ["week", "month", "year"] {
+            let absent = MacroTrendSummary(rows: [row("2026-10-20", .partial, 400)], scope: scope, today: now, timeZone: zone)
+            let empty = MacroTrendSummary(rows: [row("2026-10-20", .complete, 0)], scope: scope, today: now, timeZone: zone)
+            for macro in ["calories", "protein", "carbs", "fat"] {
+                XCTAssertNil(absent.average(for: macro))
+                XCTAssertEqual(try XCTUnwrap(empty.average(for: macro)), 0)
+            }
+        }
+    }
+
+    func testCalendarWindowAcrossDaylightSavingTime() {
+        let dstNow = ISO8601DateFormatter().date(from: "2026-03-10T03:30:00Z")!
+        let summary = MacroTrendSummary(rows: [row("2026-03-02", .complete, 9000), row("2026-03-03", .complete, 1000),
+                                               row("2026-03-09", .complete, 2000), row("2026-03-10", .complete, 9000)],
+                                        scope: "week", today: dstNow, timeZone: zone)
+        XCTAssertEqual(summary.rows.map(\.day), ["2026-03-03", "2026-03-09"])
+    }
+}

@@ -387,12 +387,17 @@
               </div>
             </div>
             <div class="trend-wrap">
+              <p class="avg-note">Completed days only</p>
               <canvas id="trend-canvas" height="120" aria-label="7-day calorie trend"></canvas>
+              <div id="trend-empty-state" class="trend-empty-state" role="status" hidden>
+                <strong>No completed days in this period</strong>
+                <p>Mark a day complete when you’ve finished logging to include it in trends and averages.</p>
+              </div>
               <div id="trend-tooltip" class="trend-tooltip" hidden></div>
               <div class="trend-legend" aria-live="polite">
                 <span class="trend-legend-item">
                   <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
-                  Average: <span id="trend-average-value">none</span>
+                  Average: <span id="trend-average-value">—</span>
                 </span>
                 <span class="trend-legend-item">
                   <span class="trend-legend-swatch trend-legend-swatch-target" aria-hidden="true"></span>
@@ -401,11 +406,11 @@
               </div>
             </div>
 
-            <div id="weekly-avg-cards" class="cards stats-cards avg-cards" aria-label="Weekly running average macros">
+            <div id="weekly-avg-cards" class="cards stats-cards avg-cards" aria-label="Completed-day average macros">
               <article class="card metric trend-macro-card macro-progress-card is-active" data-trend-macro="calories" data-progress-macro="calories" role="button" tabindex="0" aria-pressed="true">
                 <span class="metric-label">Calories</span>
                 <div class="metric-value-row">
-                  <strong class="metric-value" id="avg-calories">0</strong>
+                  <strong class="metric-value" id="avg-calories">—</strong>
                   <span class="metric-progress-inline" id="avg-calories-progress"></span>
                 </div>
                 <span class="metric-target" id="avg-calories-target">Target: none</span>
@@ -413,7 +418,7 @@
               <article class="card metric trend-macro-card macro-progress-card" data-trend-macro="protein" data-progress-macro="protein" role="button" tabindex="0" aria-pressed="false">
                 <span class="metric-label">Protein</span>
                 <div class="metric-value-row">
-                  <strong class="metric-value" id="avg-protein">0g</strong>
+                  <strong class="metric-value" id="avg-protein">—</strong>
                   <span class="metric-progress-inline" id="avg-protein-progress"></span>
                 </div>
                 <span class="metric-target" id="avg-protein-target">Target: none</span>
@@ -421,7 +426,7 @@
               <article class="card metric trend-macro-card macro-progress-card" data-trend-macro="carbs" data-progress-macro="carbs" role="button" tabindex="0" aria-pressed="false">
                 <span class="metric-label">Carbs</span>
                 <div class="metric-value-row">
-                  <strong class="metric-value" id="avg-carbs">0g</strong>
+                  <strong class="metric-value" id="avg-carbs">—</strong>
                   <span class="metric-progress-inline" id="avg-carbs-progress"></span>
                 </div>
                 <span class="metric-target" id="avg-carbs-target">Target: none</span>
@@ -429,7 +434,7 @@
               <article class="card metric trend-macro-card macro-progress-card" data-trend-macro="fat" data-progress-macro="fat" role="button" tabindex="0" aria-pressed="false">
                 <span class="metric-label">Fat</span>
                 <div class="metric-value-row">
-                  <strong class="metric-value" id="avg-fat">0g</strong>
+                  <strong class="metric-value" id="avg-fat">—</strong>
                   <span class="metric-progress-inline" id="avg-fat-progress"></span>
                 </div>
                 <span class="metric-target" id="avg-fat-target">Target: none</span>

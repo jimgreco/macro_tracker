@@ -76,31 +76,33 @@ function drawAnnual(width, calories = 1800) {
     getContext: () => drawing, setAttribute: (key, value) => { attributes[key] = value; } };
   const data = vm.createContext({
     state: { macroSnapshotPeriod: 'annual', selectedTrendMacro: 'calories' },
-    trendCanvasEl: canvas,
+    trendCanvasEl: canvas, trendEmptyStateEl: {}, hideTrendTooltip() {},
     getTrendMacroConfig: () => ({ label: 'Calories', unit: 'cal' }),
     targetsForDay: () => ({ calories: 2100 }),
     fromIsoDayLocal: day => new Date(`${day}T12:00:00Z`),
     shiftIsoDay(day, offset) { const date = new Date(`${day}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + offset); return date.toISOString().slice(0, 10); },
     updateTrendLegend() {}, bindTrendInteractions() {}
   });
-  vm.runInContext(['let trendPointCoords = [];', ...['fmtNumber', 'spacedAxisLabels', 'buildTrendPoints', 'drawTrend'].map(browserFunction)].join('\n'), data);
-  data.drawTrend([{ day: '2026-10-10', calories }], '2026-10-11');
+  vm.runInContext(['let trendPointCoords = [];', ...['fmtNumber', 'spacedAxisLabels', 'macroTrendDays', 'macroTrendWindowRows', 'completedMacroTrendRows', 'buildTrendPoints', 'drawTrend'].map(browserFunction)].join('\n'), data);
+  data.drawTrend(Array.from({ length: 365 }, (_, offset) => ({
+    day: data.shiftIsoDay('2026-10-11', -offset), calories, completeness: { state: 'complete' }
+  })), '2026-10-11');
   return { text: text.filter(label => label.y === 118), yLabels: text.filter(label => label.y !== 118), arcs, attributes, points: vm.runInContext('trendPointCoords', data) };
 }
 
-test('rendering a mobile annual chart preserves all 52 plotted points and tooltip dates', () => {
+test('rendering a mobile annual chart preserves all 53 weekly buckets and tooltip dates', () => {
   const mobile = drawAnnual(320);
   const desktop = drawAnnual(760);
   assert.ok(mobile.text.length < desktop.text.length);
   assert.equal(desktop.text.length, 13);
-  assert.equal(mobile.points.length, 52);
-  assert.equal(mobile.arcs.length, 52);
+  assert.equal(mobile.points.length, 53);
+  assert.equal(mobile.arcs.length, 53);
   assert.equal(mobile.points[0].x, 34);
   assert.equal(mobile.points.at(-1).x, 286);
   assert.equal(mobile.points.map(point => point.day).join(','), desktop.points.map(point => point.day).join(','));
   assert.equal(mobile.points.map(point => point.label).join(','), desktop.points.map(point => point.label).join(','));
   assert.equal(mobile.points.map(point => point.value).join(','), desktop.points.map(point => point.value).join(','));
-  assert.equal(mobile.attributes['aria-label'], '52-week calories trend');
+  assert.equal(mobile.attributes['aria-label'], '365-day calories trend, completed days only');
   const selected = context.spacedAxisLabels(mobile.text, text => text.length * 6);
   assert.equal(selected.length, mobile.text.length, 'rendered month labels should already fit');
   assertSeparated(selected);
@@ -119,7 +121,7 @@ test('narrow charts reserve measured space for complete y-axis numbers', () => {
     }
     assert.equal(chart.points[0].x, 46);
     assert.equal(chart.points.at(-1).x, width - 34);
-    assert.equal(chart.points.length, 52);
+    assert.equal(chart.points.length, 53);
     assert.equal(chart.points.at(-1).value, 2169.1, 'layout must not round the plotted or tooltip values');
     assertSeparated(context.spacedAxisLabels(chart.text, text => text.length * 6));
   }

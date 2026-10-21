@@ -170,6 +170,42 @@ struct DailyTotals: Codable, Sendable {
     }
 }
 
+/// A display-only sample. Never discard raw history or change completeness records.
+struct MacroTrendSummary {
+    let rows: [DailyTotals]
+
+    init(rows: [DailyTotals], scope: String, today: Date, timeZone: TimeZone) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let days = scope == "year" ? 365 : scope == "month" ? 30 : 7
+        let end = calendar.startOfDay(for: today)
+        let start = calendar.date(byAdding: .day, value: 1 - days, to: end)!
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        let firstDay = formatter.string(from: start)
+        let lastDay = formatter.string(from: end)
+        self.rows = rows.filter {
+            $0.completeness?.state == .complete && $0.day >= firstDay && $0.day <= lastDay
+        }
+    }
+
+    func average(for macro: String) -> Double? {
+        guard !rows.isEmpty else { return nil }
+        let total = rows.reduce(0.0) { sum, row in
+            switch macro {
+            case "protein": return sum + row.protein
+            case "carbs": return sum + row.carbs
+            case "fat": return sum + row.fat
+            default: return sum + row.calories
+            }
+        }
+        return total / Double(rows.count)
+    }
+}
+
 struct SevenDayAverage: Codable, Sendable {
     let daysWithData: Int
     let calories: Double

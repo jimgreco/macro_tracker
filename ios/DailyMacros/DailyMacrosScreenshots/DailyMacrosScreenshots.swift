@@ -18,16 +18,104 @@ final class DailyMacrosScreenshots: XCTestCase {
         if name.contains("testRapidPrimaryAndHealthTabSwitchingStaysStable") || name.contains("testSexCategorySummaries") {
             app.launchArguments.append("--tab-stability-testing")
         }
-        if name.contains("testDataSourceMatrixUsesLargeTextOverview") || name.contains("testQuickAddPortionPreviewAtLargeText") || name.contains("testQuickAddPortionShortcutsAtLargeText") {
+        if name.contains("testDataSourceMatrixUsesLargeTextOverview") || name.contains("testQuickAddPortionPreviewAtLargeText") || name.contains("testQuickAddPortionShortcutsAtLargeText") || name.contains("testCompletedTrendsAtLargeText") {
             app.launchArguments += [
                 "-UIPreferredContentSizeCategoryName",
                 "UICTContentSizeCategoryAccessibilityXXXL"
             ]
         }
+        if name.contains("testCompletedTrends") {
+            app.launchArguments.append("--completed-trend-testing")
+            if name.contains("Empty") { app.launchArguments.append("--empty-trend-testing") }
+        }
         app.launch()
 
         XCUIDevice.shared.orientation = .portrait
         XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 15))
+    }
+
+    private func revealTrend() {
+        let picker = app.segmentedControls["macro-trend-period"]
+        for _ in 0..<14 {
+            if picker.exists && picker.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(picker.isHittable)
+        app.swipeUp(velocity: .slow)
+    }
+
+    private func trendValue(_ macro: String) -> String? {
+        app.buttons["macro-trend-chip-\(macro)"].value as? String
+    }
+
+    private func setTodayComplete(_ complete: Bool) {
+        let button = app.buttons[complete ? "Mark nutrition day complete" : "Reopen nutrition day"]
+        for _ in 0..<14 {
+            if button.exists && button.isHittable { break }
+            app.swipeDown()
+        }
+        XCTAssertTrue(button.isHittable)
+        button.tap()
+    }
+
+    private func attachTrend(_ name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testCompletedTrendsRangesAndCompletionToggle() throws {
+        selectTab("Macros")
+        revealTrend()
+        XCTAssertEqual(trendValue("calories"), "1,000 cal")
+        XCTAssertEqual(trendValue("protein"), "50 g")
+        XCTAssertEqual(trendValue("carbs"), "100 g")
+        XCTAssertEqual(trendValue("fat"), "25 g")
+        attachTrend("Completed-trends-week")
+        let picker = app.segmentedControls["macro-trend-period"]
+        picker.buttons["Month"].tap()
+        XCTAssertTrue(app.buttons["macro-trend-chip-calories"].waitForExistence(timeout: 5))
+        let month = NSPredicate(format: "value == %@", "3,750 cal")
+        expectation(for: month, evaluatedWith: app.buttons["macro-trend-chip-calories"])
+        waitForExpectations(timeout: 5)
+        picker.buttons["Year"].tap()
+        expectation(for: NSPredicate(format: "value == %@", "4,200 cal"), evaluatedWith: app.buttons["macro-trend-chip-calories"])
+        waitForExpectations(timeout: 5)
+        attachTrend("Completed-trends-year")
+        picker.buttons["Week"].tap()
+        setTodayComplete(true)
+        revealTrend()
+        XCTAssertEqual(trendValue("calories"), "800 cal")
+        attachTrend("Completed-trends-today-complete")
+        setTodayComplete(false)
+        revealTrend()
+        XCTAssertEqual(trendValue("calories"), "1,000 cal")
+    }
+
+    func testCompletedTrendsEmptyAndZeroEntryDay() throws {
+        selectTab("Macros")
+        revealTrend()
+        XCTAssertEqual(trendValue("calories"), "No completed days")
+        XCTAssertTrue(app.staticTexts["macro-trend-empty"].exists)
+        attachTrend("Completed-trends-empty")
+        setTodayComplete(true)
+        revealTrend()
+        XCTAssertEqual(trendValue("calories"), "0 cal")
+        XCTAssertFalse(app.staticTexts["macro-trend-empty"].exists)
+        XCTAssertTrue(app.staticTexts["macro-trend-average"].exists)
+        attachTrend("Completed-trends-zero-entry")
+        setTodayComplete(false)
+        revealTrend()
+        XCTAssertEqual(trendValue("calories"), "No completed days")
+        XCTAssertTrue(app.staticTexts["macro-trend-empty"].exists)
+    }
+
+    func testCompletedTrendsAtLargeText() throws {
+        selectTab("Macros")
+        revealTrend()
+        XCTAssertEqual(trendValue("calories"), "1,000 cal")
+        attachTrend("Completed-trends-large-text")
     }
 
     func testAppStoreScreenshots() throws {

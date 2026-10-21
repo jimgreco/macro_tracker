@@ -800,6 +800,11 @@ struct MacrosView: View {
             )
         }
         trendData = trendData.map(updatedTotals)
+        // A newly completed empty day may not have appeared in the last totals response.
+        if !trendData.contains(where: { $0.day == completeness.day }),
+           let current = dashboard?.currentDayTotals, current.day == completeness.day {
+            trendData.append(current)
+        }
         await rebuildCoachSuggestions()
     }
 
@@ -1737,11 +1742,16 @@ struct MacrosView: View {
 
     // MARK: - Trend Section
 
+    private var trendSummary: MacroTrendSummary {
+        MacroTrendSummary(rows: trendData, scope: trendPeriod,
+                          today: AppClock.now, timeZone: accountTimeZone)
+    }
+
     private var trendSection: some View {
         VStack(spacing: 12) {
             AppSectionHeader(
                 "Trend",
-                subtitle: "How your logging changes over time",
+                subtitle: "Completed days only",
                 systemImage: "chart.xyaxis.line"
             )
 
@@ -1751,6 +1761,7 @@ struct MacrosView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .accessibilityIdentifier("macro-trend-period")
             .onChange(of: trendPeriod) { _, _ in
                 Task { await loadTrend() }
             }
@@ -1764,20 +1775,30 @@ struct MacrosView: View {
                 }
             }
 
-            if trendData.count >= 2 {
+            if !trendSummary.rows.isEmpty {
                 trendChart
-            } else if !trendData.isEmpty {
-                Text("Need at least 2 days of data for chart")
-                    .font(.caption)
-                    .foregroundStyle(Color.mutedText)
-                    .padding(.vertical, 20)
+            } else {
+                VStack(spacing: 8) {
+                    Text("No completed days in this period")
+                        .font(.subheadline.weight(.semibold))
+                        .accessibilityIdentifier("macro-trend-empty")
+                    Text("Mark a day complete when you’ve finished logging to include it in trends and averages.")
+                        .font(.caption)
+                    if targetForMacro(selectedTrendMacro) > 0 {
+                        Text("Target: \(Int(targetForMacro(selectedTrendMacro))) \(selectedTrendMacro == "calories" ? "cal" : "g")")
+                            .font(.caption)
+                    }
+                }
+                .foregroundStyle(Color.mutedText)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
             }
         }
     }
 
     private func macroChip(_ macro: String) -> some View {
         let isSelected = selectedTrendMacro == macro
-        let avg = trendData.isEmpty ? 0 : trendData.reduce(0) { $0 + valueForMacro($1, macro: macro) } / Double(trendData.count)
+        let avg = trendSummary.average(for: macro)
         let unit = macro == "calories" ? "cal" : "g"
 
         return Button {
@@ -1787,10 +1808,14 @@ struct MacrosView: View {
                 Text(macro.capitalized)
                     .font(.caption2.bold())
                     .foregroundStyle(isSelected ? .white : Color.mutedText)
-                if !trendData.isEmpty {
+                if let avg {
                     Text("\(Int(avg)) \(unit)")
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
                         .foregroundStyle(isSelected ? Color.neonGreen : Color.mutedText)
+                } else {
+                    Text("—")
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Color.mutedText)
                 }
             }
             .padding(.horizontal, 14)
@@ -1802,10 +1827,14 @@ struct MacrosView: View {
             )
             .cornerRadius(10)
         }
+        .accessibilityIdentifier("macro-trend-chip-\(macro)")
+        .accessibilityLabel("\(macro.capitalized) trend average")
+        .accessibilityValue(avg.map { "\(Int($0)) \(unit)" } ?? "No completed days")
     }
 
     private var trendChart: some View {
-        let values = trendData.map { valueForMacro($0, macro: selectedTrendMacro) }
+        let rows = trendSummary.rows
+        let values = rows.map { valueForMacro($0, macro: selectedTrendMacro) }
         let targetValue = targetForMacro(selectedTrendMacro)
         let allValues = values + (targetValue > 0 ? [targetValue] : [])
         let minV = max(0, (allValues.min() ?? 0) * 0.8)
@@ -1814,8 +1843,8 @@ struct MacrosView: View {
         let avg = values.reduce(0, +) / Double(max(values.count, 1))
         let unit = selectedTrendMacro == "calories" ? "cal" : "g"
         let axisLabelWidth: CGFloat = 36
-        let xLabelIndices = trendXAxisLabelIndices(count: trendData.count)
-        let xLabelWidth: CGFloat = trendData.count <= 7 ? 34 : 44
+        let xLabelIndices = trendXAxisLabelIndices(count: rows.count)
+        let xLabelWidth: CGFloat = rows.count <= 7 ? 34 : 44
 
         let tickCount = 4
         let tickValues = (0...tickCount).map { i in
@@ -1864,7 +1893,7 @@ struct MacrosView: View {
 
                     var path = Path()
                     for (i, val) in values.enumerated() {
-                        let x = CGFloat(i) * stepX
+                        let x = values.count == 1 ? chartWidth / 2 : CGFloat(i) * stepX
                         let y = chartHeight - ((val - minV) / range) * chartHeight
                         if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
                         else { path.addLine(to: CGPoint(x: x, y: y)) }
@@ -1872,12 +1901,15 @@ struct MacrosView: View {
                     context.stroke(path, with: .color(macroColor(selectedTrendMacro)), lineWidth: 2)
 
                     for (i, val) in values.enumerated() {
-                        let x = CGFloat(i) * stepX
+                        let x = values.count == 1 ? chartWidth / 2 : CGFloat(i) * stepX
                         let y = chartHeight - ((val - minV) / range) * chartHeight
                         context.fill(Circle().path(in: CGRect(x: x - 3, y: y - 3, width: 6, height: 6)), with: .color(macroColor(selectedTrendMacro)))
                     }
                 }
                 .frame(height: 180)
+                .accessibilityIdentifier("macro-trend-series")
+                .accessibilityLabel("\(selectedTrendMacro.capitalized) trend, completed days only")
+                .accessibilityValue(rows.map { "\($0.day): \(Int(valueForMacro($0, macro: selectedTrendMacro))) \(unit)" }.joined(separator: "; "))
             }
             .frame(height: 180)
 
@@ -1892,7 +1924,7 @@ struct MacrosView: View {
                             Spacer(minLength: 0)
                         }
 
-                        Text(trendDateLabel(trendData[index].day))
+                        Text(trendDateLabel(rows[index].day))
                             .font(.system(size: 9, design: .monospaced))
                             .foregroundStyle(Color.mutedText)
                             .frame(
@@ -1909,6 +1941,7 @@ struct MacrosView: View {
                 HStack(spacing: 6) {
                     legendSwatch(color: Color.neonGreen, dashed: true)
                     Text("Avg: \(Int(avg)) \(unit)")
+                        .accessibilityIdentifier("macro-trend-average")
                         .font(.caption2)
                         .foregroundStyle(Color.neonGreen)
                 }

@@ -143,6 +143,7 @@ const macroProgressCards = Array.from(document.querySelectorAll('.macro-progress
 const trendCanvasEl = document.getElementById('trend-canvas');
 const trendTooltipEl = document.getElementById('trend-tooltip');
 const trendAverageValueEl = document.getElementById('trend-average-value');
+const trendEmptyStateEl = document.getElementById('trend-empty-state');
 const trendTargetValueEl = document.getElementById('trend-target-value');
 const macroSnapshotHeadingEl = document.getElementById('stats-heading');
 const macroPeriodToggleEl = document.getElementById('macro-period-toggle');
@@ -531,6 +532,10 @@ function updateCompletenessAcrossState(day, completeness) {
     state.dashboardData.previousDays = updateRows(state.dashboardData.previousDays);
   }
   state.macroDailyTotals = updateRows(state.macroDailyTotals);
+  const current = state.dashboardData?.currentDayTotals;
+  if (current?.day === day && !state.macroDailyTotals.some(row => row.day === day)) {
+    state.macroDailyTotals.push(current);
+  }
 }
 
 function renderSelectedDayCompleteness() {
@@ -745,7 +750,7 @@ function renderMacroTargets(dayTotals, targets) {
   }
 }
 
-function renderWeeklyTargets(weeklyAverages, targets) {
+function renderWeeklyTargets(weeklyAverages, targets, hasAverage = true) {
   const targetMap = targets || {};
   const labelEls = {
     calories: avgCaloriesTargetEl,
@@ -773,7 +778,7 @@ function renderWeeklyTargets(weeklyAverages, targets) {
       }
     }
     if (progressEl) {
-      if (target > 0) {
+      if (target > 0 && hasAverage) {
         const pct = Math.max(0, Math.min(999, (current / target) * 100));
         progressEl.textContent = `${Math.round(pct)}%`;
       } else {
@@ -4441,7 +4446,7 @@ function formatScaledMacroValue(value) {
 
 function updateTrendLegend(average, hasAverage, targetValue, hasTarget, unit) {
   if (trendAverageValueEl) {
-    trendAverageValueEl.textContent = hasAverage ? `${fmtNumber(average)} ${unit}` : 'none';
+    trendAverageValueEl.textContent = hasAverage ? `${fmtNumber(average)} ${unit}` : '—';
   }
   if (trendTargetValueEl) {
     trendTargetValueEl.textContent = hasTarget ? `${fmtNumber(targetValue)} ${unit}` : 'none';
@@ -4471,9 +4476,23 @@ function syncEditMacrosWithQuantity(row, quantityInput) {
   }
 }
 
+function macroTrendDays(period) {
+  return period === 'annual' ? 365 : period === 'monthly' ? 30 : 7;
+}
+
+function macroTrendWindowRows(dailyTotals, period, today = getLocalIsoDay()) {
+  const firstDay = shiftIsoDay(today, 1 - macroTrendDays(period));
+  return (dailyTotals || []).filter(row => row?.day >= firstDay && row.day <= today);
+}
+
+function completedMacroTrendRows(dailyTotals, period, today = getLocalIsoDay()) {
+  return macroTrendWindowRows(dailyTotals, period, today)
+    .filter(row => row?.completeness?.state === 'complete');
+}
+
 function buildTrendPoints(dailyTotals, period, baseIsoDay) {
   const dayMap = new Map();
-  for (const dt of dailyTotals || []) {
+  for (const dt of completedMacroTrendRows(dailyTotals, period, baseIsoDay)) {
     dayMap.set(dt.day, Number(dt[state.selectedTrendMacro] || 0));
   }
   const macro = state.selectedTrendMacro;
@@ -4484,13 +4503,14 @@ function buildTrendPoints(dailyTotals, period, baseIsoDay) {
 
   if (period === 'annual') {
     const points = [];
-    for (let w = 51; w >= 0; w -= 1) {
+    for (let w = 52; w >= 0; w -= 1) {
       const weekEndDay = shiftIsoDay(baseIsoDay, -w * 7);
-      const weekStartDay = shiftIsoDay(weekEndDay, -6);
+      const weekStartDay = w === 52 ? weekEndDay : shiftIsoDay(weekEndDay, -6);
+      const bucketDays = w === 52 ? 1 : 7;
       let total = 0;
       let daysWithData = 0;
       let targetTotal = 0;
-      for (let d = 0; d <= 6; d += 1) {
+      for (let d = 0; d < bucketDays; d += 1) {
         const day = shiftIsoDay(weekStartDay, d);
         if (dayMap.has(day)) {
           total += dayMap.get(day);
@@ -4500,7 +4520,7 @@ function buildTrendPoints(dailyTotals, period, baseIsoDay) {
       }
       const hasData = daysWithData > 0;
       const value = hasData ? total / daysWithData : 0;
-      const targetValue = targetTotal / 7;
+      const targetValue = targetTotal / bucketDays;
       const startDate = fromIsoDayLocal(weekStartDay);
       const label = 'Week of ' + startDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
       points.push({ day: weekStartDay, label, value, targetValue, hasData });
@@ -4532,11 +4552,15 @@ function spacedAxisLabels(labels, measureText, gap = 8) {
   return selected;
 }
 
-function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) {
+function drawTrend(dailyTotals, baseIsoDay = getLocalIsoDay()) {
   if (!trendCanvasEl) {
     return;
   }
   const period = state.macroSnapshotPeriod || 'weekly';
+  const completedRows = completedMacroTrendRows(dailyTotals, period, baseIsoDay);
+  trendCanvasEl.hidden = completedRows.length === 0;
+  if (trendEmptyStateEl) trendEmptyStateEl.hidden = completedRows.length > 0;
+  hideTrendTooltip();
   const targetLineColor = 'rgba(255, 202, 40, 0.95)';
   const averageLineColor = 'rgba(5, 255, 161, 0.95)';
   const cssWidth = Math.max(1, Math.floor(trendCanvasEl.clientWidth || 0));
@@ -4608,43 +4632,42 @@ function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) 
     ctx.restore();
   }
 
-  ctx.beginPath();
-  ctx.moveTo(coords[0].x, coords[0].y);
-  for (let i = 1; i < coords.length; i += 1) {
-    ctx.lineTo(coords[i].x, coords[i].y);
-  }
-  ctx.lineTo(coords[coords.length - 1].x, h - padY - xLabelH + 4);
-  ctx.lineTo(coords[0].x, h - padY - xLabelH + 4);
-  ctx.closePath();
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  ctx.shadowBlur = 14;
-  ctx.shadowColor = 'rgba(0, 207, 255, 0.75)';
-  ctx.beginPath();
-  ctx.moveTo(coords[0].x, coords[0].y);
-  for (let i = 1; i < coords.length; i += 1) {
-    ctx.lineTo(coords[i].x, coords[i].y);
-  }
-  ctx.strokeStyle = '#00cfff';
-  ctx.lineWidth = 2.2;
-  ctx.stroke();
-
-  ctx.fillStyle = '#00cfff';
-  for (const p of coords) {
+  // Missing, partial and unknown dates have no point; never draw them at zero.
+  const dataCoords = coords.filter(point => point.hasData);
+  if (dataCoords.length) {
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2);
+    ctx.moveTo(dataCoords[0].x, dataCoords[0].y);
+    for (const point of dataCoords.slice(1)) ctx.lineTo(point.x, point.y);
+    ctx.lineTo(dataCoords.at(-1).x, h - padY - xLabelH + 4);
+    ctx.lineTo(dataCoords[0].x, h - padY - xLabelH + 4);
+    ctx.closePath();
+    ctx.fillStyle = grad;
     ctx.fill();
-  }
-  ctx.shadowBlur = 0;
 
-  // Average line over points that have logged data.
+    ctx.shadowBlur = 14;
+    ctx.shadowColor = 'rgba(0, 207, 255, 0.75)';
+    ctx.beginPath();
+    ctx.moveTo(dataCoords[0].x, dataCoords[0].y);
+    for (const point of dataCoords.slice(1)) ctx.lineTo(point.x, point.y);
+    ctx.strokeStyle = '#00cfff';
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+    ctx.fillStyle = '#00cfff';
+    for (const point of dataCoords) {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  // Average completed days, not weekly bucket averages, so every day has equal weight.
   let average = 0;
   let hasAverage = false;
-  const trendSource = points.filter((p) => p.hasData);
+  const trendSource = completedRows;
   if (trendSource.length >= 1) {
     hasAverage = true;
-    average = trendSource.reduce((sum, point) => sum + point.value, 0) / trendSource.length;
+    average = trendSource.reduce((sum, row) => sum + Number(row[state.selectedTrendMacro] || 0), 0) / trendSource.length;
     const avgY = padY + ((max - average) / range) * usableH;
 
     ctx.save();
@@ -4727,9 +4750,9 @@ function drawTrend(dailyTotals, baseIsoDay = shiftIsoDay(getLocalIsoDay(), -1)) 
     ctx.restore();
   }
 
-  trendPointCoords = coords;
-  const periodLabel = period === 'annual' ? '52-week' : period === 'monthly' ? '30-day' : '7-day';
-  trendCanvasEl.setAttribute('aria-label', `${periodLabel} ${trendMacro.label.toLowerCase()} trend`);
+  trendPointCoords = dataCoords;
+  const periodLabel = period === 'annual' ? '365-day' : period === 'monthly' ? '30-day' : '7-day';
+  trendCanvasEl.setAttribute('aria-label', `${periodLabel} ${trendMacro.label.toLowerCase()} trend, completed days only`);
   bindTrendInteractions();
 }
 
@@ -4898,10 +4921,10 @@ function bindSnapshotToggles() {
 
 function renderSnapshotStats(dailyTotals, targets) {
   const period = state.macroSnapshotPeriod || 'weekly';
-  const numDays = period === 'annual' ? 364 : period === 'monthly' ? 30 : 7;
-  const periodLabel = period === 'annual' ? '52 weeks' : `${numDays} days`;
+  const numDays = macroTrendDays(period);
+  const periodLabel = `${numDays} days`;
 
-  const allRows = dailyTotals || [];
+  const allRows = macroTrendWindowRows(dailyTotals, period);
   const eligibleRows = allRows.filter((row) => row?.completeness?.state === 'complete');
   const daysWithData = eligibleRows.length;
   const partialDays = allRows.filter((row) => row?.completeness?.state === 'partial').length;
@@ -4926,14 +4949,15 @@ function renderSnapshotStats(dailyTotals, targets) {
     avgFat /= daysWithData;
   }
 
-  setText(avgCaloriesEl, fmtNumber(avgCalories));
-  setText(avgProteinEl, `${fmtNumber(avgProtein)}g`);
-  setText(avgCarbsEl, `${fmtNumber(avgCarbs)}g`);
-  setText(avgFatEl, `${fmtNumber(avgFat)}g`);
+  setText(avgCaloriesEl, daysWithData ? fmtNumber(avgCalories) : '—');
+  setText(avgProteinEl, daysWithData ? `${fmtNumber(avgProtein)}g` : '—');
+  setText(avgCarbsEl, daysWithData ? `${fmtNumber(avgCarbs)}g` : '—');
+  setText(avgFatEl, daysWithData ? `${fmtNumber(avgFat)}g` : '—');
   const effectiveTargets = averageTargetsForRows(eligibleRows, targets || {});
   renderWeeklyTargets(
     { calories: avgCalories, protein: avgProtein, carbs: avgCarbs, fat: avgFat },
-    effectiveTargets
+    effectiveTargets,
+    daysWithData > 0
   );
   setText(
     weeklyAvgNoteEl,

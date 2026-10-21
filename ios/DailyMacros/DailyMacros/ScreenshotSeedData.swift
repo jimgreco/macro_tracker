@@ -26,6 +26,29 @@ enum ScreenshotSeedData {
         CommandLine.arguments.contains(stabilityLaunchArgument)
     }
 
+    static var isCompletedTrendTesting: Bool {
+        CommandLine.arguments.contains("--completed-trend-testing")
+    }
+
+    static var isEmptyTrendTesting: Bool {
+        CommandLine.arguments.contains("--empty-trend-testing")
+    }
+
+    // Synthetic completion coverage for native UI regressions; never used outside screenshot mode.
+    private static var completedTrendRows: [DailyTotals] {
+        if isEmptyTrendTesting { return [] }
+        func row(_ day: String, _ state: NutritionDayState, _ calories: Double) -> DailyTotals {
+            DailyTotals(day: day, calories: calories, protein: calories / 20, carbs: calories / 10, fat: calories / 40,
+                        completeness: DayCompleteness(day: day, state: state, explicit: state != .unknown,
+                            eligibleForNutritionAnalysis: state == .complete, suggestedState: nil,
+                            suggestionReason: nil, timezone: "America/New_York", updatedAt: nil))
+        }
+        return [row("2025-06-18", .complete, 6000), row("2026-05-19", .complete, 4000),
+                row("2026-06-10", .complete, 9000), row("2026-06-13", .partial, 300),
+                row("2026-06-14", .complete, 0), row("2026-06-15", .unknown, 100),
+                row("2026-06-16", .complete, 2000), row(referenceDay, .partial, 400)]
+    }
+
     static let referenceDay = "2026-06-17"
 
     static var referenceNow: Date {
@@ -243,13 +266,14 @@ enum ScreenshotSeedData {
 
     static func dashboard(date: String?, limit: Int, offset: Int) -> DashboardResponse {
         let requestedDay = date ?? referenceDay
-        let entriesForDay = mealEntries.filter { $0.day == requestedDay }
+        let sourceRows = isCompletedTrendTesting ? completedTrendRows : dailyTotals
+        let entriesForDay = isCompletedTrendTesting ? [] : mealEntries.filter { $0.day == requestedDay }
         let page = Array(entriesForDay.dropFirst(offset).prefix(limit))
-        let totals = dailyTotals.first(where: { $0.day == requestedDay }) ?? emptyTotals(for: requestedDay)
+        let totals = sourceRows.first(where: { $0.day == requestedDay }) ?? emptyTotals(for: requestedDay)
 
         return DashboardResponse(
             currentDayTotals: totals,
-            previousDays: dailyTotals.filter { $0.day != requestedDay },
+            previousDays: sourceRows.filter { $0.day != requestedDay },
             sevenDayAverage: SevenDayAverage(
                 daysWithData: 7,
                 calories: 2082,
@@ -264,6 +288,9 @@ enum ScreenshotSeedData {
     }
 
     static func dailyTotalsResponse(scope: String) -> DailyTotalsResponse {
+        if isCompletedTrendTesting {
+            return DailyTotalsResponse(dailyTotals: completedTrendRows, targets: targets)
+        }
         let data: [DailyTotals]
         switch scope {
         case "month":
