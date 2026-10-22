@@ -68,9 +68,13 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 
   test(`completed-day trends and status changes at ${viewport.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     const { failures, mutations } = await fixture(page);
-    for (const [period, avg] of [['Week', 1000], ['Month', 3750], ['Year', 4200]]) {
+    for (const [period, avg, complete, days] of [['Week', 1000, 2, 7], ['Month', 3750, 4, 30], ['Year', 4200, 5, 365]]) {
       await page.locator('#macro-period-toggle').getByRole('button', { name: period, exact: true }).click();
       await expect(page.locator('#avg-calories')).toHaveText(String(avg));
+      await expect(page.locator('#trend-coverage-count')).toHaveText(`${complete} of ${days} days complete`);
+      await expect(page.locator('#trend-coverage-detail')).toHaveText(`2 partial · ${days - complete - 2} unmarked`);
+      await expect(page.getByRole('progressbar', { name: `${complete} of ${days} days complete` })).toHaveAttribute('aria-valuetext', `${complete} of ${days} days complete`);
+      expect(await page.locator('#trend-coverage-progress').evaluate(el => [el.value, el.max])).toEqual([complete, days]);
       for (const [macro, value] of [['calories', avg], ['protein', avg / 20], ['carbs', avg / 10], ['fat', avg / 40]]) {
         await page.locator(`[data-trend-macro=${macro}]`).click();
         await expect(page.locator('#trend-average-value')).toHaveText(`${Number(value.toFixed(1))} ${macro === 'calories' ? 'cal' : 'g'}`);
@@ -82,9 +86,15 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 
     await page.locator('#macro-period-toggle').getByRole('button', { name: 'Week', exact: true }).click();
     await page.locator('#entries-completeness-btn').click();
     await expect(page.locator('#trend-average-value')).toHaveText('800 cal');
+    await expect(page.locator('#trend-coverage-count')).toHaveText('3 of 7 days complete');
+    await expect(page.locator('#trend-coverage-detail')).toHaveText('1 partial · 3 unmarked');
+    await page.reload();
+    await expect(page.locator('#trend-coverage-count')).toHaveText('3 of 7 days complete');
     await expect(page.locator('#entries-completeness-btn')).toHaveText('Reopen day');
     await page.locator('#entries-completeness-btn').click();
     await expect(page.locator('#trend-average-value')).toHaveText('1000 cal');
+    await expect(page.locator('#trend-coverage-count')).toHaveText('2 of 7 days complete');
+    await expect(page.locator('#trend-coverage-detail')).toHaveText('2 partial · 3 unmarked');
     await expect(page.locator('#trend-target-value')).toHaveText('2100 cal');
     expect(await page.evaluate(() => trendPointCoords.map(point => point.value))).toEqual([0, 2000]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -98,9 +108,11 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 
 test('no completed days shows an empty state; completing an untracked day plots a genuine zero', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const { failures } = await fixture(page, { empty: true });
-  for (const period of ['Week', 'Month', 'Year']) {
+  for (const [period, days] of [['Week', 7], ['Month', 30], ['Year', 365]]) {
     await page.locator('#macro-period-toggle').getByRole('button', { name: period, exact: true }).click();
     await expect(page.locator('#trend-empty-state')).toBeVisible();
+    await expect(page.locator('#trend-coverage-count')).toHaveText(`0 of ${days} days complete`);
+    await expect(page.locator('#trend-coverage-detail')).toHaveText(`0 partial · ${days} unmarked`);
     await expect(page.locator('#trend-canvas')).toBeHidden();
     await expect(page.locator('#trend-average-value')).toHaveText('—');
     await expect(page.locator('#avg-protein')).toHaveText('—');
@@ -110,6 +122,8 @@ test('no completed days shows an empty state; completing an untracked day plots 
   await expect(page.locator('#trend-canvas')).toBeVisible();
   await expect(page.locator('#trend-average-value')).toHaveText('0 cal');
   await expect(page.locator('#avg-calories')).toHaveText('0');
+  await expect(page.locator('#trend-coverage-count')).toHaveText('1 of 365 days complete');
+  await expect(page.locator('#trend-coverage-detail')).toHaveText('0 partial · 364 unmarked');
   await expect(page.locator('#trend-empty-state')).toBeHidden();
   await expect(page.locator('#trend-target-value')).toHaveText('2100 cal');
   expect(await page.locator('#trend-canvas').evaluate(el => el.width)).toBeGreaterThan(250);
@@ -117,5 +131,7 @@ test('no completed days shows an empty state; completing an untracked day plots 
   await page.locator('#entries-completeness-btn').click();
   await expect(page.locator('#trend-empty-state')).toBeVisible();
   await expect(page.locator('#avg-calories')).toHaveText('—');
+  await expect(page.locator('#trend-coverage-count')).toHaveText('0 of 365 days complete');
+  await expect(page.locator('#trend-coverage-detail')).toHaveText('1 partial · 364 unmarked');
   expect(failures).toEqual([]);
 });

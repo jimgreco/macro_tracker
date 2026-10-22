@@ -1766,6 +1766,8 @@ struct MacrosView: View {
                 Task { await loadTrend() }
             }
 
+            trendCoverage
+
             // Macro selector chips with averages
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -1794,6 +1796,25 @@ struct MacrosView: View {
                 .padding(.vertical, 20)
             }
         }
+    }
+
+    private var trendCoverage: some View {
+        let summary = trendSummary
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("\(summary.completeDays) of \(summary.periodDays) days complete")
+                .font(.subheadline.weight(.semibold))
+                .accessibilityIdentifier("macro-trend-coverage-count")
+            ProgressView(value: Double(summary.completeDays), total: Double(summary.periodDays))
+                .tint(Color.neonGreen)
+                .accessibilityLabel("Completed-day coverage")
+                .accessibilityValue("\(summary.completeDays) of \(summary.periodDays) days complete")
+                .accessibilityIdentifier("macro-trend-coverage-progress")
+            Text("\(summary.partialDays) partial · \(summary.unmarkedDays) unmarked")
+                .font(.caption)
+                .foregroundStyle(Color.mutedText)
+                .accessibilityIdentifier("macro-trend-coverage-detail")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func macroChip(_ macro: String) -> some View {

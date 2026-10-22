@@ -144,6 +144,9 @@ const trendCanvasEl = document.getElementById('trend-canvas');
 const trendTooltipEl = document.getElementById('trend-tooltip');
 const trendAverageValueEl = document.getElementById('trend-average-value');
 const trendEmptyStateEl = document.getElementById('trend-empty-state');
+const trendCoverageCountEl = document.getElementById('trend-coverage-count');
+const trendCoverageProgressEl = document.getElementById('trend-coverage-progress');
+const trendCoverageDetailEl = document.getElementById('trend-coverage-detail');
 const trendTargetValueEl = document.getElementById('trend-target-value');
 const macroSnapshotHeadingEl = document.getElementById('stats-heading');
 const macroPeriodToggleEl = document.getElementById('macro-period-toggle');
@@ -4932,6 +4935,13 @@ function renderSnapshotStats(dailyTotals, targets) {
     0,
     numDays - daysWithData - partialDays
   );
+  setText(trendCoverageCountEl, `${daysWithData} of ${numDays} days complete`);
+  setText(trendCoverageDetailEl, `${partialDays} partial · ${unknownDays} unmarked`);
+  if (trendCoverageProgressEl) {
+    trendCoverageProgressEl.max = numDays;
+    trendCoverageProgressEl.value = daysWithData;
+    trendCoverageProgressEl.setAttribute('aria-valuetext', `${daysWithData} of ${numDays} days complete`);
+  }
   let avgCalories = 0;
   let avgProtein = 0;
   let avgCarbs = 0;

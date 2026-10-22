@@ -26,6 +26,7 @@ function context(period = 'weekly', macro = 'calories') {
   const ctx = vm.createContext({
     state: { macroSnapshotPeriod: period, selectedTrendMacro: macro },
     trendCanvasEl: canvas, trendEmptyStateEl: {}, trendAverageValueEl: {}, trendTargetValueEl: {},
+    trendCoverageCountEl: {}, trendCoverageDetailEl: {}, trendCoverageProgressEl: { setAttribute(name, value) { this[name] = value; } },
     avgCaloriesEl: {}, avgProteinEl: {}, avgCarbsEl: {}, avgFatEl: {}, weeklyAvgNoteEl: {},
     getLocalIsoDay: () => today, shiftIsoDay: shift, getTimezone: () => 'America/New_York',
     fromIsoDayLocal: day => new Date(`${day}T12:00:00Z`),
@@ -47,6 +48,33 @@ function context(period = 'weekly', macro = 'calories') {
 }
 
 for (const period of ['weekly', 'monthly', 'annual']) {
+  test(`${period}: coverage counts missing, unmarked and partial dates in the exact window`, () => {
+    const { ctx } = context(period);
+    const days = { weekly: 7, monthly: 30, annual: 365 }[period];
+    const rows = [row(0, 'partial', 400), row(-1, 'complete', 0), row(-2, 'unknown', 9000),
+      row(-3, undefined, 9000), row(1 - days, 'complete', 1200),
+      row(-days, 'partial', 9000), row(1, 'complete', 9000)];
+    const before = JSON.stringify(rows);
+    ctx.renderSnapshotStats(rows, {});
+    assert.equal(ctx.trendCoverageCountEl.textContent, `2 of ${days} days complete`);
+    assert.equal(ctx.trendCoverageDetailEl.textContent, `1 partial · ${days - 3} unmarked`);
+    assert.equal(ctx.trendCoverageProgressEl.max, days);
+    assert.equal(ctx.trendCoverageProgressEl.value, 2);
+    assert.equal(ctx.trendCoverageProgressEl['aria-valuetext'], `2 of ${days} days complete`);
+    assert.equal(JSON.stringify(rows), before);
+    for (const [status, completed, partial] of [['complete', 3, 0], ['partial', 2, 1]]) {
+      rows[0].completeness.state = status;
+      ctx.renderSnapshotStats(rows, {});
+      assert.equal(ctx.trendCoverageProgressEl.value, completed);
+      assert.equal(ctx.trendCoverageDetailEl.textContent, `${partial} partial · ${days - 3} unmarked`);
+    }
+    ctx.renderSnapshotStats([], {});
+    assert.equal(ctx.trendCoverageProgressEl.value, 0);
+    assert.equal(ctx.trendCoverageDetailEl.textContent, `0 partial · ${days} unmarked`);
+    ctx.renderSnapshotStats(Array.from({ length: days }, (_, i) => row(-i, 'complete', 0)), {});
+    assert.equal(ctx.trendCoverageProgressEl.value, days);
+    assert.equal(ctx.trendCoverageDetailEl.textContent, '0 partial · 0 unmarked');
+  });
   test(`${period}: all four plotted series, averages and cards exclude partial and unmarked days`, () => {
     const rows = [row(0, 'partial', 400), row(-1, 'complete', 2000), row(-2, 'unknown', 9000),
       row(-3, 'complete', 0), row(-4, undefined, 9000)];

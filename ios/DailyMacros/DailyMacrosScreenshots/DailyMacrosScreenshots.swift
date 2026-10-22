@@ -48,6 +48,14 @@ final class DailyMacrosScreenshots: XCTestCase {
         app.buttons["macro-trend-chip-\(macro)"].value as? String
     }
 
+    private func assertTrendCoverage(complete: Int, days: Int, partial: Int) {
+        let count = "\(complete) of \(days) days complete"
+        let detail = "\(partial) partial · \(days - complete - partial) unmarked"
+        XCTAssertEqual(app.staticTexts["macro-trend-coverage-count"].label, count)
+        XCTAssertEqual(app.staticTexts["macro-trend-coverage-detail"].label, detail)
+        XCTAssertEqual(app.progressIndicators["macro-trend-coverage-progress"].value as? String, count)
+    }
+
     private func setTodayComplete(_ complete: Bool) {
         let button = app.buttons[complete ? "Mark nutrition day complete" : "Reopen nutrition day"]
         for _ in 0..<14 {
@@ -72,6 +80,7 @@ final class DailyMacrosScreenshots: XCTestCase {
         XCTAssertEqual(trendValue("protein"), "50 g")
         XCTAssertEqual(trendValue("carbs"), "100 g")
         XCTAssertEqual(trendValue("fat"), "25 g")
+        assertTrendCoverage(complete: 2, days: 7, partial: 2)
         attachTrend("Completed-trends-week")
         let picker = app.segmentedControls["macro-trend-period"]
         picker.buttons["Month"].tap()
@@ -79,18 +88,23 @@ final class DailyMacrosScreenshots: XCTestCase {
         let month = NSPredicate(format: "value == %@", "3,750 cal")
         expectation(for: month, evaluatedWith: app.buttons["macro-trend-chip-calories"])
         waitForExpectations(timeout: 5)
+        assertTrendCoverage(complete: 4, days: 30, partial: 2)
+        attachTrend("Completed-trends-month")
         picker.buttons["Year"].tap()
         expectation(for: NSPredicate(format: "value == %@", "4,200 cal"), evaluatedWith: app.buttons["macro-trend-chip-calories"])
         waitForExpectations(timeout: 5)
+        assertTrendCoverage(complete: 5, days: 365, partial: 2)
         attachTrend("Completed-trends-year")
         picker.buttons["Week"].tap()
         setTodayComplete(true)
         revealTrend()
         XCTAssertEqual(trendValue("calories"), "800 cal")
+        assertTrendCoverage(complete: 3, days: 7, partial: 1)
         attachTrend("Completed-trends-today-complete")
         setTodayComplete(false)
         revealTrend()
         XCTAssertEqual(trendValue("calories"), "1,000 cal")
+        assertTrendCoverage(complete: 2, days: 7, partial: 2)
     }
 
     func testCompletedTrendsEmptyAndZeroEntryDay() throws {
@@ -98,12 +112,14 @@ final class DailyMacrosScreenshots: XCTestCase {
         revealTrend()
         XCTAssertEqual(trendValue("calories"), "No completed days")
         XCTAssertTrue(app.staticTexts["macro-trend-empty"].exists)
+        assertTrendCoverage(complete: 0, days: 7, partial: 0)
         attachTrend("Completed-trends-empty")
         setTodayComplete(true)
         revealTrend()
         XCTAssertEqual(trendValue("calories"), "0 cal")
         XCTAssertFalse(app.staticTexts["macro-trend-empty"].exists)
         XCTAssertTrue(app.staticTexts["macro-trend-average"].exists)
+        assertTrendCoverage(complete: 1, days: 7, partial: 0)
         attachTrend("Completed-trends-zero-entry")
         setTodayComplete(false)
         revealTrend()
@@ -115,6 +131,7 @@ final class DailyMacrosScreenshots: XCTestCase {
         selectTab("Macros")
         revealTrend()
         XCTAssertEqual(trendValue("calories"), "1,000 cal")
+        assertTrendCoverage(complete: 2, days: 7, partial: 2)
         attachTrend("Completed-trends-large-text")
     }
 

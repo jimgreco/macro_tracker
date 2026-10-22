@@ -5917,3 +5917,10 @@ button[disabled] {
 /* Nutrition trends distinguish absent evidence from a completed zero-intake day. */
 .trend-empty-state { padding: 24px 12px; text-align: center; color: var(--muted); }
 .trend-empty-state p { margin: 8px auto 0; max-width: 38rem; }
+.trend-coverage { display: grid; gap: 6px; margin: 12px 0 18px; text-align: left; }
+.trend-coverage strong { font-size: 14px; }
+.trend-coverage span { font-size: 12px; color: var(--muted); }
+.trend-coverage progress { width: 100%; height: 6px; appearance: none; border: 0; border-radius: 3px; overflow: hidden; background: rgba(255, 255, 255, 0.08); accent-color: var(--primary); }
+.trend-coverage progress::-webkit-progress-bar { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
+.trend-coverage progress::-webkit-progress-value { background: var(--primary); border-radius: 3px; }
+.trend-coverage progress::-moz-progress-bar { background: var(--primary); border-radius: 3px; }

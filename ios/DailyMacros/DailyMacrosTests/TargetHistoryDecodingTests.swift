@@ -238,6 +238,58 @@ final class MacroTrendSummaryTests: XCTestCase {
                     })
     }
 
+    func testCoverageIncludesEveryCalendarDateAndOnlyExplicitStatuses() {
+        for (scope, days, firstDay, excludedDay) in [("week", 7, "2026-10-14", "2026-10-13"),
+                                                    ("month", 30, "2026-09-21", "2026-09-20"),
+                                                    ("year", 365, "2025-10-21", "2025-10-20")] {
+            let input = [row("2026-10-20", .partial, 400), row("2026-10-19", .complete, 0),
+                         row("2026-10-18", .unknown, 9000), row("2026-10-17", nil, 9000),
+                         row(firstDay, .complete, 1200), row(excludedDay, .partial, 9000),
+                         row("2026-10-21", .complete, 9000)]
+            let summary = MacroTrendSummary(rows: input, scope: scope, today: now, timeZone: zone)
+            XCTAssertEqual(summary.periodDays, days)
+            XCTAssertEqual(summary.completeDays, 2)
+            XCTAssertEqual(summary.partialDays, 1)
+            XCTAssertEqual(summary.unmarkedDays, days - 3)
+            XCTAssertEqual(summary.completeDays + summary.partialDays + summary.unmarkedDays, days)
+        }
+    }
+
+    func testCoverageRecomputesWhenTodayIsCompletedAndReopened() {
+        for scope in ["week", "month", "year"] {
+            for status in [NutritionDayState.partial, .complete, .partial] {
+                let summary = MacroTrendSummary(rows: [row("2026-10-20", status, 0)],
+                                                scope: scope, today: now, timeZone: zone)
+                XCTAssertEqual(summary.completeDays, status == .complete ? 1 : 0)
+                XCTAssertEqual(summary.partialDays, status == .partial ? 1 : 0)
+                XCTAssertEqual(summary.unmarkedDays, summary.periodDays - 1)
+            }
+        }
+    }
+
+    func testEmptyAndFullyCompletedCoverageAcrossAllRanges() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = zone
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        for scope in ["week", "month", "year"] {
+            let empty = MacroTrendSummary(rows: [], scope: scope, today: now, timeZone: zone)
+            XCTAssertEqual(empty.completeDays, 0)
+            XCTAssertEqual(empty.partialDays, 0)
+            XCTAssertEqual(empty.unmarkedDays, empty.periodDays)
+            let rows = (0..<empty.periodDays).map { offset in
+                row(formatter.string(from: calendar.date(byAdding: .day, value: -offset, to: now)!), .complete, 0)
+            }
+            let full = MacroTrendSummary(rows: rows, scope: scope, today: now, timeZone: zone)
+            XCTAssertEqual(full.completeDays, full.periodDays)
+            XCTAssertEqual(full.partialDays, 0)
+            XCTAssertEqual(full.unmarkedDays, 0)
+        }
+    }
+
     func testAllMacrosUseOnlyExplicitlyCompleteDaysIncludingZeroEntryDays() throws {
         let input = [row("2026-10-20", .partial, 400), row("2026-10-19", .complete, 2000),
                      row("2026-10-18", .unknown, 3000), row("2026-10-17", .complete, 0),

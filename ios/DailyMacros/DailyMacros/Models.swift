@@ -173,6 +173,11 @@ struct DailyTotals: Codable, Sendable {
 /// A display-only sample. Never discard raw history or change completeness records.
 struct MacroTrendSummary {
     let rows: [DailyTotals]
+    let periodDays: Int
+    let partialDays: Int
+
+    var completeDays: Int { rows.count }
+    var unmarkedDays: Int { max(0, periodDays - completeDays - partialDays) }
 
     init(rows: [DailyTotals], scope: String, today: Date, timeZone: TimeZone) {
         var calendar = Calendar(identifier: .gregorian)
@@ -187,9 +192,10 @@ struct MacroTrendSummary {
         formatter.dateFormat = "yyyy-MM-dd"
         let firstDay = formatter.string(from: start)
         let lastDay = formatter.string(from: end)
-        self.rows = rows.filter {
-            $0.completeness?.state == .complete && $0.day >= firstDay && $0.day <= lastDay
-        }
+        let windowRows = rows.filter { $0.day >= firstDay && $0.day <= lastDay }
+        self.rows = windowRows.filter { $0.completeness?.state == .complete }
+        self.periodDays = days
+        self.partialDays = windowRows.filter { $0.completeness?.state == .partial }.count
     }
 
     func average(for macro: String) -> Double? {

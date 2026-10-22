@@ -388,6 +388,11 @@
             </div>
             <div class="trend-wrap">
               <p class="avg-note">Completed days only</p>
+              <div class="trend-coverage" aria-live="polite">
+                <strong id="trend-coverage-count"></strong>
+                <progress id="trend-coverage-progress" value="0" max="7" aria-labelledby="trend-coverage-count" aria-describedby="trend-coverage-detail"></progress>
+                <span id="trend-coverage-detail"></span>
+              </div>
               <canvas id="trend-canvas" height="120" aria-label="7-day calorie trend"></canvas>
               <div id="trend-empty-state" class="trend-empty-state" role="status" hidden>
                 <strong>No completed days in this period</strong>
