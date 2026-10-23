@@ -2,6 +2,16 @@ import XCTest
 @testable import DailyMacros
 
 final class ScopedHistoryLoadTests: XCTestCase {
+    func testAccountAndTimezoneChangesRejectTheSameDayResponse() throws {
+        var load = ScopedHistoryLoad()
+        let request = try XCTUnwrap(load.begin(scope: "account-a|America/New_York|2026-10-23"))
+        XCTAssertFalse(load.isCurrent(request, scope: "account-b|America/New_York|2026-10-23"))
+        XCTAssertFalse(load.isCurrent(request, scope: "account-a|Pacific/Honolulu|2026-10-23"))
+        let replacement = try XCTUnwrap(load.begin(scope: "account-b|America/New_York|2026-10-23"))
+        load.finish(request)
+        XCTAssertTrue(load.isLoading)
+        XCTAssertTrue(load.isCurrent(replacement, scope: replacement.scope))
+    }
     func testChangingPeriodStartsNewRequestWhilePreviousPeriodIsLoading() throws {
         var load = ScopedHistoryLoad()
         let week = try XCTUnwrap(load.begin(scope: "week"))
@@ -55,6 +65,84 @@ final class ScopedHistoryLoadTests: XCTestCase {
         let retry = try XCTUnwrap(load.begin(scope: "year"))
         XCTAssertFalse(load.isCurrent(failed, scope: "year"))
         XCTAssertTrue(load.isCurrent(retry, scope: "year"))
+    }
+}
+
+final class NutritionDayReviewTests: XCTestCase {
+    private let zone = TimeZone(identifier: "America/New_York")!
+    private let now = ISO8601DateFormatter().date(from: "2026-10-21T02:00:00Z")!
+
+    private func row(_ day: String, _ state: NutritionDayState?, calories: Double = 0) -> DailyTotals {
+        DailyTotals(day: day, calories: calories, protein: 0, carbs: 0, fat: 0,
+                    completeness: state.map {
+                        DayCompleteness(day: day, state: $0, explicit: $0 != .unknown,
+                                        eligibleForNutritionAnalysis: true, suggestedState: .complete,
+                                        suggestionReason: "Suggestion does not mark a day complete",
+                                        timezone: zone.identifier, updatedAt: nil)
+                    })
+    }
+
+    func testAllRangesEnumerateExactAccountLocalDatesNewestFirst() {
+        for (scope, count, first) in [("week", 7, "2026-10-14"), ("month", 30, "2026-09-21"),
+                                      ("year", 365, "2025-10-21")] {
+            let review = NutritionDayReview(rows: [], scope: scope, today: now, timeZone: zone)
+            XCTAssertEqual(review.days.count, count)
+            XCTAssertEqual(Set(review.days.map(\.day)).count, count)
+            XCTAssertEqual(review.days.first?.day, "2026-10-20")
+            XCTAssertEqual(review.days.last?.day, first)
+            XCTAssertEqual(review.days(matching: .needsReview).count, count)
+            XCTAssertTrue(review.days(matching: .complete).isEmpty)
+        }
+    }
+
+    func testReviewFiltersUseOnlyExplicitStatusIncludingZeroAndMissingDays() {
+        let input = [row("2026-10-20", .partial, calories: 9000), row("2026-10-19", .complete),
+                     row("2026-10-18", .unknown, calories: 9000), row("2026-10-17", nil, calories: 9000),
+                     row("2026-10-21", .complete), row("2026-10-13", .complete)]
+        let review = NutritionDayReview(rows: input, scope: "week", today: now, timeZone: zone)
+        XCTAssertEqual(review.days(matching: .complete).map(\.day), ["2026-10-19"])
+        XCTAssertEqual(review.days(matching: .needsReview).map(\.day),
+                       ["2026-10-20", "2026-10-18", "2026-10-17", "2026-10-16", "2026-10-15", "2026-10-14"])
+        XCTAssertEqual(review.days(matching: .all).count, 7)
+        XCTAssertEqual(review.days.map(\.statusLabel), ["Partial", "Complete", "Unmarked", "Unmarked", "Unmarked", "Unmarked", "Unmarked"])
+        XCTAssertEqual(input.count, 6)
+        XCTAssertEqual(input.first?.completeness?.state, .partial)
+    }
+
+    func testMarkingAndReopeningChangesMembershipWithoutChangingDateOrder() {
+        for status in [NutritionDayState.partial, .complete, .partial] {
+            let review = NutritionDayReview(rows: [row("2026-10-20", status)], scope: "week", today: now, timeZone: zone)
+            XCTAssertEqual(review.days(matching: .complete).count, status == .complete ? 1 : 0)
+            XCTAssertEqual(review.days(matching: .needsReview).count, status == .complete ? 6 : 7)
+            XCTAssertEqual(review.days.first?.day, "2026-10-20")
+        }
+    }
+
+    func testCalendarNavigationAcrossDSTAndLeapDay() throws {
+        for (instant, expected) in [
+            ("2026-03-10T03:30:00Z", ["2026-03-09", "2026-03-08", "2026-03-07", "2026-03-06", "2026-03-05", "2026-03-04", "2026-03-03"]),
+            ("2024-03-03T02:00:00Z", ["2024-03-02", "2024-03-01", "2024-02-29", "2024-02-28", "2024-02-27", "2024-02-26", "2024-02-25"])
+        ] {
+            let date = try XCTUnwrap(ISO8601DateFormatter().date(from: instant))
+            let review = NutritionDayReview(rows: [], scope: "week", today: date, timeZone: zone)
+            XCTAssertEqual(review.days.map(\.day), expected)
+            let formatter = DateFormatter()
+            formatter.timeZone = zone
+            formatter.dateFormat = "yyyy-MM-dd"
+            XCTAssertEqual(review.days.map { formatter.string(from: $0.date) }, expected,
+                           "Selecting a row must open its exact account-local date")
+        }
+    }
+
+    func testSameInstantUsesAccountTimezoneAndMalformedOrDuplicateRowsCannotAddDays() {
+        let input = [row("not-a-date", .complete), row("2026-10-20", .complete), row("2026-10-20", .partial)]
+        let western = NutritionDayReview(rows: input, scope: "week", today: now, timeZone: zone)
+        let eastern = NutritionDayReview(rows: input, scope: "week", today: now,
+                                        timeZone: TimeZone(identifier: "Asia/Tokyo")!)
+        XCTAssertEqual(western.days.first?.day, "2026-10-20")
+        XCTAssertEqual(eastern.days.first?.day, "2026-10-21")
+        XCTAssertEqual(western.days.count, 7)
+        XCTAssertEqual(western.days.first?.statusLabel, "Partial")
     }
 }
 

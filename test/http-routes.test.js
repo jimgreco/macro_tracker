@@ -759,6 +759,38 @@ test('dashboard route falls back to saved user timezone', routeTestOptions, asyn
 
   assert.equal(res.status, 200);
   assert.equal(latestCall('getDashboard').payload.options.timezone, 'America/Los_Angeles');
+  assert.equal(latestCall('getDashboard').payload.options.entriesDay, undefined);
+});
+
+test('dashboard day entries retain authenticated ownership, timezone and pagination', routeTestOptions, async () => {
+  resetCalls();
+  const response = await request('/api/dashboard?date=2024-02-29&entriesDay=2024-02-29&limit=2&offset=4&userId=another-user');
+  assert.equal(response.res.status, 200);
+  assert.deepEqual(latestCall('getDashboard').payload, {
+    userId: fakeUser.id,
+    date: '2024-02-29',
+    options: { entriesDay: '2024-02-29', limit: 2, offset: 4, timezone: 'America/Los_Angeles' }
+  });
+
+  const travel = await request('/api/dashboard?entriesDay=2026-11-01&tz=America/New_York');
+  assert.equal(travel.res.status, 200);
+  assert.equal(latestCall('getDashboard').payload.options.timezone, 'America/New_York');
+  assert.equal(latestCall('getDashboard').payload.options.entriesDay, '2026-11-01');
+});
+
+test('dashboard rejects invalid or ambiguous day filters before querying history', routeTestOptions, async () => {
+  for (const query of [
+    'entriesDay=', 'entriesDay=2026-02-29', 'entriesDay=2024-02-30',
+    'entriesDay=2026-13-01', 'entriesDay=0000-01-01', 'entriesDay=2026-1-01',
+    'entriesDay=2026-10-23T00:00:00Z', 'entriesDay=2026-10-23&entriesDay=2026-10-22',
+    'entriesDay[day]=2026-10-23', 'entriesDay=2026-10-23&tz=Not/A_Zone'
+  ]) {
+    resetCalls();
+    const response = await request(`/api/dashboard?${query}`);
+    assert.equal(response.res.status, 400, query);
+    assert.match(response.body.error, /entriesDay|tz/, query);
+    assert.equal(latestCall('getDashboard'), undefined, query);
+  }
 });
 
 test('day completeness can be marked complete and reopened in the saved timezone', routeTestOptions, async () => {

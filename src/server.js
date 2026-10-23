@@ -4278,7 +4278,11 @@ apiRouter.get('/dashboard', async (req, res) => {
     const offset = normalizeOffset(req.query.offset);
     const tz = requestTimezone(req);
     const date = req.query.date ? normalizeString(req.query.date, 'date', { maxLength: 20 }) : undefined;
-    const data = await getDashboard(userIdFromReq(req), date, { limit, offset, timezone: tz });
+    const entriesDay = req.query.entriesDay === undefined
+      ? undefined
+      : normalizeIsoDay(req.query.entriesDay, 'entriesDay');
+    if (entriesDay?.startsWith('0000-')) throw new Error('entriesDay must be a valid date.');
+    const data = await getDashboard(userIdFromReq(req), date, { limit, offset, timezone: tz, entriesDay });
     res.json(data);
   } catch (error) {
     res.status(400).json({ error: error.message });

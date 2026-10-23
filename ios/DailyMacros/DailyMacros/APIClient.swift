@@ -577,16 +577,18 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
-    func getDashboard(date: String? = nil, limit: Int = 100, offset: Int = 0) async throws -> DashboardResponse {
+    func getDashboard(date: String? = nil, limit: Int = 100, offset: Int = 0, entriesDay: String? = nil) async throws -> DashboardResponse {
         #if DEBUG
         if ScreenshotSeedData.isEnabled {
-            return ScreenshotSeedData.dashboard(date: date, limit: limit, offset: offset)
+            try await ScreenshotSeedData.waitForDashboard(entriesDay: entriesDay, offset: offset)
+            return ScreenshotSeedData.dashboard(date: date, limit: limit, offset: offset, entriesDay: entriesDay)
         }
         #endif
 
         var components = URLComponents(url: apiURL("/dashboard"), resolvingAgainstBaseURL: false)!
         var queryItems: [URLQueryItem] = []
         if let date { queryItems.append(.init(name: "date", value: date)) }
+        if let entriesDay { queryItems.append(.init(name: "entriesDay", value: entriesDay)) }
         if limit != 100 { queryItems.append(.init(name: "limit", value: "\(limit)")) }
         if offset > 0 { queryItems.append(.init(name: "offset", value: "\(offset)")) }
         if !queryItems.isEmpty { components.queryItems = queryItems }

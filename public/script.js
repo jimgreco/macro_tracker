@@ -15,6 +15,7 @@ const state = {
   mealImageAttachments: [],
   mealImageLoading: false,
   selectedEntriesDay: '',
+  entriesDayLog: null,
   dayCompletenessByDay: new Map(),
   dashboardData: null,
   selectedTrendMacro: 'calories',
@@ -147,6 +148,7 @@ const trendEmptyStateEl = document.getElementById('trend-empty-state');
 const trendCoverageCountEl = document.getElementById('trend-coverage-count');
 const trendCoverageProgressEl = document.getElementById('trend-coverage-progress');
 const trendCoverageDetailEl = document.getElementById('trend-coverage-detail');
+const trendReviewDaysBtnEl = document.getElementById('trend-review-days-btn');
 const trendTargetValueEl = document.getElementById('trend-target-value');
 const macroSnapshotHeadingEl = document.getElementById('stats-heading');
 const macroPeriodToggleEl = document.getElementById('macro-period-toggle');
@@ -518,6 +520,199 @@ function selectedDayCompleteness() {
   return state.dayCompletenessByDay.get(day) || normalizeDayCompleteness(null, day);
 }
 
+function selectedEntriesLog() {
+  const log = state.entriesDayLog;
+  return log?.day === state.selectedEntriesDay
+    && log.account === state.currentUser?.id && log.timezone === getTimezone() ? log : null;
+}
+
+function macroEntrySelectionRows() {
+  const log = selectedEntriesLog();
+  return log ? (log.loaded ? log.entries : []) : state.dashboardData?.entries || [];
+}
+
+async function loadSelectedDayEntries({ append = false } = {}) {
+  const day = state.selectedEntriesDay;
+  if (!day || !state.dashboardData) return;
+  const previous = selectedEntriesLog();
+  if (append && (!previous || previous.loading || !previous.hasMore)) return;
+  const log = append ? previous : {
+    day, account: state.currentUser?.id, timezone: getTimezone(),
+    entries: [], offset: 0, hasMore: false, loaded: false, totals: null, targets: null
+  };
+  state.entriesDayLog = log;
+  log.loading = true;
+  log.error = '';
+  const isCurrent = () => state.entriesDayLog === log && selectedEntriesLog() === log;
+  renderDashboard(state.dashboardData);
+  try {
+    do {
+      const data = await api(`/api/dashboard?date=${day}&entriesDay=${day}&limit=100&offset=${log.offset}&tz=${encodeURIComponent(log.timezone)}`);
+      if (!isCurrent()) return;
+      const entries = data.entries || [];
+      if (entries.some(entry => getLocalIsoDay(entry.consumedAt) !== day)) {
+        throw new Error('The server did not return the selected day.');
+      }
+      log.entries = appendUniqueById(log.entries, entries);
+      log.offset += entries.length;
+      log.hasMore = entries.length === 100;
+      log.totals = data.currentDayTotals;
+      log.targets = data.targets;
+      updateCompletenessAcrossState(day, data.currentDayTotals?.completeness);
+    } while (log.hasMore);
+    log.loaded = true;
+  } catch (error) {
+    if (!isCurrent()) return;
+    log.error = 'This day could not be loaded. Try again.';
+  } finally {
+    if (isCurrent()) {
+      log.loading = false;
+      renderDashboard(state.dashboardData);
+    }
+  }
+}
+
+async function selectEntriesDay(day, { focus = false } = {}) {
+  if (!state.dashboardData || !/^\d{4}-\d{2}-\d{2}$/.test(day) || day > getLocalIsoDay()) return;
+  state.selectedEntriesDay = day;
+  clearSelection();
+  state.editingEntries = false;
+  entriesByDayEl.classList.remove('editing');
+  state.expandedMealGroups.clear();
+  const pending = loadSelectedDayEntries();
+  if (focus) {
+    entriesDayLabelEl?.setAttribute('tabindex', '-1');
+    entriesDayLabelEl?.focus();
+    entriesDayLabelEl?.scrollIntoView({ block: 'center' });
+  }
+  await pending;
+}
+
+function renderSelectedDayPaging() {
+  const log = selectedEntriesLog();
+  if (!log) return;
+  const paging = document.createElement('div');
+  paging.className = 'nutrition-day-paging';
+  if (log.loading || log.error) {
+    const status = document.createElement('p');
+    status.setAttribute('role', 'status');
+    status.textContent = log.loading ? 'Loading this day…' : log.error;
+    paging.append(status);
+  }
+  if (!log.loading && (log.error || log.hasMore)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn-secondary';
+    button.textContent = log.error ? 'Retry loading day' : 'Load more entries';
+    button.addEventListener('click', () => loadSelectedDayEntries({ append: log.offset > 0 }));
+    paging.append(button);
+  }
+  entriesByDayEl.append(paging);
+}
+
+function nutritionReviewDays(rows, period, today, filter = 'needs-review') {
+  const byDay = new Map((rows || []).map(row => [row.day, row]));
+  return Array.from({ length: macroTrendDays(period) }, (_, offset) => {
+    const day = shiftIsoDay(today, -offset);
+    const raw = byDay.get(day)?.completeness?.state;
+    return { day, state: raw === 'complete' || raw === 'partial' ? raw : 'unknown' };
+  }).filter(row => filter === 'all' || (filter === 'complete' ? row.state === 'complete' : row.state !== 'complete'));
+}
+
+function showNutritionDayReview() {
+  if (document.getElementById('nutrition-day-review')) return;
+  const period = state.macroSnapshotPeriod;
+  const today = getLocalIsoDay();
+  const timezone = getTimezone();
+  const account = state.currentUser?.id;
+  const days = macroTrendDays(period);
+  const dialog = document.createElement('dialog');
+  dialog.id = 'nutrition-day-review';
+  dialog.className = 'nutrition-day-review';
+  dialog.setAttribute('aria-labelledby', 'nutrition-day-review-heading');
+  dialog.innerHTML = `
+    <div class="nutrition-day-review-heading">
+      <h2 id="nutrition-day-review-heading">Review nutrition days</h2>
+      <button type="button" class="btn-secondary" data-review-close>Close</button>
+    </div>
+    <p>Last ${days} days · ${escapeHtml(formatIsoDayLabel(shiftIsoDay(today, 1 - days)))} – ${escapeHtml(formatIsoDayLabel(today))}</p>
+    <p class="nutrition-day-review-help">Open a day to review its log. Completeness changes only when you mark it complete or reopen it.</p>
+    <div class="quick-source-filter" role="group" aria-label="Nutrition day status">
+      <button type="button" data-review-filter="needs-review" aria-pressed="true" class="active">Needs review</button>
+      <button type="button" data-review-filter="complete" aria-pressed="false">Complete</button>
+      <button type="button" data-review-filter="all" aria-pressed="false">All</button>
+    </div>
+    <p data-review-status role="status" aria-live="polite"></p>
+    <div class="nutrition-day-review-list" data-review-list></div>`;
+  document.body.append(dialog);
+  let filter = 'needs-review';
+  let rows = [];
+  let loaded = false;
+  let loading = false;
+  let error = false;
+  const isCurrent = () => dialog.isConnected && account === state.currentUser?.id && timezone === getTimezone();
+  const close = () => { dialog.close(); dialog.remove(); trendReviewDaysBtnEl?.focus(); };
+  dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
+  dialog.querySelector('[data-review-close]').addEventListener('click', close);
+  const render = () => {
+    const list = dialog.querySelector('[data-review-list]');
+    const status = dialog.querySelector('[data-review-status]');
+    list.replaceChildren();
+    if (loading) { status.textContent = 'Loading days…'; return; }
+    if (error) {
+      status.textContent = 'Days could not be loaded.';
+      const retry = document.createElement('button');
+      retry.type = 'button'; retry.textContent = 'Retry'; retry.className = 'btn-secondary';
+      retry.addEventListener('click', load);
+      list.append(retry); return;
+    }
+    if (!loaded) return;
+    const visible = nutritionReviewDays(rows, period, today, filter);
+    status.textContent = visible.length ? `${visible.length} day${visible.length === 1 ? '' : 's'}`
+      : filter === 'complete' ? 'No completed days in this period.' : 'Every day in this period is complete.';
+    for (const row of visible) {
+      const label = row.state === 'complete' ? 'Complete' : row.state === 'partial' ? 'Partial' : 'Unmarked';
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'nutrition-day-review-row';
+      button.dataset.reviewDay = row.day;
+      button.innerHTML = `<span><strong>${escapeHtml(formatIsoDayLabel(row.day))}</strong><span class="nutrition-day-state">${label}</span></span><span class="nutrition-day-open">Open log <span aria-hidden="true">→</span></span>`;
+      button.addEventListener('click', () => {
+        if (!isCurrent()) { close(); return; }
+        close();
+        selectEntriesDay(row.day, { focus: true });
+      });
+      list.append(button);
+    }
+  };
+  async function load() {
+    if (loading) return;
+    loading = true; error = false; render();
+    try {
+      const scope = period === 'annual' ? 'year' : period === 'monthly' ? 'month' : 'week';
+      const data = await api(`/api/daily-totals?scope=${scope}&tz=${encodeURIComponent(timezone)}`);
+      if (!isCurrent()) return;
+      rows = data.dailyTotals || []; loaded = true;
+    } catch (_error) {
+      if (!isCurrent()) return;
+      error = true;
+    } finally {
+      if (isCurrent()) { loading = false; render(); }
+      else if (dialog.isConnected) close();
+    }
+  }
+  dialog.querySelectorAll('[data-review-filter]').forEach(button => button.addEventListener('click', () => {
+    filter = button.dataset.reviewFilter;
+    dialog.querySelectorAll('[data-review-filter]').forEach(item => {
+      const active = item === button;
+      item.classList.toggle('active', active);
+      item.setAttribute('aria-pressed', String(active));
+    });
+    render();
+  }));
+  dialog.showModal();
+  load();
+}
+
 function updateCompletenessAcrossState(day, completeness) {
   const normalized = normalizeDayCompleteness(completeness, day);
   state.dayCompletenessByDay.set(day, normalized);
@@ -563,7 +758,11 @@ function renderSelectedDayCompleteness() {
 
   if (entriesCompletenessStatusEl) entriesCompletenessStatusEl.textContent = status;
   if (entriesCompletenessDetailEl) entriesCompletenessDetailEl.textContent = detail;
-  if (entriesCompletenessBtnEl) entriesCompletenessBtnEl.textContent = buttonLabel;
+  if (entriesCompletenessBtnEl) {
+    entriesCompletenessBtnEl.textContent = buttonLabel;
+    const log = selectedEntriesLog();
+    entriesCompletenessBtnEl.disabled = Boolean(state.dayCompletenessBusy || (log && !log.loaded));
+  }
 }
 
 async function refreshDayCompleteness(day) {
@@ -575,16 +774,19 @@ async function refreshDayCompleteness(day) {
 }
 
 async function toggleSelectedDayCompleteness() {
-  if (!state.selectedEntriesDay || !entriesCompletenessBtnEl) return;
+  if (!state.selectedEntriesDay || !entriesCompletenessBtnEl || entriesCompletenessBtnEl.disabled || state.dayCompletenessBusy) return;
   const day = state.selectedEntriesDay;
+  const account = state.currentUser?.id;
   const current = selectedDayCompleteness();
   const nextState = current.state === 'complete' ? 'partial' : 'complete';
+  state.dayCompletenessBusy = true;
   entriesCompletenessBtnEl.disabled = true;
   try {
     const response = await api(`/api/day-completeness/${encodeURIComponent(day)}`, {
       method: 'PUT',
       body: JSON.stringify({ state: nextState, tz: getTimezone() })
     });
+    if (account !== state.currentUser?.id) return;
     updateCompletenessAcrossState(day, response.completeness);
     renderDashboard(state.dashboardData);
     renderAllCoachSlots();
@@ -601,6 +803,7 @@ async function toggleSelectedDayCompleteness() {
   } catch (error) {
     setActionBanner(error.message, 'error');
   } finally {
+    state.dayCompletenessBusy = false;
     entriesCompletenessBtnEl.disabled = false;
     renderSelectedDayCompleteness();
   }
@@ -1435,13 +1638,7 @@ if (entriesPrevDayBtnEl) {
       return;
     }
 
-    state.selectedEntriesDay = shiftIsoDay(state.selectedEntriesDay, -1);
-    try {
-      await refreshDayCompleteness(state.selectedEntriesDay);
-    } catch (_error) {
-      // Dashboard data still provides the best available offline state.
-    }
-    renderDashboard(state.dashboardData);
+    await selectEntriesDay(shiftIsoDay(state.selectedEntriesDay, -1));
   });
 }
 
@@ -1456,13 +1653,7 @@ if (entriesNextDayBtnEl) {
       return;
     }
 
-    state.selectedEntriesDay = shiftIsoDay(state.selectedEntriesDay, 1);
-    try {
-      await refreshDayCompleteness(state.selectedEntriesDay);
-    } catch (_error) {
-      // Dashboard data still provides the best available offline state.
-    }
-    renderDashboard(state.dashboardData);
+    await selectEntriesDay(shiftIsoDay(state.selectedEntriesDay, 1));
   });
 }
 
@@ -1470,20 +1661,15 @@ if (entriesTodayBtnEl) {
   entriesTodayBtnEl.addEventListener('click', async () => {
     if (!state.dashboardData) return;
 
-    state.selectedEntriesDay = getLocalIsoDay();
-    clearSelection();
-    try {
-      await refreshDayCompleteness(state.selectedEntriesDay);
-    } catch (_error) {
-      // Dashboard data still provides the best available offline state.
-    }
-    renderDashboard(state.dashboardData);
+    await selectEntriesDay(getLocalIsoDay());
   });
 }
 
 if (entriesCompletenessBtnEl) {
   entriesCompletenessBtnEl.addEventListener('click', toggleSelectedDayCompleteness);
 }
+
+trendReviewDaysBtnEl?.addEventListener('click', showNutritionDayReview);
 
 function setProfileMenuOpen(isOpen) {
   if (!profilePopoverEl || !profileChipEl) {
@@ -5010,10 +5196,11 @@ function renderDashboard(data) {
   }
   renderSelectedDayCompleteness();
 
-  const dayItems = data.entries
+  const selectedLog = selectedEntriesLog();
+  const dayItems = (selectedLog ? (selectedLog.loaded ? selectedLog.entries : []) : data.entries)
     .filter((entry) => getLocalIsoDay(entry.consumedAt) === state.selectedEntriesDay)
     .sort((a, b) => new Date(b.consumedAt).getTime() - new Date(a.consumedAt).getTime());
-  const dayTotals = dayItems.reduce((acc, entry) => {
+  const dayTotals = selectedLog?.totals || dayItems.reduce((acc, entry) => {
     acc.calories += Number(entry.calories || 0);
     acc.protein += Number(entry.protein || 0);
     acc.carbs += Number(entry.carbs || 0);
@@ -5021,17 +5208,19 @@ function renderDashboard(data) {
     return acc;
   }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
-  setText(todayCaloriesEl, fmtNumber(dayTotals.calories));
-  setText(todayProteinEl, `${fmtNumber(dayTotals.protein)}g`);
-  setText(todayCarbsEl, `${fmtNumber(dayTotals.carbs)}g`);
-  setText(todayFatEl, `${fmtNumber(dayTotals.fat)}g`);
-  renderMacroTargets(dayTotals, data.targets || {});
+  const totalsKnown = !selectedLog || Boolean(selectedLog.totals);
+  setText(todayCaloriesEl, totalsKnown ? fmtNumber(dayTotals.calories) : '—');
+  setText(todayProteinEl, totalsKnown ? `${fmtNumber(dayTotals.protein)}g` : '—');
+  setText(todayCarbsEl, totalsKnown ? `${fmtNumber(dayTotals.carbs)}g` : '—');
+  setText(todayFatEl, totalsKnown ? `${fmtNumber(dayTotals.fat)}g` : '—');
+  renderMacroTargets(totalsKnown ? dayTotals : {}, selectedLog?.targets || data.targets || {});
   renderCoachForPage('macros');
 
 
   entriesByDayEl.innerHTML = '';
   if (!dayItems.length) {
-    entriesByDayEl.textContent = 'No entries for this day.';
+    if (!selectedLog?.loading && !selectedLog?.error) entriesByDayEl.textContent = 'No entries for this day.';
+    renderSelectedDayPaging();
     return;
   }
 
@@ -5126,6 +5315,7 @@ function renderDashboard(data) {
   }
 
   entriesByDayEl.appendChild(container);
+  renderSelectedDayPaging();
 
   renderSelectionActions();
 }
@@ -5133,7 +5323,7 @@ function renderDashboard(data) {
 function getSelectionMode() {
   if (state.selectedMealGroups.size > 0) return 'meals';
   if (state.selectedEntryIds.size > 0) {
-    const entries = state.dashboardData?.entries || [];
+    const entries = macroEntrySelectionRows();
     const anyInGroup = [...state.selectedEntryIds].some((id) => {
       const entry = entries.find((e) => e.id === id);
       return entry && entry.mealGroup;
@@ -5216,7 +5406,7 @@ entriesByDayEl.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
     const entryId = Number(editEntryIcon.dataset.editEntryId);
-    const entries = state.dashboardData?.entries || [];
+    const entries = macroEntrySelectionRows();
     const entry = entries.find((e) => e.id === entryId);
     if (!entry) return;
     showEntryModal(entry, {
@@ -5254,7 +5444,7 @@ entriesByDayEl.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
     const groupId = editMealIcon.dataset.editMealGroup;
-    const mealEntry = (state.dashboardData?.entries || []).find(e => e.mealGroup === groupId);
+    const mealEntry = (macroEntrySelectionRows()).find(e => e.mealGroup === groupId);
     if (!mealEntry) return;
     showCombineModal([], {
       name: mealEntry.mealName || 'Meal',
@@ -5291,7 +5481,7 @@ entriesByDayEl.addEventListener('change', (event) => {
     // Don't allow mixing meals and individual items
     if (target.checked && state.selectedEntryIds.size > 0) {
       // Check if any selected entries are NOT in a group (standalone items)
-      const entries = state.dashboardData?.entries || [];
+      const entries = macroEntrySelectionRows();
       const anyStandalone = [...state.selectedEntryIds].some((id) => {
         const e = entries.find((entry) => entry.id === id);
         return e && !e.mealGroup;
@@ -5321,7 +5511,7 @@ entriesByDayEl.addEventListener('change', (event) => {
     // Don't allow mixing meals and individual items
     if (target.checked) {
       if (inGroup && state.selectedEntryIds.size > 0) {
-        const entries = state.dashboardData?.entries || [];
+        const entries = macroEntrySelectionRows();
         const anyStandalone = [...state.selectedEntryIds].some((id) => {
           const e = entries.find((entry) => entry.id === id);
           return e && !e.mealGroup;
@@ -5333,7 +5523,7 @@ entriesByDayEl.addEventListener('change', (event) => {
         }
       }
       if (!inGroup && state.selectedEntryIds.size > 0) {
-        const entries = state.dashboardData?.entries || [];
+        const entries = macroEntrySelectionRows();
         const anyInGroup = [...state.selectedEntryIds].some((id) => {
           const e = entries.find((entry) => entry.id === id);
           return e && e.mealGroup;
@@ -5382,7 +5572,7 @@ entriesByDayEl.addEventListener('click', async (event) => {
   if (selAction === 'edit-item') {
     const entryId = [...state.selectedEntryIds][0];
     if (!entryId) return;
-    const entries = state.dashboardData?.entries || [];
+    const entries = macroEntrySelectionRows();
     const entry = entries.find((e) => e.id === entryId);
     if (!entry) return;
     clearSelection();
@@ -5419,7 +5609,7 @@ entriesByDayEl.addEventListener('click', async (event) => {
   if (selAction === 'edit-meal') {
     const groupId = [...state.selectedMealGroups][0];
     if (!groupId) return;
-    const mealEntry = (state.dashboardData?.entries || []).find(e => e.mealGroup === groupId);
+    const mealEntry = (macroEntrySelectionRows()).find(e => e.mealGroup === groupId);
     showCombineModal([], {
       name: mealEntry?.mealName || 'Meal',
       quantity: mealEntry?.mealQuantity || 1,
@@ -5466,7 +5656,7 @@ entriesByDayEl.addEventListener('click', async (event) => {
     const confirmed = window.confirm(`Delete ${groups.length} meal${groups.length > 1 ? 's' : ''} and all their items?`);
     if (!confirmed) return;
     try {
-      const entries = state.dashboardData?.entries || [];
+      const entries = macroEntrySelectionRows();
       for (const groupId of groups) {
         const groupEntries = entries.filter((e) => e.mealGroup === groupId);
         for (const e of groupEntries) {
@@ -5588,7 +5778,7 @@ function showCombineModal(entryIds, options) {
     if (isEdit) {
       if (saveQuickAdd && options.mealGroup) {
         try {
-          const entries = state.dashboardData?.entries || [];
+          const entries = macroEntrySelectionRows();
           const subItems = entries.filter(e => e.mealGroup === options.mealGroup);
           const payload = buildSavedMealQuickAddPayloadFromEntries(subItems, {
             name: mealName,
@@ -6115,6 +6305,7 @@ async function refreshDashboard() {
   syncHistoryQuickItems();
   renderSavedItems();
   renderDashboard(dashboard);
+  if (state.entriesDayLog) await loadSelectedDayEntries();
   bindTrendResize();
   bindTrendMacroCards();
   bindEditTargetsLink();
@@ -6387,7 +6578,7 @@ entriesByDayEl.addEventListener('click', async (event) => {
   const groupId = target.dataset.mealGroup;
 
   if (groupAction === 'edit-group' && groupId) {
-    const mealEntry = (state.dashboardData?.entries || []).find(e => e.mealGroup === groupId);
+    const mealEntry = (macroEntrySelectionRows()).find(e => e.mealGroup === groupId);
     showCombineModal([], {
       name: mealEntry?.mealName || 'Meal',
       quantity: mealEntry?.mealQuantity || 1,

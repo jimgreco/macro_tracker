@@ -18,7 +18,7 @@ final class DailyMacrosScreenshots: XCTestCase {
         if name.contains("testRapidPrimaryAndHealthTabSwitchingStaysStable") || name.contains("testSexCategorySummaries") {
             app.launchArguments.append("--tab-stability-testing")
         }
-        if name.contains("testDataSourceMatrixUsesLargeTextOverview") || name.contains("testQuickAddPortionPreviewAtLargeText") || name.contains("testQuickAddPortionShortcutsAtLargeText") || name.contains("testCompletedTrendsAtLargeText") {
+        if name.contains("testDataSourceMatrixUsesLargeTextOverview") || name.contains("testQuickAddPortionPreviewAtLargeText") || name.contains("testQuickAddPortionShortcutsAtLargeText") || name.contains("testCompletedTrendsAtLargeText") || name.contains("testNutritionDayReviewEmptyAtLargeText") {
             app.launchArguments += [
                 "-UIPreferredContentSizeCategoryName",
                 "UICTContentSizeCategoryAccessibilityXXXL"
@@ -27,6 +27,12 @@ final class DailyMacrosScreenshots: XCTestCase {
         if name.contains("testCompletedTrends") {
             app.launchArguments.append("--completed-trend-testing")
             if name.contains("Empty") { app.launchArguments.append("--empty-trend-testing") }
+        }
+        if name.contains("testNutritionDayReview") {
+            app.launchArguments += ["--completed-trend-testing", "--day-review-testing"]
+            if name.contains("Empty") { app.launchArguments.append("--empty-trend-testing") }
+            if name.contains("Interrupted") { app.launchArguments.append("--day-review-delay-testing") }
+            if name.contains("PageFailure") { app.launchArguments.append("--day-review-page-failure-testing") }
         }
         app.launch()
 
@@ -133,6 +139,96 @@ final class DailyMacrosScreenshots: XCTestCase {
         XCTAssertEqual(trendValue("calories"), "1,000 cal")
         assertTrendCoverage(complete: 2, days: 7, partial: 2)
         attachTrend("Completed-trends-large-text")
+    }
+
+    private func openDayReview() {
+        revealTrend()
+        let review = app.buttons["macro-review-days"]
+        for _ in 0..<5 where !review.isHittable { app.swipeUp() }
+        XCTAssertTrue(review.waitForExistence(timeout: 5))
+        XCTAssertTrue(review.isEnabled)
+        review.tap()
+        XCTAssertTrue(app.navigationBars["Review days"].waitForExistence(timeout: 5))
+    }
+
+    func testNutritionDayReviewFiltersRangesAndNavigation() throws {
+        selectTab("Macros")
+        openDayReview()
+        let filter = app.segmentedControls["nutrition-review-filter"]
+        XCTAssertEqual(app.staticTexts["nutrition-review-count"].label, "5 of 7 days · newest first")
+        XCTAssertFalse(app.buttons["nutrition-review-day-2026-06-16"].exists)
+        filter.buttons["Complete"].tap()
+        XCTAssertEqual(app.staticTexts["nutrition-review-count"].label, "2 of 7 days · newest first")
+        XCTAssertTrue(app.buttons["nutrition-review-day-2026-06-14"].exists, "A complete zero-entry day remains navigable")
+        filter.buttons["All"].tap()
+        XCTAssertEqual(app.staticTexts["nutrition-review-count"].label, "7 of 7 days · newest first")
+        attachTrend("Nutrition-day-review-all")
+        app.buttons["nutrition-review-day-2026-06-15"].tap()
+        XCTAssertTrue(app.staticTexts["Historical review item"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["nutrition-selected-day"].label, "June 15, 2026")
+        attachTrend("Nutrition-day-review-open-log")
+        openDayReview()
+        XCTAssertEqual(app.staticTexts["nutrition-review-count"].label, "5 of 7 days · newest first", "Opening a fresh sheet restores Needs review")
+        app.buttons["Done"].tap()
+        XCTAssertEqual(app.staticTexts["nutrition-selected-day"].label, "June 15, 2026", "Dismissing the sheet never changes the selected log")
+        for (period, count) in [("Month", "26 of 30 days · newest first"), ("Year", "360 of 365 days · newest first")] {
+            revealTrend()
+            app.segmentedControls["macro-trend-period"].buttons[period].tap()
+            openDayReview()
+            XCTAssertEqual(app.staticTexts["nutrition-review-count"].label, count)
+            app.buttons["Done"].tap()
+        }
+        app.terminate()
+        app.launch()
+        selectTab("Macros")
+        openDayReview()
+        XCTAssertEqual(app.staticTexts["nutrition-review-count"].label, "5 of 7 days · newest first")
+    }
+
+    func testNutritionDayReviewInterruptedLoadStaysOnNewerDay() throws {
+        selectTab("Macros")
+        openDayReview()
+        app.buttons["nutrition-review-day-2026-06-15"].tap()
+        XCTAssertTrue(app.buttons["Next day"].waitForExistence(timeout: 5))
+        app.buttons["Next day"].tap()
+        XCTAssertTrue(app.staticTexts["Recent review item"].waitForExistence(timeout: 5))
+        let delayedResponse = expectation(description: "Allow superseded day request to return")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { delayedResponse.fulfill() }
+        wait(for: [delayedResponse], timeout: 4)
+        XCTAssertEqual(app.staticTexts["nutrition-selected-day"].label, "June 16, 2026")
+        XCTAssertFalse(app.staticTexts["Historical review item"].exists)
+        XCTAssertTrue(app.staticTexts["Recent review item"].exists)
+        attachTrend("Nutrition-day-review-interrupted-load")
+    }
+
+    func testNutritionDayReviewPageFailureRetainsNoPartialMealAndRetries() throws {
+        selectTab("Macros")
+        openDayReview()
+        app.buttons["nutrition-review-day-2026-06-13"].tap()
+        let retry = app.buttons["Retry loading entries"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Review meal across pages"].exists, "A first-page partial group must never be editable")
+        attachTrend("Nutrition-day-review-page-failure")
+        retry.tap()
+        XCTAssertTrue(app.staticTexts["Review meal across pages"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["101 items"].exists)
+        XCTAssertFalse(app.staticTexts["nutrition-day-entries-error"].exists)
+        attachTrend("Nutrition-day-review-page-retry")
+    }
+
+    func testNutritionDayReviewEmptyAtLargeText() throws {
+        selectTab("Macros")
+        openDayReview()
+        XCTAssertEqual(app.staticTexts["nutrition-review-count"].label, "7 of 7 days · newest first")
+        let filter = app.buttons["nutrition-review-filter"]
+        XCTAssertTrue(filter.exists)
+        filter.tap()
+        app.buttons["Complete"].tap()
+        XCTAssertTrue(app.staticTexts["nutrition-review-empty"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["nutrition-review-count"].label, "0 of 7 days · newest first")
+        attachTrend("Nutrition-day-review-empty-large-text")
+        app.buttons["Done"].tap()
+        XCTAssertFalse(app.navigationBars["Review days"].exists)
     }
 
     func testAppStoreScreenshots() throws {

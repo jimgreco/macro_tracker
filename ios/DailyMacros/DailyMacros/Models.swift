@@ -212,6 +212,66 @@ struct MacroTrendSummary {
     }
 }
 
+enum NutritionDayReviewFilter: String, CaseIterable, Identifiable {
+    case needsReview = "Needs review"
+    case complete = "Complete"
+    case all = "All"
+
+    var id: String { rawValue }
+
+    func includes(_ state: NutritionDayState) -> Bool {
+        switch self {
+        case .needsReview: return state != .complete
+        case .complete: return state == .complete
+        case .all: return true
+        }
+    }
+}
+
+/// Account-calendar dates for navigation only; missing days have no inferred nutrition or completion.
+struct NutritionDayReview {
+    struct Day: Identifiable {
+        let day: String
+        let date: Date
+        let state: NutritionDayState
+
+        var id: String { day }
+        var statusLabel: String {
+            switch state {
+            case .complete: return "Complete"
+            case .partial: return "Partial"
+            case .unknown: return "Unmarked"
+            }
+        }
+    }
+
+    let days: [Day]
+
+    init(rows: [DailyTotals], scope: String, today: Date, timeZone: TimeZone) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        let count = scope == "year" ? 365 : scope == "month" ? 30 : 7
+        let end = calendar.startOfDay(for: today)
+        let statuses = rows.reduce(into: [String: NutritionDayState]()) {
+            $0[$1.day] = $1.completeness?.state ?? .unknown
+        }
+        days = (0..<count).compactMap { offset in
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: end) else { return nil }
+            let day = formatter.string(from: date)
+            return Day(day: day, date: date, state: statuses[day] ?? .unknown)
+        }
+    }
+
+    func days(matching filter: NutritionDayReviewFilter) -> [Day] {
+        days.filter { filter.includes($0.state) }
+    }
+}
+
 struct SevenDayAverage: Codable, Sendable {
     let daysWithData: Int
     let calories: Double

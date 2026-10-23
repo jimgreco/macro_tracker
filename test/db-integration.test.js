@@ -913,3 +913,118 @@ test('database feature foundations persist and read back through PostgreSQL', { 
     else process.env.DATABASE_URL = originalDatabaseUrl;
   }
 });
+
+test('dashboard day entries read complete account-local history without changing legacy pages', { skip: !process.env.TEST_DATABASE_URL }, async (t) => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+  const dbPath = path.join(__dirname, '..', 'src', 'db.js');
+  delete require.cache[dbPath];
+  const db = require(dbPath);
+  const userId = `day-history-${crypto.randomUUID()}`;
+  const otherUserId = `${userId}-other`;
+  const row = (itemName, consumedAt, extra = {}) => ({
+    itemName, consumedAt, quantity: 1, unit: 'serving', calories: 100,
+    protein: 10, carbs: 10, fat: 2, ...extra
+  });
+  t.after(async () => {
+    try {
+      await db.deleteUserAccount(userId);
+      await db.deleteUserAccount(otherUserId);
+    } finally {
+      await db.getPool().end();
+      delete require.cache[dbPath];
+      if (originalDatabaseUrl == null) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = originalDatabaseUrl;
+    }
+  });
+  await require('./helpers/database').initializeTestSchema(db);
+  for (const id of [userId, otherUserId]) {
+    await db.upsertUser({ id, provider: 'local-dev', providerUserId: id,
+      email: `${id}@example.test`, name: 'Day history regression', timezone: 'America/New_York' });
+  }
+
+  await t.test('an old day beyond the recent page is fully paginated and account isolated', async () => {
+    const day = '2026-02-02';
+    const group = crypto.randomUUID();
+    await db.addEntries(userId, Array.from({ length: 121 }, (_, i) => row(`Recent ${i}`, '2026-10-23T12:00:00Z')));
+    await db.addEntries(userId, [
+      row('Old breakfast', `${day}T12:00:00Z`, { mealGroup: group, mealName: 'Old meal' }),
+      row('Old breakfast side', `${day}T12:00:00Z`, { mealGroup: group, mealName: 'Old meal' }),
+      row('Old lunch', `${day}T17:00:00Z`),
+      row('Old dinner', `${day}T22:00:00Z`),
+      row('Old evening', '2026-02-03T04:59:59.999Z'),
+      row('Deleted old item', `${day}T18:00:00Z`),
+      row('Before old day', `${day}T04:59:59.999Z`),
+      row('After old day', '2026-02-03T05:00:00Z')
+    ]);
+    const deleted = await db.getPool().query('SELECT id FROM entries WHERE user_id=$1 AND item_name=$2', [userId, 'Deleted old item']);
+    await db.deleteEntry(userId, deleted.rows[0].id);
+    await db.addEntries(otherUserId, [row('Other account private item', `${day}T19:00:00Z`)]);
+    await db.setNutritionDayCompleteness(userId, day, 'partial', 'America/New_York');
+
+    const legacy = await db.getDashboard(userId, day, { timezone: 'America/New_York', limit: 100 });
+    assert.equal(legacy.entries.length, 100);
+    assert.ok(legacy.entries.every(entry => entry.itemName.startsWith('Recent ')));
+    assert.equal(legacy.currentDayTotals.day, day);
+    assert.equal(legacy.currentDayTotals.calories, 500);
+
+    const entries = [];
+    for (const [offset, count] of [[0, 2], [2, 2], [4, 1], [6, 0]]) {
+      const page = await db.getDashboard(userId, day, { entriesDay: day, timezone: 'America/New_York', limit: 2, offset });
+      assert.deepEqual(page.pagination, { limit: 2, offset, returned: count });
+      assert.equal(page.currentDayTotals.calories, 500, 'daily summary is independent of page size');
+      assert.equal(page.currentDayTotals.completeness.state, 'partial', 'reading history never marks a day complete');
+      assert.deepEqual(page.targets, legacy.targets);
+      assert.deepEqual(page.sevenDayAverage, legacy.sevenDayAverage);
+      assert.deepEqual(page.previousDays, legacy.previousDays);
+      assert.ok(page.entries.every(entry => entry.day === day));
+      entries.push(...page.entries);
+    }
+    assert.deepEqual(entries.map(entry => entry.itemName), [
+      'Old evening', 'Old dinner', 'Old lunch', 'Old breakfast side', 'Old breakfast'
+    ]);
+    assert.equal(new Set(entries.map(entry => entry.id)).size, 5);
+    assert.equal(entries.at(-1).mealGroup, group);
+    assert.equal(entries.at(-2).mealGroup, group);
+    const repeat = await db.getDashboard(userId, day, { entriesDay: day, timezone: 'America/New_York', limit: 2 });
+    assert.deepEqual(repeat.entries.map(entry => entry.id), entries.slice(0, 2).map(entry => entry.id));
+  });
+
+  for (const scenario of [
+    { label: '23-hour spring DST day', day: '2026-03-08', timezone: 'America/New_York',
+      before: '2026-03-08T04:59:59.999Z', start: '2026-03-08T05:00:00Z',
+      middle: ['2026-03-08T06:30:00Z', '2026-03-08T07:30:00Z'],
+      end: '2026-03-09T03:59:59.999Z', after: '2026-03-09T04:00:00Z' },
+    { label: '25-hour fall DST day', day: '2026-11-01', timezone: 'America/New_York',
+      before: '2026-11-01T03:59:59.999Z', start: '2026-11-01T04:00:00Z',
+      middle: ['2026-11-01T05:30:00Z', '2026-11-01T06:30:00Z'],
+      end: '2026-11-02T04:59:59.999Z', after: '2026-11-02T05:00:00Z' },
+    { label: 'leap day with fractional timezone offset', day: '2024-02-29', timezone: 'Pacific/Chatham',
+      before: '2024-02-28T10:14:59.999Z', start: '2024-02-28T10:15:00Z',
+      middle: ['2024-02-28T22:15:00Z'],
+      end: '2024-02-29T10:14:59.999Z', after: '2024-02-29T10:15:00Z' }
+  ]) {
+    await t.test(`day bounds include the full ${scenario.label}`, async () => {
+      const inside = [scenario.start, ...scenario.middle, scenario.end];
+      const expected = inside.map((time, i) => row(`${scenario.label} inside ${i}`, time));
+      await db.addEntries(userId, [row(`${scenario.label} before`, scenario.before), ...expected,
+        row(`${scenario.label} after`, scenario.after)]);
+      const page = await db.getDashboard(userId, scenario.day, {
+        entriesDay: scenario.day, timezone: scenario.timezone, limit: 50
+      });
+      assert.deepEqual(page.entries.map(entry => entry.itemName), expected.map(entry => entry.itemName).reverse());
+      assert.ok(page.entries.every(entry => entry.day === scenario.day));
+      assert.equal(page.currentDayTotals.calories, expected.length * 100);
+    });
+  }
+
+  await t.test('invalid calendar dates and non-scalar day filters reject', async () => {
+    for (const entriesDay of ['', '2026-02-29', '2026-04-31', '0000-01-01',
+      '2026-13-01', '2026-1-01', '2026-10-23T00:00:00Z', ['2026-10-23'], { day: '2026-10-23' }]) {
+      await assert.rejects(db.getDashboard(userId, undefined, { entriesDay }), /entriesDay/);
+    }
+    const empty = await db.getDashboard(userId, '2024-03-15', { entriesDay: '2024-03-15', timezone: 'UTC' });
+    assert.deepEqual(empty.entries, []);
+    assert.equal(empty.currentDayTotals.completeness.state, 'unknown');
+  });
+});

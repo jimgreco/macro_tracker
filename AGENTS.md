@@ -35,6 +35,9 @@
 - iOS meal and entry edit sheets keep Save available unless a save is running.
   Validate on Save and show errors inside the editor; do not gate Save on change
   detection.
+- Review days uses the exact account-local trend window and never writes completeness.
+  Load all `entriesDay` dashboard pages before exposing grouped meals for editing;
+  preserve separate global recent history for Quick Items and discard stale day loads.
 - Bulk meal entries and requested Quick Adds must validate before writing and
   commit in the same transaction. Combining entries must lock and validate the
   live rows inside its transaction so overlapping requests cannot regroup them.

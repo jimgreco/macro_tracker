@@ -2813,6 +2813,14 @@ function toIsoDate(date) {
 
 async function getDashboard(userId, dateInput, options = {}) {
   const timezone = options.timezone || 'America/New_York';
+  // Opt in to a single account-local day without changing legacy recent-history callers.
+  if (options.entriesDay != null && typeof options.entriesDay !== 'string') {
+    throw new Error('entriesDay must be a string.');
+  }
+  const entriesDay = options.entriesDay == null
+    ? null
+    : normalizeIsoDateString(options.entriesDay, 'entriesDay');
+  if (entriesDay?.startsWith('0000-')) throw new Error('entriesDay must be a valid date.');
   const baseDay = dateInput
     ? normalizeIsoDateString(String(dateInput).slice(0, 10), 'date')
     : todayIsoDateInTimezone(timezone);
@@ -2930,9 +2938,11 @@ async function getDashboard(userId, dateInput, options = {}) {
        correction_key AS "correctionKey"
      FROM entries
      WHERE user_id = $1 AND deleted_at IS NULL
+       ${entriesDay ? `AND consumed_at >= ($5::date::timestamp AT TIME ZONE $4)
+       AND consumed_at < (($5::date + 1)::timestamp AT TIME ZONE $4)` : ''}
      ORDER BY consumed_at DESC, id DESC
      LIMIT $2 OFFSET $3`,
-    [userId, limit, offset, timezone]
+    [userId, limit, offset, timezone, ...(entriesDay ? [entriesDay] : [])]
   );
 
   const entries = entriesResult.rows.map((row) => ({

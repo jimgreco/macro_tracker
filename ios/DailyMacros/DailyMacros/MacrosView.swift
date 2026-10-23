@@ -220,6 +220,12 @@ struct MacrosView: View {
     @State private var errorMessage: String?
     @State private var isUpdatingDayCompleteness = false
     @State private var selectedDate = AppClock.now
+    @State private var selectedDayEntries: [Entry] = []
+    @State private var dayEntriesLoad = ScopedHistoryLoad()
+    @State private var dayEntriesLoadedScope: String?
+    @State private var dayEntriesError: String?
+    @State private var showReviewDays = false
+    @State private var reviewNavigationRevision = UUID()
     @State private var isMealEditing = false
     @State private var selectedEntryIds: Set<Int> = []
     @State private var selectedMealGroups: Set<String> = []
@@ -277,6 +283,7 @@ struct MacrosView: View {
     @State private var quickMealName = ""
     @State private var showQuickMealNamePrompt = false
     @State private var isLoadingSavedItems = false
+    @State private var savedItemsLoadID = UUID()
     @State private var hasLoadedSavedItems = false
     @State private var quickMealQueue: [QuickMealQueueItem] = []
     @State private var recentlyQueuedQuickTemplateId: String?
@@ -312,6 +319,8 @@ struct MacrosView: View {
     @State private var trendPeriod = "week"
     @State private var trendData: [DailyTotals] = []
     @State private var trendTargets: MacroTargets?
+    @State private var trendLoadedScope: String?
+    @State private var trendLoadError = false
     @State private var selectedTrendMacro = "calories"
 
     // Target editing state
@@ -432,6 +441,13 @@ struct MacrosView: View {
         return f.string(from: selectedDate)
     }
 
+    private var accountScope: String {
+        "\(auth.user?.id ?? "")|\(accountTimeZone.identifier)"
+    }
+
+    private var dashboardScope: String { "\(accountScope)|\(dateString)" }
+    private var trendScope: String { "\(accountScope)|\(trendPeriod)" }
+
     private var isoTimestamp: String {
         let f = ISO8601DateFormatter()
         f.timeZone = accountTimeZone
@@ -456,6 +472,7 @@ struct MacrosView: View {
     private var macroScreen: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
+                ScrollViewReader { scroll in
                 ScrollView {
                     VStack(spacing: 20) {
                         if dashboard != nil {
@@ -469,13 +486,12 @@ struct MacrosView: View {
                             )
                         }
 
-                        datePicker
+                        datePicker.id("nutrition-day-log")
 
-                        if let dash = dashboard {
+                        if let dash = dashboard, dash.currentDayTotals.day == dateString {
                             macroSummaryCard(dash)
-                            let dayEntries = dash.entries.filter { $0.day == dateString }
-                            entriesList(dayEntries)
                         }
+                        selectedDayEntriesSection
 
                         trendSection
 
@@ -488,6 +504,10 @@ struct MacrosView: View {
                     .frame(maxWidth: .infinity, alignment: .top)
                 }
                 .appScreenBackground(accent: AppVisualSystem.ColorToken.protein)
+                .onChange(of: reviewNavigationRevision) { _, _ in
+                    scroll.scrollTo("nutrition-day-log", anchor: .top)
+                }
+                }
 
                 // Trash drop zone
                 if isDragging {
@@ -519,6 +539,18 @@ struct MacrosView: View {
             .sheet(item: $editingMeal) { meal in
                 editMealSheet(meal: meal)
             }
+            .sheet(isPresented: $showReviewDays) {
+                NutritionDayReviewSheet(
+                    review: NutritionDayReview(rows: trendData, scope: trendPeriod,
+                                               today: AppClock.now, timeZone: accountTimeZone),
+                    timeZone: accountTimeZone
+                ) { day in
+                    guard trendLoadedScope == trendScope else { return }
+                    showReviewDays = false
+                    selectNutritionDay(day.date)
+                    reviewNavigationRevision = UUID()
+                }
+            }
             .task {
                 Task { await loadSavedItems(showErrors: false) }
                 await loadDashboard()
@@ -532,6 +564,33 @@ struct MacrosView: View {
             }
             .onChange(of: appNavigation.coachActionRevision) { _, _ in
                 handlePendingQuickAction()
+            }
+            .onChange(of: accountScope) { _, _ in
+                showReviewDays = false
+                dashboardLoad = ScopedHistoryLoad()
+                dayEntriesLoad = ScopedHistoryLoad()
+                trendLoad = ScopedHistoryLoad()
+                dashboard = nil
+                selectedDayEntries = []
+                dayEntriesLoadedScope = nil
+                dayEntriesError = nil
+                trendData = []
+                trendTargets = nil
+                trendLoadedScope = nil
+                trendLoadError = false
+                savedItems = []
+                quickTemplates = []
+                savedItemsLoadID = UUID()
+                isLoadingSavedItems = false
+                hasLoadedSavedItems = false
+                isUpdatingDayCompleteness = false
+                clearMealSelection()
+                selectedDate = AppClock.now
+                Task {
+                    await loadSavedItems(showErrors: false)
+                    await loadDashboard()
+                    await loadTrend()
+                }
             }
             .refreshable {
                 await loadDashboard()
@@ -640,12 +699,16 @@ struct MacrosView: View {
 
     // MARK: - Date Picker
 
+    private func selectNutritionDay(_ date: Date) {
+        selectedDate = date
+        clearMealSelection()
+        Task { await loadDashboard() }
+    }
+
     private var datePicker: some View {
         return HStack {
             Button {
-                selectedDate = accountCalendar.date(byAdding: .day, value: -1, to: selectedDate)!
-                clearMealSelection()
-                Task { await loadDashboard() }
+                selectNutritionDay(accountCalendar.date(byAdding: .day, value: -1, to: selectedDate)!)
             } label: {
                 Image(systemName: "chevron.left")
                     .foregroundStyle(Color.neonCyan)
@@ -655,11 +718,11 @@ struct MacrosView: View {
             VStack(spacing: 0) {
                 Text(selectedDate, style: .date)
                     .font(.headline)
+                    .environment(\.timeZone, accountTimeZone)
+                    .accessibilityIdentifier("nutrition-selected-day")
                 if !accountCalendar.isDate(selectedDate, inSameDayAs: AppClock.now) {
                     Button("Back to today") {
-                        selectedDate = AppClock.now
-                        clearMealSelection()
-                        Task { await loadDashboard() }
+                        selectNutritionDay(AppClock.now)
                     }
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Color.neonCyan)
@@ -670,9 +733,7 @@ struct MacrosView: View {
             .padding(.vertical, 6)
             Spacer()
             Button {
-                selectedDate = accountCalendar.date(byAdding: .day, value: 1, to: selectedDate)!
-                clearMealSelection()
-                Task { await loadDashboard() }
+                selectNutritionDay(accountCalendar.date(byAdding: .day, value: 1, to: selectedDate)!)
             } label: {
                 Image(systemName: "chevron.right")
                     .foregroundStyle(Color.neonCyan)
@@ -810,8 +871,9 @@ struct MacrosView: View {
 
     private func updateDayCompleteness(_ state: NutritionDayState) async {
         guard !isUpdatingDayCompleteness else { return }
+        let ownerScope = accountScope
         isUpdatingDayCompleteness = true
-        defer { isUpdatingDayCompleteness = false }
+        defer { if ownerScope == accountScope { isUpdatingDayCompleteness = false } }
 
         do {
             let response = try await api.setNutritionDayCompleteness(
@@ -819,9 +881,11 @@ struct MacrosView: View {
                 state: state,
                 timezone: accountTimeZone.identifier
             )
+            guard ownerScope == accountScope, !Task.isCancelled else { return }
             errorMessage = nil
             await applyDayCompleteness(response.completeness)
         } catch {
+            guard ownerScope == accountScope, !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -879,6 +943,28 @@ struct MacrosView: View {
 
     // MARK: - Entries List
 
+    private var selectedDayEntriesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if dayEntriesLoadedScope == dashboardScope {
+                entriesList(selectedDayEntries)
+            }
+            if let dayEntriesError, dayEntriesLoad.currentRequest?.scope == dashboardScope {
+                Text(dayEntriesError)
+                    .font(.callout)
+                    .foregroundStyle(Color.mutedText)
+                    .accessibilityIdentifier("nutrition-day-entries-error")
+                Button("Retry loading entries") {
+                    Task { await loadDayEntries() }
+                }
+                .disabled(dayEntriesLoad.isLoading)
+            } else if dayEntriesLoad.isLoading {
+                ProgressView("Loading entries…")
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("nutrition-day-entries-loading")
+            }
+        }
+    }
+
     private func entriesList(_ entries: [Entry]) -> some View {
         let grouped = Dictionary(grouping: entries, by: { $0.mealGroup ?? "single_\($0.id)" })
         let keys = entries.map { $0.mealGroup ?? "single_\($0.id)" }
@@ -915,7 +1001,7 @@ struct MacrosView: View {
             }
 
             if entries.isEmpty {
-                Text("No entries yet today")
+                Text("No entries for this day")
                     .foregroundStyle(Color.mutedText)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 32)
@@ -1767,6 +1853,21 @@ struct MacrosView: View {
             }
 
             trendCoverage
+
+            Button {
+                showReviewDays = true
+            } label: {
+                Label("Review days", systemImage: "calendar")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(trendLoadedScope != trendScope || trendLoad.isLoading || trendLoadError)
+            .accessibilityIdentifier("macro-review-days")
+
+            if trendLoadError {
+                Button("Retry loading days") { Task { await loadTrend() } }
+                    .font(.callout)
+            }
 
             // Macro selector chips with averages
             ScrollView(.horizontal, showsIndicators: false) {
@@ -3279,27 +3380,62 @@ struct MacrosView: View {
     }
 
     private func loadDashboard() async {
-        if dashboardLoad.currentRequest?.scope != dateString {
+        guard auth.user != nil else { return }
+        let day = dateString
+        if dashboardLoad.currentRequest?.scope != dashboardScope {
             dashboard = nil
             coachSuggestions = []
         }
-        guard let request = dashboardLoad.begin(scope: dateString) else { return }
+        guard let request = dashboardLoad.begin(scope: dashboardScope) else { return }
         defer { dashboardLoad.finish(request) }
+        async let entryRefresh: Void = loadDayEntries()
         do {
-            let response = try await api.getDashboard(date: request.scope)
-            guard dashboardLoad.isCurrent(request, scope: dateString), !Task.isCancelled else { return }
+            let response = try await api.getDashboard(date: day)
+            guard dashboardLoad.isCurrent(request, scope: dashboardScope), !Task.isCancelled else { return }
             dashboard = response
             rebuildQuickTemplates()
             await rebuildCoachSuggestions()
         } catch {
-            guard dashboardLoad.isCurrent(request, scope: dateString), !Task.isCancelled else { return }
+            guard dashboardLoad.isCurrent(request, scope: dashboardScope), !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
+        }
+        await entryRefresh
+    }
+
+    private func loadDayEntries() async {
+        guard auth.user != nil else { return }
+        let day = dateString
+        guard let request = dayEntriesLoad.begin(scope: dashboardScope) else { return }
+        selectedDayEntries = []
+        dayEntriesLoadedScope = nil
+        dayEntriesError = nil
+        defer { dayEntriesLoad.finish(request) }
+        do {
+            var entries: [Entry] = []
+            var seenIDs = Set<Int>()
+            var offset = 0
+            while true {
+                let response = try await api.getDashboard(date: day, limit: 100, offset: offset, entriesDay: day)
+                guard dayEntriesLoad.isCurrent(request, scope: dashboardScope), !Task.isCancelled else { return }
+                let returned = response.pagination?.returned ?? response.entries.count
+                guard returned == response.entries.count, returned <= 100,
+                      response.entries.allSatisfy({ $0.day == day }) else { throw URLError(.badServerResponse) }
+                for entry in response.entries where seenIDs.insert(entry.id).inserted { entries.append(entry) }
+                if returned < 100 { break }
+                offset += returned
+            }
+            // Wait for every page so a meal spanning pages is never offered for editing as a partial group.
+            selectedDayEntries = entries
+            dayEntriesLoadedScope = request.scope
+        } catch {
+            guard dayEntriesLoad.isCurrent(request, scope: dashboardScope), !Task.isCancelled else { return }
+            dayEntriesError = "Couldn’t load entries for this day. Try again."
         }
     }
 
     private func rebuildCoachSuggestions() async {
         let loadRequest = dashboardLoad.currentRequest
-        let loadedScope = dateString
+        let loadedScope = dashboardScope
         guard let dashboard else {
             coachSuggestions = []
             return
@@ -3312,34 +3448,45 @@ struct MacrosView: View {
             selectedDate: selectedDate,
             savedItems: savedItems
         )
-        guard !Task.isCancelled, dashboardLoad.currentRequest == loadRequest, dateString == loadedScope else { return }
+        guard !Task.isCancelled, dashboardLoad.currentRequest == loadRequest, dashboardScope == loadedScope else { return }
         coachSuggestions = suggestions
     }
 
     private func loadTrend() async {
-        guard let request = trendLoad.begin(scope: trendPeriod) else { return }
+        guard auth.user != nil else { return }
+        let period = trendPeriod
+        guard let request = trendLoad.begin(scope: trendScope) else { return }
+        trendLoadError = false
         defer { trendLoad.finish(request) }
         do {
-            let response = try await api.getDailyTotals(scope: request.scope)
-            guard trendLoad.isCurrent(request, scope: trendPeriod), !Task.isCancelled else { return }
+            let response = try await api.getDailyTotals(scope: period)
+            guard trendLoad.isCurrent(request, scope: trendScope), !Task.isCancelled else { return }
             trendData = response.dailyTotals
             trendTargets = response.targets
+            trendLoadedScope = request.scope
         } catch {
-            // Non-critical
+            guard trendLoad.isCurrent(request, scope: trendScope), !Task.isCancelled else { return }
+            trendLoadError = true
         }
     }
 
     private func loadSavedItems(showErrors: Bool = true) async {
-        guard !isLoadingSavedItems else { return }
+        guard auth.user != nil, !isLoadingSavedItems else { return }
+        let ownerScope = accountScope
+        let loadID = UUID()
+        savedItemsLoadID = loadID
         isLoadingSavedItems = true
-        defer { isLoadingSavedItems = false }
+        defer { if savedItemsLoadID == loadID { isLoadingSavedItems = false } }
 
         do {
-            savedItems = try await api.getSavedItems()
+            let response = try await api.getSavedItems()
+            guard ownerScope == accountScope, savedItemsLoadID == loadID, !Task.isCancelled else { return }
+            savedItems = response
             hasLoadedSavedItems = true
             rebuildQuickTemplates()
             await rebuildCoachSuggestions()
         } catch {
+            guard ownerScope == accountScope, savedItemsLoadID == loadID, !Task.isCancelled else { return }
             if showErrors {
                 errorMessage = error.localizedDescription
             }
@@ -4346,6 +4493,97 @@ private extension Double {
     func rounded(toPlaces places: Int) -> Double {
         let divisor = pow(10.0, Double(places))
         return (self * divisor).rounded() / divisor
+    }
+}
+
+private struct NutritionDayReviewSheet: View {
+    let review: NutritionDayReview
+    let timeZone: TimeZone
+    let onSelect: (NutritionDayReview.Day) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var filter: NutritionDayReviewFilter = .needsReview
+
+    private var visibleDays: [NutritionDayReview.Day] { review.days(matching: filter) }
+
+    private func dateLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = .current
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .full
+        return formatter.string(from: date)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        filterPicker.pickerStyle(.menu)
+                    } else {
+                        filterPicker.pickerStyle(.segmented)
+                    }
+                    Text("\(visibleDays.count) of \(review.days.count) days · newest first")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("nutrition-review-count")
+                    Text("Open a day to review its entries. Only explicitly complete days contribute to nutrition trends.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    if visibleDays.isEmpty {
+                        Text(filter == .complete ? "No completed days in this period." : "Every day in this period is marked complete.")
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("nutrition-review-empty")
+                    }
+                    ForEach(visibleDays) { day in
+                        Button { onSelect(day) } label: {
+                            HStack(alignment: .center, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(dateLabel(day.date))
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Text(day.statusLabel)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityHidden(true)
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(dateLabel(day.date)), \(day.statusLabel)")
+                        .accessibilityHint("Open this day’s nutrition log")
+                        .accessibilityIdentifier("nutrition-review-day-\(day.day)")
+                    }
+                }
+            }
+            .navigationTitle("Review days")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var filterPicker: some View {
+        Picker("Show days", selection: $filter) {
+            ForEach(NutritionDayReviewFilter.allCases) { option in
+                Text(option.rawValue).tag(option)
+            }
+        }
+        .accessibilityIdentifier("nutrition-review-filter")
     }
 }
 

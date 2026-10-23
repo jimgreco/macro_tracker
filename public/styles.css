@@ -5920,6 +5920,26 @@ button[disabled] {
 .trend-coverage { display: grid; gap: 6px; margin: 12px 0 18px; text-align: left; }
 .trend-coverage strong { font-size: 14px; }
 .trend-coverage span { font-size: 12px; color: var(--muted); }
+.nutrition-review-trigger { margin: 0 0 16px; min-height: 44px; }
+.nutrition-day-review { color: var(--text); background: #131b28; border: 1px solid var(--line); border-radius: 22px; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 20px; overflow: auto; box-sizing: border-box; }
+.nutrition-day-review::backdrop { background: rgba(3, 8, 16, 0.75); backdrop-filter: blur(6px); }
+.nutrition-day-review-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.nutrition-day-review-heading h2 { margin: 0; font-size: 1.3rem; }
+.nutrition-day-review-heading button { flex-shrink: 0; min-height: 44px; }
+.nutrition-day-review-help, .nutrition-day-review > p { color: var(--muted); line-height: 1.5; font-size: 0.88rem; }
+.nutrition-day-review .quick-source-filter { flex-wrap: wrap; }
+.nutrition-day-review .quick-source-filter button { min-height: 44px; }
+.nutrition-day-review-list { display: grid; gap: 8px; }
+.nutrition-day-review-row { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--text); background: rgba(255, 255, 255, 0.035); text-align: left; min-height: 64px; }
+.nutrition-day-review .nutrition-day-review-row:hover:not([disabled]),
+.nutrition-day-review .nutrition-day-review-row:active:not([disabled]) { color: var(--text); background: #253348; }
+.nutrition-day-review-row > span:first-child { min-width: 0; display: grid; gap: 5px; }
+.nutrition-day-review-row strong { overflow-wrap: anywhere; }
+.nutrition-day-state { color: var(--muted); font-size: 0.84rem; }
+.nutrition-day-open { flex-shrink: 0; font-size: 0.82rem; color: var(--primary); }
+.nutrition-day-paging { display: grid; justify-items: center; gap: 8px; padding: 12px 0; }
+.nutrition-day-paging p { color: var(--muted); margin: 0; }
+.nutrition-day-paging button { min-height: 44px; }
 .trend-coverage progress { width: 100%; height: 6px; appearance: none; border: 0; border-radius: 3px; overflow: hidden; background: rgba(255, 255, 255, 0.08); accent-color: var(--primary); }
 .trend-coverage progress::-webkit-progress-bar { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
 .trend-coverage progress::-webkit-progress-value { background: var(--primary); border-radius: 3px; }

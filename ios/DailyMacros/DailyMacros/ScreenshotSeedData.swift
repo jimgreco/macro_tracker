@@ -34,6 +34,37 @@ enum ScreenshotSeedData {
         CommandLine.arguments.contains("--empty-trend-testing")
     }
 
+    static var isDayReviewTesting: Bool {
+        CommandLine.arguments.contains("--day-review-testing")
+    }
+
+    @MainActor private static var didFailReviewPage = false
+
+    @MainActor
+    static func waitForDashboard(entriesDay: String?, offset: Int) async throws {
+        guard isDayReviewTesting, let entriesDay else { return }
+        if entriesDay == "2026-06-15", CommandLine.arguments.contains("--day-review-delay-testing") {
+            try await Task.sleep(for: .seconds(2))
+        }
+        if entriesDay == "2026-06-13", offset == 100,
+           CommandLine.arguments.contains("--day-review-page-failure-testing"), !didFailReviewPage {
+            didFailReviewPage = true
+            throw URLError(.networkConnectionLost)
+        }
+    }
+
+    private static var dayReviewEntries: [Entry] {
+        func entry(_ id: Int, day: String, name: String, group: String? = nil) -> Entry {
+            Entry(id: id, itemName: name, quantity: 1, unit: "serving", calories: 10,
+                  protein: 1, carbs: 1, fat: 0, consumedAt: iso(day, "12:00"), day: day,
+                  mealGroup: group, mealName: group == nil ? nil : "Review meal across pages",
+                  mealQuantity: group == nil ? nil : 1, mealUnit: group == nil ? nil : "meal")
+        }
+        return [entry(90200, day: "2026-06-15", name: "Historical review item"),
+                entry(90201, day: "2026-06-16", name: "Recent review item")]
+            + (0..<101).map { entry(91000 + $0, day: "2026-06-13", name: "Review ingredient \($0 + 1)", group: "review-paged-meal") }
+    }
+
     // Synthetic completion coverage for native UI regressions; never used outside screenshot mode.
     private static var completedTrendRows: [DailyTotals] {
         if isEmptyTrendTesting { return [] }
@@ -264,10 +295,11 @@ enum ScreenshotSeedData {
         defaults.removeObject(forKey: "api_base_url")
     }
 
-    static func dashboard(date: String?, limit: Int, offset: Int) -> DashboardResponse {
+    static func dashboard(date: String?, limit: Int, offset: Int, entriesDay: String? = nil) -> DashboardResponse {
         let requestedDay = date ?? referenceDay
         let sourceRows = isCompletedTrendTesting ? completedTrendRows : dailyTotals
-        let entriesForDay = isCompletedTrendTesting ? [] : mealEntries.filter { $0.day == requestedDay }
+        let sourceEntries = isDayReviewTesting ? dayReviewEntries : isCompletedTrendTesting ? [] : mealEntries
+        let entriesForDay = sourceEntries.filter { $0.day == (entriesDay ?? requestedDay) }
         let page = Array(entriesForDay.dropFirst(offset).prefix(limit))
         let totals = sourceRows.first(where: { $0.day == requestedDay }) ?? emptyTotals(for: requestedDay)
 
