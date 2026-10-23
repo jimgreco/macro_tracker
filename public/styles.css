@@ -1339,10 +1339,20 @@ h2 {
   margin: 0;
 }
 
+#log-section .section-head-row {
+  flex-wrap: wrap;
+}
+
 .consumed-inline {
   display: grid;
   justify-items: end;
   min-width: 170px;
+  max-width: 100%;
+}
+
+#consumed-at {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .consumed-inline label {
@@ -5929,11 +5939,11 @@ button[disabled] {
 .nutrition-day-review-help, .nutrition-day-review > p { color: var(--muted); line-height: 1.5; font-size: 0.88rem; }
 .nutrition-day-review .quick-source-filter { flex-wrap: wrap; }
 .nutrition-day-review .quick-source-filter button { min-height: 44px; }
-.nutrition-day-review-list { display: grid; gap: 8px; }
-.nutrition-day-review-row { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--text); background: rgba(255, 255, 255, 0.035); text-align: left; min-height: 64px; }
+.nutrition-day-review-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.nutrition-day-review-row { width: 100%; min-width: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--text); background: rgba(255, 255, 255, 0.035); text-align: left; min-height: 64px; }
 .nutrition-day-review .nutrition-day-review-row:hover:not([disabled]),
 .nutrition-day-review .nutrition-day-review-row:active:not([disabled]) { color: var(--text); background: #253348; }
-.nutrition-day-review-row > span:first-child { min-width: 0; display: grid; gap: 5px; }
+.nutrition-day-review-row > span:first-child { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; white-space: normal; }
 .nutrition-day-review-row strong { overflow-wrap: anywhere; }
 .nutrition-day-state { color: var(--muted); font-size: 0.84rem; }
 .nutrition-day-open { flex-shrink: 0; font-size: 0.82rem; color: var(--primary); }

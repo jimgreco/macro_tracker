@@ -76,10 +76,12 @@ async function fixture(page) {
   return control;
 }
 
-for (const width of [320, 390, 1280]) {
-  test(`review filters, old log, completion and repeated navigation at ${width}px`, async ({ page }, info) => {
+for (const { width, wideFont } of [{ width: 320 }, { width: 390 }, { width: 1280 }, { width: 320, wideFont: true }]) {
+  test(`review filters, old log, completion and repeated navigation at ${width}px${wideFont ? ' with wide fallback font' : ''}`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 900 });
     const control = await fixture(page);
+    // Exercise wider glyph metrics even when the local OS fallback font fits.
+    if (wideFont) await page.addStyleTag({ content: 'body { font-family: Verdana, sans-serif; letter-spacing: 0.3px; }' });
     await page.getByRole('button', { name: 'Review days', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Review nutrition days' });
     await expect(dialog.locator('[data-review-day]')).toHaveCount(6);
@@ -91,6 +93,12 @@ for (const width of [320, 390, 1280]) {
     await dialog.locator('[data-review-day="2026-06-16"]').hover();
     await expect(dialog.locator('[data-review-day="2026-06-16"]')).toHaveCSS('background-color', 'rgb(37, 51, 72)');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await dialog.locator('[data-review-day]').evaluateAll(rows => rows.every(row => {
+      const label = row.querySelector('strong');
+      const action = row.querySelector('.nutrition-day-open');
+      return label.scrollWidth <= label.clientWidth && label.getBoundingClientRect().right <= action.getBoundingClientRect().left;
+    }))).toBe(true);
     await dialog.screenshot({ path: info.outputPath(`review-all-${width}.png`) });
     const axe = await new AxeBuilder({ page }).include('#nutrition-day-review').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
     expect(axe.violations.filter(v => ['critical', 'serious'].includes(v.impact))).toEqual([]);
@@ -99,6 +107,11 @@ for (const width of [320, 390, 1280]) {
     await expect(page.locator('#entries-day-label')).toContainText('Jun 13');
     await expect(page.locator('#entries-by-day')).toContainText('Whole review meal');
     await expect(page.locator('#entries-by-day .macro-card')).toHaveCount(100);
+    expect(await page.locator('#consumed-at').evaluate(element => {
+      const input = element.getBoundingClientRect();
+      const panel = element.closest('.panel').getBoundingClientRect();
+      return input.left >= panel.left && input.right <= panel.right;
+    })).toBe(true);
     await expect(page.locator('#today-calories')).toHaveText('1010');
     expect(control.requests.some(url => url.includes('entriesDay=2026-06-13') && url.includes('offset=100'))).toBe(true);
     await page.locator('#entries-completeness-btn').click();
