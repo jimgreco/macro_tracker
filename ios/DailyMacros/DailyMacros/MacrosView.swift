@@ -1898,16 +1898,6 @@ struct MacrosView: View {
 
             trendCoverage
 
-            Button {
-                showReviewDays = true
-            } label: {
-                Label("Review days", systemImage: "calendar")
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.bordered)
-            .disabled(trendLoadedScope != trendScope || trendLoad.isLoading || trendLoadError)
-            .accessibilityIdentifier("macro-review-days")
-
             if trendLoadError {
                 Button("Retry loading days") { Task { await loadTrend() } }
                     .font(.callout)
@@ -1946,9 +1936,27 @@ struct MacrosView: View {
     private var trendCoverage: some View {
         let summary = trendSummary
         return VStack(alignment: .leading, spacing: 6) {
-            Text("\(summary.completeDays) of \(summary.periodDays) days complete")
-                .font(.subheadline.weight(.semibold))
-                .accessibilityIdentifier("macro-trend-coverage-count")
+            HStack(spacing: 8) {
+                Text("\(summary.completeDays) of \(summary.periodDays) days complete")
+                    .font(.subheadline.weight(.semibold))
+                    .accessibilityIdentifier("macro-trend-coverage-count")
+
+                Spacer(minLength: 0)
+
+                Button {
+                    showReviewDays = true
+                } label: {
+                    Label("Review days", systemImage: "calendar")
+                        .font(.caption.weight(.semibold))
+                        .fixedSize()
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.neonCyan)
+                .disabled(trendLoadedScope != trendScope || trendLoad.isLoading || trendLoadError)
+                .accessibilityIdentifier("macro-review-days")
+            }
             ProgressView(value: Double(summary.completeDays), total: Double(summary.periodDays))
                 .tint(Color.neonGreen)
                 .accessibilityLabel("Completed-day coverage")
