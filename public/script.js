@@ -4695,14 +4695,14 @@ function macroTrendWindowRows(dailyTotals, period, today = getLocalIsoDay()) {
   return (dailyTotals || []).filter(row => row?.day >= firstDay && row.day <= today);
 }
 
-function completedMacroTrendRows(dailyTotals, period, today = getLocalIsoDay()) {
+function completedMacroTrendRows(dailyTotals, period, today = getLocalIsoDay(), macro = null) {
   return macroTrendWindowRows(dailyTotals, period, today)
-    .filter(row => row?.completeness?.state === 'complete');
+    .filter(row => row?.completeness?.state === 'complete' && (macro !== 'fiber' || row.fiber != null));
 }
 
 function buildTrendPoints(dailyTotals, period, baseIsoDay) {
   const dayMap = new Map();
-  for (const dt of completedMacroTrendRows(dailyTotals, period, baseIsoDay)) {
+  for (const dt of completedMacroTrendRows(dailyTotals, period, baseIsoDay, state.selectedTrendMacro)) {
     dayMap.set(dt.day, Number(dt[state.selectedTrendMacro] || 0));
   }
   const macro = state.selectedTrendMacro;
@@ -4767,9 +4767,14 @@ function drawTrend(dailyTotals, baseIsoDay = getLocalIsoDay()) {
     return;
   }
   const period = state.macroSnapshotPeriod || 'weekly';
-  const completedRows = completedMacroTrendRows(dailyTotals, period, baseIsoDay);
+  const completedRows = completedMacroTrendRows(dailyTotals, period, baseIsoDay, state.selectedTrendMacro);
   trendCanvasEl.hidden = completedRows.length === 0;
-  if (trendEmptyStateEl) trendEmptyStateEl.hidden = completedRows.length > 0;
+  if (trendEmptyStateEl) {
+    trendEmptyStateEl.hidden = completedRows.length > 0;
+    trendEmptyStateEl.textContent = state.selectedTrendMacro === 'fiber'
+      ? 'No completed days with full fiber data. Unknown fiber is excluded.'
+      : 'No completed days in this period. Mark a day complete to include it in trends.';
+  }
   hideTrendTooltip();
   const targetLineColor = 'rgba(255, 202, 40, 0.95)';
   const averageLineColor = 'rgba(5, 255, 161, 0.95)';
@@ -4990,7 +4995,7 @@ function syncTrendMacroCards() {
 }
 
 function setTrendMacro(macro) {
-  const allowed = new Set(['calories', 'protein', 'carbs', 'fat']);
+  const allowed = new Set(['calories', 'protein', 'carbs', 'fat', 'fiber']);
   if (!allowed.has(macro) || state.selectedTrendMacro === macro) {
     return;
   }
@@ -5171,6 +5176,10 @@ function renderSnapshotStats(dailyTotals, targets) {
   setText(avgCarbsEl, daysWithData ? `${fmtNumber(avgCarbs)}g` : '—');
   setText(avgFatEl, daysWithData ? `${fmtNumber(avgFat)}g` : '—');
   const fiberRows = eligibleRows.filter(row => row.fiber != null);
+  setText(document.getElementById('avg-fiber'), fiberRows.length
+    ? `${fmtNumber(fiberRows.reduce((sum, row) => sum + Number(row.fiber), 0) / fiberRows.length)}g` : '—');
+  const fiberGoal = Number(averageTargetsForRows(fiberRows, targets || {}).fiber || 0);
+  setText(document.getElementById('avg-fiber-target'), fiberGoal > 0 ? `Target: ${fmtNumber(fiberGoal)} g` : 'Target: none');
   setText(document.getElementById('weekly-fiber'), fiberRows.length
     ? `Fiber: ${fmtNumber(fiberRows.reduce((sum, row) => sum + Number(row.fiber), 0) / fiberRows.length)} g/day · ${fiberRows.length}/${daysWithData} complete days have full fiber coverage`
     : 'Fiber: no complete days with full fiber coverage');

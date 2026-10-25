@@ -5954,3 +5954,12 @@ button[disabled] {
 .trend-coverage progress::-webkit-progress-bar { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
 .trend-coverage progress::-webkit-progress-value { background: var(--primary); border-radius: 3px; }
 .trend-coverage progress::-moz-progress-bar { background: var(--primary); border-radius: 3px; }
+
+/* Keep the five trend choices together, with horizontal scrolling on narrow screens. */
+#weekly-avg-cards {
+  display: flex;
+  overflow-x: auto;
+}
+#weekly-avg-cards > .card {
+  flex: 1 0 100px;
+}

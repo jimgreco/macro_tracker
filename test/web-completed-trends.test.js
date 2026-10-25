@@ -162,3 +162,23 @@ test('completing a previously untracked empty day updates the current sample bef
   assert.equal(ctx.trendAverageValueEl.textContent, '—');
   assert.equal(ctx.state.macroDailyTotals.length, 2, 'reopening retains raw totals');
 });
+
+test('fiber trends exclude unknown and incomplete days while retaining explicit zero', () => {
+  for (const period of ['weekly', 'monthly', 'annual']) {
+    const { ctx, points } = context(period, 'fiber');
+    const rows = [
+      { ...row(0, 'complete', 2000), fiber: null },
+      { ...row(-1, 'complete', 2000), fiber: 30 },
+      { ...row(-2, 'complete', 2000), fiber: 0 },
+      { ...row(-3, 'partial', 2000), fiber: 90 }
+    ];
+    ctx.drawTrend(rows);
+    assert.equal(ctx.trendAverageValueEl.textContent, '15 g');
+    assert.equal(ctx.completedMacroTrendRows(rows, period).length, 3, 'completion coverage remains independent of fiber coverage');
+    assert.equal(ctx.completedMacroTrendRows(rows, period, today, 'fiber').length, 2);
+    assert.ok(points().every(point => point.value <= 30));
+    ctx.drawTrend([{ ...row(0, 'complete', 2000), fiber: null }]);
+    assert.equal(ctx.trendCanvasEl.hidden, true);
+    assert.match(ctx.trendEmptyStateEl.textContent, /full fiber data/);
+  }
+});

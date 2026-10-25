@@ -348,7 +348,7 @@ struct MacrosView: View {
     @State private var editFiber = ""
 
     private let trendPeriods = ["week", "month", "year"]
-    private let macroOptions = ["calories", "protein", "carbs", "fat"]
+    private let macroOptions = ["calories", "protein", "carbs", "fat", "fiber"]
     private let addSheetTopAnchor = "add-sheet-top"
     private let quickItemsVisibleLimit = 40
     private let maxMealImageAttachments = 4
@@ -1912,14 +1912,14 @@ struct MacrosView: View {
                 }
             }
 
-            if !trendSummary.rows.isEmpty {
+            if !trendSummary.rows(for: selectedTrendMacro).isEmpty {
                 trendChart
             } else {
                 VStack(spacing: 8) {
-                    Text("No completed days in this period")
+                    Text(selectedTrendMacro == "fiber" ? "No completed days with full fiber data" : "No completed days in this period")
                         .font(.subheadline.weight(.semibold))
                         .accessibilityIdentifier("macro-trend-empty")
-                    Text("Mark a day complete when you’ve finished logging to include it in trends and averages.")
+                    Text(selectedTrendMacro == "fiber" ? "Fiber trends include completed days only when every food has fiber data. Unknown values are excluded." : "Mark a day complete when you’ve finished logging to include it in trends and averages.")
                         .font(.caption)
                     if targetForMacro(selectedTrendMacro) > 0 {
                         Text("Target: \(Int(targetForMacro(selectedTrendMacro))) \(selectedTrendMacro == "calories" ? "cal" : "g")")
@@ -2007,7 +2007,7 @@ struct MacrosView: View {
     }
 
     private var trendChart: some View {
-        let rows = trendSummary.rows
+        let rows = trendSummary.rows(for: selectedTrendMacro)
         let values = rows.map { valueForMacro($0, macro: selectedTrendMacro) }
         let targetValue = targetForMacro(selectedTrendMacro)
         let allValues = values + (targetValue > 0 ? [targetValue] : [])
@@ -4561,6 +4561,7 @@ struct MacrosView: View {
         case "protein": return totals.protein
         case "carbs": return totals.carbs
         case "fat": return totals.fat
+        case "fiber": return totals.fiber ?? 0
         default: return totals.calories
         }
     }
@@ -4572,6 +4573,7 @@ struct MacrosView: View {
         case "protein": return targets.protein
         case "carbs": return targets.carbs
         case "fat": return targets.fat
+        case "fiber": return targets.fiber ?? 0
         default: return targets.calories
         }
     }

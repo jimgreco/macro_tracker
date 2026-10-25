@@ -326,6 +326,24 @@ final class MacroTrendSummaryTests: XCTestCase {
                     })
     }
 
+    func testFiberExcludesUnknownAndPartialDaysButKeepsZero() {
+        var known = row("2026-10-20", .complete, 2000)
+        known.fiber = 30
+        var zero = row("2026-10-19", .complete, 2000)
+        zero.fiber = 0
+        let unknown = row("2026-10-18", .complete, 2000)
+        var partial = row("2026-10-17", .partial, 2000)
+        partial.fiber = 90
+        for scope in ["week", "month", "year"] {
+            let summary = MacroTrendSummary(rows: [known, zero, unknown, partial], scope: scope, today: now, timeZone: zone)
+            XCTAssertEqual(summary.average(for: "fiber"), 15)
+            XCTAssertEqual(summary.rows(for: "fiber").count, 2)
+            XCTAssertEqual(summary.completeDays, 3)
+            let missing = MacroTrendSummary(rows: [unknown], scope: scope, today: now, timeZone: zone)
+            XCTAssertNil(missing.average(for: "fiber"))
+        }
+    }
+
     func testCoverageIncludesEveryCalendarDateAndOnlyExplicitStatuses() {
         for (scope, days, firstDay, excludedDay) in [("week", 7, "2026-10-14", "2026-10-13"),
                                                     ("month", 30, "2026-09-21", "2026-09-20"),

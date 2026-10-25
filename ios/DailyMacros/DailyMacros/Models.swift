@@ -202,13 +202,19 @@ struct MacroTrendSummary {
         self.partialDays = windowRows.filter { $0.completeness?.state == .partial }.count
     }
 
+    func rows(for macro: String) -> [DailyTotals] {
+        macro == "fiber" ? rows.filter { $0.fiber != nil } : rows
+    }
+
     func average(for macro: String) -> Double? {
+        let rows = rows(for: macro)
         guard !rows.isEmpty else { return nil }
         let total = rows.reduce(0.0) { sum, row in
             switch macro {
             case "protein": return sum + row.protein
             case "carbs": return sum + row.carbs
             case "fat": return sum + row.fat
+            case "fiber": return sum + (row.fiber ?? 0)
             default: return sum + row.calories
             }
         }
