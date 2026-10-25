@@ -31,7 +31,7 @@ test('Postgres fiber lifecycle, ownership, legacy edits, coverage, target histor
  const db=require('../src/db');
  const userId='fiber-'+require('node:crypto').randomUUID();
  try {
-  await db.initDb();
+  await require('./helpers/database').initializeTestSchema(db);
   await db.upsertUser({id:userId,provider:'local-dev',providerUserId:userId,email:'fiber@example.test',name:'Fiber test'});
   const item={name:'Beans',itemName:'Beans',quantity:1,unit:'cup',calories:200,protein:12,carbs:35,fat:1,fiber:12,consumedAt:new Date().toISOString()};
   await db.setMacroTarget(userId, 'fiber', 30);
