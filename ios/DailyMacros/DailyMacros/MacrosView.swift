@@ -1270,6 +1270,9 @@ struct MacrosView: View {
                         .foregroundStyle(Color.mutedText)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
+                    Text(fiberLabel(sumFiber(items.map(\.fiber))))
+                        .font(.caption2)
+                        .foregroundStyle(Color.mutedText)
                 }
                 if !isMealEditing {
                     Image(systemName: "chevron.right")
@@ -1715,6 +1718,9 @@ struct MacrosView: View {
                                 scaledChip("C", value: totalC * scale, color: .neonCyan)
                                 scaledChip("F", value: totalF * scale, color: .neonPink)
                             }
+                            Text(fiberLabel(sumFiber(meal.items.map(\.fiber)).map { $0 * scale }))
+                                .font(.caption)
+                                .foregroundStyle(Color.mutedText)
                         }
                         .padding()
                         .background(Color.panelBg)
@@ -2764,6 +2770,10 @@ struct MacrosView: View {
                 quickMealQueueRows
             }
 
+            Text(fiberLabel(sumFiber(quickMealQueue.map(\.fiber))))
+                .font(.caption2)
+                .foregroundStyle(Color.mutedText)
+
             Text(macroBreakdownText(protein: totals.protein, carbs: totals.carbs, fat: totals.fat))
                 .font(.caption2)
                 .foregroundStyle(Color.mutedText)
@@ -2972,6 +2982,10 @@ struct MacrosView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
+
+            Text(fiberLabel(sumFiber(parsedItems.map(\.fiber)).map { $0 * parsedMealScale }))
+                .font(.caption)
+                .foregroundStyle(Color.neonGreen)
 
             Toggle("Save as Quick Add", isOn: $saveParsedAsQuickAdd)
                 .font(.subheadline)

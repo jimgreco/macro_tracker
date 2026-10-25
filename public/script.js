@@ -3986,7 +3986,7 @@ function renderParsedItems(parsedMeal) {
     header.innerHTML = `
       <div class="parsed-item-summary">
         <span class="parsed-item-name">${escapeHtml(parsedMeal.mealName || 'Meal')}</span>
-        <span class="parsed-item-macros">${fmtNumber(mealQty)} ${escapeHtml(mealUnit)} &middot; ${fmtNumber(totals.calories)} cal &middot; ${fmtNumber(totals.protein)}g protein &middot; ${fmtNumber(totals.carbs)}g carbs &middot; ${fmtNumber(totals.fat)}g fat</span>
+        <span class="parsed-item-macros">${fmtNumber(mealQty)} ${escapeHtml(mealUnit)} &middot; ${fmtNumber(totals.calories)} cal &middot; ${fmtNumber(totals.protein)}g protein &middot; ${fmtNumber(totals.carbs)}g carbs &middot; ${fmtNumber(totals.fat)}g fat &middot; ${fiberText(scaledFiber(totalFiber(parsedMeal.items), mealQty))}</span>
       </div>
       <div class="parsed-item-right">
         <div class="parsed-item-btn-row">
@@ -5315,7 +5315,7 @@ function renderDashboard(data) {
             <div class="macro-card-check"><input type="checkbox" class="entry-checkbox" data-entry-id="${childId}" data-in-group="1" data-meal-group="${childGroupId}" ${childChecked} /></div>
             <div class="macro-card-child-body" data-edit-entry-id="${childId}">
               <span class="macro-card-child-name">${escapeHtml(child.itemName)}</span>
-              <span class="macro-card-child-detail">${fmtNumber(childQuantity)} ${escapeHtml(child.unit || '')} · ${fmtNumber(childCalories)} cal · ${fmtNumber(childProtein)}g protein · ${fmtNumber(childCarbs)}g carbs · ${fmtNumber(childFat)}g fat</span>
+              <span class="macro-card-child-detail">${fmtNumber(childQuantity)} ${escapeHtml(child.unit || '')} · ${fmtNumber(childCalories)} cal · ${fmtNumber(childProtein)}g protein · ${fmtNumber(childCarbs)}g carbs · ${fmtNumber(childFat)}g fat · ${fiberText(scaledFiber(child.fiber, 1 / unitScale))}</span>
             </div>
           </div>
         `;
@@ -5337,6 +5337,7 @@ function renderDashboard(data) {
               <span class="entry-card-chip">${fmtNumber(totals.protein)}g protein</span>
               <span class="entry-card-chip">${fmtNumber(totals.carbs)}g carbs</span>
               <span class="entry-card-chip">${fmtNumber(totals.fat)}g fat</span>
+              <span class="entry-card-chip">${fiberText(totalFiber(groupItems))}</span>
               ${mealQualityChips}
             </div>
           </div>
