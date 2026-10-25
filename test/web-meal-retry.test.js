@@ -57,7 +57,7 @@ function harness() {
   };
   vm.createContext(context);
   vm.runInContext([
-    ...['createReplaySafePost', 'lockMealEditor', 'refreshAfterMealSave', 'selectQuickEntry', 'quickAddPortion',
+    ...['scaledFiber', 'totalFiber', 'fiberText', 'createReplaySafePost', 'lockMealEditor', 'refreshAfterMealSave', 'selectQuickEntry', 'quickAddPortion',
       'quickAddById', 'quickAddByTemplate', 'mealConsumedAt', 'asIso', 'lookupBarcode'].map(browserFunction),
     'const postParsedMeal = createReplaySafePost(); const postQuickAdd = createReplaySafePost();',
     handler('parseBtnEl', "saveParsedBtnEl.addEventListener('click'"),

@@ -24,6 +24,7 @@ function context(period = 'weekly', macro = 'calories') {
   const canvas = { width: 320, height: 120, hidden: false,
     get clientWidth() { return this.hidden ? 0 : 320; }, getContext: () => drawing, setAttribute() {} };
   const ctx = vm.createContext({
+    document: { getElementById: () => ({}) },
     state: { macroSnapshotPeriod: period, selectedTrendMacro: macro },
     trendCanvasEl: canvas, trendEmptyStateEl: {}, trendAverageValueEl: {}, trendTargetValueEl: {},
     trendCoverageCountEl: {}, trendCoverageDetailEl: {}, trendCoverageProgressEl: { setAttribute(name, value) { this[name] = value; } },

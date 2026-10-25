@@ -1,3 +1,4 @@
+const { scaleFiber } = require('./fiber');
 const CORRECTION_ELIGIBLE_SOURCES = new Set(['ai_text', 'ai_photo', 'barcode']);
 const MACRO_FIELDS = ['calories', 'protein', 'carbs', 'fat'];
 const UNIT_ALIASES = new Map([
@@ -75,6 +76,7 @@ function applyFoodCorrectionToItem(item, correction, correctionKey) {
   const scale = requestedQuantity / rememberedQuantity;
   const corrected = {
     ...item,
+    fiber: correction.fiber == null ? item.fiber ?? null : scaleFiber(correction.fiber, scale),
     itemName: correction.item_name || item.itemName,
     quantity: requestedQuantity,
     unit: correction.unit || item.unit || 'serving',

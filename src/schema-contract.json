@@ -1,6 +1,6 @@
 {
   "app": "macros",
-  "version": 1,
+  "version": 2,
   "objects": [
     {
       "kind": "column",
@@ -2601,6 +2601,21 @@
       "kind": "table",
       "name": "workout_entries",
       "definition": "[\"r\", \"p\", false, false]"
+    },
+    {
+      "kind": "column",
+      "name": "entries.fiber",
+      "definition": "[\"double precision\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "saved_items.fiber",
+      "definition": "[\"double precision\", false, null]"
+    },
+    {
+      "kind": "column",
+      "name": "food_corrections.fiber",
+      "definition": "[\"double precision\", false, null]"
     }
   ]
 }

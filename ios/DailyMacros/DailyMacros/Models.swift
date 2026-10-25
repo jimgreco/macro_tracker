@@ -120,6 +120,7 @@ struct Entry: Codable, Identifiable, Sendable {
     let protein: Double
     let carbs: Double
     let fat: Double
+    var fiber: Double? = nil
     let consumedAt: String
     let day: String?
     let mealGroup: String?
@@ -151,6 +152,7 @@ struct DailyTotals: Codable, Sendable {
     let protein: Double
     let carbs: Double
     let fat: Double
+    var fiber: Double? = nil
     let completeness: DayCompleteness?
 
     init(
@@ -159,6 +161,7 @@ struct DailyTotals: Codable, Sendable {
         protein: Double,
         carbs: Double,
         fat: Double,
+        fiber: Double? = nil,
         completeness: DayCompleteness? = nil
     ) {
         self.day = day
@@ -166,6 +169,7 @@ struct DailyTotals: Codable, Sendable {
         self.protein = protein
         self.carbs = carbs
         self.fat = fat
+        self.fiber = fiber
         self.completeness = completeness
     }
 }
@@ -278,6 +282,7 @@ struct SevenDayAverage: Codable, Sendable {
     let protein: Double
     let carbs: Double
     let fat: Double
+    var fiber: Double? = nil
 }
 
 struct MacroTargets: Codable, Sendable {
@@ -285,12 +290,13 @@ struct MacroTargets: Codable, Sendable {
     let protein: Double
     let carbs: Double
     let fat: Double
+    var fiber: Double? = nil
     let workouts: Double
     let workoutCalories: Double?
     let sleepHours: Double?
 
     enum CodingKeys: String, CodingKey {
-        case calories, protein, carbs, fat, workouts
+        case calories, protein, carbs, fat, fiber, workouts
         case workoutCalories = "workout_calories"
         case sleepHours = "sleep_hours"
     }
@@ -347,6 +353,7 @@ struct TodayMacroTargets: Codable {
     let protein: Double
     let carbs: Double
     let fat: Double
+    var fiber: Double? = nil
     let workouts: Double
     let workoutCalories: Double
     let sleepHours: Double
@@ -447,6 +454,7 @@ struct SavedItemComponent: Codable, Sendable, Hashable {
     let protein: Double
     let carbs: Double
     let fat: Double
+    var fiber: Double? = nil
 }
 
 struct SavedItem: Codable, Identifiable, Sendable {
@@ -458,8 +466,10 @@ struct SavedItem: Codable, Identifiable, Sendable {
     let protein: Double
     let carbs: Double
     let fat: Double
+    var fiber: Double? = nil
     let components: [SavedItemComponent]?
     let usageCount: Int
+    var sourceDetail: String? = nil
 }
 
 struct ParsedMealItem: Codable {
@@ -470,6 +480,7 @@ struct ParsedMealItem: Codable {
     var protein: Double
     var carbs: Double
     var fat: Double
+    var fiber: Double? = nil
 }
 
 struct ParseMealResponse: Codable {

@@ -29,6 +29,8 @@ struct QuickAddTemplate: Identifiable {
     let protein: Double
     let carbs: Double
     let fat: Double
+    var fiber: Double? = nil
+    var sourceDetail: String? = nil
     let components: [SavedItemComponent]
     let lastUsedAt: String?
     let searchText: String
@@ -47,7 +49,8 @@ struct QuickAddTemplate: Identifiable {
                 itemName: component.itemName, quantity: component.quantity * portionQuantity,
                 unit: component.unit, calories: component.calories * portionQuantity,
                 protein: component.protein * portionQuantity, carbs: component.carbs * portionQuantity,
-                fat: component.fat * portionQuantity
+                fat: component.fat * portionQuantity,
+                fiber: component.fiber.map { $0 * portionQuantity }
             )
         }
         let portion = QuickAddPortion(
@@ -56,6 +59,7 @@ struct QuickAddTemplate: Identifiable {
             protein: scaledComponents.isEmpty ? protein * multiplier : scaledComponents.reduce(0) { $0 + $1.protein },
             carbs: scaledComponents.isEmpty ? carbs * multiplier : scaledComponents.reduce(0) { $0 + $1.carbs },
             fat: scaledComponents.isEmpty ? fat * multiplier : scaledComponents.reduce(0) { $0 + $1.fat },
+            fiber: scaledComponents.isEmpty ? fiber.map { $0 * multiplier } : sumFiber(scaledComponents.map(\.fiber)),
             components: scaledComponents
         )
         let values = [portion.quantity, portion.calories, portion.protein, portion.carbs, portion.fat]
@@ -75,6 +79,8 @@ struct QuickAddTemplate: Identifiable {
         protein: Double,
         carbs: Double,
         fat: Double,
+        fiber: Double? = nil,
+        sourceDetail: String? = nil,
         components: [SavedItemComponent] = [],
         lastUsedAt: String?
     ) {
@@ -87,6 +93,8 @@ struct QuickAddTemplate: Identifiable {
         self.protein = protein
         self.carbs = carbs
         self.fat = fat
+        self.fiber = fiber
+        self.sourceDetail = sourceDetail
         self.components = components
         self.lastUsedAt = lastUsedAt
         self.searchText = [
@@ -150,6 +158,7 @@ struct QuickAddPortion {
     let protein: Double
     let carbs: Double
     let fat: Double
+    var fiber: Double? = nil
     let components: [SavedItemComponent]
 }
 
@@ -166,6 +175,7 @@ private struct QuickMealQueueItem: Identifiable {
     var protein: Double
     var carbs: Double
     var fat: Double
+    var fiber: Double? = nil
 }
 
 private struct EditingMealContext: Identifiable, Sendable {
@@ -243,6 +253,7 @@ struct MacrosView: View {
     @State private var editEntryProtein = ""
     @State private var editEntryCarbs = ""
     @State private var editEntryFat = ""
+    @State private var editEntryFiber = ""
     @State private var editEntryDate = Date()
     @State private var editSaveError: String?
     @State private var saveEditedEntryAsQuickAdd = false
@@ -252,6 +263,7 @@ struct MacrosView: View {
     @State private var origProtein: Double = 0
     @State private var origCarbs: Double = 0
     @State private var origFat: Double = 0
+    @State private var origFiber: Double? = nil
 
     // Meal editing state
     @State private var editingMeal: EditingMealContext?
@@ -270,11 +282,13 @@ struct MacrosView: View {
     @State private var editParsedProtein = ""
     @State private var editParsedCarbs = ""
     @State private var editParsedFat = ""
+    @State private var editParsedFiber = ""
     @State private var origParsedQuantity: Double = 0
     @State private var origParsedCal: Double = 0
     @State private var origParsedProtein: Double = 0
     @State private var origParsedCarbs: Double = 0
     @State private var origParsedFat: Double = 0
+    @State private var origParsedFiber: Double? = nil
 
     // Quick add editing state
     @State private var quickMultiplier = "1"
@@ -297,6 +311,7 @@ struct MacrosView: View {
     @State private var editQuickProtein = ""
     @State private var editQuickCarbs = ""
     @State private var editQuickFat = ""
+    @State private var editQuickFiber = ""
     @State private var editQueuedQuickName = ""
     @State private var editQueuedQuickQuantity = ""
     @State private var editQueuedQuickUnit = ""
@@ -304,11 +319,13 @@ struct MacrosView: View {
     @State private var editQueuedQuickProtein = ""
     @State private var editQueuedQuickCarbs = ""
     @State private var editQueuedQuickFat = ""
+    @State private var editQueuedQuickFiber = ""
     @State private var origQueuedQuickQuantity: Double = 0
     @State private var origQueuedQuickCal: Double = 0
     @State private var origQueuedQuickProtein: Double = 0
     @State private var origQueuedQuickCarbs: Double = 0
     @State private var origQueuedQuickFat: Double = 0
+    @State private var origQueuedQuickFiber: Double? = nil
 
     // Drag state
     @State private var isDragging = false
@@ -328,6 +345,7 @@ struct MacrosView: View {
     @State private var editProtein = ""
     @State private var editCarbs = ""
     @State private var editFat = ""
+    @State private var editFiber = ""
 
     private let trendPeriods = ["week", "month", "year"]
     private let macroOptions = ["calories", "protein", "carbs", "fat"]
@@ -355,6 +373,8 @@ struct MacrosView: View {
                 protein: item.protein,
                 carbs: item.carbs,
                 fat: item.fat,
+                fiber: item.fiber,
+                sourceDetail: item.sourceDetail,
                 components: item.components ?? [],
                 lastUsedAt: nil
             )
@@ -373,6 +393,7 @@ struct MacrosView: View {
             protein: $0.protein,
             carbs: $0.carbs,
             fat: $0.fat,
+                fiber: $0.fiber,
             components: $0.components ?? []
         ) })
 
@@ -389,7 +410,8 @@ struct MacrosView: View {
                 calories: entry.calories,
                 protein: entry.protein,
                 carbs: entry.carbs,
-                fat: entry.fat
+                fat: entry.fat,
+                fiber: entry.fiber
             )
             guard !savedSignatures.contains(signature) else { continue }
 
@@ -408,6 +430,7 @@ struct MacrosView: View {
                 protein: entry.protein,
                 carbs: entry.carbs,
                 fat: entry.fat,
+                fiber: entry.fiber,
                 lastUsedAt: entry.consumedAt
             )
         }
@@ -777,6 +800,12 @@ struct MacrosView: View {
             macroRow("Protein", value: totals.protein, target: targets.protein, unit: "g", color: .neonGreen)
             macroRow("Carbs", value: totals.carbs, target: targets.carbs, unit: "g", color: .neonCyan)
             macroRow("Fat", value: totals.fat, target: targets.fat, unit: "g", color: .neonPink)
+            if let fiber = totals.fiber {
+                macroRow("Fiber", value: fiber, target: targets.fiber ?? 0, unit: "g", color: .neonCyan)
+            } else {
+                Text("Fiber unknown or incomplete · Goal: \(Int(targets.fiber ?? 0)) g")
+                    .font(.caption).foregroundStyle(Color.mutedText)
+            }
 
             dayCompletenessControl(totals)
         }
@@ -846,6 +875,7 @@ struct MacrosView: View {
                 protein: totals.protein,
                 carbs: totals.carbs,
                 fat: totals.fat,
+                fiber: totals.fiber,
                 completeness: completeness
             )
         }
@@ -1373,7 +1403,7 @@ struct MacrosView: View {
                 Text("\(Int(displayCalories)) kcal")
                     .font(isSubItem ? .caption : .subheadline)
                     .foregroundStyle(isSubItem ? Color.white.opacity(0.6) : Color.white)
-                Text(macroBreakdownText(protein: displayProtein, carbs: displayCarbs, fat: displayFat))
+                Text(macroBreakdownText(protein: displayProtein, carbs: displayCarbs, fat: displayFat) + " | " + fiberLabel(entry.fiber.map { $0 / unitScale }))
                     .font(.caption2)
                     .foregroundStyle(Color.mutedText)
                     .lineLimit(1)
@@ -1393,6 +1423,7 @@ struct MacrosView: View {
         editEntryProtein = "\(Int(entry.protein))"
         editEntryCarbs = "\(Int(entry.carbs))"
         editEntryFat = "\(Int(entry.fat))"
+        editEntryFiber = entry.fiber.map { String($0) } ?? ""
         editEntryDate = parseISO(entry.consumedAt)
         editSaveError = nil
         saveEditedEntryAsQuickAdd = false
@@ -1401,6 +1432,7 @@ struct MacrosView: View {
         origProtein = entry.protein
         origCarbs = entry.carbs
         origFat = entry.fat
+        origFiber = entry.fiber
         showEditEntry = true
     }
 
@@ -1436,6 +1468,7 @@ struct MacrosView: View {
                         protein: $editEntryProtein,
                         carbs: $editEntryCarbs,
                         fat: $editEntryFat,
+                        fiber: $editEntryFiber,
                         keyboard: .numberPad
                     )
 
@@ -1538,6 +1571,7 @@ struct MacrosView: View {
         editEntryProtein = "\(Int(origProtein * scale))"
         editEntryCarbs = "\(Int(origCarbs * scale))"
         editEntryFat = "\(Int(origFat * scale))"
+        editEntryFiber = origFiber.map { String($0 * scale) } ?? ""
     }
 
     private func editEntryField(_ label: String, text: Binding<String>, keyboard: UIKeyboardType) -> some View {
@@ -1569,6 +1603,7 @@ struct MacrosView: View {
         protein: Binding<String>,
         carbs: Binding<String>,
         fat: Binding<String>,
+        fiber: Binding<String>,
         keyboard: UIKeyboardType
     ) -> some View {
         VStack(spacing: 8) {
@@ -1581,6 +1616,7 @@ struct MacrosView: View {
                 compactEditEntryField("Carbs (g)", text: carbs, keyboard: keyboard)
                 compactEditEntryField("Fat (g)", text: fat, keyboard: keyboard)
             }
+            compactEditEntryField("Fiber (g; blank = unknown)", text: fiber, keyboard: .decimalPad)
         }
     }
 
@@ -1589,7 +1625,9 @@ struct MacrosView: View {
         protein: Binding<String>,
         carbs: Binding<String>,
         fat: Binding<String>,
-        keyboard: UIKeyboardType
+        fiber: Binding<String>,
+        keyboard: UIKeyboardType,
+        fiberEditable: Bool = true
     ) -> some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
@@ -1600,6 +1638,12 @@ struct MacrosView: View {
             HStack(spacing: 12) {
                 editEntryField("Carbs (g)", text: carbs, keyboard: keyboard)
                 editEntryField("Fat (g)", text: fat, keyboard: keyboard)
+            }
+            editEntryField("Fiber (g; blank = unknown)", text: fiber, keyboard: .decimalPad)
+                .disabled(!fiberEditable)
+            if !fiberEditable {
+                Text("Fiber is calculated from the meal’s foods. Edit individual foods when logging the meal.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -1814,8 +1858,8 @@ struct MacrosView: View {
         Double(Int(value))
     }
 
-    private func macroBreakdownText(protein: Double, carbs: Double, fat: Double) -> String {
-        "Protein \(Int(protein))g | Carbs \(Int(carbs))g | Fat \(Int(fat))g"
+    private func macroBreakdownText(protein: Double, carbs: Double, fat: Double, fiber: Double? = nil) -> String {
+        "Protein \(Int(protein))g | Carbs \(Int(carbs))g | Fat \(Int(fat))g" + (fiber.map { " | Fiber \($0.formatted())g" } ?? "")
     }
 
     private func compactNumberText(_ value: Double) -> String {
@@ -2104,6 +2148,8 @@ struct MacrosView: View {
                     targetField("Protein (g)", text: $editProtein)
                     targetField("Carbs (g)", text: $editCarbs)
                     targetField("Fat (g)", text: $editFat)
+                    targetField("Fiber (g)", text: $editFiber)
+                    Text("Daily guideline; fiber is included in carbohydrate totals.").font(.caption).foregroundStyle(Color.mutedText)
 
                     Button {
                         Task { await saveTargets() }
@@ -2144,7 +2190,7 @@ struct MacrosView: View {
     }
 
     private var canSaveMacroTargets: Bool {
-        guard !isSavingTargets else { return false }
+        guard !isSavingTargets, validFiberText(editFiber) else { return false }
         guard let targets = dashboard?.targets else { return false }
         guard let calories = Double(editCalories.trimmingCharacters(in: .whitespacesAndNewlines)), calories > 0,
               let protein = Double(editProtein.trimmingCharacters(in: .whitespacesAndNewlines)), protein >= 0,
@@ -2156,7 +2202,7 @@ struct MacrosView: View {
         return abs(calories - targets.calories) > 0.001 ||
             abs(protein - targets.protein) > 0.001 ||
             abs(carbs - targets.carbs) > 0.001 ||
-            abs(fat - targets.fat) > 0.001
+            abs(fat - targets.fat) > 0.001 || abs((Double(editFiber) ?? 0) - (targets.fiber ?? 0)) > 0.001
     }
 
     private var hasMacroTargets: Bool {
@@ -2169,6 +2215,7 @@ struct MacrosView: View {
         editProtein = macroTargetEditText(targets.protein)
         editCarbs = macroTargetEditText(targets.carbs)
         editFat = macroTargetEditText(targets.fat)
+        editFiber = macroTargetEditText(targets.fiber ?? 0)
     }
 
     private func macroTargetEditText(_ target: Double) -> String {
@@ -2594,7 +2641,7 @@ struct MacrosView: View {
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
             : AnyLayout(HStackLayout(spacing: 5))
         let preview = portion.map {
-            "\($0.quantity.formatted(.number.precision(.significantDigits(1...6)))) \(template.unit) · \(Int($0.calories)) kcal | \(macroBreakdownText(protein: $0.protein, carbs: $0.carbs, fat: $0.fat))"
+            "\($0.quantity.formatted(.number.precision(.significantDigits(1...6)))) \(template.unit) · \(Int($0.calories)) kcal | \(macroBreakdownText(protein: $0.protein, carbs: $0.carbs, fat: $0.fat)) | \(fiberLabel($0.fiber))\(template.sourceDetail?.contains("fiber_estimate:") == true ? " (estimated)" : "")"
         } ?? "Enter a valid multiplier greater than 0."
 
         return HStack(spacing: 10) {
@@ -2796,7 +2843,8 @@ struct MacrosView: View {
                 Text(macroBreakdownText(
                     protein: item.protein / displayScale,
                     carbs: item.carbs / displayScale,
-                    fat: item.fat / displayScale
+                    fat: item.fat / displayScale,
+                    fiber: item.fiber.map { $0 / displayScale }
                 ))
                     .font(.caption2)
                     .foregroundStyle(Color.mutedText)
@@ -2884,7 +2932,7 @@ struct MacrosView: View {
                     Spacer()
                     VStack(alignment: .trailing) {
                         Text("\(Int(item.calories)) kcal").font(.subheadline)
-                        Text(macroBreakdownText(protein: item.protein, carbs: item.carbs, fat: item.fat))
+                        Text(macroBreakdownText(protein: item.protein, carbs: item.carbs, fat: item.fat) + " | " + fiberLabel(item.fiber))
                             .font(.caption2).foregroundStyle(Color.mutedText)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
@@ -2949,11 +2997,13 @@ struct MacrosView: View {
         editParsedProtein = "\(Int(item.protein))"
         editParsedCarbs = "\(Int(item.carbs))"
         editParsedFat = "\(Int(item.fat))"
+        editParsedFiber = item.fiber.map { String($0) } ?? ""
         origParsedQuantity = item.quantity
         origParsedCal = item.calories
         origParsedProtein = item.protein
         origParsedCarbs = item.carbs
         origParsedFat = item.fat
+        origParsedFiber = item.fiber
         showEditParsedItem = true
     }
 
@@ -2988,6 +3038,7 @@ struct MacrosView: View {
                         protein: $editParsedProtein,
                         carbs: $editParsedCarbs,
                         fat: $editParsedFat,
+                        fiber: $editParsedFiber,
                         keyboard: .decimalPad
                     )
 
@@ -3038,8 +3089,10 @@ struct MacrosView: View {
         let proteinChanged = abs(protein - editableWholeNumberBaseline(for: item.protein)) > 0.001
         let carbsChanged = abs(carbs - editableWholeNumberBaseline(for: item.carbs)) > 0.001
         let fatChanged = abs(fat - editableWholeNumberBaseline(for: item.fat)) > 0.001
+        guard validFiberText(editParsedFiber) else { return false }
+        let fiberChanged = Double(editParsedFiber) != item.fiber
 
-        return nameChanged || quantityChanged || unitChanged || caloriesChanged || proteinChanged || carbsChanged || fatChanged
+        return nameChanged || quantityChanged || unitChanged || caloriesChanged || proteinChanged || carbsChanged || fatChanged || fiberChanged
     }
 
     private func scaleParsedMacros(newQuantityStr: String) {
@@ -3049,6 +3102,7 @@ struct MacrosView: View {
         editParsedProtein = "\(Int(origParsedProtein * scale))"
         editParsedCarbs = "\(Int(origParsedCarbs * scale))"
         editParsedFat = "\(Int(origParsedFat * scale))"
+        editParsedFiber = origParsedFiber.map { String($0 * scale) } ?? ""
     }
 
     private func saveEditedParsedItem() {
@@ -3061,7 +3115,8 @@ struct MacrosView: View {
             calories: Double(editParsedCal) ?? parsedItems[index].calories,
             protein: Double(editParsedProtein) ?? parsedItems[index].protein,
             carbs: Double(editParsedCarbs) ?? parsedItems[index].carbs,
-            fat: Double(editParsedFat) ?? parsedItems[index].fat
+            fat: Double(editParsedFat) ?? parsedItems[index].fat,
+            fiber: Double(editParsedFiber)
         )
         showEditParsedItem = false
         editingParsedIndex = nil
@@ -3079,11 +3134,13 @@ struct MacrosView: View {
         editQueuedQuickProtein = "\(Int(item.protein / displayScale))"
         editQueuedQuickCarbs = "\(Int(item.carbs / displayScale))"
         editQueuedQuickFat = "\(Int(item.fat / displayScale))"
+        editQueuedQuickFiber = item.fiber.map { String($0 / displayScale) } ?? ""
         origQueuedQuickQuantity = item.quantity / displayScale
         origQueuedQuickCal = item.calories / displayScale
         origQueuedQuickProtein = item.protein / displayScale
         origQueuedQuickCarbs = item.carbs / displayScale
         origQueuedQuickFat = item.fat / displayScale
+        origQueuedQuickFiber = item.fiber.map { $0 / displayScale }
     }
 
     private func editQuickMealQueueItemSheet(_ item: QuickMealQueueItem) -> some View {
@@ -3117,6 +3174,7 @@ struct MacrosView: View {
                         protein: $editQueuedQuickProtein,
                         carbs: $editQueuedQuickCarbs,
                         fat: $editQueuedQuickFat,
+                        fiber: $editQueuedQuickFiber,
                         keyboard: .decimalPad
                     )
 
@@ -3177,8 +3235,10 @@ struct MacrosView: View {
         let proteinChanged = abs(protein - editableWholeNumberBaseline(for: item.protein / displayScale)) > 0.001
         let carbsChanged = abs(carbs - editableWholeNumberBaseline(for: item.carbs / displayScale)) > 0.001
         let fatChanged = abs(fat - editableWholeNumberBaseline(for: item.fat / displayScale)) > 0.001
+        guard validFiberText(editQueuedQuickFiber) else { return false }
+        let fiberChanged = Double(editQueuedQuickFiber) != item.fiber.map { $0 / displayScale }
 
-        return nameChanged || quantityChanged || unitChanged || caloriesChanged || proteinChanged || carbsChanged || fatChanged
+        return nameChanged || quantityChanged || unitChanged || caloriesChanged || proteinChanged || carbsChanged || fatChanged || fiberChanged
     }
 
     private func scaleQueuedQuickMacros(newQuantityStr: String) {
@@ -3188,6 +3248,7 @@ struct MacrosView: View {
         editQueuedQuickProtein = "\(Int(origQueuedQuickProtein * scale))"
         editQueuedQuickCarbs = "\(Int(origQueuedQuickCarbs * scale))"
         editQueuedQuickFat = "\(Int(origQueuedQuickFat * scale))"
+        editQueuedQuickFiber = origQueuedQuickFiber.map { String($0 * scale) } ?? ""
     }
 
     private func saveQueuedQuickItem(_ item: QuickMealQueueItem) {
@@ -3201,6 +3262,7 @@ struct MacrosView: View {
         quickMealQueue[index].calories = (Double(editQueuedQuickCal) ?? (quickMealQueue[index].calories / displayScale)) * displayScale
         quickMealQueue[index].protein = (Double(editQueuedQuickProtein) ?? (quickMealQueue[index].protein / displayScale)) * displayScale
         quickMealQueue[index].carbs = (Double(editQueuedQuickCarbs) ?? (quickMealQueue[index].carbs / displayScale)) * displayScale
+        quickMealQueue[index].fiber = Double(editQueuedQuickFiber).map { $0 * displayScale }
         quickMealQueue[index].fat = (Double(editQueuedQuickFat) ?? (quickMealQueue[index].fat / displayScale)) * displayScale
         editingQuickMealQueueItem = nil
     }
@@ -3216,6 +3278,7 @@ struct MacrosView: View {
         editQuickProtein = "\(Int(template.protein))"
         editQuickCarbs = "\(Int(template.carbs))"
         editQuickFat = "\(Int(template.fat))"
+        editQuickFiber = template.fiber.map { String($0) } ?? ""
     }
 
     private func editQuickAddSheet(_ template: QuickAddTemplate) -> some View {
@@ -3236,7 +3299,9 @@ struct MacrosView: View {
                         protein: $editQuickProtein,
                         carbs: $editQuickCarbs,
                         fat: $editQuickFat,
-                        keyboard: .decimalPad
+                        fiber: $editQuickFiber,
+                        keyboard: .decimalPad,
+                        fiberEditable: template.components.isEmpty
                     )
 
                     if let savedItemId = template.savedItemId {
@@ -3309,6 +3374,7 @@ struct MacrosView: View {
             return false
         }
 
+        guard validFiberText(editQuickFiber) else { return false }
         guard template.isSaved else { return true }
 
         let nameChanged = name != template.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3318,8 +3384,10 @@ struct MacrosView: View {
         let proteinChanged = abs(protein - editableWholeNumberBaseline(for: template.protein)) > 0.001
         let carbsChanged = abs(carbs - editableWholeNumberBaseline(for: template.carbs)) > 0.001
         let fatChanged = abs(fat - editableWholeNumberBaseline(for: template.fat)) > 0.001
+        guard validFiberText(editQuickFiber) else { return false }
+        let fiberChanged = Double(editQuickFiber) != template.fiber
 
-        return nameChanged || quantityChanged || unitChanged || caloriesChanged || proteinChanged || carbsChanged || fatChanged
+        return nameChanged || quantityChanged || unitChanged || caloriesChanged || proteinChanged || carbsChanged || fatChanged || fiberChanged
     }
 
     // MARK: - Actions
@@ -3525,7 +3593,8 @@ struct MacrosView: View {
                 calories: item.calories * scale,
                 protein: item.protein * scale,
                 carbs: item.carbs * scale,
-                fat: item.fat * scale
+                fat: item.fat * scale,
+                    fiber: item.fiber.map { $0 * scale }
             )
         }
     }
@@ -3579,7 +3648,8 @@ struct MacrosView: View {
                     "calories": item.calories,
                     "protein": item.protein,
                     "carbs": item.carbs,
-                    "fat": item.fat
+                    "fat": item.fat,
+                "fiber": item.fiber as Any? ?? NSNull()
                 ]
                 if let unit = item.unit { dict["unit"] = unit }
                 return dict
@@ -3647,6 +3717,7 @@ struct MacrosView: View {
                 let addedProtein = component.protein
                 let addedCarbs = component.carbs
                 let addedFat = component.fat
+                let addedFiber = component.fiber
 
                 if let queueIndex = quickMealQueue.firstIndex(where: { $0.sourceTemplateId == sourceTemplateId }) {
                     quickMealQueue[queueIndex].quantity += addedQuantity
@@ -3654,6 +3725,7 @@ struct MacrosView: View {
                     quickMealQueue[queueIndex].protein += addedProtein
                     quickMealQueue[queueIndex].carbs += addedCarbs
                     quickMealQueue[queueIndex].fat += addedFat
+                    quickMealQueue[queueIndex].fiber = sumFiber([quickMealQueue[queueIndex].fiber, addedFiber])
                     quickMealQueue[queueIndex].sourceMealQuantity = (quickMealQueue[queueIndex].sourceMealQuantity ?? 0) + componentScale
                     continue
                 }
@@ -3670,7 +3742,8 @@ struct MacrosView: View {
                     calories: addedCalories,
                     protein: addedProtein,
                     carbs: addedCarbs,
-                    fat: addedFat
+                    fat: addedFat,
+                    fiber: addedFiber
                 ))
             }
 
@@ -3683,6 +3756,7 @@ struct MacrosView: View {
         let addedProtein = portion.protein
         let addedCarbs = portion.carbs
         let addedFat = portion.fat
+        let addedFiber = portion.fiber
 
         if let index = quickMealQueue.firstIndex(where: { $0.sourceTemplateId == template.id }) {
             quickMealQueue[index].quantity += addedQuantity
@@ -3690,6 +3764,7 @@ struct MacrosView: View {
             quickMealQueue[index].protein += addedProtein
             quickMealQueue[index].carbs += addedCarbs
             quickMealQueue[index].fat += addedFat
+                    quickMealQueue[index].fiber = sumFiber([quickMealQueue[index].fiber, addedFiber])
             showQuickTemplateQueuedFeedback(template.id)
             return
         }
@@ -3711,7 +3786,8 @@ struct MacrosView: View {
             calories: addedCalories,
             protein: addedProtein,
             carbs: addedCarbs,
-            fat: addedFat
+            fat: addedFat,
+                    fiber: addedFiber
         ))
         showQuickTemplateQueuedFeedback(template.id)
     }
@@ -3790,6 +3866,7 @@ struct MacrosView: View {
                 "protein": item.protein / divisor,
                 "carbs": item.carbs / divisor,
                 "fat": item.fat / divisor,
+                "fiber": item.fiber.map { $0 / divisor } as Any? ?? NSNull(),
                 "source": "quick_add",
                 "sourceDetail": "iOS quick add queue"
             ]
@@ -3859,6 +3936,7 @@ struct MacrosView: View {
             editSaveError = "Enter calories and macros of 0 or more."
             return
         }
+        guard validFiberText(editEntryFiber) else { editSaveError = "Enter fiber of 0–5000 g, or leave blank for unknown."; return }
         isSaving = true
         defer { isSaving = false }
         do {
@@ -3871,6 +3949,7 @@ struct MacrosView: View {
                 protein: protein,
                 carbs: carbs,
                 fat: fat,
+                fiber: Double(editEntryFiber),
                 consumedAt: isoString(from: editEntryDate)
             )
             if saveEditedEntryAsQuickAdd {
@@ -3881,7 +3960,8 @@ struct MacrosView: View {
                     calories: calories,
                     protein: protein,
                     carbs: carbs,
-                    fat: fat
+                    fat: fat,
+                    fiber: Double(editEntryFiber)
                 )
                 await loadSavedItems()
             }
@@ -3918,7 +3998,8 @@ struct MacrosView: View {
                         calories: item.calories / sourceMealQuantity,
                         protein: item.protein / sourceMealQuantity,
                         carbs: item.carbs / sourceMealQuantity,
-                        fat: item.fat / sourceMealQuantity
+                        fat: item.fat / sourceMealQuantity,
+                    fiber: item.fiber.map { $0 / sourceMealQuantity }
                     )
                 }
                 let totals = components.reduce((calories: 0.0, protein: 0.0, carbs: 0.0, fat: 0.0)) { acc, item in
@@ -3937,6 +4018,7 @@ struct MacrosView: View {
                     protein: (totals.protein * newQty).rounded(toPlaces: 2),
                     carbs: (totals.carbs * newQty).rounded(toPlaces: 2),
                     fat: (totals.fat * newQty).rounded(toPlaces: 2),
+                    fiber: sumFiber(components.map(\.fiber)).map { $0 * newQty },
                     components: components.map(savedComponentPayload)
                 )
                 await loadSavedItems()
@@ -4022,6 +4104,7 @@ struct MacrosView: View {
                     protein: protein,
                     carbs: carbs,
                     fat: fat,
+                    fiber: Double(editQuickFiber),
                     components: template.components.isEmpty ? nil : savedComponentPayloads(template.components)
                 )
             } else {
@@ -4033,6 +4116,7 @@ struct MacrosView: View {
                     protein: protein,
                     carbs: carbs,
                     fat: fat,
+                    fiber: Double(editQuickFiber),
                     components: savedComponentPayloads(template.components)
                 )
             }
@@ -4209,6 +4293,7 @@ struct MacrosView: View {
             if let prot = Double(editProtein) { try await api.setMacroTarget(macro: "protein", target: prot) }
             if let carbs = Double(editCarbs) { try await api.setMacroTarget(macro: "carbs", target: carbs) }
             if let fat = Double(editFat) { try await api.setMacroTarget(macro: "fat", target: fat) }
+            try await api.setMacroTarget(macro: "fiber", target: Double(editFiber) ?? 0)
             showEditTargets = false
             await loadDashboard()
             await loadTrend()
@@ -4223,13 +4308,14 @@ struct MacrosView: View {
         defer { isSavingTargets = false }
 
         do {
-            for macro in ["calories", "protein", "carbs", "fat"] {
+            for macro in ["calories", "protein", "carbs", "fat", "fiber"] {
                 try await api.setMacroTarget(macro: macro, target: 0)
             }
             editCalories = ""
             editProtein = ""
             editCarbs = ""
             editFat = ""
+            editFiber = ""
             showEditTargets = false
             await loadDashboard()
             await loadTrend()
@@ -4252,7 +4338,8 @@ struct MacrosView: View {
                 "calories": (item.calories / quantity).rounded(toPlaces: 2),
                 "protein": (item.protein / quantity).rounded(toPlaces: 2),
                 "carbs": (item.carbs / quantity).rounded(toPlaces: 2),
-                "fat": (item.fat / quantity).rounded(toPlaces: 2)
+                "fat": (item.fat / quantity).rounded(toPlaces: 2),
+                "fiber": item.fiber.map { $0 / quantity } as Any? ?? NSNull()
             ]]
         }
 
@@ -4274,6 +4361,7 @@ struct MacrosView: View {
             "protein": (totals.protein * mealQuantity).rounded(toPlaces: 2),
             "carbs": (totals.carbs * mealQuantity).rounded(toPlaces: 2),
             "fat": (totals.fat * mealQuantity).rounded(toPlaces: 2),
+            "fiber": sumFiber(parsedItems.map(\.fiber)).map { $0 * mealQuantity } as Any? ?? NSNull(),
             "components": components
         ]]
     }
@@ -4286,7 +4374,8 @@ struct MacrosView: View {
             "calories": item.calories.rounded(toPlaces: 2),
             "protein": item.protein.rounded(toPlaces: 2),
             "carbs": item.carbs.rounded(toPlaces: 2),
-            "fat": item.fat.rounded(toPlaces: 2)
+            "fat": item.fat.rounded(toPlaces: 2),
+            "fiber": item.fiber as Any? ?? NSNull()
         ]
     }
 
@@ -4298,7 +4387,8 @@ struct MacrosView: View {
             "calories": component.calories,
             "protein": component.protein,
             "carbs": component.carbs,
-            "fat": component.fat
+            "fat": component.fat,
+                "fiber": component.fiber as Any? ?? NSNull()
         ]
     }
 
@@ -4363,7 +4453,7 @@ struct MacrosView: View {
         Calendar.current.compare(lhs, to: rhs, toGranularity: .minute) == .orderedSame
     }
 
-    private func savedSignature(name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double, components: [SavedItemComponent] = []) -> String {
+    private func savedSignature(name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double, fiber: Double? = nil, components: [SavedItemComponent] = []) -> String {
         var parts = [
             name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
             unit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
@@ -4630,4 +4720,17 @@ private struct CameraPicker: UIViewControllerRepresentable {
             parent.onImage(pickedImage, "data:image/jpeg;base64,\(data.base64EncodedString())")
         }
     }
+}
+
+private func sumFiber(_ values: [Double?]) -> Double? {
+    guard !values.isEmpty, values.allSatisfy({ $0 != nil }) else { return nil }
+    return values.compactMap { $0 }.reduce(0, +)
+}
+private func validFiberText(_ text: String) -> Bool {
+    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+    guard let value = Double(text), value.isFinite, value >= 0, value <= 5000 else { return false }
+    return true
+}
+private func fiberLabel(_ value: Double?) -> String {
+    value.map { "Fiber \($0.formatted(.number.precision(.fractionLength(0...1)))) g" } ?? "Fiber unknown"
 }

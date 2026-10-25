@@ -1,3 +1,4 @@
+const { fiberValue, scaleFiber, fiberSummary } = require('./fiber');
 const healthReconciliation = require('./health-reconciliation');
 const { initCheckinDb } = require('./checkins');
 const { initWaistDb, createWaistStore } = require('./waist');
@@ -260,6 +261,7 @@ async function initDb(queryable = pool) {
       protein DOUBLE PRECISION NOT NULL,
       carbs DOUBLE PRECISION NOT NULL,
       fat DOUBLE PRECISION NOT NULL,
+      fiber DOUBLE PRECISION,
       consumed_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       meal_group TEXT,
@@ -300,6 +302,7 @@ async function initDb(queryable = pool) {
       carbs DOUBLE PRECISION NOT NULL,
       components JSONB,
       fat DOUBLE PRECISION NOT NULL,
+      fiber DOUBLE PRECISION,
       source TEXT NOT NULL DEFAULT 'manual',
       source_detail TEXT,
       usage_count INTEGER NOT NULL DEFAULT 0,
@@ -603,6 +606,7 @@ async function initDb(queryable = pool) {
       protein DOUBLE PRECISION NOT NULL,
       carbs DOUBLE PRECISION NOT NULL,
       fat DOUBLE PRECISION NOT NULL,
+      fiber DOUBLE PRECISION,
       source TEXT NOT NULL DEFAULT 'manual_correction',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -782,6 +786,9 @@ async function initDb(queryable = pool) {
   await pool.query(`ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';`);
   await pool.query(`ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS source_detail TEXT;`);
   await pool.query(`ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
+  for (const table of ['entries', 'saved_items', 'food_corrections']) {
+    await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS fiber DOUBLE PRECISION`);
+  }
   await pool.query(`ALTER TABLE macro_targets ADD COLUMN IF NOT EXISTS effective_date DATE;`);
   await pool.query(`UPDATE macro_targets SET effective_date = DATE '1970-01-01' WHERE effective_date IS NULL;`);
   await pool.query(`ALTER TABLE macro_targets ALTER COLUMN effective_date SET NOT NULL;`);
@@ -1585,8 +1592,8 @@ async function completeClientMutation(userId, clientMutationId, result) {
 
 function normalizeMacroName(macro) {
   const value = String(macro || '').toLowerCase();
-  if (!['calories', 'protein', 'carbs', 'fat', 'workouts', 'workout_calories', 'sleep_hours'].includes(value)) {
-    throw new Error('Invalid macro. Use calories, protein, carbs, fat, workouts, workout_calories, or sleep_hours.');
+  if (!['calories', 'protein', 'carbs', 'fat', 'fiber', 'workouts', 'workout_calories', 'sleep_hours'].includes(value)) {
+    throw new Error('Invalid macro. Use calories, protein, carbs, fat, fiber, workouts, workout_calories, or sleep_hours.');
   }
   return value;
 }
@@ -1596,6 +1603,7 @@ const DEFAULT_MACRO_TARGETS = Object.freeze({
   protein: 0,
   carbs: 0,
   fat: 0,
+  fiber: 0,
   workouts: 5,
   workout_calories: 0,
   sleep_hours: 8
@@ -1875,6 +1883,7 @@ function normalizeEntryForInsert(row) {
     calories: Number(row.calories || 0),
     protein: Number(row.protein || 0),
     carbs: Number(row.carbs || 0),
+    fiber: fiberValue(row.fiber),
     fat: Number(row.fat || 0),
     consumedAt: row.consumedAt,
     mealGroup: row.mealGroup || null,
@@ -1901,9 +1910,9 @@ async function upsertFoodCorrection(userId, item) {
 
   await pool.query(
     `INSERT INTO food_corrections (
-       user_id, correction_key, item_name, quantity, unit, calories, protein, carbs, fat, source, updated_at
+       user_id, correction_key, item_name, quantity, unit, calories, protein, carbs, fat, fiber, source, updated_at
      )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'manual_correction',NOW())
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'manual_correction',NOW())
      ON CONFLICT (user_id, correction_key)
      DO UPDATE SET
        item_name = EXCLUDED.item_name,
@@ -1913,6 +1922,7 @@ async function upsertFoodCorrection(userId, item) {
        protein = EXCLUDED.protein,
        carbs = EXCLUDED.carbs,
        fat = EXCLUDED.fat,
+       fiber = EXCLUDED.fiber,
        source = EXCLUDED.source,
        updated_at = NOW()`,
     [
@@ -1924,7 +1934,8 @@ async function upsertFoodCorrection(userId, item) {
       Number(item.calories || 0),
       Number(item.protein || 0),
       Number(item.carbs || 0),
-      Number(item.fat || 0)
+      Number(item.fat || 0),
+      fiberValue(item.fiber)
     ]
   );
 
@@ -1945,7 +1956,7 @@ async function applyFoodCorrections(userId, items) {
     return items;
   }
   const result = await pool.query(
-    `SELECT correction_key, item_name, quantity, unit, calories, protein, carbs, fat
+    `SELECT correction_key, item_name, quantity, unit, calories, protein, carbs, fat, fiber
      FROM food_corrections
      WHERE user_id = $1 AND correction_key = ANY($2::text[])`,
     [userId, keys]
@@ -1985,8 +1996,8 @@ async function addEntries(userId, entries, saveItems = []) {
         source_detail,
         confidence,
         needs_review,
-        correction_key
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+        correction_key, fiber
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
     `;
 
     for (const row of entries) {
@@ -2009,7 +2020,8 @@ async function addEntries(userId, entries, saveItems = []) {
         entry.sourceDetail,
         entry.confidence,
         entry.needsReview,
-        entry.correctionKey
+        entry.correctionKey,
+        fiberValue(entry.fiber)
       ]);
     }
 
@@ -2040,6 +2052,7 @@ async function copyEntriesForLocalDay(userId, sourceDay, targetDay, timezone = '
             protein,
             carbs,
             fat,
+            fiber,
             consumed_at AS "consumedAt",
             (consumed_at AT TIME ZONE $3)::time AS "localTime",
             meal_group AS "mealGroup",
@@ -2070,6 +2083,7 @@ async function copyEntriesForLocalDay(userId, sourceDay, targetDay, timezone = '
       calories: Number(row.calories || 0),
       protein: Number(row.protein || 0),
       carbs: Number(row.carbs || 0),
+      fiber: fiberValue(row.fiber),
       fat: Number(row.fat || 0),
       consumedAt: null,
       mealGroup: oldGroup ? groupMap.get(oldGroup) : null,
@@ -2133,6 +2147,7 @@ async function copyEntriesToLocalDay(userId, { entryId = null, mealGroup = null,
             protein,
             carbs,
             fat,
+            fiber,
             consumed_at AS "consumedAt",
             to_char((consumed_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS "localDay",
             to_char((consumed_at AT TIME ZONE $3)::time, 'HH24:MI:SS.US') AS "localTime",
@@ -2162,6 +2177,7 @@ async function copyEntriesToLocalDay(userId, { entryId = null, mealGroup = null,
     calories: Number(row.calories || 0),
     protein: Number(row.protein || 0),
     carbs: Number(row.carbs || 0),
+    fiber: fiberValue(row.fiber),
     fat: Number(row.fat || 0),
     consumedAt: null,
     mealGroup: copyingMeal ? copiedMealGroup : null,
@@ -2209,13 +2225,14 @@ async function updateEntry(userId, id, entry) {
        protein = $5,
        carbs = $6,
        fat = $7,
+       fiber = CASE WHEN $12 THEN $13::double precision ELSE fiber END,
        consumed_at = $8,
        source = 'manual_correction',
        source_detail = 'Corrected by user',
        confidence = 1,
        needs_review = FALSE,
        correction_key = $11
-     WHERE id = $9 AND user_id = $10 AND deleted_at IS NULL`,
+     WHERE id = $9 AND user_id = $10 AND deleted_at IS NULL RETURNING fiber`,
     [
       entry.itemName,
       Number(entry.quantity || 0),
@@ -2227,12 +2244,14 @@ async function updateEntry(userId, id, entry) {
       new Date(entry.consumedAt),
       id,
       userId,
-      correctionKey
+      correctionKey,
+      Object.hasOwn(entry, 'fiber'),
+      fiberValue(entry.fiber)
     ]
   );
 
   if (result.rowCount) {
-    await upsertFoodCorrection(userId, entry);
+    await upsertFoodCorrection(userId, { ...entry, fiber: result.rows[0].fiber });
   }
 
   return result.rowCount || 0;
@@ -2266,6 +2285,7 @@ async function scaleMealGroup(userId, mealGroup, newQuantity, newUnit, newName, 
              protein = ROUND(($1 * protein)::numeric, 2),
              carbs = ROUND(($1 * carbs)::numeric, 2),
              fat = ROUND(($1 * fat)::numeric, 2),
+             fiber = ROUND(($1 * fiber)::numeric, 2),
              meal_quantity = $2,
              meal_unit = $3,
              meal_name = COALESCE($6, meal_name),
@@ -2371,6 +2391,7 @@ function normalizeSavedItemComponents(components) {
       calories: Number(component.calories || 0),
       protein: Number(component.protein || 0),
       carbs: Number(component.carbs || 0),
+      fiber: fiberValue(component.fiber),
       fat: Number(component.fat || 0)
     }))
     .filter((component) => component.itemName && component.quantity > 0);
@@ -2382,10 +2403,12 @@ function savedItemComponentsJson(item) {
 }
 
 async function addSavedItem(userId, item, queryable = pool) {
+  const components = normalizeSavedItemComponents(item.components);
+  if (components.length) item = { ...item, fiber: scaleFiber(fiberSummary(components).fiber, Number(item.quantity || 1)) };
   const source = normalizeEntrySource(item.source);
   const result = await queryable.query(
-    `INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat, components, source, source_detail)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)
+    `INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat, components, source, source_detail, fiber)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12)
      RETURNING id`,
     [
       userId,
@@ -2398,7 +2421,8 @@ async function addSavedItem(userId, item, queryable = pool) {
       Number(item.fat || 0),
       savedItemComponentsJson(item),
       source,
-      normalizeSourceDetail(item.sourceDetail ?? item.source_detail)
+      normalizeSourceDetail(item.sourceDetail ?? item.source_detail),
+      fiberValue(item.fiber)
     ]
   );
 
@@ -2406,43 +2430,66 @@ async function addSavedItem(userId, item, queryable = pool) {
 }
 
 async function updateSavedItem(userId, id, item) {
-  const values = [
-    item.name,
-    Number(item.quantity || 1),
-    item.unit || null,
-    Number(item.calories || 0),
-    Number(item.protein || 0),
-    Number(item.carbs || 0),
-    Number(item.fat || 0)
-  ];
-  const updates = [
-    'name = $1',
-    'quantity = $2',
-    'unit = $3',
-    'calories = $4',
-    'protein = $5',
-    'carbs = $6',
-    'fat = $7',
-    `source = COALESCE($8, source)`,
-    `source_detail = COALESCE($9, source_detail)`
-  ];
-  values.push(item.source ? normalizeEntrySource(item.source) : null);
-  values.push(item.sourceDetail || item.source_detail ? normalizeSourceDetail(item.sourceDetail ?? item.source_detail) : null);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const existing = (await client.query('SELECT components FROM saved_items WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL FOR UPDATE', [id, userId])).rows[0];
+    if (!existing) { await client.query('COMMIT'); return 0; }
+    if (Array.isArray(item.components) && item.components.length) {
+      const previous = normalizeSavedItemComponents(existing.components);
+      const components = item.components.map((component, index) => {
+        if (Object.hasOwn(component, 'fiber')) return component;
+        const old = previous[index];
+        const same = old && old.itemName === (component.itemName || component.name) && old.unit === component.unit && old.quantity > 0;
+        return { ...component, fiber: same ? scaleFiber(old.fiber, component.quantity / old.quantity) : null };
+      });
+      item = { ...item, components, fiber: scaleFiber(fiberSummary(components).fiber, Number(item.quantity || 1)) };
+    }
+    const values = [
+      item.name,
+      Number(item.quantity || 1),
+      item.unit || null,
+      Number(item.calories || 0),
+      Number(item.protein || 0),
+      Number(item.carbs || 0),
+      Number(item.fat || 0)
+    ];
+    const updates = [
+      'name = $1',
+      'quantity = $2',
+      'unit = $3',
+      'calories = $4',
+      'protein = $5',
+      'carbs = $6',
+      'fat = $7',
+      `source = COALESCE($8, source)`,
+      `source_detail = COALESCE($9, source_detail)`
+    ];
+    values.push(item.source ? normalizeEntrySource(item.source) : null);
+    values.push(item.sourceDetail || item.source_detail ? normalizeSourceDetail(item.sourceDetail ?? item.source_detail) : null);
 
-  if (Object.prototype.hasOwnProperty.call(item, 'components')) {
-    values.push(savedItemComponentsJson(item));
-    updates.push(`components = $${values.length}::jsonb`);
-  }
+    if (Object.hasOwn(item, 'fiber')) {
+      values.push(fiberValue(item.fiber));
+      updates.push(`fiber = $${values.length}`);
+    }
 
-  values.push(id, userId);
-  const result = await pool.query(
-    `UPDATE saved_items
-     SET ${updates.join(', ')}
-     WHERE id = $${values.length - 1} AND user_id = $${values.length} AND deleted_at IS NULL`,
-    values
-  );
+    if (Object.prototype.hasOwnProperty.call(item, 'components')) {
+      values.push(savedItemComponentsJson(item));
+      updates.push(`components = $${values.length}::jsonb`);
+    }
 
-  return result.rowCount || 0;
+    values.push(id, userId);
+    const result = await client.query(
+      `UPDATE saved_items
+       SET ${updates.join(', ')}
+       WHERE id = $${values.length - 1} AND user_id = $${values.length} AND deleted_at IS NULL`,
+      values
+    );
+
+    await client.query('COMMIT');
+    return result.rowCount || 0;
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
 }
 
 async function deleteSavedItem(userId, id) {
@@ -2455,7 +2502,7 @@ async function deleteSavedItem(userId, id) {
 
 async function listSavedItems(userId) {
   const result = await pool.query(
-    `SELECT id, name, quantity, unit, calories, protein, carbs, fat, components,
+    `SELECT id, name, quantity, unit, calories, protein, carbs, fat, fiber, components,
             source, source_detail AS "sourceDetail", usage_count AS "usageCount"
      FROM saved_items
      WHERE user_id = $1 AND deleted_at IS NULL
@@ -2470,6 +2517,7 @@ async function listSavedItems(userId) {
     calories: Number(row.calories || 0),
     protein: Number(row.protein || 0),
     carbs: Number(row.carbs || 0),
+    fiber: fiberValue(row.fiber),
     fat: Number(row.fat || 0),
     components: normalizeSavedItemComponents(row.components),
     source: row.source || 'manual',
@@ -2479,10 +2527,10 @@ async function listSavedItems(userId) {
 }
 
 const STARTER_QUICK_ADDS = Object.freeze([
-  { name: 'Greek yogurt', quantity: 1, unit: 'serving', calories: 130, protein: 18, carbs: 8, fat: 0, sourceDetail: 'starter_template' },
-  { name: 'Chicken breast', quantity: 4, unit: 'oz', calories: 185, protein: 35, carbs: 0, fat: 4, sourceDetail: 'starter_template' },
-  { name: 'White rice', quantity: 1, unit: 'cup', calories: 205, protein: 4, carbs: 45, fat: 0.4, sourceDetail: 'starter_template' },
-  { name: 'Eggs', quantity: 2, unit: 'eggs', calories: 140, protein: 12, carbs: 1, fat: 10, sourceDetail: 'starter_template' },
+  { name: 'Greek yogurt', quantity: 1, unit: 'serving', calories: 130, protein: 18, carbs: 8, fat: 0, fiber: 0, sourceDetail: 'starter_template' },
+  { name: 'Chicken breast', quantity: 4, unit: 'oz', calories: 185, protein: 35, carbs: 0, fat: 4, fiber: 0, sourceDetail: 'starter_template' },
+  { name: 'White rice', quantity: 1, unit: 'cup', calories: 205, protein: 4, carbs: 45, fat: 0.4, fiber: 0.6, sourceDetail: 'starter_template' },
+  { name: 'Eggs', quantity: 2, unit: 'eggs', calories: 140, protein: 12, carbs: 1, fat: 10, fiber: 0, sourceDetail: 'starter_template' },
   { name: 'Protein shake', quantity: 1, unit: 'shake', calories: 160, protein: 30, carbs: 5, fat: 2, sourceDetail: 'starter_template' }
 ]);
 
@@ -2512,7 +2560,7 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
     await client.query('BEGIN');
 
     const savedResult = await client.query(
-      `SELECT id, name, quantity, unit, calories, protein, carbs, fat, components
+      `SELECT id, name, quantity, unit, calories, protein, carbs, fat, fiber, components, source_detail
        FROM saved_items
        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
        FOR UPDATE`,
@@ -2548,6 +2596,7 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
           protein: component.protein * mealQuantity,
           carbs: component.carbs * mealQuantity,
           fat: component.fat * mealQuantity,
+          fiber: scaleFiber(component.fiber, mealQuantity),
           consumedAt
         };
         loggedComponents.push(entry);
@@ -2570,8 +2619,8 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
              source_detail,
              confidence,
              needs_review,
-             correction_key
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'quick_add',$14,1,FALSE,$15)`,
+             correction_key, fiber
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'quick_add',$14,1,FALSE,$15,$16)`,
           [
             userId,
             entry.itemName,
@@ -2586,8 +2635,9 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
             mealGroup ? saved.name : null,
             mealGroup ? mealQuantity : 1,
             mealGroup ? (saved.unit || 'serving') : 'serving',
-            `saved_item:${saved.id}`,
-            nutritionCorrectionKey(entry.itemName)
+            `saved_item:${saved.id}${String(saved.source_detail || '').includes('fiber_estimate:') ? ';fiber_estimate' : ''}`,
+            nutritionCorrectionKey(entry.itemName),
+            fiberValue(entry.fiber)
           ]
         );
       }
@@ -2600,6 +2650,7 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
         calories: loggedComponents.reduce((sum, entry) => sum + entry.calories, 0),
         protein: loggedComponents.reduce((sum, entry) => sum + entry.protein, 0),
         carbs: loggedComponents.reduce((sum, entry) => sum + entry.carbs, 0),
+        ...fiberSummary(loggedComponents),
         fat: loggedComponents.reduce((sum, entry) => sum + entry.fat, 0),
         consumedAt,
         mealGroup,
@@ -2618,6 +2669,7 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
       protein: Number(saved.protein) * quantityMultiplier,
       carbs: Number(saved.carbs) * quantityMultiplier,
       fat: Number(saved.fat) * quantityMultiplier,
+      fiber: scaleFiber(saved.fiber, quantityMultiplier),
       consumedAt
     };
 
@@ -2636,8 +2688,8 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
          source_detail,
          confidence,
          needs_review,
-         correction_key
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'quick_add',$10,1,FALSE,$11)`,
+         correction_key, fiber
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'quick_add',$10,1,FALSE,$11,$12)`,
       [
         userId,
         entry.itemName,
@@ -2648,8 +2700,9 @@ async function quickAddFromSaved(userId, savedItemId, multiplier, consumedAt) {
         entry.carbs,
         entry.fat,
         new Date(consumedAt),
-        `saved_item:${saved.id}`,
-        nutritionCorrectionKey(entry.itemName)
+        `saved_item:${saved.id}${String(saved.source_detail || '').includes('fiber_estimate:') ? ';fiber_estimate' : ''}`,
+        nutritionCorrectionKey(entry.itemName),
+        fiberValue(entry.fiber)
       ]
     );
 
@@ -2719,6 +2772,7 @@ async function getMacroTargetHistory(userId, scope = 'week', timezone = 'America
          ORDER BY mt.effective_date DESC, mt.updated_at DESC
          LIMIT 1
        ), $7) AS fat,
+       COALESCE((SELECT target FROM macro_targets mt WHERE mt.user_id = $1 AND mt.macro = 'fiber' AND mt.effective_date <= day::date ORDER BY mt.effective_date DESC LIMIT 1), 0) AS fiber,
        COALESCE((
          SELECT target FROM macro_targets mt
          WHERE mt.user_id = $1 AND mt.macro = 'workouts' AND mt.effective_date <= day::date
@@ -2763,6 +2817,7 @@ async function getMacroTargetHistory(userId, scope = 'week', timezone = 'America
       calories: Number(row.calories || 0),
       protein: Number(row.protein || 0),
       carbs: Number(row.carbs || 0),
+      fiber: fiberValue(row.fiber),
       fat: Number(row.fat || 0),
       workouts: Number(row.workouts || 0),
       workout_calories: Number(row.workout_calories || 0),
@@ -2835,7 +2890,9 @@ async function getDashboard(userId, dateInput, options = {}) {
          ROUND(SUM(calories)::numeric, 1) AS calories,
          ROUND(SUM(protein)::numeric, 1) AS protein,
          ROUND(SUM(carbs)::numeric, 1) AS carbs,
-         ROUND(SUM(fat)::numeric, 1) AS fat
+         ROUND(SUM(fat)::numeric, 1) AS fat,
+           CASE WHEN COUNT(fiber) = COUNT(*) THEN ROUND(SUM(fiber)::numeric, 1) END AS fiber,
+           COALESCE(SUM(fiber), 0) AS "fiberKnownGrams", COUNT(fiber)::int AS "fiberKnownCount", COUNT(*)::int AS "fiberItemCount"
        FROM entries
        WHERE user_id = $1 AND deleted_at IS NULL
        GROUP BY day
@@ -2852,6 +2909,7 @@ async function getDashboard(userId, dateInput, options = {}) {
        COALESCE(entry_totals.calories, 0) AS calories,
        COALESCE(entry_totals.protein, 0) AS protein,
        COALESCE(entry_totals.carbs, 0) AS carbs,
+       entry_totals.fiber, entry_totals."fiberKnownGrams", entry_totals."fiberKnownCount", entry_totals."fiberItemCount",
        COALESCE(entry_totals.fat, 0) AS fat
      FROM tracked_days
      LEFT JOIN entry_totals ON entry_totals.day = tracked_days.day
@@ -2864,6 +2922,8 @@ async function getDashboard(userId, dateInput, options = {}) {
     calories: Number(row.calories || 0),
     protein: Number(row.protein || 0),
     carbs: Number(row.carbs || 0),
+    fiber: fiberValue(row.fiber),
+    ...(row.fiberItemCount != null ? { fiberKnownGrams: Number(row.fiberKnownGrams), fiberKnownCount: Number(row.fiberKnownCount), fiberItemCount: Number(row.fiberItemCount) } : {}),
     fat: Number(row.fat || 0)
   }));
 
@@ -2925,6 +2985,7 @@ async function getDashboard(userId, dateInput, options = {}) {
        protein,
        carbs,
        fat,
+       fiber,
        consumed_at AS "consumedAt",
        (consumed_at AT TIME ZONE $4)::date::text AS day,
        meal_group AS "mealGroup",
@@ -2952,6 +3013,7 @@ async function getDashboard(userId, dateInput, options = {}) {
     calories: Number(row.calories || 0),
     protein: Number(row.protein || 0),
     carbs: Number(row.carbs || 0),
+    fiber: fiberValue(row.fiber),
     fat: Number(row.fat || 0),
     consumedAt: new Date(row.consumedAt).toISOString(),
     mealGroup: row.mealGroup || null,
@@ -2989,7 +3051,9 @@ async function getDailyTotals(userId, scope = 'week', timezone = 'America/New_Yo
            ROUND(SUM(calories)::numeric, 1) AS calories,
            ROUND(SUM(protein)::numeric, 1) AS protein,
            ROUND(SUM(carbs)::numeric, 1) AS carbs,
-           ROUND(SUM(fat)::numeric, 1) AS fat
+           ROUND(SUM(fat)::numeric, 1) AS fat,
+           CASE WHEN COUNT(fiber) = COUNT(*) THEN ROUND(SUM(fiber)::numeric, 1) END AS fiber,
+           COALESCE(SUM(fiber), 0) AS "fiberKnownGrams", COUNT(fiber)::int AS "fiberKnownCount", COUNT(*)::int AS "fiberItemCount"
          FROM entries
          WHERE user_id = $1 AND deleted_at IS NULL
            AND consumed_at >= ((NOW() AT TIME ZONE $3)::date - ($2::text || ' days')::interval) AT TIME ZONE $3
@@ -3008,7 +3072,8 @@ async function getDailyTotals(userId, scope = 'week', timezone = 'America/New_Yo
          COALESCE(entry_totals.calories, 0) AS calories,
          COALESCE(entry_totals.protein, 0) AS protein,
          COALESCE(entry_totals.carbs, 0) AS carbs,
-         COALESCE(entry_totals.fat, 0) AS fat
+         entry_totals.fiber, entry_totals."fiberKnownGrams", entry_totals."fiberKnownCount", entry_totals."fiberItemCount",
+       COALESCE(entry_totals.fat, 0) AS fat
        FROM tracked_days
        LEFT JOIN entry_totals ON entry_totals.day = tracked_days.day
        ORDER BY tracked_days.day DESC`,
@@ -3023,6 +3088,8 @@ async function getDailyTotals(userId, scope = 'week', timezone = 'America/New_Yo
     calories: Number(row.calories || 0),
     protein: Number(row.protein || 0),
     carbs: Number(row.carbs || 0),
+    fiber: fiberValue(row.fiber),
+    ...(row.fiberItemCount != null ? { fiberKnownGrams: Number(row.fiberKnownGrams), fiberKnownCount: Number(row.fiberKnownCount), fiberItemCount: Number(row.fiberItemCount) } : {}),
     fat: Number(row.fat || 0),
     targets: targetsByDay.get(row.day) || defaultMacroTargets()
   }));
@@ -3937,7 +4004,9 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
              ROUND(SUM(calories)::numeric, 1) AS calories,
              ROUND(SUM(protein)::numeric, 1) AS protein,
              ROUND(SUM(carbs)::numeric, 1) AS carbs,
-             ROUND(SUM(fat)::numeric, 1) AS fat
+             ROUND(SUM(fat)::numeric, 1) AS fat,
+           CASE WHEN COUNT(fiber) = COUNT(*) THEN ROUND(SUM(fiber)::numeric, 1) END AS fiber,
+           COALESCE(SUM(fiber), 0) AS "fiberKnownGrams", COUNT(fiber)::int AS "fiberKnownCount", COUNT(*)::int AS "fiberItemCount"
            FROM entries
            WHERE user_id = $1 AND deleted_at IS NULL
              AND consumed_at >= (
@@ -3953,7 +4022,8 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
            COALESCE(meal_totals.calories, 0) AS calories,
            COALESCE(meal_totals.protein, 0) AS protein,
            COALESCE(meal_totals.carbs, 0) AS carbs,
-           COALESCE(meal_totals.fat, 0) AS fat,
+           meal_totals.fiber, meal_totals."fiberKnownGrams", meal_totals."fiberKnownCount", meal_totals."fiberItemCount",
+       COALESCE(meal_totals.fat, 0) AS fat,
            COALESCE(completeness.state, 'unknown') AS completeness_state,
            COALESCE(completeness.timezone, $3) AS completeness_timezone,
            completeness.updated_at AS completeness_updated_at
@@ -4110,6 +4180,8 @@ async function getAnalysisSnapshot(userId, daysInput = 90, timezone = 'America/N
     calories: Number(row.calories || 0),
     protein: Number(row.protein || 0),
     carbs: Number(row.carbs || 0),
+    fiber: fiberValue(row.fiber),
+    ...(row.fiberItemCount != null ? { fiberKnownGrams: Number(row.fiberKnownGrams), fiberKnownCount: Number(row.fiberKnownCount), fiberItemCount: Number(row.fiberItemCount) } : {}),
     fat: Number(row.fat || 0),
     targets: targetsByDay.get(row.day) || defaultMacroTargets(),
     completeness: buildDayCompleteness({

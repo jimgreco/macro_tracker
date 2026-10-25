@@ -701,6 +701,7 @@ class APIClient: ObservableObject {
         protein: Double,
         carbs: Double,
         fat: Double,
+        fiber: Double? = nil,
         consumedAt: String? = nil
     ) async throws {
         var payload: [String: Any] = [
@@ -710,7 +711,8 @@ class APIClient: ObservableObject {
             "calories": calories,
             "protein": protein,
             "carbs": carbs,
-            "fat": fat
+            "fat": fat,
+            "fiber": fiber as Any? ?? NSNull()
         ]
         if let consumedAt { payload["consumedAt"] = consumedAt }
         let body = try JSONSerialization.data(withJSONObject: payload)
@@ -788,7 +790,7 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
-    func addSavedItem(name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double, components: [[String: Any]] = []) async throws -> Int {
+    func addSavedItem(name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double, fiber: Double? = nil, components: [[String: Any]] = []) async throws -> Int {
         var payload: [String: Any] = [
             "name": name,
             "quantity": quantity,
@@ -796,7 +798,8 @@ class APIClient: ObservableObject {
             "calories": calories,
             "protein": protein,
             "carbs": carbs,
-            "fat": fat
+            "fat": fat,
+            "fiber": fiber as Any? ?? NSNull()
         ]
         if !components.isEmpty { payload["components"] = components }
         let body = try JSONSerialization.data(withJSONObject: payload)
@@ -805,7 +808,7 @@ class APIClient: ObservableObject {
         return response.id
     }
 
-    func updateSavedItem(id: Int, name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double, components: [[String: Any]]? = nil) async throws {
+    func updateSavedItem(id: Int, name: String, quantity: Double, unit: String, calories: Double, protein: Double, carbs: Double, fat: Double, fiber: Double? = nil, components: [[String: Any]]? = nil) async throws {
         var payload: [String: Any] = [
             "name": name,
             "quantity": quantity,
@@ -813,7 +816,8 @@ class APIClient: ObservableObject {
             "calories": calories,
             "protein": protein,
             "carbs": carbs,
-            "fat": fat
+            "fat": fat,
+            "fiber": fiber as Any? ?? NSNull()
         ]
         if let components { payload["components"] = components }
         let body = try JSONSerialization.data(withJSONObject: payload)

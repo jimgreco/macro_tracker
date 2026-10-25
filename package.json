@@ -14,12 +14,13 @@
     "db:logs": "docker compose logs -f db",
     "db:seed:local": "node scripts/load-local-test-data.js",
     "test": "node --test test/*.test.js",
-    "test:db:integration": "node --test --test-concurrency=1 test/db-integration.test.js test/meal-persistence.test.js test/checkins.test.js test/health-reconciliation.test.js test/webhook-inbox-db.test.js test/client-mutation-transaction.test.js",
+    "test:db:integration": "node --test --test-concurrency=1 test/db-integration.test.js test/meal-persistence.test.js test/checkins.test.js test/health-reconciliation.test.js test/webhook-inbox-db.test.js test/client-mutation-transaction.test.js test/fiber.test.js",
     "test:db:upgrade": "node --test test/db-upgrade-path.test.js",
     "test:e2e": "playwright test --config playwright.config.js",
     "test:e2e:accessibility": "playwright test --config playwright.config.js test/e2e/accessibility.spec.js",
     "test:check": "node --check public/login.js && node --check public/today-state.js && node --check public/coach-rules.js && node --check public/script.js && node --check src/today-summary.js && node --check src/server.js && npm test",
-    "db:migrate": "node scripts/migrate-db.js"
+    "db:migrate": "node scripts/migrate-db.js",
+    "db:migrate:fiber": "node scripts/migrate-fiber.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1127.0",

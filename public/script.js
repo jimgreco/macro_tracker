@@ -1,3 +1,12 @@
+function scaledFiber(value, scale = 1) {
+  return value == null || value === '' ? null : Number((Number(value) * scale).toFixed(2));
+}
+function totalFiber(items) {
+  return items.length && items.every(item => item.fiber != null) ? items.reduce((sum, item) => sum + Number(item.fiber), 0) : null;
+}
+function fiberText(value) {
+  return value == null ? 'Fiber unknown' : `${fmtNumber(value)}g fiber`;
+}
 let waistEntries = [];
 let waistLoading = false;
 const state = {
@@ -823,7 +832,8 @@ function getTrendMacroConfig(macro = state.selectedTrendMacro) {
     calories: { label: 'Calories', unit: 'cal' },
     protein: { label: 'Protein', unit: 'g' },
     carbs: { label: 'Carbs', unit: 'g' },
-    fat: { label: 'Fat', unit: 'g' }
+    fat: { label: 'Fat', unit: 'g' },
+    fiber: { label: 'Fiber', unit: 'g' }
   };
   return configs[macro] || configs.calories;
 }
@@ -871,7 +881,7 @@ function averageTargetsForRows(rows, fallback = state.dashboardData?.targets || 
   }
 
   const totals = {};
-  for (const macro of ['calories', 'protein', 'carbs', 'fat', 'workouts', 'workout_calories', 'sleep_hours']) {
+  for (const macro of ['calories', 'protein', 'carbs', 'fat', 'fiber', 'workouts', 'workout_calories', 'sleep_hours']) {
     let sum = 0;
     let count = 0;
     for (const row of sourceRows) {
@@ -1000,7 +1010,7 @@ function showEditTargetsModal() {
   if (overlay) overlay.remove();
 
   const targets = state.dashboardData?.targets || {};
-  const macros = ['calories', 'protein', 'carbs', 'fat'];
+  const macros = ['calories', 'protein', 'carbs', 'fat', 'fiber'];
 
   overlay = document.createElement('div');
   overlay.id = 'entry-modal-overlay';
@@ -1534,6 +1544,8 @@ function scaleParsedMealItemsToConsumedTotals(parsedMeal) {
     calories: Number(item.calories || 0) * scale,
     protein: Number(item.protein || 0) * scale,
     carbs: Number(item.carbs || 0) * scale,
+    sourceDetail: item.sourceDetail,
+    fiber: scaledFiber(item.fiber, scale),
     fat: Number(item.fat || 0) * scale
   }));
 }
@@ -1761,7 +1773,7 @@ function canViewCoachSourceDetails() {
 }
 
 function formatMacros(item) {
-  return `${fmtNumber(item.calories)} cal | ${fmtNumber(item.protein)}g protein | ${fmtNumber(item.carbs)}g carbs | ${fmtNumber(item.fat)}g fat`;
+  return `${fmtNumber(item.calories)} cal | ${fmtNumber(item.protein)}g protein | ${fmtNumber(item.carbs)}g carbs | ${fmtNumber(item.fat)}g fat | ${fiberText(item.fiber)}${String(item.sourceDetail || '').includes('fiber_estimate:') ? ' (estimated)' : ''}`;
 }
 
 function isCompactMobileView() {
@@ -4014,7 +4026,7 @@ function renderParsedItems(parsedMeal) {
     const quality = renderNutritionQualityChips(item);
     summary.innerHTML = `
       <span class="parsed-item-name">${escapeHtml(item.itemName)}</span>
-      <span class="parsed-item-macros">${fmtNumber(item.quantity)} ${escapeHtml(item.unit || 'serving')} &middot; ${fmtNumber(item.calories)} cal &middot; ${fmtNumber(item.protein)}g protein &middot; ${fmtNumber(item.carbs)}g carbs &middot; ${fmtNumber(item.fat)}g fat</span>
+      <span class="parsed-item-macros">${fmtNumber(item.quantity)} ${escapeHtml(item.unit || 'serving')} &middot; ${fmtNumber(item.calories)} cal &middot; ${fmtNumber(item.protein)}g protein &middot; ${fmtNumber(item.carbs)}g carbs &middot; ${fmtNumber(item.fat)}g fat &middot; ${fiberText(item.fiber)}</span>
       ${quality ? `<span class="parsed-quality-row">${quality}</span>` : ''}
     `;
 
@@ -4093,6 +4105,7 @@ function collectParsedItemsFromUi() {
     calories: Number(item.calories || 0),
     protein: Number(item.protein || 0),
     carbs: Number(item.carbs || 0),
+    fiber: scaledFiber(item.fiber),
     fat: Number(item.fat || 0),
     confidence: item.confidence,
     source: item.source,
@@ -4118,6 +4131,7 @@ function buildSavedMealQuickAddPayload({ name, quantity, unit, components, sourc
     calories: roundSavedMacro(component.calories),
     protein: roundSavedMacro(component.protein),
     carbs: roundSavedMacro(component.carbs),
+    fiber: scaledFiber(component.fiber),
     fat: roundSavedMacro(component.fat)
   }));
   const perUnitTotals = normalizedComponents.reduce((acc, component) => {
@@ -4135,6 +4149,7 @@ function buildSavedMealQuickAddPayload({ name, quantity, unit, components, sourc
     calories: roundSavedMacro(perUnitTotals.calories * mealQuantity),
     protein: roundSavedMacro(perUnitTotals.protein * mealQuantity),
     carbs: roundSavedMacro(perUnitTotals.carbs * mealQuantity),
+    fiber: scaledFiber(totalFiber(normalizedComponents), mealQuantity),
     fat: roundSavedMacro(perUnitTotals.fat * mealQuantity),
     components: normalizedComponents,
     source: source || undefined,
@@ -4151,6 +4166,7 @@ function buildSavedMealQuickAddPayloadFromEntries(entries, { name, quantity, uni
     calories: Number(entry.calories || 0) / sourceMealQuantity,
     protein: Number(entry.protein || 0) / sourceMealQuantity,
     carbs: Number(entry.carbs || 0) / sourceMealQuantity,
+    fiber: scaledFiber(entry.fiber, 1 / sourceMealQuantity),
     fat: Number(entry.fat || 0) / sourceMealQuantity
   }));
   return buildSavedMealQuickAddPayload({ name, quantity, unit, components });
@@ -4182,6 +4198,8 @@ function getSelectedQuickTemplate() {
       calories: Number(item.calories || 0),
       protein: Number(item.protein || 0),
       carbs: Number(item.carbs || 0),
+      sourceDetail: item.sourceDetail,
+      fiber: scaledFiber(item.fiber),
       fat: Number(item.fat || 0),
       components: savedItemComponents(item),
       usageCount: Number(item.usageCount || 0),
@@ -4268,7 +4286,7 @@ function quickAddPortion(template, rawMultiplier) {
   if (!template) return null;
   const multiplier = Number(rawMultiplier || 1);
   if (!Number.isFinite(multiplier) || multiplier <= 0) return null;
-  const portion = { name: template.name, unit: template.unit || 'serving' };
+  const portion = { name: template.name, unit: template.unit || 'serving', sourceDetail: template.sourceDetail, fiber: scaledFiber(template.fiber, multiplier) };
   for (const field of ['quantity', 'calories', 'protein', 'carbs', 'fat']) {
     portion[field] = Number(template[field] || 0) * multiplier;
     if (!Number.isFinite(portion[field])) return null;
@@ -4391,6 +4409,7 @@ function quickAddByTemplate(template) {
         calories: Number(component.calories || 0),
         protein: Number(component.protein || 0),
         carbs: Number(component.carbs || 0),
+        fiber: scaledFiber(component.fiber),
         fat: Number(component.fat || 0),
         consumedAt,
         source: 'quick_add',
@@ -4415,6 +4434,7 @@ function quickAddByTemplate(template) {
         calories: Number(template.calories || 0) * multiplier,
         protein: Number(template.protein || 0) * multiplier,
         carbs: Number(template.carbs || 0) * multiplier,
+        fiber: scaledFiber(template.fiber, multiplier),
         fat: Number(template.fat || 0) * multiplier,
         consumedAt,
         source: 'quick_add',
@@ -4476,6 +4496,7 @@ function buildHistoryQuickItems(entries, savedItems) {
       calories: Number(entry.calories || 0),
       protein: Number(entry.protein || 0),
       carbs: Number(entry.carbs || 0),
+      fiber: scaledFiber(entry.fiber),
       fat: Number(entry.fat || 0),
       lastUsedAt: entry.consumedAt
     });
@@ -4540,7 +4561,7 @@ function renderMacroCard(entry) {
           <span class="entry-card-chip entry-card-chip--accent">${fmtNumber(entry.calories)} cal</span>
           <span class="entry-card-chip">${fmtNumber(entry.protein)}g protein</span>
           <span class="entry-card-chip">${fmtNumber(entry.carbs)}g carbs</span>
-          <span class="entry-card-chip">${fmtNumber(entry.fat)}g fat</span>
+          <span class="entry-card-chip">${fmtNumber(entry.fat)}g fat</span><span class="entry-card-chip">${fiberText(entry.fiber)}</span>
           ${qualityChips}
         </div>
       </div>
@@ -5149,6 +5170,10 @@ function renderSnapshotStats(dailyTotals, targets) {
   setText(avgProteinEl, daysWithData ? `${fmtNumber(avgProtein)}g` : '—');
   setText(avgCarbsEl, daysWithData ? `${fmtNumber(avgCarbs)}g` : '—');
   setText(avgFatEl, daysWithData ? `${fmtNumber(avgFat)}g` : '—');
+  const fiberRows = eligibleRows.filter(row => row.fiber != null);
+  setText(document.getElementById('weekly-fiber'), fiberRows.length
+    ? `Fiber: ${fmtNumber(fiberRows.reduce((sum, row) => sum + Number(row.fiber), 0) / fiberRows.length)} g/day · ${fiberRows.length}/${daysWithData} complete days have full fiber coverage`
+    : 'Fiber: no complete days with full fiber coverage');
   const effectiveTargets = averageTargetsForRows(eligibleRows, targets || {});
   renderWeeklyTargets(
     { calories: avgCalories, protein: avgProtein, carbs: avgCarbs, fat: avgFat },
@@ -5214,6 +5239,13 @@ function renderDashboard(data) {
   setText(todayCarbsEl, totalsKnown ? `${fmtNumber(dayTotals.carbs)}g` : '—');
   setText(todayFatEl, totalsKnown ? `${fmtNumber(dayTotals.fat)}g` : '—');
   renderMacroTargets(totalsKnown ? dayTotals : {}, selectedLog?.targets || data.targets || {});
+  const fiberDay = selectedLog?.totals || [data.currentDayTotals, ...(data.previousDays || [])].find(row => row?.day === state.selectedEntriesDay);
+  const fiberTarget = Number((selectedLog?.targets || data.targets)?.fiber || 0);
+  const fiberKnown = Number(fiberDay?.fiberKnownCount || 0);
+  const fiberCount = Number(fiberDay?.fiberItemCount || 0);
+  setText(document.getElementById('daily-fiber'), fiberDay?.fiber != null
+    ? `${fmtNumber(fiberDay.fiber)} g fiber` : fiberCount ? `${fmtNumber(fiberDay?.fiberKnownGrams || 0)} g known fiber · partial` : 'Fiber unknown');
+  setText(document.getElementById('daily-fiber-detail'), `${fiberKnown}/${fiberCount} foods have fiber data${fiberTarget > 0 ? ` · Goal: ${fmtNumber(fiberTarget)} g` : ' · Set a fiber goal in Edit targets'}`);
   renderCoachForPage('macros');
 
 
@@ -5868,6 +5900,9 @@ function showEntryModal(entry, { onSave, onDelete, onCopyToToday, title } = {}) 
           <input id="entry-modal-fat" type="number" step="0.1" min="0" value="${escapeAttr(entry.fat || 0)}" />
         </div>
       </div>
+      <label for="entry-modal-fiber">Fiber (g; blank means unknown)</label>
+      <input id="entry-modal-fiber" type="number" step="0.1" min="0" max="5000" value="${escapeAttr(entry.fiber ?? '')}" placeholder="Unknown" ${entry.components?.length ? 'disabled aria-describedby="fiber-component-note"' : ''} />
+      ${entry.components?.length ? '<p id="fiber-component-note">Fiber is calculated from the meal’s components. Edit individual foods when logging the meal.</p>' : ''}
       ${consumedAtValue ? `<label for="entry-modal-time">Time</label><input id="entry-modal-time" type="datetime-local" value="${escapeAttr(consumedAtValue)}" />` : ''}
       <label class="inline-check entry-modal-quickadd"><input type="checkbox" id="entry-modal-save-quickadd" /><span>Save as quick add</span></label>
       <div class="combine-modal-actions">
@@ -5919,10 +5954,14 @@ function showEntryModal(entry, { onSave, onDelete, onCopyToToday, title } = {}) 
     document.getElementById('entry-modal-protein').value = formatScaledMacroValue(basePro * factor);
     document.getElementById('entry-modal-carbs').value = formatScaledMacroValue(baseCarb * factor);
     document.getElementById('entry-modal-fat').value = formatScaledMacroValue(baseFat * factor);
+    document.getElementById('entry-modal-fiber').value = scaledFiber(entry.fiber, factor) ?? '';
   });
 
   document.getElementById('entry-modal-save-btn').addEventListener('click', async () => {
+    const fiberInput = document.getElementById('entry-modal-fiber');
+    if (!fiberInput.checkValidity()) { fiberInput.reportValidity(); return; }
     const result = {
+      fiber: fiberInput.value === '' ? null : Number(fiberInput.value),
       itemName: document.getElementById('entry-modal-name').value.trim() || 'Item',
       quantity: Number(document.getElementById('entry-modal-qty').value) || 1,
       unit: document.getElementById('entry-modal-unit').value.trim() || 'serving',
@@ -5948,7 +5987,8 @@ function showEntryModal(entry, { onSave, onDelete, onCopyToToday, title } = {}) 
             calories: result.calories,
             protein: result.protein,
             carbs: result.carbs,
-            fat: result.fat
+            fiber: result.fiber ?? null,
+      fat: result.fat
           })
         });
         setActionBanner('Quick add item saved.', 'success');
@@ -6368,7 +6408,8 @@ saveParsedBtnEl.addEventListener('click', async () => {
     calories: item.calories,
     protein: item.protein,
     carbs: item.carbs,
-    fat: item.fat,
+    fiber: item.fiber ?? null,
+      fat: item.fat,
     consumedAt,
     source: item.source || parseSource,
     sourceDetail: item.sourceDetail || parseSourceDetail,
@@ -6390,6 +6431,7 @@ saveParsedBtnEl.addEventListener('click', async () => {
         calories: perUnit(item.calories),
         protein: perUnit(item.protein),
         carbs: perUnit(item.carbs),
+        fiber: item.fiber == null ? null : perUnit(item.fiber),
         fat: perUnit(item.fat),
         source: parseSource,
         sourceDetail: 'Saved from parsed meal'
@@ -6517,7 +6559,9 @@ quickEditToggleBtnEl.addEventListener('click', () => {
       calories: selectedTemplate.calories,
       protein: selectedTemplate.protein,
       carbs: selectedTemplate.carbs,
-      fat: selectedTemplate.fat
+      fiber: selectedTemplate.fiber ?? null,
+      fat: selectedTemplate.fat,
+      components: selectedTemplate.components
     },
     {
       title: 'Edit Quick Add',
@@ -6541,7 +6585,8 @@ quickEditToggleBtnEl.addEventListener('click', () => {
           calories: values.calories,
           protein: values.protein,
           carbs: values.carbs,
-          fat: values.fat,
+          fiber: values.fiber ?? null,
+      fat: values.fat,
           components: savedItemComponents(selectedTemplate)
         };
         try {

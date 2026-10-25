@@ -72,12 +72,14 @@ function buildTodaySummary({
     calories: finiteNumber(dashboard.currentDayTotals?.calories),
     protein: finiteNumber(dashboard.currentDayTotals?.protein),
     carbs: finiteNumber(dashboard.currentDayTotals?.carbs),
+    fiber: dashboard.currentDayTotals?.fiber == null ? null : finiteNumber(dashboard.currentDayTotals.fiber),
     fat: finiteNumber(dashboard.currentDayTotals?.fat)
   };
   const targets = {
     calories: finiteNumber(dashboard.targets?.calories),
     protein: finiteNumber(dashboard.targets?.protein),
     carbs: finiteNumber(dashboard.targets?.carbs),
+    fiber: finiteNumber(dashboard.targets?.fiber),
     fat: finiteNumber(dashboard.targets?.fat),
     workouts: finiteNumber(dashboard.targets?.workouts),
     workoutCalories: finiteNumber(

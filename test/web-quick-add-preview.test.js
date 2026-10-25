@@ -24,7 +24,7 @@ function fixture(template, multiplier = '1') {
     mealConsumedAt: () => '2026-10-13T12:00:00.000Z',
     postQuickAdd: (url, body) => requests.push({ url, body })
   });
-  vm.runInContext(['quickAddPortion', 'renderQuickMultiplierShortcuts', 'setQuickMultiplierShortcut', 'renderQuickAddPreview', 'fmtNumber', 'formatMacros', 'savedItemComponents', 'quickAddByTemplate', 'quickAddById'].map(browserFunction).join('\n'), context);
+  vm.runInContext(['scaledFiber', 'totalFiber', 'fiberText', 'quickAddPortion', 'renderQuickMultiplierShortcuts', 'setQuickMultiplierShortcut', 'renderQuickAddPreview', 'fmtNumber', 'formatMacros', 'savedItemComponents', 'quickAddByTemplate', 'quickAddById'].map(browserFunction).join('\n'), context);
   return { context, requests, shortcuts };
 }
 const item = { name: 'Yogurt', quantity: 170, unit: 'g', calories: 120, protein: 18, carbs: 9, fat: 1 };

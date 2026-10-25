@@ -1,3 +1,4 @@
+const { fiberValue, scaleFiber } = require('./fiber');
 const { buildRecovery } = require('./recovery');
 // --- Macro Tracker Server ---
 // Last Deployed: 2026-04-03
@@ -1987,6 +1988,7 @@ function validateItems(items, consumedAt) {
       calories: normalizeNumber(item.calories, `items[${index}].calories`, { min: 0, max: 20000, required: true }),
       protein: normalizeNumber(item.protein, `items[${index}].protein`, { min: 0, max: 5000, required: true }),
       carbs: normalizeNumber(item.carbs, `items[${index}].carbs`, { min: 0, max: 5000, required: true }),
+      ...(Object.hasOwn(item, 'fiber') ? { fiber: fiberValue(item.fiber) } : {}),
       fat: normalizeNumber(item.fat, `items[${index}].fat`, { min: 0, max: 5000, required: true }),
       consumedAt: normalizeIsoDateTime(item.consumedAt || consumedAt, `items[${index}].consumedAt`),
       source: normalizeString(item.source, `items[${index}].source`, { maxLength: 40, fallback: '' }) || undefined,
@@ -2008,6 +2010,7 @@ function validateEntryBody(body) {
     calories: normalizeNumber(payload.calories, 'calories', { min: 0, max: 20000, required: true }),
     protein: normalizeNumber(payload.protein, 'protein', { min: 0, max: 5000, required: true }),
     carbs: normalizeNumber(payload.carbs, 'carbs', { min: 0, max: 5000, required: true }),
+    ...(Object.hasOwn(payload, 'fiber') ? { fiber: fiberValue(payload.fiber) } : {}),
     fat: normalizeNumber(payload.fat, 'fat', { min: 0, max: 5000, required: true }),
     consumedAt: normalizeIsoDateTime(payload.consumedAt, 'consumedAt')
   };
@@ -2024,6 +2027,7 @@ function validateSavedItemBody(body) {
     calories: normalizeNumber(payload.calories, 'calories', { min: 0, max: 20000 }),
     protein: normalizeNumber(payload.protein, 'protein', { min: 0, max: 5000 }),
     carbs: normalizeNumber(payload.carbs, 'carbs', { min: 0, max: 5000 }),
+    ...(Object.hasOwn(payload, 'fiber') ? { fiber: fiberValue(payload.fiber) } : {}),
     fat: normalizeNumber(payload.fat, 'fat', { min: 0, max: 5000 })
   };
 
@@ -2061,6 +2065,7 @@ function validateSavedItemComponents(rawComponents) {
       calories: normalizeNumber(item.calories, `components[${index}].calories`, { min: 0, max: 20000, required: true }),
       protein: normalizeNumber(item.protein, `components[${index}].protein`, { min: 0, max: 5000, required: true }),
       carbs: normalizeNumber(item.carbs, `components[${index}].carbs`, { min: 0, max: 5000, required: true }),
+      ...(Object.hasOwn(item, 'fiber') ? { fiber: fiberValue(item.fiber) } : {}),
       fat: normalizeNumber(item.fat, `components[${index}].fat`, { min: 0, max: 5000, required: true })
     };
   });
@@ -2155,6 +2160,7 @@ function barcodeItemFromOpenFoodFactsProduct(barcode, product) {
       calories: roundMacro(servingCalories),
       protein: roundMacro(servingProtein),
       carbs: roundMacro(servingCarbs),
+      fiber: fiberValue(nutriments.fiber_serving),
       fat: roundMacro(servingFat)
     };
   }
@@ -2172,6 +2178,7 @@ function barcodeItemFromOpenFoodFactsProduct(barcode, product) {
       calories: roundMacro(calories100g * multiplier),
       protein: roundMacro(protein100g * multiplier),
       carbs: roundMacro(carbs100g * multiplier),
+      fiber: scaleFiber(nutriments.fiber_100g ?? nutriments.fiber, multiplier),
       fat: roundMacro(fat100g * multiplier)
     };
   }

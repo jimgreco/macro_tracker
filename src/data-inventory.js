@@ -78,6 +78,7 @@ const DATA_INVENTORY = Object.freeze([
         'protein',
         'carbs',
         'fat',
+        'fiber',
         'consumed_at',
         'meal_group',
         'meal_name',
@@ -125,6 +126,7 @@ const DATA_INVENTORY = Object.freeze([
         'protein',
         'carbs',
         'fat',
+        'fiber',
         'components',
         'source',
         'source_detail',
@@ -153,6 +155,7 @@ const DATA_INVENTORY = Object.freeze([
         'protein',
         'carbs',
         'fat',
+        'fiber',
         'source',
         'created_at',
         'updated_at'

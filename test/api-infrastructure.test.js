@@ -208,8 +208,8 @@ test('saved quick-add meals preserve component rows', () => {
   assert.ok(db.includes('components JSONB'));
   assert.ok(db.includes('ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS components JSONB'));
   assert.ok(db.includes('function normalizeSavedItemComponents'));
-  assert.ok(db.includes('INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat, components, source, source_detail)'));
-  assert.ok(db.includes('SELECT id, name, quantity, unit, calories, protein, carbs, fat, components,\n            source, source_detail AS "sourceDetail"'));
+  assert.ok(db.includes('INSERT INTO saved_items (user_id, name, quantity, unit, calories, protein, carbs, fat, components, source, source_detail, fiber)'));
+  assert.ok(db.includes('SELECT id, name, quantity, unit, calories, protein, carbs, fat, fiber, components,\n            source, source_detail AS "sourceDetail"'));
   assert.ok(db.includes('const mealGroup = components.length > 1 ? crypto.randomUUID() : null'));
   assert.ok(db.includes('meal_group,\n             meal_name,\n             meal_quantity,\n             meal_unit'));
   assert.ok(server.includes('function validateSavedItemComponents'));

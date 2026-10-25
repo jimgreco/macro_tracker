@@ -1,3 +1,4 @@
+const { scaleFiber, fiberValue } = require('./fiber');
 const MACRO_FIELDS = ['calories', 'protein', 'carbs', 'fat'];
 const QUANTITY_WORDS = {
   a: 1,
@@ -114,6 +115,7 @@ function extractSingleItemQuantityFromText(text) {
 function scaleItem(item, scale) {
   const scaled = {
     ...item,
+    fiber: scaleFiber(item.fiber, scale),
     quantity: roundNumber(Number(item.quantity || 0) * scale, 3)
   };
   for (const field of MACRO_FIELDS) {
@@ -152,6 +154,7 @@ function normalizeMealParse(parsed, options = {}) {
     const normalized = {
       ...item,
       itemName: normalizeUnit(item.itemName, 'Item'),
+      fiber: fiberValue(item.fiber),
       quantity: roundNumber(positiveNumber(item.quantity, 1), 3),
       unit: normalizeUnit(item.unit)
     };
@@ -179,6 +182,7 @@ function normalizeMealParse(parsed, options = {}) {
     normalizedItems = normalizedItems.map((item) => {
       const normalized = {
         ...item,
+        fiber: scaleFiber(item.fiber, 1 / divisor),
         quantity: roundNumber(item.quantity / divisor, 3)
       };
       for (const field of MACRO_FIELDS) {
@@ -213,6 +217,7 @@ function scaleMealUnitRows(rows, mealQuantity) {
   return rows.map((row) => {
     const scaled = {
       ...row,
+      fiber: scaleFiber(row.fiber, scale),
       quantity: roundNumber(Number(row.quantity || 0) * scale, 3)
     };
     for (const field of MACRO_FIELDS) {

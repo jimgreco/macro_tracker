@@ -265,3 +265,7 @@ only into a disposable clean Git archive and verifies real image exclusions.
 ## Native offline recovery
 
 `OfflineMutationStore` preserves ownerless legacy bytes and unreadable protected files. Owned queues migrate by exact-byte rename to `pending-mutations-v3.json`, away from older clients' replay path; a post-downgrade v2 file stays quarantined. Journal replayable requests before sending, hold rejected/ambiguous requests for explicit review, and keep retry UUID/body unchanged. Set aside is a retained local archive, not irreversible deletion. Recovery exports and actions are account/session fenced. See `docs/client-mutation-recovery.md`; never infer a legacy owner or recreate an uncertain request under a new UUID.
+
+## Fiber tracking
+
+Fiber grams are nullable: unknown is not zero. Preserve omitted fiber on legacy edits, scale known values with portions, and derive multi-item Quick Add totals from components. Daily fiber totals require full item coverage; export known grams and counts alongside null totals. Fiber targets use historical `macro_targets` like other nutrients. Schema v2 needs the explicit additive `npm run db:migrate:fiber` with owner-supplied `MIGRATION_DATABASE_URL` before rollout; never use runtime credentials for DDL. See `docs/fiber-tracking.md`.

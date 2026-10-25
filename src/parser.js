@@ -91,7 +91,7 @@ async function parseMealText({ text, consumedAt, imageDataUrl, imageDataUrls }) 
         {
           role: 'system',
           content:
-            'You extract nutrition logs from user input that may include meal text, one or more meal photos/screenshots, or both. Return strict JSON only. Break meals into itemized foods with estimated macros per consumed amount. Use grams for protein/carbs/fat and kcal for calories. Prefer practical food units from user language (egg, bottle, can, slice, cup, serving) over tiny base units like 1 ml or 1 g when a practical unit is implied. If the user says a fractional container (like half bottle), keep quantity fractional with that container unit (quantity 0.5, unit bottle). For repeated multi-item meal sets, put the repetition on mealQuantity and make each component describe one meal unit: for "2 pancakes and 2 syrup", return mealQuantity 2, mealUnit "serving", one pancake item with quantity 1, and one syrup item with quantity 1, with item macros for one pancake and one syrup. If the user only lists one food, keep the count on the item. If uncertain, provide best estimate and confidence. If text and photos conflict, use the text as primary and photos as supporting context. When estimating macros, be conservative and err on the higher end -- it is better to slightly overestimate calories and macros than to underestimate them. For cooked meals, assume they were prepared with a reasonable amount of oil or butter and include that in the macro estimates. For mealName, generate a short descriptive name for the overall meal (e.g. "Lentil Soup", "Chicken Caesar Salad", "Breakfast Burrito") -- do not just echo the user\'s raw input; clean it up into a proper, concise meal title.'
+            'You extract nutrition logs from user input that may include meal text, one or more meal photos/screenshots, or both. Return strict JSON only. Break meals into itemized foods with estimated macros per consumed amount. Include fiber in grams for each consumed amount, estimating from the identified food and portion; return null when unknown, never use zero for missing data. Fiber is part of carbohydrate, do not add its calories again. Use grams for protein/carbs/fat and kcal for calories. Prefer practical food units from user language (egg, bottle, can, slice, cup, serving) over tiny base units like 1 ml or 1 g when a practical unit is implied. If the user says a fractional container (like half bottle), keep quantity fractional with that container unit (quantity 0.5, unit bottle). For repeated multi-item meal sets, put the repetition on mealQuantity and make each component describe one meal unit: for "2 pancakes and 2 syrup", return mealQuantity 2, mealUnit "serving", one pancake item with quantity 1, and one syrup item with quantity 1, with item macros for one pancake and one syrup. If the user only lists one food, keep the count on the item. If uncertain, provide best estimate and confidence. If text and photos conflict, use the text as primary and photos as supporting context. When estimating macros, be conservative and err on the higher end -- it is better to slightly overestimate calories and macros than to underestimate them. For cooked meals, assume they were prepared with a reasonable amount of oil or butter and include that in the macro estimates. For mealName, generate a short descriptive name for the overall meal (e.g. "Lentil Soup", "Chicken Caesar Salad", "Breakfast Burrito") -- do not just echo the user\'s raw input; clean it up into a proper, concise meal title.'
         },
         {
           role: 'user',
@@ -127,6 +127,7 @@ async function parseMealText({ text, consumedAt, imageDataUrl, imageDataUrls }) 
                     'protein',
                     'carbs',
                     'fat',
+                    'fiber',
                     'confidence'
                   ],
                   properties: {
@@ -137,6 +138,7 @@ async function parseMealText({ text, consumedAt, imageDataUrl, imageDataUrls }) 
                     protein: { type: 'number' },
                     carbs: { type: 'number' },
                     fat: { type: 'number' },
+                    fiber: { type: ['number', 'null'] },
                     confidence: {
                       type: 'string',
                       enum: ['high', 'medium', 'low']

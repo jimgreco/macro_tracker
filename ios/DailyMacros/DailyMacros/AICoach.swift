@@ -195,6 +195,7 @@ struct CoachMealItemPayload: Sendable {
     let protein: Double
     let carbs: Double
     let fat: Double
+    var fiber: Double? = nil
 }
 
 struct CoachWorkoutPayload: Sendable {
@@ -2459,7 +2460,8 @@ enum CoachCandidateEngine {
                     calories: latest.calories,
                     protein: latest.protein,
                     carbs: latest.carbs,
-                    fat: latest.fat
+                    fat: latest.fat,
+                    fiber: latest.fiber
                 )
             )
         }
