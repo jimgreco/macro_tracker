@@ -3,6 +3,25 @@ import XCTest
 
 final class OfflineMutationStoreTests: XCTestCase {
     @MainActor
+    func testDatedCopyKeepsDestinationAndIdentityAcrossOfflineReload() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let store = OfflineMutationStore(storageURL: fixture.storageURL, legacyDefaults: fixture.defaults)
+        store.activateAccount(userId: "account-a")
+        let body = Data(#"{"mealGroup":"meal","targetDay":"2026-10-24","tz":"America/New_York"}"#.utf8)
+        let mutation = store.makeMutation(ownerUserId: "account-a", method: "POST", path: "/entries/copy-to-today", body: body, kind: .meal)
+        try store.enqueue(mutation); try store.enqueue(mutation)
+        let reloaded = OfflineMutationStore(storageURL: fixture.storageURL, legacyDefaults: fixture.defaults)
+        reloaded.activateAccount(userId: "account-a")
+        XCTAssertEqual(reloaded.pendingCount, 1)
+        let pending = try XCTUnwrap(reloaded.snapshot(for: "account-a").first)
+        XCTAssertEqual(pending.clientMutationId, mutation.clientMutationId)
+        XCTAssertEqual(pending.body, body)
+        reloaded.activateAccount(userId: "account-b")
+        XCTAssertEqual(reloaded.pendingCount, 0)
+    }
+
+    @MainActor
     func testCombinedCheckinKeepsItsIdentityAndRawWaistReadingsWhenQueued() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }

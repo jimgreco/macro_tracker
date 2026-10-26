@@ -151,6 +151,23 @@ final class DailyMacrosScreenshots: XCTestCase {
         XCTAssertTrue(app.navigationBars["Review days"].waitForExistence(timeout: 5))
     }
 
+    func testNutritionDayReviewCopyDatePickerAndCancel() throws {
+        selectTab("Macros")
+        openDayReview()
+        app.buttons["nutrition-review-day-2026-06-15"].tap()
+        let item = app.staticTexts["Historical review item"].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 8)); item.tap()
+        let copy = app.buttons["Copy to date"]
+        for _ in 0..<8 where !copy.isHittable { app.swipeUp() }
+        XCTAssertTrue(copy.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Copy to Today"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["copy-target-date"].firstMatch.exists)
+        attachTrend("Copy saved entry to a chosen date")
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["nutrition-selected-day"].label, "June 15, 2026")
+    }
+
     func testNutritionDayReviewFiltersRangesAndNavigation() throws {
         selectTab("Macros")
         openDayReview()

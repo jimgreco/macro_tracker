@@ -1037,7 +1037,7 @@ function showEditTargetsModal() {
   document.body.appendChild(overlay);
   document.getElementById('target-modal-calories').focus();
 
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay && !overlay.dataset.copying) overlay.remove(); });
   document.getElementById('target-modal-cancel-btn').addEventListener('click', () => overlay.remove());
   const clearTargetsButton = document.getElementById('target-modal-clear-btn');
   clearTargetsButton.disabled = !macros.some((macro) => Number(targets[macro] || 0) > 0);
@@ -1140,7 +1140,7 @@ function showWorkoutTargetModal() {
   document.body.appendChild(overlay);
   document.getElementById('wkt-modal-target').focus();
 
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay && !overlay.dataset.copying) overlay.remove(); });
   document.getElementById('wkt-modal-cancel-btn').addEventListener('click', () => overlay.remove());
 
   document.getElementById('wkt-modal-save-btn').addEventListener('click', async () => {
@@ -1945,6 +1945,7 @@ function createReplaySafePost() {
 
 const postParsedMeal = createReplaySafePost();
 const postQuickAdd = createReplaySafePost();
+const postCopiedEntries = createReplaySafePost();
 
 function lockMealEditor() {
   state.mealEditorBusy = true;
@@ -2521,50 +2522,73 @@ function canCopyEntryToToday(entry) {
   return Boolean(entry?.consumedAt) && getLocalIsoDay(entry.consumedAt) < getLocalIsoDay();
 }
 
-async function copyEntryOrMealToToday(payload) {
-  const body = {
-    targetDay: getLocalIsoDay(),
-    tz: getTimezone()
-  };
-  if (payload?.mealGroup) {
-    body.mealGroup = payload.mealGroup;
-  } else {
-    body.entryId = payload?.entryId;
-  }
-  const result = await api('/api/entries/copy-to-today', {
-    method: 'POST',
-    body: JSON.stringify(body)
-  });
-  await refreshDashboard();
-  return result;
+async function copyEntryOrMealToToday(payload, targetDay = getLocalIsoDay()) {
+  if (state.copyEntryBusy) throw new Error('A copy is already in progress.');
+  state.copyEntryBusy = true;
+  try {
+    const body = { targetDay, tz: getTimezone() };
+    if (payload?.mealGroup) body.mealGroup = payload.mealGroup;
+    else body.entryId = payload?.entryId;
+    return await postCopiedEntries('/api/entries/copy-to-today', body);
+  } finally { state.copyEntryBusy = false; }
 }
 
 function buildCopyEntryToTodayHandler(entry) {
-  if (!entry || !canCopyEntryToToday(entry)) {
-    return null;
-  }
-  return async () => {
-    try {
-      const result = await copyEntryOrMealToToday({ entryId: entry.id });
-      setActionBanner(result.copiedCount > 0 ? 'Copied item to today.' : 'No item copied.', result.copiedCount > 0 ? 'success' : 'info');
-    } catch (error) {
-      setActionBanner(error.message, 'error');
-    }
+  if (!entry || !canCopyEntryToToday(entry)) return null;
+  return async (targetDay = getLocalIsoDay()) => {
+    validateCopyDay(entry.consumedAt, targetDay);
+    const result = await copyEntryOrMealToToday({ entryId: entry.id }, targetDay);
+    await refreshAfterMealSave(result.copiedCount > 0 ? `Copied item to ${targetDay}.` : 'No item copied.');
   };
 }
 
 function buildCopyMealToTodayHandler(mealGroup, mealEntry) {
-  if (!mealGroup || !mealEntry || !canCopyEntryToToday(mealEntry)) {
-    return null;
+  if (!mealGroup || !mealEntry || !canCopyEntryToToday(mealEntry)) return null;
+  return async (targetDay = getLocalIsoDay()) => {
+    validateCopyDay(mealEntry.consumedAt, targetDay);
+    const result = await copyEntryOrMealToToday({ mealGroup }, targetDay);
+    await refreshAfterMealSave(result.copiedCount > 0 ? `Copied meal to ${targetDay}.` : 'No meal copied.');
+  };
+}
+
+function validateCopyDay(consumedAt, day) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day <= getLocalIsoDay(consumedAt) || day > getLocalIsoDay()) {
+    throw new Error('Choose a date after the source day and no later than today.');
   }
-  return async () => {
+}
+
+function copyDateControls(prefix, consumedAt) {
+  return `<label for="${prefix}-copy-date">Copy saved entry to</label>
+    <input id="${prefix}-copy-date" type="date" required min="${shiftIsoDay(getLocalIsoDay(consumedAt), 1)}" max="${getLocalIsoDay()}" value="${getLocalIsoDay()}" />
+    <p class="muted">Copies the saved amounts and original local time. Unsaved edits stay here.</p>
+    <p id="${prefix}-copy-error" role="alert"></p>`;
+}
+
+function wireCopyDateControls(overlay, prefix, onCopy) {
+  let copying = false;
+  const copy = async (today) => {
+    if (copying) return;
+    const date = overlay.querySelector(`#${prefix}-copy-date`);
+    if (!today && !date.reportValidity()) return;
+    const targetDay = today ? getLocalIsoDay() : date.value;
+    copying = true;
+    const controls = Array.from(overlay.querySelectorAll('input,button'));
+    const disabled = controls.map(control => control.disabled);
+    controls.forEach(control => { control.disabled = true; });
+    overlay.dataset.copying = 'true';
     try {
-      const result = await copyEntryOrMealToToday({ mealGroup });
-      setActionBanner(result.copiedCount > 0 ? 'Copied meal to today.' : 'No meal copied.', result.copiedCount > 0 ? 'success' : 'info');
+      await onCopy(targetDay);
+      overlay.remove();
     } catch (error) {
-      setActionBanner(error.message, 'error');
+      overlay.querySelector(`#${prefix}-copy-error`).textContent = error.message;
+    } finally {
+      copying = false;
+      delete overlay.dataset.copying;
+      controls.forEach((control, index) => { control.disabled = disabled[index]; });
     }
   };
+  overlay.querySelector(`#${prefix}-copy-today-btn`).addEventListener('click', () => void copy(true));
+  overlay.querySelector(`#${prefix}-copy-date-btn`).addEventListener('click', () => void copy(false));
 }
 
 function webIntegrationAccessSources(payload) {
@@ -5786,8 +5810,9 @@ function showCombineModal(entryIds, options) {
       <label for="combine-unit">Unit</label>
       <input id="combine-unit" type="text" value="${escapeAttr(defaultUnit)}" />
       ${isEdit ? '<label class="inline-check entry-modal-quickadd"><input type="checkbox" id="combine-save-quickadd" /><span>Save as quick add</span></label>' : ''}
+      ${canCopyToToday ? copyDateControls('combine', options.consumedAt) : ''}
       <div class="combine-modal-actions">
-        ${canCopyToToday ? '<button type="button" class="btn-info table-action-btn" id="combine-copy-today-btn">Copy to Today</button><span style="flex:1"></span>' : ''}
+        ${canCopyToToday ? '<button type="button" class="btn-info table-action-btn" id="combine-copy-today-btn">Copy to Today</button><button type="button" class="btn-info table-action-btn" id="combine-copy-date-btn">Copy to date</button><span style="flex:1"></span>' : ''}
         <button type="button" class="btn-muted table-action-btn" id="combine-cancel-btn">Cancel</button>
         <button type="button" class="btn-success table-action-btn" id="combine-confirm-btn">${btnLabel}</button>
       </div>
@@ -5800,18 +5825,12 @@ function showCombineModal(entryIds, options) {
   nameInput.select();
 
   overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) overlay.remove();
+    if (e.target === overlay && !overlay.dataset.copying) overlay.remove();
   });
 
   document.getElementById('combine-cancel-btn').addEventListener('click', () => overlay.remove());
 
-  if (canCopyToToday) {
-    document.getElementById('combine-copy-today-btn').addEventListener('click', async (event) => {
-      event.currentTarget.disabled = true;
-      overlay.remove();
-      await options.onCopyToToday();
-    });
-  }
+  if (canCopyToToday) wireCopyDateControls(overlay, 'combine', options.onCopyToToday);
 
   document.getElementById('combine-confirm-btn').addEventListener('click', async () => {
     const mealName = nameInput.value.trim() || 'Meal';
@@ -5922,9 +5941,10 @@ function showEntryModal(entry, { onSave, onDelete, onCopyToToday, title } = {}) 
       ${entry.components?.length ? '<p id="fiber-component-note">Fiber is calculated from the meal’s components. Edit individual foods when logging the meal.</p>' : ''}
       ${consumedAtValue ? `<label for="entry-modal-time">Time</label><input id="entry-modal-time" type="datetime-local" value="${escapeAttr(consumedAtValue)}" />` : ''}
       <label class="inline-check entry-modal-quickadd"><input type="checkbox" id="entry-modal-save-quickadd" /><span>Save as quick add</span></label>
+      ${canCopyToToday ? copyDateControls('entry-modal', entry.consumedAt) : ''}
       <div class="combine-modal-actions">
         ${onDelete ? '<button type="button" class="btn-danger table-action-btn" id="entry-modal-delete-btn">Delete</button>' : ''}
-        ${canCopyToToday ? '<button type="button" class="btn-info table-action-btn" id="entry-modal-copy-today-btn">Copy to Today</button>' : ''}
+        ${canCopyToToday ? '<button type="button" class="btn-info table-action-btn" id="entry-modal-copy-today-btn">Copy to Today</button><button type="button" class="btn-info table-action-btn" id="entry-modal-copy-date-btn">Copy to date</button>' : ''}
         <span style="flex:1"></span>
         <button type="button" class="btn-muted table-action-btn" id="entry-modal-cancel-btn">Cancel</button>
         <button type="button" class="btn-success table-action-btn" id="entry-modal-save-btn">Save</button>
@@ -5936,7 +5956,7 @@ function showEntryModal(entry, { onSave, onDelete, onCopyToToday, title } = {}) 
   document.getElementById('entry-modal-name').focus();
 
   overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) overlay.remove();
+    if (e.target === overlay && !overlay.dataset.copying) overlay.remove();
   });
 
   document.getElementById('entry-modal-cancel-btn').addEventListener('click', () => overlay.remove());
@@ -5948,13 +5968,7 @@ function showEntryModal(entry, { onSave, onDelete, onCopyToToday, title } = {}) 
     });
   }
 
-  if (canCopyToToday) {
-    document.getElementById('entry-modal-copy-today-btn').addEventListener('click', async (event) => {
-      event.currentTarget.disabled = true;
-      overlay.remove();
-      await onCopyToToday();
-    });
-  }
+  if (canCopyToToday) wireCopyDateControls(overlay, 'entry-modal', onCopyToToday);
 
   // Quantity-based macro scaling
   const qtyInput = document.getElementById('entry-modal-qty');
@@ -7615,7 +7629,7 @@ function showWeightTargetModal() {
   document.body.appendChild(overlay);
   document.getElementById('wt-modal-weight').focus();
 
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay && !overlay.dataset.copying) overlay.remove(); });
   document.getElementById('wt-modal-cancel-btn').addEventListener('click', () => overlay.remove());
   const clearWeightTargetButton = document.getElementById('wt-modal-clear-btn');
   clearWeightTargetButton.disabled = !Number.isFinite(Number(currentWeight)) || Number(currentWeight) <= 0;

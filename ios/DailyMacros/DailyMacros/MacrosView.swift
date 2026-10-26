@@ -225,7 +225,6 @@ struct MacrosView: View {
     @State private var showAddSheet = false
     @State private var showEditTargets = false
     @State private var isSavingTargets = false
-    @State private var showEditEntry = false
     @State private var showEditParsedItem = false
     @State private var errorMessage: String?
     @State private var isUpdatingDayCompleteness = false
@@ -255,6 +254,7 @@ struct MacrosView: View {
     @State private var editEntryFat = ""
     @State private var editEntryFiber = ""
     @State private var editEntryDate = Date()
+    @State private var copyTargetDate = AppClock.now
     @State private var editSaveError: String?
     @State private var saveEditedEntryAsQuickAdd = false
     // Store originals for scaling
@@ -556,8 +556,8 @@ struct MacrosView: View {
             .sheet(isPresented: $showEditTargets) {
                 editTargetsSheet
             }
-            .sheet(isPresented: $showEditEntry) {
-                editEntrySheet
+            .sheet(item: $editingEntry) { entry in
+                editEntrySheet(entry: entry)
             }
             .sheet(item: $editingMeal) { meal in
                 editMealSheet(meal: meal)
@@ -1419,6 +1419,7 @@ struct MacrosView: View {
 
     private func beginEditEntry(_ entry: Entry) {
         editingEntry = entry
+        copyTargetDate = accountCalendar.startOfDay(for: AppClock.now)
         editItemName = entry.itemName
         editQuantity = "\(entry.quantity)"
         editUnit = entry.unit ?? "serving"
@@ -1436,10 +1437,9 @@ struct MacrosView: View {
         origCarbs = entry.carbs
         origFat = entry.fat
         origFiber = entry.fiber
-        showEditEntry = true
     }
 
-    private var editEntrySheet: some View {
+    private func editEntrySheet(entry: Entry) -> some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
@@ -1479,7 +1479,10 @@ struct MacrosView: View {
                         .font(.subheadline)
                         .tint(Color.neonGreen)
 
-                    if let entry = editingEntry, canCopyToToday(entry) {
+                    if canCopyToToday(entry) {
+                        copyDatePicker(source: entry)
+                        Button("Copy to date") { Task { await copyEditedEntryToToday(targetDate: copyTargetDate) } }
+                            .buttonStyle(.bordered).disabled(isSaving)
                         Button {
                             Task { await copyEditedEntryToToday() }
                         } label: {
@@ -1497,7 +1500,6 @@ struct MacrosView: View {
                             if let entry = editingEntry {
                                 Task {
                                     await removeFromGroup(entryId: entry.id)
-                                    showEditEntry = false
                                     editingEntry = nil
                                 }
                             }
@@ -1508,6 +1510,7 @@ struct MacrosView: View {
                         }
                         .buttonStyle(.bordered)
                         .tint(Color.neonYellow)
+                        .disabled(isSaving)
                     }
 
                     if let editSaveError {
@@ -1522,7 +1525,6 @@ struct MacrosView: View {
                             if let entry = editingEntry {
                                 Task {
                                     guard await deleteEntry(entry.id) else { return }
-                                    showEditEntry = false
                                     editingEntry = nil
                                 }
                             }
@@ -1558,12 +1560,13 @@ struct MacrosView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showEditEntry = false; editingEntry = nil }
+                    Button("Cancel") { editingEntry = nil }.disabled(isSaving)
                 }
             }
         }
         .presentationDetents([.medium, .large])
         .presentationContentInteraction(.scrolls)
+        .interactiveDismissDisabled(isSaving)
     }
 
     /// When quantity changes, auto-scale macros proportionally
@@ -1659,6 +1662,7 @@ struct MacrosView: View {
         editMealName = first.mealName ?? "Meal"
         editMealQuantity = "\(first.mealQuantity ?? 1)"
         editMealUnit = first.mealUnit ?? "serving"
+        copyTargetDate = accountCalendar.startOfDay(for: AppClock.now)
         editSaveError = nil
         saveEditedMealAsQuickAdd = false
         editingMeal = EditingMealContext(
@@ -1756,6 +1760,9 @@ struct MacrosView: View {
                         .tint(Color.neonGreen)
 
                     if let first = meal.first, canCopyToToday(first) {
+                        copyDatePicker(source: first)
+                        Button("Copy to date") { Task { await copyEditedMealToToday(meal, targetDate: copyTargetDate) } }
+                            .buttonStyle(.bordered).disabled(isSaving)
                         Button {
                             Task { await copyEditedMealToToday(meal) }
                         } label: {
@@ -1800,6 +1807,7 @@ struct MacrosView: View {
                         .buttonStyle(.bordered)
                         .tint(Color.neonYellow)
                         .disabled(isSaving)
+                        .disabled(isSaving)
 
                         Button {
                             Task { await saveEditedMeal(meal) }
@@ -1823,12 +1831,13 @@ struct MacrosView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { editingMeal = nil }
+                    Button("Cancel") { editingMeal = nil }.disabled(isSaving)
                 }
             }
         }
         .presentationDetents([.medium, .large])
         .presentationContentInteraction(.scrolls)
+        .interactiveDismissDisabled(isSaving)
     }
 
     private func mealScaleFactor(for meal: EditingMealContext) -> Double? {
@@ -1854,10 +1863,35 @@ struct MacrosView: View {
     }
 
     private func canCopyToToday(_ entry: Entry) -> Bool {
-        let calendar = Calendar.current
-        let loggedDay = calendar.startOfDay(for: parseISO(entry.consumedAt))
-        let today = calendar.startOfDay(for: AppClock.now)
-        return loggedDay < today
+        accountCalendar.startOfDay(for: parseISO(entry.consumedAt)) < accountCalendar.startOfDay(for: AppClock.now)
+    }
+
+    private func copyDatePicker(source: Entry) -> some View {
+        let first = accountCalendar.date(byAdding: .day, value: 1, to: accountCalendar.startOfDay(for: parseISO(source.consumedAt)))!
+        let last = accountCalendar.startOfDay(for: AppClock.now)
+        return VStack(alignment: .leading) {
+            DatePicker("Copy saved entry to", selection: $copyTargetDate, in: first...max(first, last), displayedComponents: .date)
+                .accessibilityIdentifier("copy-target-date")
+                .environment(\.timeZone, accountTimeZone)
+                .environment(\.calendar, accountCalendar)
+                .disabled(isSaving)
+            Text("Copies saved amounts and the original local time. Unsaved edits stay here.")
+                .font(.caption).foregroundStyle(Color.mutedText)
+        }
+    }
+
+    private func copyDay(_ date: Date, after source: Entry) throws -> String {
+        let day = accountCalendar.startOfDay(for: date)
+        guard day > accountCalendar.startOfDay(for: parseISO(source.consumedAt)),
+              day <= accountCalendar.startOfDay(for: AppClock.now) else {
+            throw APIError.serverError("Choose a date after the source day and no later than today.")
+        }
+        let formatter = DateFormatter()
+        formatter.calendar = accountCalendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = accountTimeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: day)
     }
 
     private func editableWholeNumberBaseline(for value: Double) -> Double {
@@ -3987,7 +4021,6 @@ struct MacrosView: View {
                 )
                 await loadSavedItems()
             }
-            showEditEntry = false
             editingEntry = nil
             await loadDashboard()
         } catch {
@@ -4076,30 +4109,31 @@ struct MacrosView: View {
         }
     }
 
-    private func copyEditedEntryToToday() async {
-        guard let entry = editingEntry, canCopyToToday(entry) else { return }
+    private func copyEditedEntryToToday(targetDate: Date = AppClock.now) async {
+        guard !isSaving, !isApplyingMealSelectionAction, let entry = editingEntry, canCopyToToday(entry) else { return }
+        editSaveError = nil
         isSaving = true
         defer { isSaving = false }
         do {
-            _ = try await api.copyEntryToToday(entryId: entry.id)
-            showEditEntry = false
+            _ = try await api.copyEntriesToDay(entryId: entry.id, targetDay: copyDay(targetDate, after: entry), timeZone: accountTimeZone.identifier)
             editingEntry = nil
             await loadDashboard()
         } catch {
-            errorMessage = error.localizedDescription
+            editSaveError = error.localizedDescription
         }
     }
 
-    private func copyEditedMealToToday(_ meal: EditingMealContext) async {
-        guard let first = meal.first, canCopyToToday(first) else { return }
+    private func copyEditedMealToToday(_ meal: EditingMealContext, targetDate: Date = AppClock.now) async {
+        guard !isSaving, !isApplyingMealSelectionAction, let first = meal.first, canCopyToToday(first) else { return }
+        editSaveError = nil
         isSaving = true
         defer { isSaving = false }
         do {
-            _ = try await api.copyMealToToday(mealGroup: meal.mealGroup)
+            _ = try await api.copyEntriesToDay(mealGroup: meal.mealGroup, targetDay: copyDay(targetDate, after: first), timeZone: accountTimeZone.identifier)
             editingMeal = nil
             await loadDashboard()
         } catch {
-            errorMessage = error.localizedDescription
+            editSaveError = error.localizedDescription
         }
     }
 

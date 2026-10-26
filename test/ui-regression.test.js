@@ -286,7 +286,7 @@ test('iOS meal and entry editors keep Save available and destructive actions on 
   const api = read('ios/DailyMacros/DailyMacros/APIClient.swift');
   const models = read('ios/DailyMacros/DailyMacros/Models.swift');
   const entryEdit = swift.slice(
-    swift.indexOf('private var editEntrySheet'),
+    swift.indexOf('private func editEntrySheet'),
     swift.indexOf('/// When quantity changes')
   );
   const mealEdit = swift.slice(
@@ -309,7 +309,7 @@ test('iOS meal and entry editors keep Save available and destructive actions on 
   assert.equal(entryEdit.includes('DatePicker("Logged At", selection: $editEntryDate)'), true);
   assert.equal(swift.includes('editEntryDate = parseISO(entry.consumedAt)'), true);
   assert.equal(entryEdit.includes('Label("Copy to Today", systemImage: "doc.on.doc")'), true);
-  assert.equal(entryEdit.includes('if let entry = editingEntry, canCopyToToday(entry)'), true);
+  assert.equal(entryEdit.includes('if canCopyToToday(entry)'), true);
 
   assert.equal(swift.includes('private struct EditingMealContext: Identifiable, Sendable'), true);
   assert.equal(swift.includes('@State private var editingMeal: EditingMealContext?'), true);
@@ -334,8 +334,8 @@ test('iOS meal and entry editors keep Save available and destructive actions on 
   assert.equal(quickEdit.indexOf('Text("Delete")') < quickEdit.indexOf('Text("Save")'), true);
   assert.equal(quickEdit.includes('.disabled(!canSave)'), true);
   assert.equal(swift.includes('private func canCopyToToday(_ entry: Entry) -> Bool'), true);
-  assert.equal(swift.includes('private func copyEditedEntryToToday() async'), true);
-  assert.equal(swift.includes('private func copyEditedMealToToday(_ meal: EditingMealContext) async'), true);
+  assert.equal(swift.includes('private func copyEditedEntryToToday(targetDate: Date = AppClock.now) async'), true);
+  assert.equal(swift.includes('private func copyEditedMealToToday(_ meal: EditingMealContext, targetDate: Date = AppClock.now) async'), true);
   assert.equal(api.includes('func copyEntryToToday(entryId: Int) async throws -> CopyEntriesResponse'), true);
   assert.equal(api.includes('func copyMealToToday(mealGroup: String) async throws -> CopyEntriesResponse'), true);
   assert.equal(api.includes('apiURL("/entries/copy-to-today")'), true);
@@ -683,7 +683,7 @@ test('web item selection actions expose delete and single-item edit', () => {
   assert.equal(selectionActions.indexOf('data-sel-action="delete-item"') < selectionActions.indexOf('data-sel-action="combine"'), true);
 });
 
-test('web entry details expose copy to today for previous-day meals and items', () => {
+test('web entry details expose replay-safe dated copies and Copy to Today for previous-day meals and items', () => {
   const script = read('public/script.js');
   const entryModal = script.slice(
     script.indexOf('function showEntryModal'),
@@ -694,16 +694,16 @@ test('web entry details expose copy to today for previous-day meals and items', 
     script.indexOf('function showEntryModal')
   );
 
-  assert.equal(script.includes("api('/api/entries/copy-to-today'"), true);
+  assert.equal(script.includes("postCopiedEntries('/api/entries/copy-to-today'"), true);
   assert.equal(script.includes('function canCopyEntryToToday(entry)'), true);
   assert.equal(script.includes('getLocalIsoDay(entry.consumedAt) < getLocalIsoDay()'), true);
   assert.equal(script.includes('buildCopyEntryToTodayHandler(entry)'), true);
   assert.equal(script.includes('buildCopyMealToTodayHandler(groupId, mealEntry)'), true);
   assert.equal(entryModal.includes('id="entry-modal-copy-today-btn"'), true);
   assert.equal(entryModal.includes('Copy to Today'), true);
-  assert.equal(entryModal.includes('await onCopyToToday()'), true);
+  assert.equal(entryModal.includes("wireCopyDateControls(overlay, 'entry-modal', onCopyToToday)"), true);
   assert.equal(mealModal.includes('id="combine-copy-today-btn"'), true);
-  assert.equal(mealModal.includes('await options.onCopyToToday()'), true);
+  assert.equal(mealModal.includes("wireCopyDateControls(overlay, 'combine', options.onCopyToToday)"), true);
 });
 
 test('starter quick adds live in setup/settings, not the web quick add panel', () => {

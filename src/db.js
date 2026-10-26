@@ -2123,6 +2123,7 @@ async function copyEntriesForLocalDay(userId, sourceDay, targetDay, timezone = '
 
 async function copyEntriesToLocalDay(userId, { entryId = null, mealGroup = null, targetDay = null, timezone = 'America/New_York' } = {}) {
   const normalizedTargetDay = normalizeIsoDateString(targetDay || todayIsoDateInTimezone(timezone), 'targetDay');
+  if (normalizedTargetDay > todayIsoDateInTimezone(timezone)) throw new Error('Choose a copy date no later than today.');
   const copyingMeal = Boolean(mealGroup);
   const params = copyingMeal
     ? [userId, mealGroup, timezone]
@@ -2166,7 +2167,7 @@ async function copyEntriesToLocalDay(userId, { entryId = null, mealGroup = null,
   }
 
   if (result.rows.some((row) => String(row.localDay || '') >= normalizedTargetDay)) {
-    throw new Error('Only entries from previous days can be copied to today.');
+    throw new Error('Choose a copy date after the source day.');
   }
 
   const copiedMealGroup = copyingMeal ? crypto.randomUUID() : null;

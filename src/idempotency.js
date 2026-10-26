@@ -51,7 +51,7 @@ async function waitForCompletedMutation(getClientMutation, userId, clientMutatio
 function supportsAtomicMutation(method, path) {
   // Only database mutations (plus idempotent photo removal on check-in deletion).
   // Uploads, OAuth, payments and external-provider operations have other protocols.
-  if (method === 'POST' && ['/entries/bulk', '/quick-add', '/checkins'].includes(path)) return true;
+  if (method === 'POST' && ['/entries/bulk', '/entries/copy-to-today', '/quick-add', '/checkins'].includes(path)) return true;
   if (method === 'PUT' && /^\/day-completeness\/[^/]+$/.test(path)) return true;
   if (['PUT', 'DELETE'].includes(method) && /^\/entries\/[^/]+$/.test(path)) return true;
   if (method === 'DELETE' && /^\/checkins\/[^/]+$/.test(path)) return true;

@@ -1286,3 +1286,14 @@ test('request logs omit OAuth codes, webhook verification tokens and other query
     console.log = originalLog;
   }
 });
+
+test('copy to a chosen date replays the same atomic mutation once', routeTestOptions, async () => {
+  resetCalls();
+  const options = { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Client-Mutation-Id': '23457567-2323-4123-8123-123456789abc', Origin: 'http://localhost:3000' },
+    body: JSON.stringify({ mealGroup: 'copy-date-meal', targetDay: '2026-10-24' }) };
+  const first = await request('/api/entries/copy-to-today', options);
+  const replay = await request('/api/entries/copy-to-today', options);
+  assert.equal(first.res.status, 200); assert.equal(replay.res.status, 200);
+  assert.equal(replay.res.headers.get('x-idempotent-replay'), 'true');
+  assert.equal(calls.filter(call => call.name === 'copyEntriesToLocalDay').length, 1);
+});

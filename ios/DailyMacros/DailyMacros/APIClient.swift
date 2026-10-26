@@ -742,6 +742,17 @@ class APIClient: ObservableObject {
         return try await perform(request)
     }
 
+    func copyEntriesToDay(entryId: Int? = nil, mealGroup: String? = nil, targetDay: String, timeZone: String) async throws -> CopyEntriesResponse {
+        var payload: [String: Any] = ["targetDay": targetDay, "tz": timeZone]
+        if let mealGroup { payload["mealGroup"] = mealGroup }
+        else if let entryId { payload["entryId"] = entryId }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        return try await performReplayableMutation(
+            path: "/entries/copy-to-today", method: "POST", body: body,
+            kind: .meal, queuedResponse: CopyEntriesResponse(ok: true, copiedCount: 0)
+        )
+    }
+
     // MARK: - Meal Groups
 
     func combineEntries(entryIds: [Int], mealName: String = "Meal") async throws {
