@@ -6,8 +6,8 @@ const source = fs.readFileSync(require('node:path').join(__dirname, '../public/s
 const fn = name => { const start = source.indexOf(`function ${name}(`); return source.slice(start, source.indexOf('\n}', start) + 2); };
 function fixture(filter = 'all') {
   const buttons = ['all', 'saved', 'recent'].map(quickSource => ({ dataset: { quickSource }, attributes: {}, setAttribute(k, v) { this.attributes[k] = v; }, classList: { toggle() {} } }));
-  const context = vm.createContext({ state: { quickSourceFilter: filter, savedItems: [{ id: 1, name: 'Saved yogurt' }], historyQuickItems: [{ key: 'entry:rice', name: 'Recent rice' }], quickSelectedKey: 'saved:1' },
-    document: { querySelectorAll: () => buttons }, formatSavedItemOption: item => item.name,
+  const context = vm.createContext({ state: { quickSourceFilter: filter, quickSearchText: '', savedItems: [{ id: 1, name: 'Saved yogurt' }], historyQuickItems: [{ key: 'entry:rice', name: 'Recent rice' }], quickSelectedKey: 'saved:1' },
+    document: { querySelectorAll: () => buttons }, formatSavedItemOption: item => item.name.slice(0, 8), savedItemComponents: item => item.components || [],
     quickAddBtnEl: {}, quickEditToggleBtnEl: {}, quickMultiplierEl: { value: '1' },
     renderQuickEntrySelect() {}, getSelectedQuickTemplate: () => context.state.quickSelectedKey || null,
     quickAddPortion: template => template });
@@ -37,4 +37,26 @@ test('an empty source clears stale selection and disables Add and Edit', () => {
   assert.equal(context.quickAddBtnEl.disabled, true);
   assert.equal(context.quickEditToggleBtnEl.disabled, true);
   assert.equal(context.state.savedItems.length, 1);
+});
+
+test('search composes sources, preserves a matching selection and clears hidden selection', () => {
+  const { context } = fixture();
+  context.state.quickSearchText = '  YOGURT saved ';
+  context.renderSavedItems();
+  assert.equal(context.state.quickSelectedKey, 'saved:1');
+  context.setQuickSourceFilter('recent');
+  assert.equal(context.state.quickSelectedKey, '');
+  assert.equal(context.quickAddBtnEl.disabled, true);
+  assert.equal(context.quickEditToggleBtnEl.disabled, true);
+  context.state.quickSearchText = ' RICE ';
+  context.renderSavedItems();
+  assert.equal(context.state.quickSelectedKey, 'entry:rice');
+  assert.equal(context.quickAddBtnEl.disabled, false);
+  context.state.quickSearchText = '';
+  context.setQuickSourceFilter('all');
+  assert.equal(context.state.quickSelectedKey, 'entry:rice');
+  assert.equal(context.state.savedItems.length, 1);
+  context.state.quickSearchText = '.*';
+  context.renderSavedItems();
+  assert.equal(context.state.quickSelectedKey, '');
 });

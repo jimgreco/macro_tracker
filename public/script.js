@@ -20,6 +20,7 @@ const state = {
   quickEntriesError: '',
   quickSelectedKey: '',
   quickSourceFilter: 'all',
+  quickSearchText: '',
   editingEntryId: null,
   mealImageAttachments: [],
   mealImageLoading: false,
@@ -117,6 +118,8 @@ const mealPhotoPreviewWrapEl = document.getElementById('meal-photo-preview-wrap'
 const parseNoteEl = document.getElementById('parse-note');
 const parsedItemsContainerEl = document.getElementById('parsed-items-container');
 const quickSelectEl = document.getElementById('quick-entry-select');
+const quickSearchEl = document.getElementById('quick-entry-search');
+const quickSearchClearEl = document.getElementById('quick-search-clear');
 const quickMultiplierEl = document.getElementById('quick-multiplier');
 const quickAddPreviewEl = document.getElementById('quick-add-preview');
 const quickAddBtnEl = document.getElementById('quick-add-btn');
@@ -4247,7 +4250,8 @@ function quickEntryOptionGroups() {
       label: 'Saved quick entries',
       items: state.savedItems.map((item) => ({
         key: 'saved:' + String(item.id),
-        label: formatSavedItemOption(item)
+        label: formatSavedItemOption(item),
+        searchText: [item.name, item.unit, ...savedItemComponents(item).map(component => component.itemName)].join(' ').toLowerCase()
       }))
     });
   }
@@ -4256,11 +4260,14 @@ function quickEntryOptionGroups() {
       label: 'Recent from previous days',
       items: state.historyQuickItems.map((item) => ({
         key: item.key,
-        label: formatSavedItemOption(item)
+        label: formatSavedItemOption(item),
+        searchText: [item.name, item.unit, ...savedItemComponents(item).map(component => component.itemName)].join(' ').toLowerCase()
       }))
     });
   }
-  return groups;
+  const terms = state.quickSearchText.toLowerCase().split(/\s+/).filter(Boolean);
+  return groups.map(group => ({ ...group, items: group.items.filter(item =>
+    terms.every(term => item.searchText.includes(term))) })).filter(group => group.items.length);
 }
 
 function setQuickSourceFilter(source) {
@@ -4366,7 +4373,7 @@ function renderQuickEntrySelect(message = '') {
     return;
   }
   if (!options.length) {
-    quickSelectEl.append(new Option(message || (state.quickSourceFilter === 'saved' ? 'No saved quick entries' : 'No recent quick entries'), ''));
+    quickSelectEl.append(new Option(message || (state.quickSearchText.trim() ? 'No matching quick entries' : state.quickSourceFilter === 'saved' ? 'No saved quick entries' : 'No recent quick entries'), ''));
     quickSelectEl.disabled = true;
     return;
   }
@@ -6536,6 +6543,19 @@ if (copyYesterdayBtnEl) {
     }
   });
 }
+
+quickSearchEl.addEventListener('input', () => {
+  state.quickSearchText = quickSearchEl.value;
+  quickSearchClearEl.hidden = !state.quickSearchText;
+  renderSavedItems();
+});
+quickSearchClearEl.addEventListener('click', () => {
+  quickSearchEl.value = '';
+  state.quickSearchText = '';
+  quickSearchClearEl.hidden = true;
+  renderSavedItems();
+  quickSearchEl.focus();
+});
 
 document.querySelectorAll('[data-quick-source]').forEach((button) => {
   button.addEventListener('click', () => setQuickSourceFilter(button.dataset.quickSource));

@@ -429,7 +429,7 @@ test('quick entries use a simple picker and load outside dashboard refresh', () 
   const styles = read('public/styles.css');
 
   assert.equal(html.includes('id="quick-entry-select"'), true);
-  assert.equal(html.includes('id="quick-entry-search"'), false);
+  assert.equal(html.includes('id="quick-entry-search"'), true);
   assert.equal(html.includes('id="quick-entry-combobox"'), false);
   assert.equal(html.includes('id="quick-entry-listbox"'), false);
   assert.equal(html.includes('id="quick-entry-toggle-btn"'), false);
