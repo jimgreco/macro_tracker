@@ -448,3 +448,36 @@ final class MacroTrendSummaryTests: XCTestCase {
         XCTAssertEqual(summary.rows.map(\.day), ["2026-03-03", "2026-03-09"])
     }
 }
+
+final class ManualNutritionDraftTests: XCTestCase {
+    private var valid: ManualNutritionDraft {
+        ManualNutritionDraft(name: "Toast", quantity: "2", unit: "slices", calories: "240", protein: "8", carbs: "38", fat: "6", fiber: "")
+    }
+    func testPortionTotalsAreNotScaledAndUnknownFiberIsNull() throws {
+        let item = try valid.item()
+        XCTAssertEqual(item["quantity"] as? Double, 2)
+        XCTAssertEqual(item["calories"] as? Double, 240)
+        XCTAssertTrue(item["fiber"] is NSNull)
+        XCTAssertEqual(item["source"] as? String, "manual")
+        XCTAssertEqual(item["needsReview"] as? Bool, false)
+        var zero = valid
+        zero.fiber = "0"
+        XCTAssertEqual(try zero.item()["fiber"] as? Double, 0)
+    }
+    func testValidationRejectsMissingNegativeNonfiniteAndOutOfRangeValues() {
+        for field in ["name", "quantity", "calories", "protein", "fiber"] {
+            var draft = valid
+            switch field {
+            case "name": draft.name = " "
+            case "quantity": draft.quantity = "0"
+            case "calories": draft.calories = ""
+            case "protein": draft.protein = "nan"
+            default: draft.fiber = "-1"
+            }
+            XCTAssertThrowsError(try draft.item(), field)
+        }
+        var excessive = valid
+        excessive.carbs = "5001"
+        XCTAssertThrowsError(try excessive.item())
+    }
+}

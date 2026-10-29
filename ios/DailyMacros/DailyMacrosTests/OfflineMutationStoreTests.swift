@@ -336,6 +336,50 @@ final class OfflineMutationStoreTests: XCTestCase {
         XCTAssertEqual(api.token, "synthetic-delete-B")
     }
 
+    @MainActor
+    func testManualNutritionRetryKeepsPortionTimeAndIdentity() async throws {
+        let fixture = try makeFixture(); defer { fixture.cleanup() }
+        let store = OfflineMutationStore(storageURL: fixture.storageURL, legacyDefaults: fixture.defaults)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RecoveryURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel(); RecoveryURLProtocol.reset() }
+        let api = APIClient(session: session, offlineStore: store)
+        api.token = "synthetic-manual-A"; api.activateAuthenticatedAccount(userId: "A")
+        defer { api.token = nil }
+        let draft = ManualNutritionDraft(name: "Toast", quantity: "2", unit: "slices", calories: "240", protein: "8", carbs: "38", fat: "6", fiber: "")
+        let item = try draft.item()
+        let sent = expectation(description: "manual request journaled")
+        RecoveryURLProtocol.onRequest = { sent.fulfill() }
+        let saving = Task { try await api.saveMealEntries(items: [item], consumedAt: "2026-10-27T16:45:00Z", source: "manual") }
+        await fulfillment(of: [sent], timeout: 3)
+        let original = try XCTUnwrap(store.snapshot(for: "A").first)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(original.body)) as? [String: Any])
+        let rows = try XCTUnwrap(payload["items"] as? [[String: Any]])
+        XCTAssertEqual(rows[0]["calories"] as? Double, 240)
+        XCTAssertEqual(rows[0]["quantity"] as? Double, 2)
+        XCTAssertTrue(rows[0]["fiber"] is NSNull)
+        XCTAssertEqual(payload["consumedAt"] as? String, "2026-10-27T16:45:00Z")
+        RecoveryURLProtocol.finish(status: 503, body: #"{"error":"Synthetic uncertain response"}"#)
+        do { _ = try await saving.value; XCTFail("Expected interrupted response") } catch {}
+        XCTAssertEqual(store.pendingCount, 1)
+        api.token = "synthetic-manual-B"; api.activateAuthenticatedAccount(userId: "B")
+        try await api.flushPendingMutations()
+        XCTAssertEqual(RecoveryURLProtocol.requestCount, 1)
+        api.token = "synthetic-manual-A"; api.activateAuthenticatedAccount(userId: "A")
+        let replayed = expectation(description: "manual request replayed")
+        RecoveryURLProtocol.onRequest = { replayed.fulfill() }
+        let retry = Task { try await api.flushPendingMutations() }
+        await fulfillment(of: [replayed], timeout: 3)
+        XCTAssertEqual(RecoveryURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Client-Mutation-Id"), original.id.uuidString.lowercased())
+        XCTAssertEqual(store.snapshot(for: "A").first?.body, original.body)
+        RecoveryURLProtocol.finish(status: 200, body: #"{"ok":true}"#)
+        try await retry.value
+        XCTAssertEqual(store.pendingCount, 0)
+        try await api.flushPendingMutations()
+        XCTAssertEqual(RecoveryURLProtocol.requestCount, 2)
+    }
+
     private func makeFixture() throws -> (
         storageURL: URL,
         defaults: UserDefaults,

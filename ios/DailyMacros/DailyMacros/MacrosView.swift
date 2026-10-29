@@ -19,6 +19,41 @@ extension UTType {
     static let entryDrag = UTType(exportedAs: "com.dailymacros.entry-drag")
 }
 
+struct ManualNutritionDraft: Equatable {
+    var name = ""
+    var quantity = "1"
+    var unit = "serving"
+    var calories = ""
+    var protein = ""
+    var carbs = ""
+    var fat = ""
+    var fiber = ""
+
+    func item() throws -> [String: Any] {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unit = unit.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 160 else { throw APIError.serverError("Enter an item name (up to 160 characters).") }
+        guard !unit.isEmpty, unit.count <= 32 else { throw APIError.serverError("Enter a unit (up to 32 characters).") }
+        func number(_ text: String, _ label: String, min: Double = 0, max: Double = 5000) throws -> Double {
+            guard let value = Double(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  value.isFinite, value >= min, value <= max else {
+                throw APIError.serverError("Enter a valid \(label) between \(min.formatted()) and \(max.formatted()).")
+            }
+            return value
+        }
+        return [
+            "itemName": name, "unit": unit,
+            "quantity": try number(quantity, "quantity", min: 0.001, max: 10000),
+            "calories": try number(calories, "calorie total", max: 20000),
+            "protein": try number(protein, "protein total"),
+            "carbs": try number(carbs, "carb total"),
+            "fat": try number(fat, "fat total"),
+            "fiber": fiber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? NSNull() : try number(fiber, "fiber total") as Any,
+            "source": "manual", "sourceDetail": "Entered nutrition totals", "needsReview": false
+        ]
+    }
+}
+
 struct QuickAddTemplate: Identifiable {
     let id: String
     let savedItemId: Int?
@@ -204,6 +239,15 @@ struct MacrosView: View {
     @State private var coachSuggestions: [CoachSuggestion] = []
     @State private var savedItems: [SavedItem] = []
     @State private var quickTemplates: [QuickAddTemplate] = []
+    @State private var manualDraft = ManualNutritionDraft()
+    @State private var showManualEntry = false
+    @State private var manualDate = Date()
+    @State private var manualScope = ""
+    @State private var manualSaveQuickAdd = false
+    @State private var manualSaving = false
+    @State private var manualAttempted = false
+    @State private var manualError: String?
+    @State private var manualSuccess: String?
     @State private var mealText = ""
     @State private var consumedAt = Date()
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
@@ -589,6 +633,9 @@ struct MacrosView: View {
                 handlePendingQuickAction()
             }
             .onChange(of: accountScope) { _, _ in
+                showManualEntry = false
+                manualDraft = ManualNutritionDraft()
+                manualSuccess = nil
                 showReviewDays = false
                 dashboardLoad = ScopedHistoryLoad()
                 dayEntriesLoad = ScopedHistoryLoad()
@@ -2328,6 +2375,7 @@ struct MacrosView: View {
                             }
                         }
                     }
+                    .sheet(isPresented: $showManualEntry) { manualEntrySheet }
                     .sheet(isPresented: $showEditParsedItem) {
                         editParsedItemSheet
                     }
@@ -2456,12 +2504,131 @@ struct MacrosView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(Color.neonCyan)
                 .disabled((mealText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasMealImage) || isParsing || isLoadingImage)
+
+                Button("Enter nutrition") {
+                    manualDraft = ManualNutritionDraft()
+                    manualDate = consumedAt
+                    manualScope = accountScope
+                    manualSaveQuickAdd = false
+                    manualAttempted = false
+                    manualError = nil
+                    manualSuccess = nil
+                    showManualEntry = true
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.neonCyan)
+                .disabled(isParsing || isSaving)
+                .accessibilityIdentifier("manual-entry-open")
+                if let manualSuccess {
+                    Text(manualSuccess).font(.caption).foregroundStyle(Color.neonGreen)
+                        .accessibilityIdentifier("manual-entry-success")
+                }
             }
             .padding()
 
             if isLoadingSavedItems || !quickTemplates.isEmpty || !quickSearchText.isEmpty {
                 quickItemsSection
             }
+        }
+    }
+
+    private var manualEntrySheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    Text("Enter nutrition totals for the whole portion below. Changing quantity does not scale these numbers.")
+                        .font(.subheadline).foregroundStyle(Color.mutedText)
+                    Group {
+                        editEntryField("Item Name", text: $manualDraft.name, keyboard: .default)
+                        (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))) {
+                            editEntryField("Quantity", text: $manualDraft.quantity, keyboard: .decimalPad)
+                            editEntryField("Unit", text: $manualDraft.unit, keyboard: .default)
+                        }
+                        if dynamicTypeSize.isAccessibilitySize {
+                            editEntryField("Calories", text: $manualDraft.calories, keyboard: .decimalPad)
+                            editEntryField("Protein (g)", text: $manualDraft.protein, keyboard: .decimalPad)
+                            editEntryField("Carbs (g)", text: $manualDraft.carbs, keyboard: .decimalPad)
+                            editEntryField("Fat (g)", text: $manualDraft.fat, keyboard: .decimalPad)
+                            editEntryField("Fiber (g; blank = unknown)", text: $manualDraft.fiber, keyboard: .decimalPad)
+                        } else {
+                            macroFieldGrid(calories: $manualDraft.calories, protein: $manualDraft.protein,
+                                           carbs: $manualDraft.carbs, fat: $manualDraft.fat,
+                                           fiber: $manualDraft.fiber, keyboard: .decimalPad)
+                        }
+                        if dynamicTypeSize.isAccessibilitySize {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Logged At").font(.caption).foregroundStyle(Color.mutedText)
+                                DatePicker("Logged At", selection: $manualDate).labelsHidden()
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .environment(\.timeZone, accountTimeZone)
+                        } else {
+                            DatePicker("Logged At", selection: $manualDate)
+                                .environment(\.timeZone, accountTimeZone)
+                        }
+                        Toggle("Save as Quick Add", isOn: $manualSaveQuickAdd)
+                    }
+                    .disabled(manualAttempted)
+                    if let manualError {
+                        Text(manualError).font(.subheadline).foregroundStyle(.red)
+                            .accessibilityIdentifier("manual-entry-error")
+                    }
+                }.padding()
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .background(Color.deepBg)
+            .navigationTitle("Enter nutrition")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(manualAttempted ? "Close" : "Cancel") { showManualEntry = false }
+                        .disabled(manualSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(manualSaving ? "Saving…" : "Save") {
+                        Task { await saveManualEntry() }
+                    }
+                    .disabled(manualAttempted)
+                    .accessibilityIdentifier("manual-entry-save")
+                }
+            }
+        }
+        .onChange(of: manualDraft) { _, _ in
+            if !manualAttempted { manualError = nil }
+        }
+        .interactiveDismissDisabled(manualSaving)
+        .presentationDetents([.large])
+    }
+
+    @MainActor
+    private func saveManualEntry() async {
+        guard !manualAttempted, manualScope == accountScope else { return }
+        let item: [String: Any]
+        do { item = try manualDraft.item() }
+        catch { manualError = error.localizedDescription; return }
+        let scope = manualScope
+        let timestamp = ISO8601DateFormatter().string(from: manualDate)
+        var savedItem = item
+        savedItem["name"] = savedItem.removeValue(forKey: "itemName")
+        savedItem.removeValue(forKey: "needsReview")
+        let saveItems = manualSaveQuickAdd ? [savedItem] : []
+        manualAttempted = true
+        manualSaving = true
+        manualError = nil
+        defer { manualSaving = false }
+        do {
+            try await api.saveMealEntries(items: [item], consumedAt: timestamp, source: "manual",
+                                          sourceDetail: "Entered nutrition totals", saveItems: saveItems)
+            guard scope == accountScope else { return }
+            showManualEntry = false
+            manualSuccess = "Nutrition entry saved. Pending logs sync when connected."
+            await loadDashboard()
+            if !saveItems.isEmpty { await loadSavedItems() }
+        } catch {
+            guard scope == accountScope else { return }
+            // The API journals before sending and retains uncertain/rejected attempts.
+            // Recovery retries that journal's UUID; a second Save must not create one.
+            manualError = "Could not confirm this save. Check Pending Logs in Settings before entering it again. \(error.localizedDescription)"
         }
     }
 

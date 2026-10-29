@@ -18,7 +18,7 @@ final class DailyMacrosScreenshots: XCTestCase {
         if name.contains("testRapidPrimaryAndHealthTabSwitchingStaysStable") || name.contains("testSexCategorySummaries") {
             app.launchArguments.append("--tab-stability-testing")
         }
-        if name.contains("testDataSourceMatrixUsesLargeTextOverview") || name.contains("testQuickAddPortionPreviewAtLargeText") || name.contains("testQuickAddPortionShortcutsAtLargeText") || name.contains("testCompletedTrendsAtLargeText") || name.contains("testNutritionDayReviewEmptyAtLargeText") {
+        if name.contains("testManualNutritionAtLargeText") || name.contains("testDataSourceMatrixUsesLargeTextOverview") || name.contains("testQuickAddPortionPreviewAtLargeText") || name.contains("testQuickAddPortionShortcutsAtLargeText") || name.contains("testCompletedTrendsAtLargeText") || name.contains("testNutritionDayReviewEmptyAtLargeText") {
             app.launchArguments += [
                 "-UIPreferredContentSizeCategoryName",
                 "UICTContentSizeCategoryAccessibilityXXXL"
@@ -325,6 +325,51 @@ final class DailyMacrosScreenshots: XCTestCase {
         attachment.name = "\(nameField) editor Save and validation"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testManualNutritionValidationAndCancel() throws {
+        selectTab("Macros")
+        app.buttons["Log meal"].tap()
+        let open = app.buttons["manual-entry-open"]
+        for _ in 0..<6 where !open.isHittable { app.swipeUp() }
+        open.tap()
+        let save = app.buttons["manual-entry-save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        save.tap()
+        let error = app.staticTexts["manual-entry-error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertTrue(error.label.contains("item name"))
+        XCTAssertTrue(save.isEnabled)
+        for _ in 0..<6 where !app.textFields["Item Name"].isHittable { app.swipeDown() }
+        app.textFields["Item Name"].tap(); app.textFields["Item Name"].typeText("Homemade toast")
+        let quantity = app.textFields["Quantity"]
+        quantity.tap(); quantity.typeText(XCUIKeyboardKey.delete.rawValue + "2")
+        for (label, value) in [("Calories", "240"), ("Protein (g)", "8"), ("Carbs (g)", "38"), ("Fat (g)", "6")] {
+            let field = app.textFields[label]
+            for _ in 0..<6 where !field.isHittable { app.swipeUp() }
+            field.tap(); field.typeText(value)
+            if name.contains("AtLargeText") && label == "Protein (g)" {
+                attachTrend("Manual-nutrition-large-text-fields")
+            }
+        }
+        XCTAssertFalse(error.exists, "Editing should clear the stale validation message")
+        app.swipeDown()
+        XCTAssertEqual(app.textFields["Calories"].value as? String, "240")
+        if !name.contains("AtLargeText") { attachTrend("Manual-nutrition-totals") }
+        if name.contains("AtLargeText") {
+            let toggle = app.switches["Save as Quick Add"]
+            for _ in 0..<8 where !toggle.isHittable { app.swipeUp() }
+            attachTrend("Manual-nutrition-large-text-date")
+        }
+        app.buttons["Cancel"].firstMatch.tap()
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        open.tap()
+        XCTAssertEqual(app.textFields["Item Name"].value as? String, "Item Name")
+        app.buttons["Cancel"].firstMatch.tap()
+    }
+
+    func testManualNutritionAtLargeText() throws {
+        try testManualNutritionValidationAndCancel()
     }
 
     func testQuickAddSourceFilters() throws {

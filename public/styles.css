@@ -2326,6 +2326,8 @@ button[disabled] {
   flex-shrink: 0;
 }
 
+#manual-entry-overlay[hidden] { display: none; }
+
 .parsed-meal-header {
   padding: 0.5rem 0.6rem;
   border: 1px solid rgba(0, 207, 255, 0.15);

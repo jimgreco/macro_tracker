@@ -6042,6 +6042,111 @@ function showEntryModal(entry, { onSave, onDelete, onCopyToToday, title } = {}) 
   });
 }
 
+// Retain an uncertain manual attempt when the sheet is closed, so reopening can
+// retry the exact body/identity without changing its portion or logged time.
+let manualEntryEditor;
+function showManualEntryModal() {
+  const scope = JSON.stringify([state.currentUser?.id, getTimezone()]);
+  if (manualEntryEditor?.scope !== scope) {
+    manualEntryEditor?.overlay.remove();
+    manualEntryEditor = null;
+  }
+  if (manualEntryEditor) {
+    manualEntryEditor.overlay.hidden = false;
+    manualEntryEditor.overlay.querySelector('#manual-save').focus();
+    return;
+  }
+  const overlay = document.createElement('div');
+  overlay.id = 'manual-entry-overlay';
+  overlay.className = 'combine-modal-overlay';
+  const numberField = (key, label, min, max, value = '') => `<div class="entry-modal-field"><label for="manual-${key}">${label}</label><input id="manual-${key}" type="number" inputmode="decimal" step="any" min="${min}" max="${max}" value="${value}" required /></div>`;
+  overlay.innerHTML = `
+    <form class="combine-modal entry-modal" role="dialog" aria-modal="true" aria-labelledby="manual-entry-title" novalidate>
+      <h3 id="manual-entry-title">Enter nutrition</h3>
+      <p>Enter nutrition totals for the whole portion below. Changing quantity does not scale these numbers.</p>
+      <label for="manual-name">Item name</label><input id="manual-name" maxlength="160" required />
+      <div class="entry-modal-row">${numberField('quantity', 'Quantity', 0.001, 10000, '1')}<div class="entry-modal-field"><label for="manual-unit">Unit</label><input id="manual-unit" maxlength="32" value="serving" required /></div></div>
+      <div class="entry-modal-row">${numberField('calories', 'Calories', 0, 20000)}${numberField('protein', 'Protein (g)', 0, 5000)}</div>
+      <div class="entry-modal-row">${numberField('carbs', 'Carbs (g)', 0, 5000)}${numberField('fat', 'Fat (g)', 0, 5000)}</div>
+      <label for="manual-fiber">Fiber (g; blank means unknown)</label><input id="manual-fiber" type="number" inputmode="decimal" step="any" min="0" max="5000" placeholder="Unknown" />
+      <label for="manual-time">Logged at</label><input id="manual-time" type="datetime-local" value="${escapeAttr(consumedAtEl.value)}" required />
+      <label class="inline-check entry-modal-quickadd"><input id="manual-quick-add" type="checkbox" /><span>Save as Quick Add</span></label>
+      <p id="manual-entry-error" role="alert"></p>
+      <div class="combine-modal-actions"><button type="button" id="manual-cancel" class="btn-muted table-action-btn">Cancel</button><button type="submit" id="manual-save" class="btn-success table-action-btn">Save</button></div>
+    </form>`;
+  document.body.appendChild(overlay);
+  const editor = { overlay, scope, post: createReplaySafePost(), payload: null, busy: false };
+  manualEntryEditor = editor;
+  const field = key => overlay.querySelector(`#manual-${key}`);
+  const error = overlay.querySelector('#manual-entry-error');
+  overlay.addEventListener('input', () => { if (!editor.payload) error.textContent = ''; });
+  const close = () => {
+    if (editor.busy) return;
+    if (editor.payload) overlay.hidden = true;
+    else { overlay.remove(); manualEntryEditor = null; }
+    document.getElementById('manual-entry-btn').focus();
+  };
+  field('cancel').addEventListener('click', close);
+  overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+  overlay.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); close(); }
+    if (event.key === 'Tab') {
+      const controls = [...overlay.querySelectorAll('input:not(:disabled), button:not(:disabled)')];
+      const edge = event.shiftKey ? controls[0] : controls.at(-1);
+      if (document.activeElement === edge) {
+        event.preventDefault();
+        (event.shiftKey ? controls.at(-1) : controls[0])?.focus();
+      }
+    }
+  });
+  overlay.querySelector('form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (editor.busy) return;
+    if (scope !== JSON.stringify([state.currentUser?.id, getTimezone()])) {
+      error.textContent = 'Your account or timezone changed. Close this form and open it again.';
+      field('save').disabled = true;
+      return;
+    }
+    error.textContent = '';
+    if (!editor.payload) {
+      const invalid = [...overlay.querySelectorAll('input')].find(input => !input.checkValidity() || (input.required && !input.value.trim()));
+      if (invalid) {
+        error.textContent = `Check ${overlay.querySelector(`label[for="${invalid.id}"]`)?.textContent || 'the highlighted field'}. Enter a valid value in the allowed range.`;
+        invalid.focus();
+        return;
+      }
+      const item = { itemName: field('name').value.trim(), unit: field('unit').value.trim(), source: 'manual', sourceDetail: 'Entered nutrition totals', needsReview: false };
+      for (const key of ['quantity', 'calories', 'protein', 'carbs', 'fat']) item[key] = Number(field(key).value);
+      item.fiber = field('fiber').value === '' ? null : Number(field('fiber').value);
+      const { itemName, needsReview, ...saved } = item;
+      editor.payload = { consumedAt: asIso(field('time').value), items: [item], saveItems: field('quick-add').checked ? [{ ...saved, name: itemName }] : [] };
+    }
+    editor.busy = true;
+    overlay.querySelectorAll('input, button').forEach(control => { control.disabled = true; });
+    field('save').textContent = 'Saving…';
+    try {
+      await editor.post('/api/entries/bulk', editor.payload);
+      overlay.remove();
+      if (manualEntryEditor === editor) manualEntryEditor = null;
+      if (scope === JSON.stringify([state.currentUser?.id, getTimezone()])) {
+        await refreshAfterMealSave('Nutrition entry saved.');
+        if (editor.payload.saveItems.length) await loadQuickEntries({ force: true });
+      }
+    } catch (_error) {
+      if (overlay.isConnected) {
+        error.textContent = 'Could not confirm the save. Retry sends the same entry and logged time safely.';
+        field('save').textContent = 'Retry save';
+        field('save').disabled = false;
+        field('cancel').textContent = 'Close';
+        field('cancel').disabled = false;
+      }
+    } finally { editor.busy = false; }
+  });
+  field('name').focus();
+}
+
+document.getElementById('manual-entry-btn').addEventListener('click', showManualEntryModal);
+
 function createLogEditActions(overlay) {
   let busy = false;
   const errorMessage = document.createElement('p');
