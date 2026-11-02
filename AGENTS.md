@@ -192,6 +192,11 @@ preserved there.
 - Keep every Xcode `MARKETING_VERSION` aligned with `.github/scripts/release-policy.json`. Apple closes an approved marketing-version train: increasing only the Git-count build cannot reopen it. Verify the current version read-only and choose a higher marketing version before retrying a 90186/90062 rejection.
 - Legacy Elastic Beanstalk material remains in `docs/aws-production-security-audit.md`; do not use it as the current deploy source of truth unless that platform is intentionally revived.
 
+After a successful native upload, use `verify-testflight.yml` with the original
+`build` and `source_sha` to repeat GET-only processing/audience verification. This
+uses the same Jim-only audience checks without another archive or upload; do not
+rerun the upload job just because its final Apple read failed.
+
 ### Deployment Process
 
 Deployment is automated by `.github/workflows/ci.yml`. Every push to `main` runs the full `Required Checks` aggregate. The reusable EC2 deploy and TestFlight jobs additionally require explicit `workflow_dispatch` inputs, default false; pushes never release automatically. No direct deploy/TestFlight dispatch or manual `eb deploy` step is part of the active path.
