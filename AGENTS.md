@@ -274,3 +274,7 @@ only into a disposable clean Git archive and verifies real image exclusions.
 ## Fiber tracking
 
 Fiber grams are nullable: unknown is not zero. Preserve omitted fiber on legacy edits, scale known values with portions, and derive multi-item Quick Add totals from components. Daily fiber totals require full item coverage; export known grams and counts alongside null totals. Fiber targets use historical `macro_targets` like other nutrients. Schema v2 needs the explicit additive `npm run db:migrate:fiber` with owner-supplied `MIGRATION_DATABASE_URL` before rollout; never use runtime credentials for DDL. See `docs/fiber-tracking.md`.
+
+## Current takeover guide
+
+Read [the coding handoff](docs/AGENT_HANDOFF.md) for the verified source/release snapshot, setup, tests, active work and remaining gaps. Reconcile it with current Git state before editing; historical release receipts are not new authorization.
