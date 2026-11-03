@@ -4,16 +4,17 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Re-release main without a new commit. Pushes to main always release.
   workflow_dispatch:
     inputs:
       deploy_production:
-        description: Deploy this verified main commit after host preflight approval
+        description: Deploy this main commit to EC2
         type: boolean
-        default: false
+        default: true
       upload_testflight:
-        description: Upload to TestFlight after explicit distribution approval
+        description: Upload this main commit to TestFlight
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -303,14 +304,14 @@ jobs:
 
   deploy:
     name: Deploy to EC2
-    if: needs.required.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.deploy_production && github.ref == 'refs/heads/main'
+    if: needs.required.result == 'success' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy_production))
     needs: required
     uses: ./.github/workflows/deploy.yml
     secrets: inherit
 
   testflight:
     name: TestFlight
-    if: needs.required.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.upload_testflight && github.ref == 'refs/heads/main'
+    if: needs.required.result == 'success' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload_testflight))
     needs: required
     uses: ./.github/workflows/testflight.yml
     secrets: inherit

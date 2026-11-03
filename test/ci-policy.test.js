@@ -26,7 +26,7 @@ function jobBlock(source, jobName) {
   return endMatch ? remainder.slice(0, endMatch.index) : remainder;
 }
 
-test('release workflows are reusable only and cannot bypass required CI', () => {
+test('release workflows are reusable only, run on main pushes, and cannot bypass required CI', () => {
   for (const workflow of [
     '.github/workflows/deploy.yml',
     '.github/workflows/testflight.yml'
@@ -49,7 +49,10 @@ test('release workflows are reusable only and cannot bypass required CI', () => 
     const block = jobBlock(orchestrator, jobName);
     assert.match(block, /^\s{4}needs: required\s*$/m);
     assert.match(block, /if: needs\.required\.result == 'success'/);
-    assert.match(block, /github\.event_name == 'workflow_dispatch'/);
+    assert.match(block, /github\.ref == 'refs\/heads\/main'/);
+    // Pushes to main release automatically; pull requests never release.
+    assert.match(block, /github\.event_name == 'push'/);
+    assert.doesNotMatch(block, /pull_request/);
     assert.match(block, new RegExp(`inputs\\.${jobName === 'deploy' ? 'deploy_production' : 'upload_testflight'}`));
     assert.match(block, new RegExp(`uses: \\.\\/\\.github\\/workflows\\/${workflow}`));
   }

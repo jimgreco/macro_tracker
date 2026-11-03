@@ -199,7 +199,7 @@ rerun the upload job just because its final Apple read failed.
 
 ### Deployment Process
 
-Deployment is automated by `.github/workflows/ci.yml`. Every push to `main` runs the full `Required Checks` aggregate. The reusable EC2 deploy and TestFlight jobs additionally require explicit `workflow_dispatch` inputs, default false; pushes never release automatically. No direct deploy/TestFlight dispatch or manual `eb deploy` step is part of the active path.
+Deployment is automated by `.github/workflows/ci.yml`. Every push to `main` runs the full `Required Checks` aggregate and, once it passes, deploys to EC2 and uploads an internal TestFlight build. Pull requests never release. A manual `workflow_dispatch` of `Required CI and Release` on `main` re-releases without a new commit (both inputs default true). No direct deploy/TestFlight dispatch or manual `eb deploy` step is part of the active path.
 
 When asked to deploy or "push live", always run these steps in order — no skipping:
 

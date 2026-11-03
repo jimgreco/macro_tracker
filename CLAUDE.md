@@ -151,7 +151,7 @@ The iOS app communicates with the backend via Bearer token auth. Sign in with Ap
 - Active platform: EC2 host running Docker Compose from `~/deploy`.
 - Production database: shared Docker Postgres container in the remote Compose stack (`shared_db`).
 - Nightly logical database backup: `dailymacros-db-backup.timer` runs `scripts/production-db-backup.sh` before the AWS DLM daily EBS snapshot window; DLM policy `policy-06a5ef1af3cbbc321` retains 7 daily off-host snapshots.
-- Deploy workflow: `.github/workflows/deploy.yml`.
+- Deploy workflow: `.github/workflows/ci.yml` → `deploy.yml` / `testflight.yml`.
 - Release runbook: `docs/ec2-release-runbook.md`.
 - Health check: `GET /healthz` (performs live DB query).
 - Version check: `GET /version`.
@@ -161,7 +161,7 @@ The iOS app communicates with the backend via Bearer token auth. Sign in with Ap
 
 ### Deployment Process
 
-Deployment is automated via GitHub Actions (`.github/workflows/deploy.yml`). Every qualifying push to `main` deploys backend/web assets to the EC2/Docker Compose production service. No manual `eb deploy` step is part of the active path.
+Deployment is automated via GitHub Actions. `.github/workflows/ci.yml` (`Required CI and Release`) runs the full `Required Checks` on every push to `main`, then calls `deploy.yml` (EC2/Docker Compose; the host-side `safe-compose-release.py` does its own preflight and fails closed on drift) and `testflight.yml` (internal TestFlight upload, build number = commit count). Pull requests never release. To re-release without a new commit, dispatch `Required CI and Release` on `main`. No manual `eb deploy` step is part of the active path.
 
 When asked to deploy or "push live", always run these steps in order — no skipping:
 
@@ -169,7 +169,7 @@ When asked to deploy or "push live", always run these steps in order — no skip
 2. **`git add`** all changed files relevant to the work
 3. **Update `CLAUDE.md`** if anything was learned (new gotchas, architecture decisions, changed patterns) — then `git add CLAUDE.md`
 4. **`git commit`** with a clear message describing what changed and why
-5. **`git push origin main`** — GitHub Actions will automatically deploy when the changed paths match `.github/workflows/deploy.yml`
+5. **`git push origin main`** — once Required Checks pass, GitHub Actions deploys to EC2 and uploads to TestFlight
 
 The workflow uses `EC2_SSH_KEY`, `EC2_USER`, and `EC2_HOST` secrets, builds the `macros` service through the remote Compose project, and runs post-deploy `/healthz` and `/version` checks when `PRODUCTION_BASE_URL` is configured.
 

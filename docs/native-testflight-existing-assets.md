@@ -1,6 +1,6 @@
 # Existing-assets-only Macros TestFlight release
 
-The manual `upload_testflight` input on **Required CI and Release** remains the only upload entry point. It defaults false and requires `main` plus successful Required Checks. The reusable TestFlight workflow has no direct dispatch or push trigger. This change does not authorize signing, upload, or production deployment.
+**Required CI and Release** uploads an internal TestFlight build on every push to `main` after successful Required Checks; a manual run can re-upload via the `upload_testflight` input (default true). The reusable TestFlight workflow has no direct dispatch or push trigger of its own. Uploads stay internal-only and use existing signing assets.
 
 The guard reuses the Workouts GET-only Apple client and local signing/artifact checks. Macros keeps its existing repository-configured distribution certificate and provisioning profile; it does not borrow another app's credentials or require a newly created profile. The decoded profile must match the configured name, Macros bundle/team, App Store distribution type, Apple sign-in and HealthKit entitlements, validity, and the supplied certificate. The public fingerprints and existing UUID are frozen in a run-local policy. Apple GETs must confirm the exact active profile, bundle and unexpired certificate; downloaded profile bytes must equal the configured profile. Cached profiles with differing bytes are preserved and stop the release.
 

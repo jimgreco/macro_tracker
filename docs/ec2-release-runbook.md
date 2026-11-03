@@ -229,11 +229,12 @@ Run `TEST_DATABASE_URL=... node --test test/health-reconciliation.test.js` for t
 
 ## Audited release safety gate (October 2026)
 
-A main push runs Required Checks only. After live-host preflight and the separately
-required approvals, dispatch `Required CI and Release` on main with
-`deploy_production=true`; leave `upload_testflight=false` unless distribution and
-any signing/profile actions are approved. TestFlight upload is a separate result
-from an installed or App Store release.
+A main push runs Required Checks and, when they pass, deploys to EC2 and uploads
+an internal TestFlight build. The deploy step's `safe-compose-release.py` run
+performs the full live-host preflight before building and fails closed on drift,
+so no separate manual preflight is needed. To re-release a commit, dispatch
+`Required CI and Release` on main (both release inputs default true). TestFlight
+upload is a separate result from an installed or App Store release.
 
 `scripts/safe-compose-release.py macros <full-sha> --check` reads the running
 service's Compose labels, exact existing files, config hash, and environment.

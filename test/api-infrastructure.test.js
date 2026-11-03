@@ -1217,13 +1217,13 @@ test('TestFlight workflow requires the canonical Macrovana API origin and passes
   assert.ok(workflow.includes('GIT_COMMIT_HASH="$GIT_COMMIT_HASH"'));
 });
 
-test('TestFlight retains manual CI gating and verifies existing scope around its only upload', () => {
+test('TestFlight releases main after required CI and verifies existing scope around its only upload', () => {
   const workflow = read('.github/workflows/testflight.yml');
   const ci = read('.github/workflows/ci.yml');
   assert.ok(workflow.includes('workflow_call:'));
   assert.ok(!workflow.includes('  push:'));
-  assert.ok(workflow.includes("github.event_name == 'workflow_dispatch'"));
-  assert.ok(ci.includes("needs.required.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.upload_testflight"));
+  assert.ok(workflow.includes("github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')"));
+  assert.ok(ci.includes("needs.required.result == 'success' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload_testflight))"));
   assert.ok(!workflow.includes('-allowProvisioningUpdates'));
   assert.ok(!workflow.includes('-authenticationKeyPath'));
   assert.ok(!workflow.includes('security default-keychain'));

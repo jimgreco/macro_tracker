@@ -11,11 +11,12 @@ The context aggregates five independent jobs:
 - Chromium browser journeys plus critical axe accessibility checks.
 - A signing-disabled iOS simulator build with executable Swift unit tests.
 
-Every job uploads failure diagnostics for 14 days. On `main`, the EC2 deploy and
-TestFlight reusable workflows run only after `Required Checks` succeeds. They no
-longer expose direct `push` or `workflow_dispatch` triggers, so a release cannot
-bypass the orchestrator. A manual run of `Required CI and Release` on `main`
-still reruns all gates before either release job.
+Every job uploads failure diagnostics for 14 days. Every push to `main` deploys
+to EC2 and uploads an internal TestFlight build, but only after `Required Checks`
+succeeds; pull requests never release. The reusable deploy and TestFlight
+workflows expose no direct `push` or `workflow_dispatch` triggers, so a release
+cannot bypass the orchestrator. A manual run of `Required CI and Release` on
+`main` re-releases without a new commit and still reruns all gates first.
 
 ## Main protection
 
