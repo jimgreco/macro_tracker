@@ -179,14 +179,17 @@ export async function preflight(client, build, sha, p = policy) {
   check(!rejected.length, 'iOS build preflight rejected existing metadata: ' + JSON.stringify(rejected.slice(0, 10).map(b => ({ type: b.type, build: b.attributes?.version, marketingVersion: b.marketingVersion }))) + `; total rejected=${rejected.length}.`);
   return { ...scope, sha, build: String(build), checkedAt: new Date().toISOString(), existingIOSBuilds: builds.length };
 }
-export async function verifyUploaded(client, build, sha, p = policy) {
+export const buildAudiences = { internal: 'INTERNAL_ONLY', 'app-store': 'APP_STORE_ELIGIBLE' };
+export async function verifyUploaded(client, build, sha, p = policy, distribution = 'internal') {
+  const expectedAudience = buildAudiences[distribution];
+  check(expectedAudience, 'Unknown distribution.');
   releaseIdentity(build, sha); await audience(client, p);
   const matches = (await iosBuilds(client, p)).filter(b => b.marketingVersion === p.marketingVersion && b.attributes?.version === String(build));
   check(matches.length <= 1, 'Uploaded build identity is ambiguous.');
   if (!matches.length || matches[0].attributes.processingState === 'PROCESSING') return null;
   const b = matches[0];
   check(b.type === 'builds' && b.marketingVersion === p.marketingVersion && b.attributes.processingState === 'VALID'
-    && b.attributes.expired === false && b.attributes.buildAudienceType === 'INTERNAL_ONLY', 'Uploaded build failed processing or is not the intended internal-only iOS version.');
+    && b.attributes.expired === false && b.attributes.buildAudienceType === expectedAudience, `Uploaded build failed processing or is not the intended ${expectedAudience} iOS version.`);
   // Apple supports GET betaGroups/{id}/builds, not GET builds/{id}/betaGroups.
   // audience() above already proved the complete app group set is exactly pinned.
   const groups = [];
@@ -198,7 +201,7 @@ export async function verifyUploaded(client, build, sha, p = policy) {
   const testers = await client.list(`/v1/builds/${encodeURIComponent(b.id)}/individualTesters?limit=200`);
   check(testers.length <= 1 && testers.every(t => isApprovedTester(t, p)), 'Uploaded build has an unapproved individual tester.');
   if (!groups.some(g => g.id === p.groups.find(e => e.testers === 1).id)) return null;
-  return { sha, build, appId: p.appId, processing: 'VALID', audience: 'INTERNAL_ONLY', approvedGroupAttached: true };
+  return { sha, build, appId: p.appId, processing: 'VALID', audience: expectedAudience, approvedGroupAttached: true };
 }
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`); check(i >= 0 && process.argv[i + 1], `Missing --${name}.`); return process.argv[i + 1];
@@ -227,7 +230,8 @@ async function main() {
     console.log(JSON.stringify(await preflight(client, build, sha, p)));
   } else if (mode === 'verify-upload') {
     for (let attempt = 0; attempt < 40; attempt++) {
-      const result = await verifyUploaded(client, arg('build'), arg('sha'), p);
+      const distribution = process.argv.includes('--distribution') ? arg('distribution') : 'internal';
+      const result = await verifyUploaded(client, arg('build'), arg('sha'), p, distribution);
       if (result) { console.log(JSON.stringify(result)); return; }
       await new Promise(resolve => setTimeout(resolve, 15000));
     }

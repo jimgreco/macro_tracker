@@ -161,7 +161,7 @@ The iOS app communicates with the backend via Bearer token auth. Sign in with Ap
 
 ### Deployment Process
 
-Deployment is automated via GitHub Actions. `.github/workflows/ci.yml` (`Required CI and Release`) runs the full `Required Checks` on every push to `main`, then calls `deploy.yml` (EC2/Docker Compose; the host-side `safe-compose-release.py` does its own preflight and fails closed on drift) and `testflight.yml` (internal TestFlight upload, build number = commit count). Pull requests never release. To re-release without a new commit, dispatch `Required CI and Release` on `main`. No manual `eb deploy` step is part of the active path.
+Deployment is automated via GitHub Actions. `.github/workflows/ci.yml` (`Required CI and Release`) runs the full `Required Checks` on every push to `main`, then calls `deploy.yml` (EC2/Docker Compose; the host-side `safe-compose-release.py` does its own preflight and fails closed on drift) and `testflight.yml` (internal TestFlight upload, build number = commit count). Pull requests never release. To re-release without a new commit, dispatch `Required CI and Release` on `main`. Push builds are internal-only (`testFlightInternalTestingOnly`) and cannot be submitted to App Store review. For an App Store update: bump `MARKETING_VERSION` (and `release-policy.json`) if the current version is already live, push the commit with `[skip ci]` in the message so its build number is free, dispatch `Required CI and Release` with `app_store_build` checked, then dispatch `App Store Submit` with that build number and What's New text (unchecked `submit` prints the GET-only plan first). No manual `eb deploy` step is part of the active path.
 
 When asked to deploy or "push live", always run these steps in order — no skipping:
 

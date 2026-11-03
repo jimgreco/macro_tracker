@@ -56,6 +56,18 @@ test('release workflows are reusable only, run on main pushes, and cannot bypass
     assert.match(block, new RegExp(`inputs\\.${jobName === 'deploy' ? 'deploy_production' : 'upload_testflight'}`));
     assert.match(block, new RegExp(`uses: \\.\\/\\.github\\/workflows\\/${workflow}`));
   }
+  // Pushes stay internal-only; only an explicit dispatch builds for the App Store.
+  assert.match(jobBlock(orchestrator, 'testflight'), /distribution: \$\{\{ inputs\.app_store_build && 'app-store' \|\| 'internal' \}\}/);
+  assert.match(orchestrator, /app_store_build:\n(?:\s+.*\n)*?\s+default: false/);
+});
+
+test('App Store submission is main-only, plans by default, and never uploads', () => {
+  const workflow = read('.github/workflows/app-store-submit.yml');
+  assert.match(workflow, /if: github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow, /submit:\n(?:\s+.*\n)*?\s+default: false/);
+  assert.match(workflow, /if: inputs\.submit/);
+  assert.ok(workflow.indexOf('asc-submit.mjs plan') < workflow.indexOf('asc-submit.mjs submit'));
+  assert.doesNotMatch(workflow, /altool|xcodebuild|\$\{\{ inputs\.whats_new \}\}"/);
 });
 
 test('the stable Required Checks context aggregates every required surface', () => {

@@ -186,6 +186,10 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(options['signingCertificate'],self.p['certificateSha1'])
         self.assertEqual(set(options['provisioningProfiles'].values()),{t['uuid'] for t in self.p['profiles'].values()})
 
+    def test_app_store_export_is_explicit(self):
+        self.assertIs(v.export_options(self.p,'app-store')['testFlightInternalTestingOnly'],False)
+        with self.assertRaises(ValueError):v.export_options(self.p,'public')
+
     def test_source_ref_and_count(self):
         with patch.object(v,'run',side_effect=[(self.sha+'\n').encode(),b'999\n']):v.identity(self.sha,self.build)
         with patch.object(v,'run',return_value=b'wrong\n'):

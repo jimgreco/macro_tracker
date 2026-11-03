@@ -121,10 +121,13 @@ def source(sha, build, prepare=False, policy=POLICY):
                     check(original.get(key) == current.get(key), 'Unexpected source plist change.')
 
 
-def export_options(policy=POLICY):
+def export_options(policy=POLICY, distribution='internal'):
+    # Pushes upload internal-only builds. Only a dispatched App Store build may
+    # be attached to an App Store version and submitted for review.
+    check(distribution in ['internal', 'app-store'], 'Unknown distribution.')
     return dict(method='app-store-connect', destination='export', teamID=policy['teamId'], signingStyle='manual',
                 signingCertificate=policy['certificateSha1'], manageAppVersionAndBuildNumber=False,
-                testFlightInternalTestingOnly=True, stripSwiftSymbols=True, uploadSymbols=True,
+                testFlightInternalTestingOnly=distribution == 'internal', stripSwiftSymbols=True, uploadSymbols=True,
                 provisioningProfiles={p['bundleId']: p['uuid'] for p in policy['profiles'].values()})
 
 
@@ -198,6 +201,7 @@ def main():
     parser.add_argument('mode', choices=['prepare-source', 'source', 'configure-policy', 'profiles', 'export-options', 'artifact'])
     for name in ['sha', 'build', 'directory', 'certificate-der', 'destination', 'output', 'ipa', 'profile']:
         parser.add_argument('--' + name)
+    parser.add_argument('--distribution', choices=['internal', 'app-store'], default='internal')
     args = parser.parse_args()
     policy = POLICY
     if args.mode == 'configure-policy':
@@ -213,7 +217,7 @@ def main():
         install_profiles(Path(args.directory), Path(args.certificate_der).read_bytes(), Path(args.destination), policy)
     elif args.mode == 'export-options':
         with open(args.output, 'xb') as file:
-            plistlib.dump(export_options(policy), file)
+            plistlib.dump(export_options(policy, args.distribution), file)
     else:
         source(args.sha, args.build)
         print(json.dumps(artifact(args.ipa, args.sha, args.build, policy)))

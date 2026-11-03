@@ -15,6 +15,10 @@ on:
         description: Upload this main commit to TestFlight
         type: boolean
         default: true
+      app_store_build:
+        description: Make the uploaded build eligible for App Store review (otherwise internal TestFlight only)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -314,4 +318,6 @@ jobs:
     if: needs.required.result == 'success' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload_testflight))
     needs: required
     uses: ./.github/workflows/testflight.yml
+    with:
+      distribution: ${{ inputs.app_store_build && 'app-store' || 'internal' }}
     secrets: inherit

@@ -1,0 +1,89 @@
+name: App Store Submit
+
+# Submits an existing App Store-eligible build (from a `Required CI and Release`
+# dispatch with app_store_build) for App Store review. It never builds or uploads.
+# With submit unchecked it only reads Apple state and prints the plan.
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: Processed App Store-eligible build number
+        type: string
+        required: true
+      whats_new:
+        description: What's New text for every localization
+        type: string
+        required: true
+      submit:
+        description: Submit for review (unchecked prints the plan only)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macros-app-store-submit
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prepare isolated authentication
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          WHATS_NEW: ${{ inputs.whats_new }}
+        run: |
+          set -euo pipefail
+          umask 077
+          RELEASE_TEMP="$(mktemp -d "$RUNNER_TEMP/macros-submit.XXXXXX")"
+          echo "RELEASE_TEMP=$RELEASE_TEMP" >> "$GITHUB_ENV"
+          export RELEASE_TEMP
+          printf '%s' "$WHATS_NEW" > "$RELEASE_TEMP/whats-new.txt"
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          key = os.environ['API_KEY'].strip().replace('\\n', '\n')
+          if 'BEGIN PRIVATE KEY' not in key:
+              key = base64.b64decode(key).decode()
+          if 'BEGIN PRIVATE KEY' not in key:
+              raise SystemExit('Existing API key encoding is unsupported.')
+          key_id = os.environ['APP_STORE_CONNECT_KEY_ID']
+          if not key_id.isalnum():
+              raise SystemExit('Invalid API key identifier.')
+          path = Path(os.environ['RELEASE_TEMP'])/('AuthKey_'+key_id+'.p8')
+          with path.open('x') as file:
+              file.write(key.rstrip()+'\n')
+          with open(os.environ['GITHUB_ENV'], 'a') as file:
+              file.write('APP_STORE_CONNECT_API_KEY_PATH='+str(path)+'\n')
+              for name in ['APP_STORE_CONNECT_KEY_ID', 'APP_STORE_CONNECT_ISSUER_ID']:
+                  value = os.environ[name]
+                  if not value or '\n' in value or '\r' in value:
+                      raise SystemExit('Invalid authentication metadata.')
+                  file.write(name+'='+value+'\n')
+          PY
+
+      - name: Read current App Store state
+        env:
+          BUILD: ${{ inputs.build }}
+        run: node .github/scripts/asc-submit.mjs plan --build "$BUILD"
+
+      - name: Submit for App Store review
+        if: inputs.submit
+        env:
+          BUILD: ${{ inputs.build }}
+        run: node .github/scripts/asc-submit.mjs submit --build "$BUILD" --whats-new-file "$RELEASE_TEMP/whats-new.txt"
+
+      - name: Clean authentication
+        if: always()
+        run: rm -rf "${RELEASE_TEMP:-/nonexistent}"

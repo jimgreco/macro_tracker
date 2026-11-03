@@ -2,6 +2,12 @@ name: TestFlight
 
 on:
   workflow_call:
+    inputs:
+      # internal: TestFlight-only (every push). app-store: eligible for App Store
+      # review, used only by a dispatched release; see app-store-submit.yml.
+      distribution:
+        type: string
+        default: internal
 
 permissions:
   contents: read
@@ -15,6 +21,8 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: macos-latest
     timeout-minutes: 45
+    env:
+      DISTRIBUTION: ${{ inputs.distribution }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -38,6 +46,8 @@ jobs:
       - name: Test release guards and bind source
         run: |
           set -euo pipefail
+          case "$DISTRIBUTION" in internal|app-store) ;; *) echo "Unknown distribution: $DISTRIBUTION"; exit 1 ;; esac
+          echo "Distribution: $DISTRIBUTION"
           node --test .github/scripts/release-guard-tests.mjs
           PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/test_release.py
           BUILD_NUMBER="$(git rev-list --count HEAD)"
@@ -177,10 +187,10 @@ jobs:
             API_BASE_URL="$IOS_API_BASE_URL" APP_BUILD="$BUILD_NUMBER" \
             GIT_COMMIT_HASH="$GIT_COMMIT_HASH"
 
-      - name: Export internal-only IPA without provisioning updates
+      - name: Export IPA for the selected distribution without provisioning updates
         run: |
           set -euo pipefail
-          python3 .github/scripts/verify-release.py export-options --output "$RELEASE_TEMP/ExportOptions.plist"
+          python3 .github/scripts/verify-release.py export-options --distribution "$DISTRIBUTION" --output "$RELEASE_TEMP/ExportOptions.plist"
           xcodebuild -exportArchive -archivePath "$RELEASE_TEMP/DailyMacros.xcarchive" -exportOptionsPlist "$RELEASE_TEMP/ExportOptions.plist" -exportPath "$RELEASE_TEMP/export"
           python3 - <<'PY'
           import os
@@ -201,7 +211,7 @@ jobs:
           cmp "$RELEASE_TEMP/profiles/app.mobileprovision" "$RELEASE_TEMP/final-profiles/app.mobileprovision"
           node .github/scripts/asc-readonly.mjs preflight --sha "$GITHUB_SHA" --build "$BUILD_NUMBER"
 
-      - name: Upload one verified internal-only build
+      - name: Upload one verified build
         run: |
           set -euo pipefail
           cd "$RELEASE_TEMP"
@@ -212,7 +222,7 @@ jobs:
       - name: Verify processing and existing internal group availability
         run: |
           set -euo pipefail
-          node .github/scripts/asc-readonly.mjs verify-upload --sha "$GITHUB_SHA" --build "$BUILD_NUMBER"
+          node .github/scripts/asc-readonly.mjs verify-upload --sha "$GITHUB_SHA" --build "$BUILD_NUMBER" --distribution "$DISTRIBUTION"
 
       - name: Clean only this run's signing files
         if: always()
