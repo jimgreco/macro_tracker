@@ -40,6 +40,7 @@
 		B1000003 /* TargetHistoryDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003; };
 		B1000004 /* OuraAPIContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000004; };
 		B1000005 /* IntegrationDataAccessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000005; };
+		B1000006 /* QuickAddFitRankerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000006; };
 		U1000001 /* DailyMacrosScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000002; };
 		U1000002 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000003; };
 /* End PBXBuildFile section */
@@ -96,6 +97,7 @@
 		B2000003 /* TargetHistoryDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetHistoryDecodingTests.swift; sourceTree = "<group>"; };
 		B2000004 /* OuraAPIContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OuraAPIContractTests.swift; sourceTree = "<group>"; };
 		B2000005 /* IntegrationDataAccessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationDataAccessTests.swift; sourceTree = "<group>"; };
+		B2000006 /* QuickAddFitRankerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickAddFitRankerTests.swift; sourceTree = "<group>"; };
 		B3000001 /* DailyMacrosTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DailyMacrosTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		U2000001 /* ScreenshotSeedData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotSeedData.swift; sourceTree = "<group>"; };
 		U2000002 /* DailyMacrosScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyMacrosScreenshots.swift; sourceTree = "<group>"; };
@@ -185,6 +187,7 @@
 				B2000003 /* TargetHistoryDecodingTests.swift */,
 				B2000004 /* OuraAPIContractTests.swift */,
 				B2000005 /* IntegrationDataAccessTests.swift */,
+				B2000006 /* QuickAddFitRankerTests.swift */,
 			);
 			path = DailyMacrosTests;
 			sourceTree = "<group>";
@@ -372,6 +375,7 @@
 				B1000003 /* TargetHistoryDecodingTests.swift in Sources */,
 				B1000004 /* OuraAPIContractTests.swift in Sources */,
 				B1000005 /* IntegrationDataAccessTests.swift in Sources */,
+				B1000006 /* QuickAddFitRankerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

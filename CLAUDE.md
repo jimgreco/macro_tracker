@@ -26,6 +26,8 @@ npm run dev         # Start with file watcher
 
 Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google/Apple OAuth setup locally.
 
+`npm run check` reports "schema incompatible" until the schema contract is recorded. A fresh DB needs `MIGRATION_DATABASE_URL=$DATABASE_URL npm run db:migrate`. A pre-contract local DB needs `initDb()` run once (the idempotent legacy upgrade covered by `test/db-upgrade-path.test.js`), then `db:migrate -- --adopt-existing`. If the Docker Postgres panics on startup with "replication checkpoint has wrong magic", back up the volume and move `pg_logical/replorigin_checkpoint` aside; replication origins are unused locally.
+
 ## Common Commands
 
 | Command | Purpose |

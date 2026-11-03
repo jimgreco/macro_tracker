@@ -6,6 +6,8 @@
   root.DailyMacrosTodayState = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window, function todayStateFactory() {
   const SNAPSHOT_STALE_MINUTES = 15;
+  const FIT_MIN_CALORIES = 50;
+  const FIT_CALORIE_TOLERANCE = 0.05;
 
   function number(value, fallback = 0) {
     const parsed = Number(value);
@@ -188,9 +190,60 @@
     };
   }
 
+  // Rank saved Quick Adds by how well one serving fits what remains today:
+  // never overshoot calories, then favor protein toward the remaining goal.
+  function rankQuickAddFits({ savedItems, remaining, limit = 3 } = {}) {
+    const remainingCalories = number(remaining?.calories, NaN);
+    const remainingProtein = Math.max(0, number(remaining?.protein));
+    if (!Number.isFinite(remainingCalories) || remainingCalories < FIT_MIN_CALORIES) {
+      return [];
+    }
+    const budget = remainingCalories * (1 + FIT_CALORIE_TOLERANCE);
+
+    return (Array.isArray(savedItems) ? savedItems : [])
+      .map((item) => {
+        const calories = number(item?.calories);
+        const protein = Math.max(0, number(item?.protein));
+        if (!item || item.id == null || calories <= 0 || calories > budget) {
+          return null;
+        }
+        const usefulProtein = Math.min(protein, remainingProtein);
+        const proteinShare = (usefulProtein * 4) / calories;
+        const goalCoverage = remainingProtein > 0 ? usefulProtein / remainingProtein : 0;
+        const habit = Math.min(1, Math.log1p(number(item.usageCount)) / Math.log1p(20));
+        const leftCalories = Math.max(0, remainingCalories - calories);
+        const leftProtein = Math.max(0, remainingProtein - protein);
+        // Penalize picks that leave too few calories to finish the protein goal.
+        const crowding = remainingProtein > 0
+          ? Math.max(0, leftProtein * 4 - leftCalories) / (remainingProtein * 4)
+          : 0;
+        const score = remainingProtein > 0
+          ? proteinShare * 0.6 + goalCoverage * 0.3 + habit * 0.1 - crowding * 0.5
+          : habit * 0.7 + (1 - calories / budget) * 0.3;
+        return {
+          id: item.id,
+          name: String(item.name || 'Quick Add'),
+          calories,
+          protein,
+          score,
+          leftCalories,
+          leftProtein,
+          detail: remainingProtein > 0
+            ? leftProtein <= 0
+              ? `Closes protein · ${displayNumber(leftCalories, 0)} cal left`
+              : `Leaves ${displayNumber(leftCalories, 0)} cal · ${displayNumber(leftProtein, 0)}g protein`
+            : `${displayNumber(leftCalories, 0)} cal left after`
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score || a.calories - b.calories || a.name.localeCompare(b.name))
+      .slice(0, Math.max(0, limit));
+  }
+
   return {
     SNAPSHOT_STALE_MINUTES,
     buildTodayPresentation,
+    rankQuickAddFits,
     displayNumber,
     relativeAge
   };

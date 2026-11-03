@@ -16,6 +16,9 @@ struct TodayView: View {
     @State private var lastUpdatedAt: Date?
     @State private var loadGeneration = 0
     @State private var refreshTask: Task<Void, Never>?
+    @State private var savedItems: [SavedItem] = []
+    @State private var loggingFitID: Int?
+    @State private var fitMessage: String?
 
     private var summaryColumns: [GridItem] {
         if dynamicTypeSize.isAccessibilitySize {
@@ -300,12 +303,91 @@ struct TodayView: View {
                         tint: AppVisualSystem.ColorToken.fat
                     )
                 }
+
+                fitsYourDay(macros.remaining)
             }
         }
         .todayCard(
             .tinted(AppVisualSystem.ColorToken.accent),
             cornerRadius: AppVisualSystem.Radius.hero
         )
+    }
+
+    @ViewBuilder
+    private func fitsYourDay(_ remaining: TodayMacroRemaining) -> some View {
+        let fits = QuickAddFitRanker.rank(savedItems: savedItems, remaining: remaining)
+        if !fits.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Divider()
+                Text("Fits your day")
+                    .font(.caption.weight(.semibold))
+                    .textCase(.uppercase)
+                    .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
+                    .accessibilityAddTraits(.isHeader)
+
+                ForEach(fits) { fit in
+                    fitRow(fit)
+                }
+
+                if let fitMessage {
+                    Text(fitMessage)
+                        .font(.caption)
+                        .foregroundStyle(AppVisualSystem.ColorToken.warning)
+                }
+            }
+        }
+    }
+
+    private func fitRow(_ fit: QuickAddFit) -> some View {
+        HStack(spacing: AppVisualSystem.Spacing.medium) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(fit.name)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text("\(formatNumber(fit.calories)) cal · \(formatNumber(fit.protein))g protein")
+                    .font(.caption)
+                    .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
+                Text(fit.detail)
+                    .font(.caption)
+                    .foregroundStyle(AppVisualSystem.ColorToken.protein)
+            }
+            .accessibilityElement(children: .combine)
+
+            Spacer(minLength: 4)
+
+            Button {
+                Task { await logFit(fit) }
+            } label: {
+                if loggingFitID == fit.id {
+                    ProgressView()
+                        .frame(minWidth: 36)
+                } else {
+                    Text("Log")
+                        .frame(minWidth: 36)
+                }
+            }
+            .buttonStyle(.bordered)
+            .font(.subheadline.weight(.semibold))
+            .disabled(loggingFitID != nil)
+            .accessibilityLabel("Log \(fit.name)")
+        }
+    }
+
+    @MainActor
+    private func logFit(_ fit: QuickAddFit) async {
+        guard loggingFitID == nil else { return }
+        loggingFitID = fit.id
+        fitMessage = nil
+        defer { loggingFitID = nil }
+        do {
+            let formatter = ISO8601DateFormatter()
+            formatter.timeZone = TimeZone(identifier: "America/New_York")
+            try await api.quickAdd(savedItemId: fit.id, consumedAt: formatter.string(from: AppClock.now))
+        } catch {
+            fitMessage = "Could not log \(fit.name). \(error.localizedDescription)"
+            return
+        }
+        await loadToday(refreshing: true)
     }
 
     private func remainingMetric(value: Double?, unit: String, label: String, tint: Color) -> some View {
@@ -669,13 +751,18 @@ struct TodayView: View {
         }
 
         do {
+            async let nextSavedItems = try? api.getSavedItems()
             let next = try await api.getToday()
+            let loadedSavedItems = await nextSavedItems
             guard !Task.isCancelled, loadGeneration == generation else { return }
             let nextCoachSuggestions = await buildCoachSuggestions(from: next)
             guard !Task.isCancelled, loadGeneration == generation else { return }
 
             response = next
             coachSuggestions = nextCoachSuggestions
+            if let loadedSavedItems {
+                savedItems = loadedSavedItems
+            }
             lastUpdatedAt = parseDate(next.generatedAt) ?? Date()
             isOffline = false
             loadMessage = nil
@@ -796,6 +883,82 @@ struct TodayView: View {
         }
         let nsError = error as NSError
         return nsError.domain == NSURLErrorDomain
+    }
+}
+
+struct QuickAddFit: Identifiable, Equatable {
+    let id: Int
+    let name: String
+    let calories: Double
+    let protein: Double
+    let score: Double
+    let detail: String
+}
+
+/// Ranks saved Quick Adds by how well one serving fits what remains today:
+/// never overshoot calories, then favor protein toward the remaining goal.
+/// Mirrors `rankQuickAddFits` in public/today-state.js.
+enum QuickAddFitRanker {
+    static let minimumCalories = 50.0
+    static let calorieTolerance = 0.05
+
+    static func rank(
+        savedItems: [SavedItem],
+        remaining: TodayMacroRemaining,
+        limit: Int = 3
+    ) -> [QuickAddFit] {
+        guard let remainingCalories = remaining.calories,
+              remainingCalories.isFinite,
+              remainingCalories >= minimumCalories else { return [] }
+        let remainingProtein = max(0, remaining.protein ?? 0)
+        let budget = remainingCalories * (1 + calorieTolerance)
+
+        let fits = savedItems.compactMap { item -> QuickAddFit? in
+            let calories = item.calories
+            let protein = max(0, item.protein)
+            guard calories.isFinite, calories > 0, calories <= budget else { return nil }
+
+            let usefulProtein = min(protein, remainingProtein)
+            let proteinShare = (usefulProtein * 4) / calories
+            let goalCoverage = remainingProtein > 0 ? usefulProtein / remainingProtein : 0
+            let habit = min(1, log1p(Double(max(0, item.usageCount))) / log1p(20))
+            let leftCalories = max(0, remainingCalories - calories)
+            let leftProtein = max(0, remainingProtein - protein)
+            // Penalize picks that leave too few calories to finish the protein goal.
+            let crowding = remainingProtein > 0
+                ? max(0, leftProtein * 4 - leftCalories) / (remainingProtein * 4)
+                : 0
+            let score = remainingProtein > 0
+                ? proteinShare * 0.6 + goalCoverage * 0.3 + habit * 0.1 - crowding * 0.5
+                : habit * 0.7 + (1 - calories / budget) * 0.3
+
+            let detail: String
+            if remainingProtein <= 0 {
+                detail = "\(whole(leftCalories)) cal left after"
+            } else if leftProtein <= 0 {
+                detail = "Closes protein · \(whole(leftCalories)) cal left"
+            } else {
+                detail = "Leaves \(whole(leftCalories)) cal · \(whole(leftProtein))g protein"
+            }
+            return QuickAddFit(
+                id: item.id,
+                name: item.name,
+                calories: calories,
+                protein: protein,
+                score: score,
+                detail: detail
+            )
+        }
+
+        return Array(fits.sorted {
+            if $0.score != $1.score { return $0.score > $1.score }
+            if $0.calories != $1.calories { return $0.calories < $1.calories }
+            return $0.name.localizedCompare($1.name) == .orderedAscending
+        }.prefix(max(0, limit)))
+    }
+
+    private static func whole(_ value: Double) -> String {
+        String(Int(value.rounded()))
     }
 }
 

@@ -13,6 +13,7 @@ const state = {
   parsedMeal: null,
   mealEditorBusy: false,
   quickAddBusy: false,
+  todayFitBusyId: null,
   savedItems: [],
   historyQuickItems: [],
   quickEntriesLoading: false,
@@ -224,6 +225,8 @@ const todayEmptyCardEl = document.getElementById('today-empty-card');
 const todayRemainingCaloriesEl = document.getElementById('today-remaining-calories');
 const todayRemainingProteinEl = document.getElementById('today-remaining-protein');
 const todayMacroBarsEl = document.getElementById('today-macro-bars');
+const todayFitsEl = document.getElementById('today-fits');
+const todayFitsListEl = document.getElementById('today-fits-list');
 const todayMacroDetailEl = document.getElementById('today-macro-detail');
 const todayRecoveryValueEl = document.getElementById('today-recovery-value');
 const todayRecoveryDetailEl = document.getElementById('today-recovery-detail');
@@ -1836,6 +1839,7 @@ async function loadQuickEntries({ force = false } = {}) {
     if (requestId === quickEntriesRequestId) {
       state.quickEntriesLoading = false;
       renderSavedItems();
+      renderTodayFits();
     }
   }
 }
@@ -6427,6 +6431,8 @@ function renderTodaySummary() {
     }).join('');
   }
 
+  renderTodayFits();
+
   if (todayRecoveryValueEl) todayRecoveryValueEl.textContent = presentation.recovery.value;
   if (todayRecoveryDetailEl) todayRecoveryDetailEl.textContent = presentation.recovery.detail;
   if (todayRecoverySourceEl) todayRecoverySourceEl.textContent = presentation.recovery.source;
@@ -6444,6 +6450,51 @@ function renderTodaySummary() {
   if (todaySyncDetailEl) todaySyncDetailEl.textContent = presentation.sync.detail;
 
   renderCoachForPage('today');
+}
+
+function renderTodayFits() {
+  const rank = window.DailyMacrosTodayState?.rankQuickAddFits;
+  if (!todayFitsEl || !todayFitsListEl || !rank) return;
+  const macros = state.todayResponse?.summary?.macros;
+  const fits = macros?.state === 'needs_targets'
+    ? []
+    : rank({ savedItems: state.savedItems, remaining: macros?.remaining });
+  todayFitsEl.hidden = !fits.length;
+  todayFitsListEl.innerHTML = fits.map((fit) => {
+    const busy = state.todayFitBusyId === fit.id;
+    return `
+      <li>
+        <span>
+          <strong>${escapeHtml(fit.name)}</strong>
+          <small>${escapeHtml(`${fmtNumber(fit.calories)} cal · ${fmtNumber(fit.protein)}g protein`)}</small>
+          <small class="today-fit-after">${escapeHtml(fit.detail)}</small>
+        </span>
+        <button type="button" class="btn-secondary today-fit-log" data-today-fit-id="${escapeAttr(String(fit.id))}"${state.todayFitBusyId != null ? ' disabled' : ''} aria-label="${escapeAttr(`Log ${fit.name}`)}">${busy ? 'Logging…' : 'Log'}</button>
+      </li>
+    `;
+  }).join('');
+}
+
+async function logTodayFit(savedItemId) {
+  const item = state.savedItems.find((saved) => saved.id === savedItemId);
+  if (!item || state.todayFitBusyId != null) return;
+  state.todayFitBusyId = savedItemId;
+  renderTodayFits();
+  try {
+    await postQuickAdd('/api/quick-add', {
+      savedItemId,
+      multiplier: 1,
+      consumedAt: new Date().toISOString()
+    });
+    setActionBanner(`Logged ${item.name}.`, 'success');
+  } catch (error) {
+    setActionBanner(error.message || `Could not log ${item.name}.`, 'error');
+    return;
+  } finally {
+    state.todayFitBusyId = null;
+    renderTodayFits();
+  }
+  await refreshTodayData();
 }
 
 async function refreshTodayData() {
@@ -8676,6 +8727,12 @@ for (const item of healthPageMenuItems) {
     nextItem?.click();
   });
 }
+
+todayFitsListEl?.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-today-fit-id]');
+  if (!button) return;
+  logTodayFit(Number(button.dataset.todayFitId));
+});
 
 document.querySelectorAll('[data-today-action]').forEach((button) => {
   button.addEventListener('click', async () => {

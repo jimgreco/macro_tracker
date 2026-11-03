@@ -4578,6 +4578,68 @@ button[disabled] {
   color: #b6e3ff;
 }
 
+.today-fits {
+  display: grid;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(199, 214, 233, 0.1);
+}
+
+.today-fits-heading {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.today-fits-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.today-fits-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.today-fits-list li > span {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.today-fits-list strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-fits-list small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.today-fits-list .today-fit-after {
+  color: var(--macro-protein);
+}
+
+.today-fit-log {
+  flex: none;
+  min-height: 34px;
+  padding: 0.3rem 0.85rem;
+  font-size: 0.75rem;
+}
+
 .today-quick-panel {
   margin-top: 1rem;
 }

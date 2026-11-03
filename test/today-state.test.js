@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildTodayPresentation } = require('../public/today-state');
+const { buildTodayPresentation, rankQuickAddFits } = require('../public/today-state');
 
 const now = new Date('2026-07-27T16:00:00.000Z');
 
@@ -131,4 +131,38 @@ test('Today presentation distinguishes Oura disconnected from available Oura rec
   assert.match(disconnected.recovery.source, /Apple Health · updated 8 hr ago · Oura not connected/);
   assert.equal(disconnected.recovery.detail, '1 wake-up');
   assert.match(connected.recovery.source, /Oura · updated 8 hr ago/);
+});
+
+test('Fits your day ranks protein-dense Quick Adds that stay within remaining calories', () => {
+  const savedItems = [
+    { id: 1, name: 'Greek yogurt', calories: 150, protein: 20, usageCount: 4 },
+    { id: 2, name: 'Granola bar', calories: 200, protein: 4, usageCount: 30 },
+    { id: 3, name: 'Steak dinner', calories: 900, protein: 70, usageCount: 2 },
+    { id: 4, name: 'Protein shake', calories: 160, protein: 30, usageCount: 10 },
+    { id: 5, name: 'Water', calories: 0, protein: 0 }
+  ];
+
+  const fits = rankQuickAddFits({ savedItems, remaining: { calories: 500, protein: 25 } });
+  assert.deepEqual(fits.map((fit) => fit.name), ['Protein shake', 'Greek yogurt', 'Granola bar']);
+  assert.equal(fits[0].detail, 'Closes protein · 340 cal left');
+  assert.equal(fits[1].detail, 'Leaves 350 cal · 5g protein');
+
+  const crowded = rankQuickAddFits({
+    savedItems: [
+      { id: 1, name: 'Turkey Wrap', calories: 520, protein: 38 },
+      { id: 2, name: 'Cottage Cheese', calories: 260, protein: 24 }
+    ],
+    remaining: { calories: 594, protein: 79 }
+  });
+  assert.equal(crowded[0].name, 'Cottage Cheese');
+});
+
+test('Fits your day stays quiet when the calorie budget is spent or unknown', () => {
+  const savedItems = [{ id: 1, name: 'Apple', calories: 95, protein: 0 }];
+  assert.deepEqual(rankQuickAddFits({ savedItems, remaining: { calories: 30, protein: 20 } }), []);
+  assert.deepEqual(rankQuickAddFits({ savedItems, remaining: {} }), []);
+  assert.deepEqual(rankQuickAddFits({ savedItems: null, remaining: { calories: 600 } }), []);
+
+  const proteinMet = rankQuickAddFits({ savedItems, remaining: { calories: 300, protein: 0 } });
+  assert.equal(proteinMet[0].detail, '205 cal left after');
 });
