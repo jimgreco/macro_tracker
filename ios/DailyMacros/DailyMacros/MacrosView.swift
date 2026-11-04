@@ -135,15 +135,7 @@ struct QuickAddTemplate: Identifiable {
         self.searchText = [
             name,
             unit,
-            components.map(\.itemName).joined(separator: " "),
-            "\(Int(calories))",
-            "\(Int(protein))",
-            "\(Int(carbs))",
-            "\(Int(fat))",
-            "kcal",
-            "protein",
-            "carbs",
-            "fat"
+            components.map(\.itemName).joined(separator: " ")
         ].joined(separator: " ").lowercased()
     }
 }
