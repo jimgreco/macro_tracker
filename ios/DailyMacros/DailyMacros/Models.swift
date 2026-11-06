@@ -187,13 +187,18 @@ struct MacroTrendSummary {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         let days = scope == "year" ? 365 : scope == "month" ? 30 : 7
-        let end = calendar.startOfDay(for: today)
-        let start = calendar.date(byAdding: .day, value: 1 - days, to: end)!
         let formatter = DateFormatter()
         formatter.calendar = calendar
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = timeZone
         formatter.dateFormat = "yyyy-MM-dd"
+        // End the window yesterday so an in-progress today doesn't count against
+        // coverage; once today is marked complete, roll forward to include it.
+        let startOfToday = calendar.startOfDay(for: today)
+        let todayKey = formatter.string(from: startOfToday)
+        let todayComplete = rows.contains { $0.day == todayKey && $0.completeness?.state == .complete }
+        let end = todayComplete ? startOfToday : calendar.date(byAdding: .day, value: -1, to: startOfToday)!
+        let start = calendar.date(byAdding: .day, value: 1 - days, to: end)!
         let firstDay = formatter.string(from: start)
         let lastDay = formatter.string(from: end)
         let windowRows = rows.filter { $0.day >= firstDay && $0.day <= lastDay }

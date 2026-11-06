@@ -75,7 +75,7 @@ enum ScreenshotSeedData {
                             suggestionReason: nil, timezone: "America/New_York", updatedAt: nil))
         }
         return [row("2025-06-18", .complete, 6000), row("2026-05-19", .complete, 4000),
-                row("2026-06-10", .complete, 9000), row("2026-06-13", .partial, 300),
+                row("2026-06-09", .complete, 9000), row("2026-06-13", .partial, 300),
                 row("2026-06-14", .complete, 0), row("2026-06-15", .unknown, 100),
                 row("2026-06-16", .complete, 2000), row(referenceDay, .partial, 400)]
     }

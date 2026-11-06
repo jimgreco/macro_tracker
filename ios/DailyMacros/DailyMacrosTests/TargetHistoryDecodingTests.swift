@@ -377,9 +377,27 @@ final class MacroTrendSummaryTests: XCTestCase {
             for status in [NutritionDayState.partial, .complete, .partial] {
                 let summary = MacroTrendSummary(rows: [row("2026-10-20", status, 0)],
                                                 scope: scope, today: now, timeZone: zone)
+                // An unfinished today falls outside the window (it ends yesterday).
                 XCTAssertEqual(summary.completeDays, status == .complete ? 1 : 0)
-                XCTAssertEqual(summary.partialDays, status == .partial ? 1 : 0)
-                XCTAssertEqual(summary.unmarkedDays, summary.periodDays - 1)
+                XCTAssertEqual(summary.partialDays, 0)
+                XCTAssertEqual(summary.unmarkedDays, summary.periodDays - (status == .complete ? 1 : 0))
+            }
+        }
+    }
+
+    func testUnfinishedTodayShiftsWindowToEndYesterday() {
+        for (scope, days, lastIncluded, firstExcluded) in [("week", 7, "2026-10-13", "2026-10-12"),
+                                                           ("month", 30, "2026-09-20", "2026-09-19"),
+                                                           ("year", 365, "2025-10-20", "2025-10-19")] {
+            for status in [NutritionDayState?.none, .unknown, .partial] {
+                let summary = MacroTrendSummary(rows: [row("2026-10-20", status, 400), row("2026-10-19", .complete, 2000),
+                                                       row(lastIncluded, .complete, 1000), row(firstExcluded, .complete, 9000)],
+                                                scope: scope, today: now, timeZone: zone)
+                XCTAssertEqual(summary.rows.map(\.day), ["2026-10-19", lastIncluded], scope)
+                XCTAssertEqual(summary.periodDays, days)
+                XCTAssertEqual(summary.partialDays, 0)
+                XCTAssertEqual(summary.unmarkedDays, days - 2)
+                XCTAssertEqual(summary.average(for: "calories"), 1500)
             }
         }
     }

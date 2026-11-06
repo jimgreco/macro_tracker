@@ -37,7 +37,7 @@ function context(period = 'weekly', macro = 'calories') {
     renderWeeklyTargets: (averages, targets, hasAverage) => { labels.cards = { averages, targets, hasAverage }; },
     setText: (el, text) => { el.textContent = text; }, hideTrendTooltip() {}, bindTrendInteractions() {}
   });
-  const names = ['fmtNumber', 'spacedAxisLabels', 'macroTrendDays', 'macroTrendWindowRows',
+  const names = ['fmtNumber', 'spacedAxisLabels', 'macroTrendDays', 'macroTrendEndDay', 'macroTrendWindowRows',
     'completedMacroTrendRows', 'normalizeDayCompleteness', 'updateCompletenessAcrossState', 'buildTrendPoints', 'drawTrend', 'updateTrendLegend', 'renderSnapshotStats'];
   const functions = names.map(name => {
     const start = source.search(new RegExp(`^function ${name}\\(`, 'm'));
@@ -131,6 +131,20 @@ for (const period of ['weekly', 'monthly', 'annual']) {
     assert.equal(ctx.completedMacroTrendRows(rows, period).map(r => r.day).join(','), `${shift(today, 1 - days)},${today}`);
     ctx.drawTrend(rows);
     assert.equal(ctx.trendAverageValueEl.textContent, '1500 cal');
+  });
+  test(`${period}: an unfinished today shifts the window to end yesterday`, () => {
+    const { ctx, points } = context(period);
+    const days = { weekly: 7, monthly: 30, annual: 365 }[period];
+    for (const state of [undefined, 'unknown', 'partial']) {
+      const rows = [row(0, state, 400), row(-1, 'complete', 2000), row(-days, 'complete', 1000), row(-days - 1, 'complete', 9000)];
+      ctx.renderSnapshotStats(rows, {});
+      assert.equal(ctx.trendCoverageCountEl.textContent, `2 of ${days} days complete`);
+      assert.equal(ctx.trendCoverageDetailEl.textContent, `0 partial · ${days - 2} unmarked`);
+      assert.equal(ctx.completedMacroTrendRows(rows, period).map(r => r.day).join(','), `${shift(today, -1)},${shift(today, -days)}`);
+      ctx.drawTrend(rows);
+      assert.equal(ctx.trendAverageValueEl.textContent, '1500 cal');
+      if (period !== 'annual') assert.equal(points().length, 2);
+    }
   });
 }
 

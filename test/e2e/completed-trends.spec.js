@@ -10,7 +10,7 @@ async function fixture(page, { empty = false } = {}) {
   const row = (day, state, calories) => ({ day, calories, protein: calories / 20, carbs: calories / 10, fat: calories / 40,
     completeness: { day, state, explicit: state !== 'unknown', eligibleForNutritionAnalysis: state === 'complete', timezone: 'America/New_York' } });
   const rows = empty ? [] : [row('2025-06-18', 'complete', 6000), row('2026-05-19', 'complete', 4000),
-    row('2026-06-10', 'complete', 9000), row('2026-06-13', 'partial', 300), row('2026-06-14', 'complete', 0),
+    row('2026-06-09', 'complete', 9000), row('2026-06-13', 'partial', 300), row('2026-06-14', 'complete', 0),
     row('2026-06-15', 'unknown', 100), row('2026-06-16', 'complete', 2000), row(today, 'partial', 400)];
   const failures = [];
   const mutations = [];
@@ -72,7 +72,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 
       await page.locator('#macro-period-toggle').getByRole('button', { name: period, exact: true }).click();
       await expect(page.locator('#avg-calories')).toHaveText(String(avg));
       await expect(page.locator('#trend-coverage-count')).toHaveText(`${complete} of ${days} days complete`);
-      await expect(page.locator('#trend-coverage-detail')).toHaveText(`2 partial · ${days - complete - 2} unmarked`);
+      await expect(page.locator('#trend-coverage-detail')).toHaveText(`1 partial · ${days - complete - 1} unmarked`);
       await expect(page.getByRole('progressbar', { name: `${complete} of ${days} days complete` })).toHaveAttribute('aria-valuetext', `${complete} of ${days} days complete`);
       expect(await page.locator('#trend-coverage-progress').evaluate(el => [el.value, el.max])).toEqual([complete, days]);
       for (const [macro, value] of [['calories', avg], ['protein', avg / 20], ['carbs', avg / 10], ['fat', avg / 40]]) {
@@ -94,7 +94,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 
     await page.locator('#entries-completeness-btn').click();
     await expect(page.locator('#trend-average-value')).toHaveText('1000 cal');
     await expect(page.locator('#trend-coverage-count')).toHaveText('2 of 7 days complete');
-    await expect(page.locator('#trend-coverage-detail')).toHaveText('2 partial · 3 unmarked');
+    await expect(page.locator('#trend-coverage-detail')).toHaveText('1 partial · 4 unmarked');
     await expect(page.locator('#trend-target-value')).toHaveText('2100 cal');
     expect(await page.evaluate(() => trendPointCoords.map(point => point.value))).toEqual([0, 2000]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

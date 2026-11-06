@@ -4725,13 +4725,20 @@ function macroTrendDays(period) {
   return period === 'annual' ? 365 : period === 'monthly' ? 30 : 7;
 }
 
-function macroTrendWindowRows(dailyTotals, period, today = getLocalIsoDay()) {
-  const firstDay = shiftIsoDay(today, 1 - macroTrendDays(period));
-  return (dailyTotals || []).filter(row => row?.day >= firstDay && row.day <= today);
+// Trend windows end yesterday so an in-progress today doesn't count against
+// coverage; once today is marked complete, the window rolls forward to include it.
+function macroTrendEndDay(dailyTotals, today = getLocalIsoDay()) {
+  const todayRow = (dailyTotals || []).find(row => row?.day === today);
+  return todayRow?.completeness?.state === 'complete' ? today : shiftIsoDay(today, -1);
 }
 
-function completedMacroTrendRows(dailyTotals, period, today = getLocalIsoDay(), macro = null) {
-  return macroTrendWindowRows(dailyTotals, period, today)
+function macroTrendWindowRows(dailyTotals, period, endDay = macroTrendEndDay(dailyTotals)) {
+  const firstDay = shiftIsoDay(endDay, 1 - macroTrendDays(period));
+  return (dailyTotals || []).filter(row => row?.day >= firstDay && row.day <= endDay);
+}
+
+function completedMacroTrendRows(dailyTotals, period, endDay = macroTrendEndDay(dailyTotals), macro = null) {
+  return macroTrendWindowRows(dailyTotals, period, endDay)
     .filter(row => row?.completeness?.state === 'complete' && (macro !== 'fiber' || row.fiber != null));
 }
 
@@ -4797,7 +4804,7 @@ function spacedAxisLabels(labels, measureText, gap = 8) {
   return selected;
 }
 
-function drawTrend(dailyTotals, baseIsoDay = getLocalIsoDay()) {
+function drawTrend(dailyTotals, baseIsoDay = macroTrendEndDay(dailyTotals)) {
   if (!trendCanvasEl) {
     return;
   }

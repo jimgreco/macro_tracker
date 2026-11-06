@@ -86,7 +86,7 @@ final class DailyMacrosScreenshots: XCTestCase {
         XCTAssertEqual(trendValue("protein"), "50 g")
         XCTAssertEqual(trendValue("carbs"), "100 g")
         XCTAssertEqual(trendValue("fat"), "25 g")
-        assertTrendCoverage(complete: 2, days: 7, partial: 2)
+        assertTrendCoverage(complete: 2, days: 7, partial: 1)
         attachTrend("Completed-trends-week")
         let picker = app.segmentedControls["macro-trend-period"]
         picker.buttons["Month"].tap()
@@ -94,12 +94,12 @@ final class DailyMacrosScreenshots: XCTestCase {
         let month = NSPredicate(format: "value == %@", "3,750 cal")
         expectation(for: month, evaluatedWith: app.buttons["macro-trend-chip-calories"])
         waitForExpectations(timeout: 5)
-        assertTrendCoverage(complete: 4, days: 30, partial: 2)
+        assertTrendCoverage(complete: 4, days: 30, partial: 1)
         attachTrend("Completed-trends-month")
         picker.buttons["Year"].tap()
         expectation(for: NSPredicate(format: "value == %@", "4,200 cal"), evaluatedWith: app.buttons["macro-trend-chip-calories"])
         waitForExpectations(timeout: 5)
-        assertTrendCoverage(complete: 5, days: 365, partial: 2)
+        assertTrendCoverage(complete: 5, days: 365, partial: 1)
         attachTrend("Completed-trends-year")
         picker.buttons["Week"].tap()
         setTodayComplete(true)
@@ -110,7 +110,7 @@ final class DailyMacrosScreenshots: XCTestCase {
         setTodayComplete(false)
         revealTrend()
         XCTAssertEqual(trendValue("calories"), "1,000 cal")
-        assertTrendCoverage(complete: 2, days: 7, partial: 2)
+        assertTrendCoverage(complete: 2, days: 7, partial: 1)
     }
 
     func testCompletedTrendsEmptyAndZeroEntryDay() throws {
@@ -137,7 +137,7 @@ final class DailyMacrosScreenshots: XCTestCase {
         selectTab("Macros")
         revealTrend()
         XCTAssertEqual(trendValue("calories"), "1,000 cal")
-        assertTrendCoverage(complete: 2, days: 7, partial: 2)
+        assertTrendCoverage(complete: 2, days: 7, partial: 1)
         attachTrend("Completed-trends-large-text")
     }
 
