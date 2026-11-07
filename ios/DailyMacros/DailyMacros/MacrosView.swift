@@ -4949,5 +4949,5 @@ private func validFiberText(_ text: String) -> Bool {
     return true
 }
 private func fiberLabel(_ value: Double?) -> String {
-    value.map { "Fiber \($0.formatted(.number.precision(.fractionLength(0...1)))) g" } ?? "Fiber unknown"
+    value.map { "Fiber \($0.formatted(.number.precision(.fractionLength(0...1))))g" } ?? "Fiber unknown"
 }
