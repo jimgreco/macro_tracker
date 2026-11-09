@@ -1028,3 +1028,72 @@ test('dashboard day entries read complete account-local history without changing
     assert.equal(empty.currentDayTotals.completeness.state, 'unknown');
   });
 });
+
+test('weekly summary rows match the weekly-review collector on PostgreSQL', { skip: !process.env.TEST_DATABASE_URL }, async (t) => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+  const dbPath = path.join(__dirname, '..', 'src', 'db.js');
+  delete require.cache[dbPath];
+  const db = require(dbPath);
+  const { buildMacrosSummary, parseWeekParam } = require('../src/weekly-summary');
+  const userId = `weekly-summary-${crypto.randomUUID()}`;
+  const email = `${userId}@Example.test`;
+  t.after(async () => {
+    try {
+      await db.deleteUserAccount(userId);
+    } finally {
+      await db.getPool().end();
+      delete require.cache[dbPath];
+      if (originalDatabaseUrl == null) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = originalDatabaseUrl;
+    }
+  });
+  await require('./helpers/database').initializeTestSchema(db);
+  await db.upsertUser({ id: userId, provider: 'local-dev', providerUserId: userId,
+    email, name: 'Weekly summary', timezone: 'America/New_York' });
+
+  // Same fixture as weekly-review test/fixtures/seed.mjs for macro_tracker.
+  const pool = db.getPool();
+  const range = parseWeekParam('2026-10-26');
+  const days = [...range.prev.days, ...range.week.days];
+  for (const [i, day] of days.entries()) {
+    const thisWeek = i >= 7;
+    await pool.query(
+      `INSERT INTO entries (user_id, item_name, quantity, calories, protein, carbs, fat, fiber, consumed_at)
+       VALUES ($1, 'lunch', 1, $2, $3, 200, 60, 12, $4), ($1, 'dinner', 1, 900, 50, 90, 30, NULL, $5)`,
+      [userId, thisWeek ? 1150 : 1050, thisWeek ? 75 : 60, `${day}T17:00:00Z`, `${day}T23:30:00Z`]
+    );
+    if (i % 7 !== 3) await db.setNutritionDayCompleteness(userId, day, 'complete', 'America/New_York');
+  }
+  // 01:00 local on Nov 2 is outside the week; deleted rows never count.
+  await pool.query(`INSERT INTO entries (user_id, item_name, quantity, calories, protein, carbs, fat, consumed_at)
+                    VALUES ($1, 'late', 1, 5000, 0, 0, 0, '2026-11-02T06:00:00Z')`, [userId]);
+  await pool.query(`INSERT INTO entries (user_id, item_name, quantity, calories, protein, carbs, fat, consumed_at, deleted_at)
+                    VALUES ($1, 'oops', 1, 9999, 0, 0, 0, '2026-10-27T17:00:00Z', now())`, [userId]);
+  await pool.query(`INSERT INTO macro_targets (user_id, macro, effective_date, target) VALUES
+                    ($1,'calories','2026-09-01',2000), ($1,'protein','2026-09-01',130), ($1,'protein','2026-10-28',140),
+                    ($1,'protein','2026-11-05',150)`, [userId]);
+  await pool.query(`INSERT INTO weight_entries (user_id, weight, logged_at) VALUES
+                    ($1, 181.0, '2026-10-20T12:00:00Z'), ($1, 180.2, '2026-10-22T12:00:00Z'),
+                    ($1, 179.6, '2026-10-27T12:00:00Z'), ($1, 179.2, '2026-10-30T12:00:00Z')`, [userId]);
+  await pool.query(`INSERT INTO waist_entries (user_id, value_cm, unit, method, readings, logged_at) VALUES
+                    ($1, 85.725, 'in', 'navel_relaxed', '[85.725]', '2026-10-31T12:00:00Z')`, [userId]);
+
+  const rows = await db.getWeeklySummaryRows(email.toUpperCase(), { startDay: range.prev.start, endDay: range.week.end });
+  assert.equal(rows.user.id, userId);
+  const r = buildMacrosSummary(rows, range);
+  assert.equal(r.status, 'ok');
+  assert.equal(r.current.days[1].calories, 2050); // deleted 9999 excluded
+  assert.equal(r.current.days[6].calories, 2050); // 01:00 Nov 2 entry excluded
+  assert.equal(r.current.days[0].fiber, null); // dinner has no fiber
+  assert.equal(r.current.completeDays, 6);
+  assert.equal(r.current.avgProtein, 125);
+  assert.equal(r.previous.avgProtein, 110);
+  assert.equal(r.targets.protein, 140); // latest effective target as of week end
+  assert.equal(r.targets.fiber, null); // no default filled in
+  assert.equal(r.current.waistIn.latest, 33.75);
+  assert.equal(r.change.weight, -1.2);
+  assert.equal(r.current.sleepScore, null);
+
+  assert.deepEqual(await db.getWeeklySummaryRows('nobody-weekly-summary@example.test', { startDay: range.prev.start, endDay: range.week.end }), { user: null });
+});

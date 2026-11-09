@@ -44,7 +44,9 @@ const originalEnv = {
   OURA_REDIRECT_URI: process.env.OURA_REDIRECT_URI,
   OURA_TOKEN_ENCRYPTION_KEY: process.env.OURA_TOKEN_ENCRYPTION_KEY,
   OURA_WEBHOOK_VERIFICATION_TOKEN: process.env.OURA_WEBHOOK_VERIFICATION_TOKEN,
-  OURA_WEBHOOK_URL: process.env.OURA_WEBHOOK_URL
+  OURA_WEBHOOK_URL: process.env.OURA_WEBHOOK_URL,
+  WEEKLY_SUMMARY_TOKEN_SHA256: process.env.WEEKLY_SUMMARY_TOKEN_SHA256,
+  WEEKLY_SUMMARY_EMAIL: process.env.WEEKLY_SUMMARY_EMAIL
 };
 const originalLoad = Module._load;
 const calls = [];
@@ -57,6 +59,9 @@ const rateLimits = new Map();
 const dayCompletenessByDay = new Map();
 const integrationPermissions = new Map();
 let analysisSnapshotOverride = null;
+// Every fakeDb function the server calls, by name, for read-only route checks.
+const dbInvocations = [];
+let weeklySummaryRows = { user: null };
 
 function record(name, payload) {
   calls.push({ name, payload });
@@ -380,7 +385,13 @@ const fakeDb = {
   saveAnalysisReport: async () => ({ id: 1, report: {}, createdAt: new Date().toISOString() }),
   getLatestAnalysisReport: async () => null,
   createApiToken: async () => ({ id: 1, token: 'token' }),
-  validateApiToken: async () => null,
+  validateApiToken: async (token) => (token === 'normal-user-api-token'
+    ? { ...fakeUser, apiTokenId: 7, apiTokenName: 'DailyMacros iOS', apiTokenExpiresAt: null }
+    : null),
+  getWeeklySummaryRows: async (email, range) => {
+    record('getWeeklySummaryRows', { email, range });
+    return weeklySummaryRows;
+  },
   listApiTokens: async (_userId, currentTokenId) => [{
     id: 7,
     kind: 'mobile',
@@ -465,6 +476,13 @@ const fakeDb = {
   consumeDailyUsage: async () => ({ allowed: true, count: 1, limit: 100 })
 };
 
+const trackedFakeDb = Object.fromEntries(Object.entries(fakeDb).map(([name, value]) => [
+  name,
+  typeof value === 'function'
+    ? (...args) => { dbInvocations.push(name); return fakeDb[name](...args); }
+    : value
+]));
+
 const fakeParser = {
   parseMealText: async () => ({ items: [{ itemName: 'Yogurt', quantity: 1, unit: 'serving', calories: 120, protein: 18, carbs: 8, fat: 0 }] }),
   parseWorkoutText: async () => ({ description: 'Run', intensity: 'medium', durationHours: 0.5, caloriesBurned: 300 })
@@ -491,10 +509,12 @@ test.before(async () => {
   delete process.env.OURA_TOKEN_ENCRYPTION_KEY;
   delete process.env.OURA_WEBHOOK_VERIFICATION_TOKEN;
   delete process.env.OURA_WEBHOOK_URL;
+  delete process.env.WEEKLY_SUMMARY_TOKEN_SHA256;
+  delete process.env.WEEKLY_SUMMARY_EMAIL;
 
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === './db' && parent?.filename === serverPath) {
-      return fakeDb;
+      return trackedFakeDb;
     }
     if (request === './parser' && parent?.filename === serverPath) {
       return fakeParser;
@@ -1297,3 +1317,198 @@ test('copy to a chosen date replays the same atomic mutation once', routeTestOpt
   assert.equal(replay.res.headers.get('x-idempotent-replay'), 'true');
   assert.equal(calls.filter(call => call.name === 'copyEntriesToLocalDay').length, 1);
 });
+
+// ── GET /api/weekly-summary ──
+
+const weeklySummaryToken = 'synthetic-weekly-summary-token';
+const weeklySummaryTokenHash = require('node:crypto').createHash('sha256').update(weeklySummaryToken).digest('hex');
+
+function withWeeklySummaryEnv(values, fn) {
+  return async () => {
+    const saved = {
+      WEEKLY_SUMMARY_TOKEN_SHA256: process.env.WEEKLY_SUMMARY_TOKEN_SHA256,
+      WEEKLY_SUMMARY_EMAIL: process.env.WEEKLY_SUMMARY_EMAIL
+    };
+    for (const [key, value] of Object.entries(values)) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
+    try {
+      await fn();
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value == null) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  };
+}
+
+const weeklySummaryEnv = {
+  WEEKLY_SUMMARY_TOKEN_SHA256: weeklySummaryTokenHash,
+  WEEKLY_SUMMARY_EMAIL: 'Owner@Example.com'
+};
+
+async function weeklySummary(query, headers = {}) {
+  const res = await fetch(`${baseUrl}/api/weekly-summary${query}`, { headers });
+  const text = await res.text();
+  let body = null;
+  try { body = JSON.parse(text); } catch { body = text; }
+  return { res, body };
+}
+
+const summaryAuth = { Authorization: `Bearer ${weeklySummaryToken}` };
+
+test('weekly summary is a 404 until both env vars are set, even for a signed-in user', routeTestOptions, async () => {
+  for (const env of [
+    { WEEKLY_SUMMARY_TOKEN_SHA256: null, WEEKLY_SUMMARY_EMAIL: null },
+    { WEEKLY_SUMMARY_TOKEN_SHA256: weeklySummaryTokenHash, WEEKLY_SUMMARY_EMAIL: '' },
+    { WEEKLY_SUMMARY_TOKEN_SHA256: '', WEEKLY_SUMMARY_EMAIL: 'owner@example.com' },
+    { WEEKLY_SUMMARY_TOKEN_SHA256: 'not-a-sha256', WEEKLY_SUMMARY_EMAIL: 'owner@example.com' }
+  ]) {
+    await withWeeklySummaryEnv(env, async () => {
+      dbInvocations.length = 0;
+      // LOCAL_AUTH_BYPASS is on here, so a normal session would otherwise apply.
+      const { res, body } = await weeklySummary('?week=2026-11-02', summaryAuth);
+      assert.equal(res.status, 404);
+      assert.equal(body.error, 'API route not found.');
+      assert.deepEqual(dbInvocations, []);
+    })();
+  }
+});
+
+test('weekly summary rejects missing, wrong and normal user tokens with 404', routeTestOptions, withWeeklySummaryEnv(weeklySummaryEnv, async () => {
+  for (const headers of [
+    {},
+    { Authorization: 'Bearer ' },
+    { Authorization: 'Bearer wrong-token' },
+    { Authorization: weeklySummaryToken },
+    { Authorization: `Basic ${weeklySummaryToken}` },
+    { Authorization: `Bearer ${weeklySummaryTokenHash}` },
+    { Authorization: 'Bearer normal-user-api-token' }
+  ]) {
+    dbInvocations.length = 0;
+    resetCalls();
+    const { res, body } = await weeklySummary('?week=2026-11-02', headers);
+    assert.equal(res.status, 404, JSON.stringify(headers));
+    assert.equal(body.error, 'API route not found.');
+    // No api_token validation (it writes last_used_at), no session, no data read.
+    assert.deepEqual(dbInvocations.filter((name) => name !== 'consumeRateLimit'), []);
+    assert.equal(latestCall('getWeeklySummaryRows'), undefined);
+  }
+}));
+
+test('weekly summary requires a calendar Monday', routeTestOptions, withWeeklySummaryEnv(weeklySummaryEnv, async () => {
+  for (const query of ['', '?week=2026-11-03', '?week=2026-11-08', '?week=2026-02-30', '?week=2026-13-02',
+    '?week=11/02/2026', '?week=2026-11-2', '?week=2026-11-02T00:00:00Z', '?week=2026-11-02&week=2026-11-09']) {
+    dbInvocations.length = 0;
+    const { res, body } = await weeklySummary(query, summaryAuth);
+    assert.equal(res.status, 400, query);
+    assert.deepEqual(body, { error: 'week must be a Monday (YYYY-MM-DD)' });
+    assert.deepEqual(dbInvocations.filter((name) => name !== 'consumeRateLimit'), []);
+  }
+}));
+
+test('weekly summary returns the collectMacros shape with no writes', routeTestOptions, withWeeklySummaryEnv(weeklySummaryEnv, async () => {
+  weeklySummaryRows = {
+    user: { id: 'owner-user', timezone: 'America/New_York' },
+    totals: [
+      { day: '2026-10-27', calories: 1949.6, protein: 110.5, carbs: 290, fat: 90, fiber: 12, fiber_known: 1, entries: 2 },
+      { day: '2026-11-03', calories: 2050, protein: 125, carbs: 290, fat: 90, fiber: 12, fiber_known: 2, entries: 2 },
+      { day: '2026-11-04', calories: 1800, protein: 120, carbs: 200, fat: 70, fiber: null, fiber_known: 0, entries: 1 }
+    ],
+    states: { '2026-10-27': 'complete', '2026-11-03': 'complete', '2026-11-04': 'partial', '2026-11-05': 'complete' },
+    targets: { calories: 2000, protein: 140, fat: 70 },
+    weights: [
+      { day: '2026-10-28', weight: 181 },
+      { day: '2026-11-03', weight: 179.6 },
+      { day: '2026-11-05', weight: 179.2 }
+    ],
+    waists: [{ day: '2026-11-06', value_cm: 85.725, method: 'navel_relaxed' }]
+  };
+  dbInvocations.length = 0;
+  resetCalls();
+  try {
+    const { res, body } = await weeklySummary('?week=2026-11-02', {
+      ...summaryAuth,
+      Cookie: 'macro.sid=s%3Aanything'
+    });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /^application\/json/);
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(res.headers.get('set-cookie'), null);
+    assert.equal(body.version, 1);
+    assert.equal(body.app, 'macros');
+    assert.deepEqual(body.week, { start: '2026-11-02', end: '2026-11-08' });
+    assert.ok(!Number.isNaN(Date.parse(body.generatedAt)));
+    assert.deepEqual(latestCall('getWeeklySummaryRows').payload, {
+      email: 'Owner@Example.com',
+      range: { startDay: '2026-10-26', endDay: '2026-11-08' }
+    });
+    // Only the rate limiter counter and the read-only snapshot.
+    assert.deepEqual(dbInvocations, ['consumeRateLimit', 'getWeeklySummaryRows']);
+
+    const data = body.data;
+    assert.deepEqual(Object.keys(data), ['status', 'targets', 'current', 'previous', 'change']);
+    assert.equal(data.status, 'ok');
+    assert.deepEqual(data.targets, { calories: 2000, protein: 140, fiber: null, sleepHours: null });
+    assert.deepEqual(Object.keys(data.current), ['days', 'loggedDays', 'completeDays', 'avgCalories', 'avgProtein',
+      'avgFiber', 'weight', 'waistIn', 'sleepScore', 'readinessScore', 'avgSteps']);
+    assert.equal(data.current.days.length, 7);
+    assert.deepEqual(data.current.days[0], { date: '2026-11-02', state: 'unlogged', calories: null, protein: null, carbs: null, fat: null, fiber: null });
+    assert.deepEqual(data.current.days[1], { date: '2026-11-03', state: 'complete', calories: 2050, protein: 125, carbs: 290, fat: 90, fiber: 12 });
+    assert.equal(data.current.days[2].state, 'partial');
+    assert.equal(data.current.days[2].fiber, null); // fiber shown only with full coverage
+    assert.equal(data.current.days[3].state, 'complete'); // explicit state without entries
+    assert.equal(data.current.loggedDays, 2);
+    assert.equal(data.current.completeDays, 1);
+    assert.equal(data.current.avgCalories, 2050);
+    assert.equal(data.current.avgFiber, 12);
+    assert.deepEqual(data.current.weight, { count: 2, avg: 179.4 });
+    assert.deepEqual(data.current.waistIn, { latest: 33.75, method: 'navel_relaxed', day: '2026-11-06' });
+    assert.equal(data.current.sleepScore, null);
+    assert.equal('days' in data.previous, false);
+    assert.equal(data.previous.avgCalories, 1950); // 1949.6 rounds half up
+    assert.equal(data.previous.avgProtein, 111); // 110.5 rounds half up
+    assert.equal(data.previous.avgFiber, null); // 1 of 2 entries had fiber
+    assert.equal(data.previous.waistIn, null);
+    assert.deepEqual(data.change, { avgCalories: 100, avgProtein: 14, weight: -1.6, sleepScore: null });
+  } finally {
+    weeklySummaryRows = { user: null };
+  }
+}));
+
+test('weekly summary reports an unknown email as no-account and hides internal errors', routeTestOptions, withWeeklySummaryEnv(weeklySummaryEnv, async () => {
+  weeklySummaryRows = { user: null };
+  const missing = await weeklySummary('?week=2026-11-02', summaryAuth);
+  assert.equal(missing.res.status, 200);
+  assert.deepEqual(missing.body.data, { status: 'no-account' });
+
+  const originalRows = fakeDb.getWeeklySummaryRows;
+  const originalError = console.error;
+  console.error = () => {};
+  weeklySummaryRows = null;
+  fakeDb.getWeeklySummaryRows = async () => { throw new Error('relation "secret_table" does not exist'); };
+  try {
+    const failed = await weeklySummary('?week=2026-11-02', summaryAuth);
+    assert.equal(failed.res.status, 500);
+    assert.deepEqual(failed.body, { error: 'internal' });
+  } finally {
+    fakeDb.getWeeklySummaryRows = originalRows;
+    console.error = originalError;
+    weeklySummaryRows = { user: null };
+  }
+}));
+
+test('weekly summary token is not accepted on other API routes and /api/v1 has no such route', routeTestOptions, withWeeklySummaryEnv(weeklySummaryEnv, async () => {
+  dbInvocations.length = 0;
+  resetCalls();
+  const direct = await fetch(`${baseUrl}/api/v1/weekly-summary?week=2026-11-02`, { headers: summaryAuth });
+  assert.equal(direct.status, 404);
+  assert.equal(latestCall('getWeeklySummaryRows'), undefined);
+  // On the normal API the summary token goes through ordinary api_token
+  // validation, which does not know it.
+  await fetch(`${baseUrl}/api/me`, { headers: summaryAuth });
+  assert.ok(dbInvocations.includes('validateApiToken'));
+  assert.equal(latestCall('getWeeklySummaryRows'), undefined);
+}));

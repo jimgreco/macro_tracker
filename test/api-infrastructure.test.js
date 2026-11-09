@@ -102,7 +102,8 @@ test('db.js exports all required functions', () => {
     'getSubscription',
     'applyStripeBillingEvent',
     'listStripeSubscriptionsForReconciliation',
-    'consumeDailyUsage'
+    'consumeDailyUsage',
+    'getWeeklySummaryRows'
   ];
 
   for (const name of requiredExports) {
@@ -653,6 +654,40 @@ test('server.js checks bearer tokens even when a local dev user is preloaded', (
   assert.equal(middleware.includes('if (hasAuthenticatedUser(req))'), false);
   assert.ok(middleware.indexOf("req.get('authorization')") < middleware.indexOf('validateApiToken(token)'));
   assert.ok(middleware.includes("req.authMode = 'bearer'"));
+});
+
+test('weekly summary route is isolated from session and api_token auth', () => {
+  const server = read('src/server.js');
+  const route = server.indexOf("app.get('/api/weekly-summary'");
+  assert.ok(route > -1, 'weekly summary route must be registered on app');
+  assert.ok(route < server.indexOf('app.use(\n  session({'), 'must run before session middleware');
+  assert.ok(route < server.indexOf('app.use(passport.initialize())'));
+  assert.ok(route < server.indexOf("app.use('/api/v1', bearerTokenAuth"), 'must run before the /api mounts');
+  assert.ok(route < server.indexOf("app.use('/api', bearerTokenAuth"));
+  assert.ok(server.includes("app.use(['/api/v1', '/api'], (req, res) => {\n  return sendError(req, res, 404, 'API route not found.');"));
+
+  const summary = read('src/weekly-summary.js');
+  assert.ok(summary.includes('crypto.timingSafeEqual'));
+  for (const forbidden of ['validateApiToken', 'req.session', 'req.user', 'logAudit', 'oura']) {
+    assert.equal(summary.includes(forbidden), false, `weekly-summary.js must not use ${forbidden}`);
+  }
+  // The token is read only by the weekly summary module.
+  assert.ok(summary.includes('env.WEEKLY_SUMMARY_TOKEN_SHA256'));
+  for (const file of ['src/server.js', 'src/db.js', 'src/oura.js']) {
+    assert.doesNotMatch(read(file), /env\.WEEKLY_SUMMARY_/, `${file} must not read the summary token`);
+  }
+});
+
+test('weekly summary rows come from one read-only snapshot without Oura data', () => {
+  const db = read('src/db.js');
+  const start = db.indexOf('async function getWeeklySummaryRows');
+  const end = db.indexOf('module.exports', start);
+  assert.ok(start > -1 && end > start);
+  const section = db.slice(start, end);
+  assert.ok(section.includes("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"));
+  assert.doesNotMatch(section, /\b(INSERT|UPDATE|DELETE|UPSERT|last_used_at)\b/);
+  assert.doesNotMatch(section, /oura_documents/, 'Oura data must stay out of this AI-bound payload');
+  assert.ok(section.includes('deleted_at IS NULL'));
 });
 
 test('server.js has per-user rate limiting', () => {

@@ -165,3 +165,20 @@ Run the production release runbook in:
 - `POST /api/sexual-activity`
 - `GET /api/account/export`
 - `DELETE /api/account`
+
+### Weekly summary (`GET /api/weekly-summary?week=YYYY-MM-DD`)
+Read-only endpoint for the weekly-review routine; the contract lives in that
+repo at `docs/weekly-summary-contract.md`. It is registered before sessions and
+the `/api` mounts in `src/server.js` and implemented in `src/weekly-summary.js`
+plus `getWeeklySummaryRows` in `src/db.js` (one `READ ONLY` snapshot).
+- Enabled only when both `WEEKLY_SUMMARY_TOKEN_SHA256` (lowercase hex SHA-256 of
+  the bearer token) and `WEEKLY_SUMMARY_EMAIL` are set; otherwise, and for a
+  missing or wrong token, it returns the normal API 404. Sessions and normal
+  `api_tokens` are never accepted on it, and its token works nowhere else.
+- `week` must be a Monday (`400` otherwise). `200` responses are `Cache-Control: no-store`
+  and report Monday–Sunday plus the previous week in the user's saved timezone;
+  averages use Complete days only. An unknown email returns `data.status: "no-account"`.
+- Oura-derived fields (`sleepScore`, `readinessScore`, `avgSteps`) are always `null`:
+  the routine sends this payload to an AI model, and Oura data must stay out of AI inputs.
+- Shares the IP-keyed rate limiter (30 requests / 15 minutes), whose counter row
+  is the route's only database write.
