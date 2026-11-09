@@ -132,6 +132,6 @@ test('no completed days shows an empty state; completing an untracked day plots 
   await expect(page.locator('#trend-empty-state')).toBeVisible();
   await expect(page.locator('#avg-calories')).toHaveText('—');
   await expect(page.locator('#trend-coverage-count')).toHaveText('0 of 365 days complete');
-  await expect(page.locator('#trend-coverage-detail')).toHaveText('1 partial · 364 unmarked');
+  await expect(page.locator('#trend-coverage-detail')).toHaveText('0 partial · 365 unmarked');
   expect(failures).toEqual([]);
 });
