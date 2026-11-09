@@ -6037,6 +6037,85 @@ async function consumeDailyUsage(userId, feature, maxDaily) {
   };
 }
 
+// Read-only rows for GET /api/weekly-summary (see src/weekly-summary.js).
+// SQL mirrors the weekly-review collector. One READ ONLY snapshot, so
+// PostgreSQL itself rejects any write and every query sees the same data.
+async function getWeeklySummaryRows(email, { startDay, endDay }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    await client.query("SET LOCAL statement_timeout = '15s'");
+    const userResult = await client.query(
+      `SELECT id, timezone FROM users WHERE lower(email) = lower($1)
+       ORDER BY created_at LIMIT 1`,
+      [email]
+    );
+    const user = userResult.rows[0];
+    if (!user) {
+      await client.query('COMMIT');
+      return { user: null };
+    }
+    const timezone = user.timezone || 'America/New_York';
+    const totals = await client.query(
+      `SELECT to_char((consumed_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS day,
+              SUM(calories)::float8 AS calories, SUM(protein)::float8 AS protein,
+              SUM(carbs)::float8 AS carbs, SUM(fat)::float8 AS fat,
+              SUM(fiber)::float8 AS fiber, COUNT(fiber)::int AS fiber_known,
+              COUNT(*)::int AS entries
+         FROM entries
+        WHERE user_id = $1 AND deleted_at IS NULL
+          AND (consumed_at AT TIME ZONE $2)::date BETWEEN $3::date AND $4::date
+        GROUP BY 1`,
+      [user.id, timezone, startDay, endDay]
+    );
+    const states = await client.query(
+      `SELECT to_char(local_date, 'YYYY-MM-DD') AS day, state
+         FROM nutrition_day_completeness
+        WHERE user_id = $1 AND local_date BETWEEN $2::date AND $3::date`,
+      [user.id, startDay, endDay]
+    );
+    // Targets as of the end of the requested week; no defaults filled in.
+    const targets = await client.query(
+      `SELECT DISTINCT ON (macro) macro, target::float8 AS target
+         FROM macro_targets
+        WHERE user_id = $1 AND effective_date <= $2::date
+        ORDER BY macro, effective_date DESC, updated_at DESC`,
+      [user.id, endDay]
+    );
+    const weights = await client.query(
+      `SELECT to_char((logged_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS day, weight::float8 AS weight
+         FROM weight_entries
+        WHERE user_id = $1 AND deleted_at IS NULL
+          AND (logged_at AT TIME ZONE $2)::date BETWEEN $3::date AND $4::date
+        ORDER BY logged_at`,
+      [user.id, timezone, startDay, endDay]
+    );
+    const waists = await client.query(
+      `SELECT to_char((logged_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS day,
+              value_cm::float8 AS value_cm, method
+         FROM waist_entries
+        WHERE user_id = $1 AND deleted_at IS NULL
+          AND (logged_at AT TIME ZONE $2)::date BETWEEN $3::date AND $4::date
+        ORDER BY logged_at`,
+      [user.id, timezone, startDay, endDay]
+    );
+    await client.query('COMMIT');
+    return {
+      user: { id: user.id, timezone },
+      totals: totals.rows,
+      states: Object.fromEntries(states.rows.map((row) => [row.day, row.state])),
+      targets: Object.fromEntries(targets.rows.map((row) => [row.macro, row.target])),
+      weights: weights.rows,
+      waists: waists.rows
+    };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   ...createWaistStore(pool),
   initDb,
@@ -6090,6 +6169,7 @@ module.exports = {
   setNutritionDayCompleteness,
   getMacroTargets,
   getMacroTargetHistory,
+  getWeeklySummaryRows,
   setMacroTarget,
   addWeightEntry,
   updateWeightEntry,

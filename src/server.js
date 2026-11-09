@@ -135,7 +135,8 @@ const {
   getSubscriptionByStripeCustomerId,
   applyStripeBillingEvent,
   listStripeSubscriptionsForReconciliation,
-  consumeDailyUsage
+  consumeDailyUsage,
+  getWeeklySummaryRows
 } = require('./db');
 const { parseMealText, parseWorkoutText } = require('./parser');
 const { estimateWorkoutCalories } = require('./workout-calories');
@@ -157,6 +158,7 @@ const {
   subscriptionMetadataUserId
 } = require('./stripe-webhooks');
 const { buildOuraWebhookReceipt, createOuraService } = require('./oura');
+const { createWeeklySummaryRoute } = require('./weekly-summary');
 const {
   SOURCE_IDS,
   buildSourceAccess,
@@ -678,6 +680,18 @@ app.post('/webhooks/oura', express.raw({ type: 'application/json', limit: '256kb
     });
   }
 });
+
+// Read-only weekly summary for the weekly-review routine. Registered before
+// sessions, passport and the /api mounts: it accepts only the
+// WEEKLY_SUMMARY_TOKEN_SHA256 bearer token (never a session or api_token), and
+// that token is accepted nowhere else. Unconfigured or unauthorized requests
+// get the same 404 as an unknown API route.
+app.get('/api/weekly-summary', ...createWeeklySummaryRoute({
+  getWeeklySummaryRows,
+  rateLimiter: createRateLimiter({ windowMs: 15 * 60 * 1000, maxRequests: 30 }),
+  notFound: (req, res) => sendError(req, res, 404, 'API route not found.'),
+  logError: (req, error) => logServerError(req, error, { status: 500, category: 'weekly_summary' })
+}));
 
 app.use(express.json({ limit: '40mb' }));
 
