@@ -1111,27 +1111,26 @@ test('subscription indexes exist', () => {
 
 // ── Release infrastructure ──
 
-test('deploy workflow verifies SSH host and smokes production endpoints', () => {
-  const workflow = read('.github/workflows/deploy.yml');
+test('server release uses the pinned shared engine and smokes production endpoints', () => {
+  const ci = read('.github/workflows/ci.yml');
+  const manifest = JSON.parse(read('.github/release/server.json'));
   const script = read('scripts/production-smoke.sh');
-  assert.ok(workflow.includes('actions/checkout@v5'));
-  assert.ok(workflow.includes('workflow_call:'));
-  assert.equal(workflow.includes('workflow_dispatch:'), false);
-  assert.equal(/^\s{2}push:/m.test(workflow), false);
-  assert.equal(workflow.includes('ssh-keyscan'), false);
-  assert.ok(workflow.includes('EC2_SSH_KNOWN_HOSTS'));
-  assert.ok(workflow.includes('UserKnownHostsFile=~/.ssh/known_hosts'));
-  assert.equal(workflow.includes('StrictHostKeyChecking=no'), false);
-  assert.ok(workflow.includes('scripts/safe-compose-release.py macros'));
-  assert.ok(workflow.includes('StrictHostKeyChecking=yes'));
-  assert.equal(workflow.includes('docker system prune'), false);
-  assert.equal(workflow.includes('docker-compose.macros-build.yml'), false);
-  assert.ok(workflow.includes('PRODUCTION_BASE_URL'));
-  assert.ok(workflow.includes('Skip post-deploy smoke when production URL is not configured'));
-  assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL == ''"));
-  assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL != ''"));
-  assert.equal(workflow.includes('for name in EC2_SSH_KEY EC2_USER EC2_HOST PRODUCTION_BASE_URL; do'), false);
-  assert.ok(workflow.includes('scripts/production-smoke.sh'));
+  assert.ok(ci.includes('jimgreco/release-tools/.github/workflows/server-release.yml@'));
+  assert.equal(ci.includes('ssh-keyscan'), false);
+  assert.equal(ci.includes('rsync'), false);
+  assert.equal(ci.includes('docker system prune'), false);
+  assert.equal(manifest.image, 'ghcr.io/jimgreco/macro_tracker');
+  assert.deepEqual(Object.keys(manifest.services), ['macros']);
+  assert.deepEqual(manifest.services.macros.metadata_env, { APP_BUILD: '{sha7}' });
+  assert.ok(manifest.services.macros.health.join(' ').includes("version.appBuild === '{sha7}'"));
+  assert.equal(manifest.public.field, 'appBuild');
+  assert.equal(manifest.backup.database, 'macro_tracker');
+  assert.equal(manifest.migrate, undefined, 'production migrations stay a separate owner-run command');
+  assert.ok(ci.includes('PRODUCTION_BASE_URL'));
+  assert.ok(ci.includes('Skip post-deploy smoke when production URL is not configured'));
+  assert.ok(ci.includes("if: env.PRODUCTION_BASE_URL == ''"));
+  assert.ok(ci.includes("if: env.PRODUCTION_BASE_URL != ''"));
+  assert.ok(ci.includes('scripts/production-smoke.sh'));
   assert.ok(script.includes('SMOKE_CURL_RETRIES'));
   assert.ok(script.includes('--retry "$SMOKE_CURL_RETRIES"'));
 });
@@ -1242,39 +1241,28 @@ test('barcode lookup uses Open Food Facts with normalized nutrition output', () 
   assert.ok(server.includes("nutriments['energy-kcal_100g']"));
 });
 
-test('TestFlight workflow requires the canonical Macrovana API origin and passes build metadata', () => {
+test('TestFlight uses the pinned release engine with the canonical Macrovana origin and build metadata', () => {
   const workflow = read('.github/workflows/testflight.yml');
-  assert.ok(workflow.includes('if [ "$IOS_API_BASE_URL" != "https://macrovana.com" ]'));
-  assert.ok(workflow.includes('IOS_API_BASE_URL must be exactly https://macrovana.com.'));
-  assert.ok(workflow.includes('openssl pkcs12 -legacy -in "$RELEASE_TEMP/cert.p12"'));
-  assert.ok(workflow.includes('openssl pkcs12 verification: OK (legacy provider)'));
-  assert.ok(workflow.indexOf('/Applications/Xcode_26.2.app') < workflow.indexOf('/Applications/Xcode_26.app'));
-  assert.ok(workflow.includes('GIT_COMMIT_HASH="$(git rev-parse --short=7 HEAD)"'));
-  assert.ok(workflow.includes('APP_BUILD="$BUILD_NUMBER"'));
-  assert.ok(workflow.includes('GIT_COMMIT_HASH="$GIT_COMMIT_HASH"'));
-});
-
-test('TestFlight releases main after required CI and verifies existing scope around its only upload', () => {
-  const workflow = read('.github/workflows/testflight.yml');
-  const ci = read('.github/workflows/ci.yml');
+  const policy = JSON.parse(read('.github/scripts/release-policy.json'));
+  const ref = /ios\/prepare@([0-9a-f]{40})/.exec(workflow)[1];
   assert.ok(workflow.includes('workflow_call:'));
   assert.ok(!workflow.includes('  push:'));
   assert.ok(workflow.includes("github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')"));
-  assert.ok(ci.includes("needs.required.result == 'success' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload_testflight))"));
+  const prepare = workflow.indexOf(`jimgreco/release-tools/ios/prepare@${ref}`);
+  const upload = workflow.indexOf(`jimgreco/release-tools/ios/upload@${ref}`);
+  const cleanup = workflow.indexOf(`jimgreco/release-tools/ios/cleanup@${ref}`);
+  assert.ok(prepare > 0 && prepare < upload && upload < cleanup);
+  assert.ok(/cleanup@[0-9a-f]{40}\n\s+if: always\(\)/.test(workflow));
+  assert.ok(workflow.includes('policy: .github/scripts/release-policy.json'));
+  assert.ok(workflow.includes('PROVISIONING_PROFILE_SPECIFIER=@PROFILE_UUID:app@'));
+  assert.ok(workflow.includes('API_BASE_URL=https://macrovana.com'));
+  assert.ok(workflow.includes('APP_BUILD=@BUILD_NUMBER@'));
+  assert.ok(workflow.includes('GIT_COMMIT_HASH=@GIT_SHA7@'));
+  assert.ok(!workflow.includes('xcrun altool'));
   assert.ok(!workflow.includes('-allowProvisioningUpdates'));
-  assert.ok(!workflow.includes('-authenticationKeyPath'));
-  assert.ok(!workflow.includes('security default-keychain'));
-  assert.ok(workflow.indexOf('asc-readonly.mjs scope-policy') < workflow.indexOf('xcodebuild archive'));
-  assert.ok(workflow.indexOf('cmp "$RELEASE_TEMP/configured.mobileprovision"') < workflow.indexOf('xcodebuild archive'));
-  const upload = workflow.indexOf('xcrun altool --upload-app');
-  assert.equal(workflow.match(/xcrun altool --upload-app/g).length, 1);
-  const recheck = workflow.indexOf('name: Verify artifact and recheck');
-  assert.ok(recheck < upload);
-  assert.ok(workflow.slice(recheck, upload).includes('asc-readonly.mjs profiles'));
-  assert.ok(workflow.slice(recheck, upload).includes('asc-readonly.mjs preflight'));
-  assert.ok(workflow.indexOf('asc-readonly.mjs verify-upload') > upload);
-  assert.ok(ci.includes('node --test .github/scripts/release-guard-tests.mjs'));
-  assert.ok(ci.includes('python3 .github/scripts/test_release.py'));
+  assert.equal(policy.apiOrigin, 'https://macrovana.com');
+  assert.deepEqual(policy.mainInfoPlist, { APIBaseURL: '{apiOrigin}', AppBuild: '{build}', GitCommitHash: '{sha7}' });
+  assert.equal(policy.buildAudience, undefined, 'buildAudience uses the engine default (APP_STORE_ELIGIBLE)');
 });
 
 test('iOS settings exposes support privacy and build metadata', () => {

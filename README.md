@@ -92,23 +92,26 @@ The production path is the `Required CI and Release` orchestrator in
 `.github/workflows/ci.yml`. Every `main` push—and any manual run of that
 orchestrator on `main`—must pass the JavaScript, PostgreSQL, Docker,
 browser/accessibility, and iOS gates before it can call the reusable EC2 deploy
-and TestFlight workflows. The EC2 deploy implementation rsyncs this repository
-to `~/macros`, rebuilds the `macros` service from `~/deploy`, and then runs
-`scripts/production-smoke.sh` when `PRODUCTION_BASE_URL` is configured.
+and TestFlight workflows. The EC2 deploy calls the shared, commit-pinned
+`jimgreco/release-tools` server release (manifest `.github/release/server.json`):
+it pushes an exact-commit ARM64 image to GHCR and replaces only the `macros`
+container on the host after a drift check and a verified database backup, then
+runs `scripts/production-smoke.sh` when `PRODUCTION_BASE_URL` is configured.
 
 Required GitHub Actions secrets for deploy:
 - `EC2_SSH_KEY`
 - `EC2_USER`
 - `EC2_HOST`
+- `EC2_SSH_KNOWN_HOSTS` (pinned host key; required)
 - `PRODUCTION_BASE_URL` (optional for deploy; enables post-deploy smoke checks)
-- `PRODUCTION_SMOKE_API_TOKEN` (optional; enables authenticated deploy and scheduled smoke checks)
+- `PRODUCTION_SMOKE_API_TOKEN` (optional; enables authenticated scheduled smoke checks)
 
 For the current EC2/Docker Compose deployment set:
 - `DATABASE_URL` to the internal Docker Postgres connection string
 - `PGSSL=false`
 - `APP_BASE_URL=https://your-production-domain`
 - `SESSION_SECRET` to a long random value (required in production)
-- `APP_BUILD` to the deployed git SHA
+- `APP_BUILD` (set per release by the release override to the 7-character commit)
 - `ADMIN_EMAILS` or `ADMIN_USER_IDS` to the production admin allowlist
 - AI usage limit env vars to the intended beta limits
 

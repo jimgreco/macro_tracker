@@ -1,0 +1,20 @@
+{
+  "app": "macros",
+  "image": "ghcr.io/jimgreco/macro_tracker",
+  "images": [
+    { "context": ".", "dockerfile": "Dockerfile" }
+  ],
+  "services": {
+    "macros": {
+      "metadata_env": { "APP_BUILD": "{sha7}" },
+      "health": [
+        "node", "-e",
+        "const base = 'http://127.0.0.1:' + (Number(process.env.PORT) || 3000); Promise.all([fetch(base + '/healthz'), fetch(base + '/version').then(r => r.ok ? r.json() : {})]).then(([health, version]) => process.exit(health.ok && version.appBuild === '{sha7}' ? 0 : 1)).catch(() => process.exit(1))"
+      ]
+    }
+  },
+  "interpolate_from_live": { "APP_BUILD": "env:macros:APP_BUILD" },
+  "legacy_overrides": ["app-release-[a-z0-9_]+\\.json"],
+  "backup": { "database": "macro_tracker", "require_table": "users", "keep": 20 },
+  "public": { "url": "https://macrovana.com/version", "field": "appBuild", "length": 7 }
+}

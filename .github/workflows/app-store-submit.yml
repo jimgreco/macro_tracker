@@ -1,7 +1,8 @@
 name: App Store Submit
 
-# Submits an existing App Store-eligible build (from a `Required CI and Release`
-# dispatch with app_store_build) for App Store review. It never builds or uploads.
+# Submits an existing App Store-eligible build for App Store review. Every
+# TestFlight upload is App Store-eligible (release policy buildAudience default
+# APP_STORE_ELIGIBLE). It never builds or uploads.
 # With submit unchecked it only reads Apple state and prints the plan.
 on:
   workflow_dispatch:

@@ -1,10 +1,16 @@
 {
   "app": "macros",
+  "appId": "6770046577",
   "bundleId": "com.dailymacros.app",
   "teamId": "V6JPQCD336",
-  "testerEmailSha256": "a46343858cf3e5e2fda6339f7063190f295ece10dea50979932e69ec57ea4baa",
+  "certificateSha1": "963A7A5107DB8D4C141371C285F71CCAE84A5452",
+  "certificateSha256": "7fb57dbf0cd7923f9ba97d8801824de79e1ba235dbe78d4a821f8195c30f0bf8",
+  "testerEmailSha256s": ["a46343858cf3e5e2fda6339f7063190f295ece10dea50979932e69ec57ea4baa"],
+  "groups": "TODO: paste the groups printed by release-tools ios/scripts/asc-readonly.mjs discover-audience (GET-only)",
   "profiles": {
     "app": {
+      "uuid": "TODO: lowercase UUID of the profile in the IOS_PROVISIONING_PROFILE secret",
+      "name": "TODO: profile name (the IOS_PROVISIONING_PROFILE_NAME secret)",
       "bundleId": "com.dailymacros.app",
       "groups": [],
       "appleSignin": ["Default"],
@@ -15,6 +21,7 @@
   },
   "marketingVersion": "1.4.0",
   "apiOrigin": "https://macrovana.com",
+  "mainInfoPlist": { "APIBaseURL": "{apiOrigin}", "AppBuild": "{build}", "GitCommitHash": "{sha7}" },
   "infoPlists": ["ios/DailyMacros/DailyMacros/Info.plist"],
   "configuredPlistKeys": []
 }

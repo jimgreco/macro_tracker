@@ -3,8 +3,12 @@
 This is the production release path for the friends and family beta.
 
 ## Source Of Truth
-- GitHub workflow: `.github/workflows/deploy.yml`
-- Remote app checkout: `~/macros`
+- GitHub workflow: `deploy` job in `.github/workflows/ci.yml`, calling the
+  commit-pinned `jimgreco/release-tools/.github/workflows/server-release.yml`
+- Release manifest: `.github/release/server.json` (format: release-tools `server/README.md`)
+- Image: `ghcr.io/jimgreco/macro_tracker:<full sha>` (ARM64, built in CI)
+- Remote app checkout `~/macros`: no longer synced by releases; it still holds
+  the host copy of `scripts/production-db-backup.sh` used by the backup timer
 - Remote compose directory: `~/deploy`
 - Remote service name: `macros`
 - Production database: shared Docker Postgres container in the remote compose stack (`shared_db`)
@@ -16,6 +20,7 @@ This is the production release path for the friends and family beta.
 - `EC2_SSH_KEY`: private key for the deploy user.
 - `EC2_USER`: deploy user on the EC2 host.
 - `EC2_HOST`: EC2 hostname or IP.
+- `EC2_SSH_KNOWN_HOSTS`: pinned host key line(s); the release fails closed without it.
 - `PRODUCTION_BASE_URL`: optional canonical HTTPS origin, without a trailing slash; enables post-deploy smoke checks.
 - `PRODUCTION_SMOKE_API_TOKEN`: optional API token for authenticated scheduled smoke checks.
 
@@ -103,12 +108,27 @@ gh secret list
 ```
 
 ## Deploy
-Push or merge to `main`. The workflow will:
-1. Validate required deploy secrets.
-2. Install the SSH key and add the EC2 host key to `known_hosts`.
-3. Rsync the repository to `~/macros`.
-4. Rebuild and restart the `macros` service from `~/deploy`.
-5. Run `scripts/production-smoke.sh` against `PRODUCTION_BASE_URL`.
+Push or merge to `main`. After `Required Checks`, the workflow will:
+1. Build and push `ghcr.io/jimgreco/macro_tracker:<sha>` (linux/arm64).
+2. Read the live `https://macrovana.com/version` `appBuild` for the log.
+3. Pipe release-tools `server/release.py` over the pinned SSH connection. It
+   takes both host release locks, rebuilds the Compose invocation recorded on
+   the running `macros` container (reconstructing the `APP_BUILD` interpolation
+   from the live container) and refuses on any config-hash drift, pulls the
+   image, writes `~/deploy/releases/macros-image-<sha>.json` (image and
+   `APP_BUILD=<sha7>` only; older `app-release-*.json` overlays are dropped
+   from the chain only if nothing else changes), tags the previous image
+   `macros-rollback:<time>-<container>`, takes a verified `pg_dump -Fc` of
+   `macro_tracker` into `~/deploy/backups/macros/macros-*-before-<sha>.dump`,
+   then recreates only `macros` with `--no-deps --no-build`.
+4. Require `/healthz` and `/version` `appBuild == <sha7>` inside the container,
+   rolling back to the previous image on failure, then confirm the public
+   `/version` reports the new build. Records: `~/deploy/release-records/macros-<sha>.json`.
+5. Run `scripts/production-smoke.sh` against `PRODUCTION_BASE_URL` (`smoke` job).
+
+Releases never run migrations. A schema change is applied beforehand with the
+owner-run `npm run db:migrate` (or `db:migrate:fiber`) and `MIGRATION_DATABASE_URL`,
+as described in `docs/database-runtime-access.md`.
 
 ## Manual Smoke
 After deploy, run:
@@ -145,17 +165,10 @@ For beta-facing iOS releases, verify on a real device after the TestFlight build
 - Any API error shown to a tester includes a request reference that appears in server logs.
 
 ## Rollback
-From the EC2 host:
-```bash
-cd ~/macros
-git log --oneline -5
-git checkout <last-known-good-sha>
-cd ~/deploy
-APP_BUILD=<last-known-good-sha> docker-compose build macros
-APP_BUILD=<last-known-good-sha> docker-compose up -d macros
-curl --fail --show-error "$PRODUCTION_BASE_URL/healthz"
-curl --fail --show-error "$PRODUCTION_BASE_URL/version"
-```
+A failed health check rolls back automatically. To return to an earlier good
+commit deliberately, re-release it: its GHCR image is still tagged by SHA, and
+`release.py` replaces only `macros` with the same guards. Previous images stay
+tagged `macros-rollback:*` and each release record names the image it replaced.
 
 If the database migration is the suspected cause, stop and restore from the latest verified database backup before restarting the app.
 
@@ -227,45 +240,19 @@ Local verification does not close the real-ring acceptance requirement. After re
 
 Run `TEST_DATABASE_URL=... node --test test/health-reconciliation.test.js` for transactional replay/tombstone/annotation tests, in addition to the standard fresh schema, legacy upgrade and native test gates. Fixtures and simulator screenshots must be labeled as local evidence, never real-ring acceptance.
 
-## Audited release safety gate (October 2026)
+## Release safety gate
 
-A main push runs Required Checks and, when they pass, deploys to EC2 and uploads
-an internal TestFlight build. The deploy step's `safe-compose-release.py` run
-performs the full live-host preflight before building and fails closed on drift,
-so no separate manual preflight is needed. To re-release a commit, dispatch
-`Required CI and Release` on main (both release inputs default true). TestFlight
-upload is a separate result from an installed or App Store release.
+A main push runs Required Checks and, when they pass, releases to EC2 and
+uploads a TestFlight build. Release-tools' `release.py` performs the live-host
+preflight itself and fails closed on drift, a missing Compose input, an
+installed Compose version that differs from the one that created the container,
+less than 1 GiB free, or an unreadable backup. It never edits `.env`, shared
+Compose files, grants or credentials, and never prunes images. To re-release a
+commit, dispatch `Required CI and Release` on main (both release inputs default
+true). TestFlight upload is a separate result from an installed or App Store release.
 
-`scripts/safe-compose-release.py macros <full-sha> --check` reads the running
-service's Compose labels, exact existing files, config hash, and environment.
-Missing files or drift fail closed with key names only; reconcile them before
-release. The helper never fetches shared deployment configuration or rewrites
-`.env`, grants, security settings, or credentials. It serializes the host with
-`/tmp/codex-shared-host-release.lock`, retains old images under rollback tags,
-builds only `macros`, and recreates with `--no-deps --no-build`. It preserves a
-metadata-only release overlay referenced by the new container's Compose labels.
-No global prune runs. Keep the overlay and rollback images until acceptance.
-
-For rollback, use the recorded old image with the exact same effective Compose
-inputs and only the `macros` service; do not rerun historical deployment workflows
-that prune images or rewrite settings. The receipt change needs no schema change,
-but an older mutation writer can again produce ambiguous processing receipts.
-Retain legacy receipts and client queues; historical repair is a separate action.
-
-Optional CI deployment requires an already verified `EC2_SSH_KNOWN_HOSTS` secret
-and fails closed when it is absent. It never obtains fresh trust with
-`ssh-keyscan`. The coordinator may instead use the existing pinned local SSH
-connection for the authorized, serialized release; configuring new trust is
-a separate action. Base-image environment changes also fail the equality guard
-and require review instead of automatically changing effective app settings.
-
-Compose 2.26.1 records a scoped hash after `up --no-deps`: dependencies outside
-the selected app services are omitted. Preflight accepts that exact alternate
-only after hashing the full rendered JSON reproduces every original service
-hash. It then removes only external `depends_on` entries and requires every
-resulting hash to match live. Internal dependencies and all other configuration
-remain unchanged; full effective-environment comparison still runs. Resolved
-configuration stays in process memory/stdin and is never written or logged.
+Pre-hardening Macrovana images were confirmed to include host configuration,
+key material, and data. Do not reuse them for routine rollback.
 
 ## Private build-context exclusions
 

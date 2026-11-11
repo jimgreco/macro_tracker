@@ -26,25 +26,17 @@ function jobBlock(source, jobName) {
   return endMatch ? remainder.slice(0, endMatch.index) : remainder;
 }
 
-test('release workflows are reusable only, run on main pushes, and cannot bypass required CI', () => {
-  for (const workflow of [
-    '.github/workflows/deploy.yml',
-    '.github/workflows/testflight.yml'
-  ]) {
-    const triggers = topLevelBlock(read(workflow), 'on');
-    assert.match(triggers, /^\s{2}workflow_call:\s*$/m, `${workflow} must expose workflow_call`);
-    assert.doesNotMatch(triggers, /^\s+push:/m, `${workflow} must not deploy directly on push`);
-    assert.doesNotMatch(
-      triggers,
-      /^\s+workflow_dispatch:/m,
-      `${workflow} must not expose a gate-bypassing dispatch`
-    );
-  }
+test('release workflows run only on main after required CI and cannot bypass it', () => {
+  const testflight = topLevelBlock(read('.github/workflows/testflight.yml'), 'on');
+  assert.match(testflight, /^\s{2}workflow_call:\s*$/m);
+  assert.doesNotMatch(testflight, /^\s+push:/m, 'testflight.yml must not release directly on push');
+  assert.doesNotMatch(testflight, /^\s+workflow_dispatch:/m, 'testflight.yml must not expose a gate-bypassing dispatch');
+  assert.doesNotMatch(testflight, /distribution/, 'audience comes from the release policy, not a workflow input');
 
   const orchestrator = read('.github/workflows/ci.yml');
-  for (const [jobName, workflow] of [
-    ['deploy', 'deploy.yml'],
-    ['testflight', 'testflight.yml']
+  for (const [jobName, input, uses] of [
+    ['deploy', 'deploy_production', /uses: jimgreco\/release-tools\/\.github\/workflows\/server-release\.yml@[0-9a-f]{40}\s*$/m],
+    ['testflight', 'upload_testflight', /uses: \.\/\.github\/workflows\/testflight\.yml\s*$/m]
   ]) {
     const block = jobBlock(orchestrator, jobName);
     assert.match(block, /^\s{4}needs: required\s*$/m);
@@ -53,12 +45,17 @@ test('release workflows are reusable only, run on main pushes, and cannot bypass
     // Pushes to main release automatically; pull requests never release.
     assert.match(block, /github\.event_name == 'push'/);
     assert.doesNotMatch(block, /pull_request/);
-    assert.match(block, new RegExp(`inputs\\.${jobName === 'deploy' ? 'deploy_production' : 'upload_testflight'}`));
-    assert.match(block, new RegExp(`uses: \\.\\/\\.github\\/workflows\\/${workflow}`));
+    assert.match(block, new RegExp(`inputs\\.${input}`));
+    assert.match(block, uses);
   }
-  // Pushes stay internal-only; only an explicit dispatch builds for the App Store.
-  assert.match(jobBlock(orchestrator, 'testflight'), /distribution: \$\{\{ inputs\.app_store_build && 'app-store' \|\| 'internal' \}\}/);
-  assert.match(orchestrator, /app_store_build:\n(?:\s+.*\n)*?\s+default: false/);
+  const deploy = jobBlock(orchestrator, 'deploy');
+  const pinned = /server-release\.yml@([0-9a-f]{40})/.exec(deploy)[1];
+  assert.match(deploy, new RegExp(`tools_ref: ${pinned}`));
+  for (const secret of ['EC2_HOST', 'EC2_USER', 'EC2_SSH_KEY', 'EC2_SSH_KNOWN_HOSTS']) {
+    assert.match(deploy, new RegExp(`${secret}: \\$\\{\\{ secrets\\.${secret} \\}\\}`));
+  }
+  assert.doesNotMatch(orchestrator, /app_store_build|distribution:/);
+  assert.match(jobBlock(orchestrator, 'smoke'), /needs: deploy/);
 });
 
 test('App Store submission is main-only, plans by default, and never uploads', () => {
