@@ -5,15 +5,27 @@
   "teamId": "V6JPQCD336",
   "certificateSha1": "963A7A5107DB8D4C141371C285F71CCAE84A5452",
   "certificateSha256": "7fb57dbf0cd7923f9ba97d8801824de79e1ba235dbe78d4a821f8195c30f0bf8",
-  "testerEmailSha256s": ["a46343858cf3e5e2fda6339f7063190f295ece10dea50979932e69ec57ea4baa"],
-  "groups": "TODO: paste the groups printed by release-tools ios/scripts/asc-readonly.mjs discover-audience (GET-only)",
+  "testerEmailSha256s": [
+    "a46343858cf3e5e2fda6339f7063190f295ece10dea50979932e69ec57ea4baa"
+  ],
+  "groups": [
+    {
+      "id": "61b21db5-53cf-4ff9-9c0b-7775247387a7",
+      "name": "Family",
+      "internal": true,
+      "testers": 1,
+      "automatic": true
+    }
+  ],
   "profiles": {
     "app": {
-      "uuid": "TODO: lowercase UUID of the profile in the IOS_PROVISIONING_PROFILE secret",
-      "name": "TODO: profile name (the IOS_PROVISIONING_PROFILE_NAME secret)",
+      "uuid": "1567e104-0a7c-4577-8d9e-9624ea16be8b",
+      "name": "Daily Macros",
       "bundleId": "com.dailymacros.app",
       "groups": [],
-      "appleSignin": ["Default"],
+      "appleSignin": [
+        "Default"
+      ],
       "push": null,
       "healthkit": true,
       "healthkitBackgroundDelivery": true
@@ -21,7 +33,13 @@
   },
   "marketingVersion": "1.4.0",
   "apiOrigin": "https://macrovana.com",
-  "mainInfoPlist": { "APIBaseURL": "{apiOrigin}", "AppBuild": "{build}", "GitCommitHash": "{sha7}" },
-  "infoPlists": ["ios/DailyMacros/DailyMacros/Info.plist"],
+  "mainInfoPlist": {
+    "APIBaseURL": "{apiOrigin}",
+    "AppBuild": "{build}",
+    "GitCommitHash": "{sha7}"
+  },
+  "infoPlists": [
+    "ios/DailyMacros/DailyMacros/Info.plist"
+  ],
   "configuredPlistKeys": []
 }
