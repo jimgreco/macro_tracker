@@ -3,7 +3,7 @@ set -euo pipefail
 
 repository="${1:-jimgreco/macro_tracker}"
 branch="${2:-main}"
-required_context="Required Checks"
+required_context="verify / Required Checks"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "gh is required to verify GitHub branch protection." >&2
@@ -18,7 +18,7 @@ head_sha="$(gh api "repos/${repository}/commits/${branch}" --jq .sha)"
 check_state="$(
   gh api "repos/${repository}/commits/${head_sha}/check-runs?per_page=100" \
     --jq '
-      [.check_runs[] | select(.name == "Required Checks")]
+      [.check_runs[] | select(.name == "verify / Required Checks")]
       | sort_by([(.started_at // .created_at // ""), (.id // 0)])
       | last
       | [.status, .conclusion]

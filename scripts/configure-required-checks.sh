@@ -9,7 +9,7 @@ fi
 
 repository="${1:-jimgreco/macro_tracker}"
 branch="${2:-main}"
-required_context="Required Checks"
+required_context="verify / Required Checks"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "gh is required to inspect or configure GitHub branch protection." >&2
@@ -20,7 +20,7 @@ head_sha="$(gh api "repos/${repository}/commits/${branch}" --jq .sha)"
 check_state="$(
   gh api "repos/${repository}/commits/${head_sha}/check-runs?per_page=100" \
     --jq '
-      [.check_runs[] | select(.name == "Required Checks")]
+      [.check_runs[] | select(.name == "verify / Required Checks")]
       | sort_by([(.started_at // .created_at // ""), (.id // 0)])
       | last
       | [.status, .conclusion]
@@ -28,7 +28,7 @@ check_state="$(
     '
 )"
 if [ "$check_state" != $'completed\tsuccess' ]; then
-  echo "Required Checks has not completed successfully on ${branch} (${head_sha})." >&2
+  echo "${required_context} has not completed successfully on ${branch} (${head_sha})." >&2
   echo "Land the workflow and wait for its first successful main run before applying protection." >&2
   exit 1
 fi

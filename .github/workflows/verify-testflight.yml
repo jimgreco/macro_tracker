@@ -24,10 +24,16 @@ jobs:
     - uses: actions/checkout@v5
       with:
         fetch-depth: 0
+    - uses: actions/checkout@v5
+      with:
+        repository: jimgreco/release-tools
+        ref: 082f38d35995b50526c43da11fa6a9e73300fd4d
+        path: .release-tools
+        persist-credentials: false
     - uses: actions/setup-node@v5
       with:
         node-version: 22
-    - name: Check existing build source and read guards
+    - name: Check existing build source and policy
       env:
         SOURCE_SHA: ${{ inputs.source_sha }}
         BUILD_NUMBER: ${{ inputs.build }}
@@ -37,7 +43,7 @@ jobs:
         [[ "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]
         git merge-base --is-ancestor "$SOURCE_SHA" HEAD
         test "$(git rev-list --count "$SOURCE_SHA")" = "$BUILD_NUMBER"
-        node --test .github/scripts/release-guard-tests.mjs
+        node .release-tools/ios/scripts/asc-readonly.mjs validate-policy --policy .github/scripts/release-policy.json
     - name: Read Apple processing and existing audience only
       env:
         SOURCE_SHA: ${{ inputs.source_sha }}
@@ -61,17 +67,7 @@ jobs:
         with open(os.environ['APP_STORE_CONNECT_API_KEY_PATH'], 'x') as file:
             file.write(key.rstrip() + '\n')
         PYKEY
-        node --input-type=module <<'JS'
-        import { readClient, discoverAudience, verifyUploaded } from './.github/scripts/asc-readonly.mjs';
-        const client = readClient();
-        // Reuse the same Jim-only, no-public/external-distribution checks as upload.
-        // No signing credentials, Apple writes, archive or upload are needed.
-        const scope = await discoverAudience(client);
-        console.log(JSON.stringify({ appId: scope.appId, currentGroups: scope.groups }));
-        for (let attempt = 0; attempt < 40; attempt++) {
-          const result = await verifyUploaded(client, process.env.BUILD_NUMBER, process.env.SOURCE_SHA, scope);
-          if (result) { console.log(JSON.stringify(result)); process.exit(0); }
-          await new Promise(resolve => setTimeout(resolve, 15000));
-        }
-        throw new Error('Existing uploaded build is not yet available to its approved group. Do not upload again.');
-        JS
+        # Same GET-only audience/processing checks the upload ends with; no
+        # signing credentials, archive or upload. Never upload again on failure.
+        node .release-tools/ios/scripts/asc-readonly.mjs verify-upload \
+          --policy .github/scripts/release-policy.json --sha "$SOURCE_SHA" --build "$BUILD_NUMBER"

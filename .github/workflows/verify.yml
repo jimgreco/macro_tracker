@@ -1,31 +1,13 @@
-name: Required CI and Release
+name: Verify
 
+# Every check that gates a merge or a release. Called by release.yml on pull
+# requests, pushes to main and manual runs; `Required Checks` is the single
+# aggregate result (`verify / Required Checks` in the caller).
 on:
-  pull_request:
-  push:
-    branches: [main]
-  # Re-release main without a new commit. Pushes to main always release.
-  workflow_dispatch:
-    inputs:
-      deploy_production:
-        description: Deploy this main commit to EC2
-        type: boolean
-        default: true
-      upload_testflight:
-        description: Upload this main commit to TestFlight
-        type: boolean
-        default: true
-      app_store_build:
-        description: Make the uploaded build eligible for App Store review (otherwise internal TestFlight only)
-        type: boolean
-        default: false
+  workflow_call:
 
 permissions:
   contents: read
-
-concurrency:
-  group: required-ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   javascript:
@@ -48,9 +30,7 @@ jobs:
           set -o pipefail
           mkdir -p output/ci
           npm run test:check 2>&1 | tee output/ci/javascript.log
-          python3 scripts/test-safe-compose-release.py
           node --test .github/scripts/release-guard-tests.mjs
-          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/test_release.py
 
       - name: Upload JavaScript diagnostics
         if: always()
@@ -305,19 +285,3 @@ jobs:
             echo "- iOS simulator tests: $IOS_RESULT"
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$failed"
-
-  deploy:
-    name: Deploy to EC2
-    if: needs.required.result == 'success' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy_production))
-    needs: required
-    uses: ./.github/workflows/deploy.yml
-    secrets: inherit
-
-  testflight:
-    name: TestFlight
-    if: needs.required.result == 'success' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload_testflight))
-    needs: required
-    uses: ./.github/workflows/testflight.yml
-    with:
-      distribution: ${{ inputs.app_store_build && 'app-store' || 'internal' }}
-    secrets: inherit

@@ -88,34 +88,39 @@ For a preloaded local preview, run `npm run db:seed:local` after Postgres is up.
 
 ## Production Setup Notes
 
-The production path is the `Required CI and Release` orchestrator in
-`.github/workflows/ci.yml`. Every `main` push—and any manual run of that
-orchestrator on `main`—must pass the JavaScript, PostgreSQL, Docker,
-browser/accessibility, and iOS gates before it can call the reusable EC2 deploy
-and TestFlight workflows. The EC2 deploy implementation rsyncs this repository
-to `~/macros`, rebuilds the `macros` service from `~/deploy`, and then runs
+The production path is the standard `Release` workflow in
+`.github/workflows/release.yml` (copied from release-tools'
+`templates/release.yml`). Every pull request, `main` push and manual run first
+calls `.github/workflows/verify.yml`, which must pass the JavaScript,
+PostgreSQL, Docker, browser/accessibility, and iOS gates; only on `main` does it
+then call the EC2 server release and the TestFlight workflow. The EC2 deploy calls the shared, commit-pinned
+`jimgreco/release-tools` server release (manifest `.github/release/server.json`):
+it pushes an exact-commit ARM64 image to GHCR and replaces only the `macros`
+container on the host after a drift check and a verified database backup, then
+confirms the public `/version`. The scheduled `production-smoke.yml` monitor runs
 `scripts/production-smoke.sh` when `PRODUCTION_BASE_URL` is configured.
 
 Required GitHub Actions secrets for deploy:
 - `EC2_SSH_KEY`
 - `EC2_USER`
 - `EC2_HOST`
-- `PRODUCTION_BASE_URL` (optional for deploy; enables post-deploy smoke checks)
-- `PRODUCTION_SMOKE_API_TOKEN` (optional; enables authenticated deploy and scheduled smoke checks)
+- `EC2_SSH_KNOWN_HOSTS` (pinned host key; required)
+- `PRODUCTION_BASE_URL` (optional; enables the scheduled smoke monitor)
+- `PRODUCTION_SMOKE_API_TOKEN` (optional; enables authenticated scheduled smoke checks)
 
 For the current EC2/Docker Compose deployment set:
 - `DATABASE_URL` to the internal Docker Postgres connection string
 - `PGSSL=false`
 - `APP_BASE_URL=https://your-production-domain`
 - `SESSION_SECRET` to a long random value (required in production)
-- `APP_BUILD` to the deployed git SHA
+- `APP_BUILD` (set per release by the release override to the 7-character commit)
 - `ADMIN_EMAILS` or `ADMIN_USER_IDS` to the production admin allowlist
 - AI usage limit env vars to the intended beta limits
 
 Operational safeguards:
 - `GET /healthz` performs a live `SELECT 1` against PostgreSQL and returns `503` if the database is unavailable.
 - `GET /version` exposes app version, build SHA, Node version, and start time for smoke checks and support.
-- The deploy workflow pins SSH host keys with `ssh-keyscan` and fails if configured post-deploy smoke checks fail.
+- The release pins the SSH host key from `EC2_SSH_KNOWN_HOSTS` and fails if the exact build is not healthy and publicly reported by `/version`.
 - `.github/workflows/production-smoke.yml` runs hourly production smoke checks using `scripts/production-smoke.sh`.
 - Authenticated production smoke checks use the configured smoke account to exercise disposable meal, quick-add, weight, sleep, and optional sexual-activity create/update/delete journeys, then clean up created records.
 - `dailymacros-db-backup.timer` runs `scripts/production-db-backup.sh` nightly on the EC2 host before the AWS DLM snapshot window; local dumps are pruned by `RETENTION_DAYS` and the DLM policy retains 7 daily off-host EBS snapshots.

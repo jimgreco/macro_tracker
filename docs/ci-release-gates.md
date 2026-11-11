@@ -1,7 +1,8 @@
 # CI and Release Gates
 
-`Required CI and Release` is the only pull-request and `main` orchestrator. Its
-stable branch-protection context is **Required Checks**.
+`Release` (`.github/workflows/release.yml`) is the only pull-request and `main`
+orchestrator. Its `verify` job calls `.github/workflows/verify.yml`, and the
+stable branch-protection context is **verify / Required Checks**.
 
 The context aggregates five independent jobs:
 
@@ -12,20 +13,22 @@ The context aggregates five independent jobs:
 - A signing-disabled iOS simulator build with executable Swift unit tests.
 
 Every job uploads failure diagnostics for 14 days. Every push to `main` deploys
-to EC2 and uploads an internal TestFlight build, but only after `Required Checks`
-succeeds; pull requests never release. The reusable deploy and TestFlight
-workflows expose no direct `push` or `workflow_dispatch` triggers, so a release
-cannot bypass the orchestrator. A manual run of `Required CI and Release` on
+to EC2 (shared `jimgreco/release-tools` server release) and uploads an App
+Store-eligible TestFlight build, but only after `verify` succeeds; pull
+requests never release. `verify.yml` and `testflight.yml` are `workflow_call`
+only, so a release cannot bypass the orchestrator. A manual run of `Release` on
 `main` re-releases without a new commit and still reruns all gates first.
 
 ## Main protection
 
 GitHub cannot require a check context until that context has appeared at least
 once. Main protection was enabled after the first successful `Required Checks`
-run. Use this sequence when recreating or changing it:
+run. Moving the checks into `verify.yml` renamed the context from
+`Required Checks` to `verify / Required Checks`; protection must be re-applied
+with the steps below after the first successful run under the new name. Use this sequence when recreating or changing it:
 
 1. Land the workflow while `main` is still unprotected.
-2. Wait for the `Required Checks` job on that exact SHA to finish successfully.
+2. Wait for the `verify / Required Checks` job on that exact SHA to finish successfully.
 3. Review the dry run:
 
    ```bash
@@ -52,8 +55,8 @@ branches. It does not impose an approval-count policy. Review the JSON in
 `scripts/configure-required-checks.sh` before applying if repository governance
 needs a required-review policy too.
 
-Do not rename the `Required Checks` job without updating protection and these
-scripts. Individual implementation job names may change without changing the
+Do not rename the `Required Checks` job in `verify.yml`, or the `verify` job in
+`release.yml`, without updating protection and these scripts. Individual implementation job names may change without changing the
 stable required context.
 
 ## Oura coverage boundary

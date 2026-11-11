@@ -10,8 +10,8 @@ The production environment has been migrated from Elastic Beanstalk to a consoli
 
 ### Auto-Deployment
 Pushes to the `main` branch automatically deploy to the EC2 instance via GitHub Actions.
-- **Workflow**: `.github/workflows/deploy.yml`
-- **Mechanism**: `rsync` syncs code → `docker-compose build` rebuilds the app container.
+- **Workflow**: `server` job in `.github/workflows/release.yml`, calling the commit-pinned `jimgreco/release-tools` `server-release.yml` with `.github/release/server.json`.
+- **Mechanism**: CI builds and pushes `ghcr.io/jimgreco/macro_tracker:<sha>`; `release.py` on the host checks for Compose drift, backs up the database and recreates only `macros`, with automatic rollback on a failed health check.
 - **Smoke**: `scripts/production-smoke.sh` checks public health/version endpoints and, with `PRODUCTION_SMOKE_API_TOKEN`, runs disposable authenticated meal, quick-add, weight, sleep, and optional sexual-activity write journeys with cleanup.
 
 ## Key Architecture Notes
