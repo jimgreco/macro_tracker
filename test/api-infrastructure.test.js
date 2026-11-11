@@ -1245,7 +1245,8 @@ test('TestFlight uses the pinned release engine with the canonical Macrovana ori
   assert.ok(!workflow.includes('  push:'));
   assert.ok(!workflow.includes('  workflow_dispatch:'));
   assert.ok(!workflow.includes('  pull_request:'));
-  assert.ok(workflow.includes("github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')"));
+  // release.yml gates the call to main; the called workflow has no gate of its own (same as every app).
+  assert.ok(!workflow.includes("github.ref == 'refs/heads/main'"));
   const prepare = workflow.indexOf(`jimgreco/release-tools/ios/prepare@${ref}`);
   const upload = workflow.indexOf(`jimgreco/release-tools/ios/upload@${ref}`);
   const cleanup = workflow.indexOf(`jimgreco/release-tools/ios/cleanup@${ref}`);
