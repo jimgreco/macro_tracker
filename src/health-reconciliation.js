@@ -33,8 +33,11 @@ function matchingEvent(row, document, kind) {
     Math.abs(end - localEnd) <= (kind === 'sleep' ? 15 : 5) * 60000 &&
     Number.isFinite(seconds) && Math.abs(seconds - Number(row.duration_hours) * 3600) <= Math.max(300, seconds * 0.1);
 }
-function fallbackAllowed(connection, coveredDay, eventDay, now = Date.now()) {
+// providerReadDisabled: the user explicitly turned off direct Oura Read for this
+// data type, so the Apple Health copy is the only copy of new events.
+function fallbackAllowed(connection, coveredDay, eventDay, now = Date.now(), { providerReadDisabled = false } = {}) {
   if (coveredDay && eventDay <= coveredDay) return false;
+  if (providerReadDisabled) return true;
   return !connection || ['disconnected', 'reauthorization_required', 'permissions_required'].includes(connection.status) ||
     Boolean(connection.last_synced_at && now - new Date(connection.last_synced_at).getTime() > GRACE_MS);
 }
@@ -151,7 +154,11 @@ async function importHealthKit(pool, userId, kind, payload) {
       const coveredDay = [...docs.rows.map(doc => doc.day ? new Date(doc.day).toISOString().slice(0, 10) : null), coverage.rows[0]?.day].filter(Boolean).sort().at(-1);
       const user = await client.query('SELECT timezone FROM users WHERE id = $1', [userId]);
       const eventDay = new Intl.DateTimeFormat('en-CA', { timeZone: user.rows[0]?.timezone || 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(evidence.endedAt));
-      allowed = fallbackAllowed(connection.rows[0], coveredDay, eventDay);
+      // Sleep only: an explicit Oura Sleep Read = off lets Oura-app sleep arrive
+      // through Apple Health while other Oura categories keep syncing directly.
+      const readOff = kind === 'sleep' && (await client.query(`SELECT 1 FROM integration_data_permissions
+        WHERE user_id = $1 AND source = 'oura' AND data_type = 'sleep' AND read_enabled = FALSE`, [userId])).rowCount > 0;
+      allowed = fallbackAllowed(connection.rows[0], coveredDay, eventDay, Date.now(), { providerReadDisabled: readOff });
     }
     let id = prior?.id;
     if (!prior && (direct || allowed)) {

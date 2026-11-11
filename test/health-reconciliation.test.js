@@ -36,6 +36,47 @@ test('fallback waits for the 72-hour grace and never fills covered provider hist
   assert.equal(fallbackAllowed(null, '2026-09-08', '2026-09-09', now), true);
 });
 
+test('Oura Sleep Read off lets new Apple Health nights in while Oura stays connected, never covered history', () => {
+  const now = Date.parse('2026-09-08T12:00:00Z');
+  const connected = { status: 'connected', last_synced_at: new Date(now - 3600000) };
+  const off = { providerReadDisabled: true };
+  assert.equal(fallbackAllowed(connected, null, '2026-09-08', now, off), true);
+  assert.equal(fallbackAllowed(connected, '2026-09-07', '2026-09-08', now, off), true);
+  assert.equal(fallbackAllowed(connected, '2026-09-08', '2026-09-08', now, off), false);
+  assert.equal(Boolean(fallbackAllowed(connected, null, '2026-09-08', now, { providerReadDisabled: false })), false);
+});
+
+test('PostgreSQL: Oura Sleep Read off imports Oura-app Apple Health sleep only after covered nights', { skip: !process.env.TEST_DATABASE_URL }, async () => {
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+  const db = require('../src/db');
+  const userId = `sleep-read-off-${require('node:crypto').randomUUID()}`;
+  const pool = db.getPool();
+  try {
+    await require('./helpers/database').initializeTestSchema(db);
+    await db.upsertUser({ id: userId, provider: 'local-dev', providerUserId: userId, timezone: 'America/New_York' });
+    await pool.query(`INSERT INTO oura_connections (user_id, oura_user_id, access_token_encrypted, refresh_token_encrypted,
+      token_expires_at, status, last_synced_at) VALUES ($1, $2, 'x', 'x', NOW() + interval '1 day', 'connected', NOW())`, [userId, `oura-${userId}`]);
+    // Direct Oura covered the night ending 2026-09-08.
+    await db.upsertOuraDocument(userId, 'sleep', sleep);
+    const night = (n) => ({ ...payload, externalId: `oura-hk-${n}`, loggedAt: `2026-09-${String(n).padStart(2, '0')}T23:00:00-04:00`,
+      healthkitMetadata: { ...evidence, endedAt: `2026-09-${String(n + 1).padStart(2, '0')}T07:00:00-04:00` } });
+    const all = ['sleep', 'readiness', 'activity', 'stress', 'resilience', 'bedtime', 'workouts']
+      .map((dataType) => ({ dataType, readEnabled: true, writeEnabled: false }));
+    await db.replaceIntegrationDataPermissions(userId, 'oura', all);
+    assert.equal((await db.addSleepEntry(userId, night(9))).created, false, 'Sleep Read on: direct Oura wins');
+
+    await db.replaceIntegrationDataPermissions(userId, 'oura',
+      all.map((p) => p.dataType === 'sleep' ? { ...p, readEnabled: false } : p));
+    assert.equal((await db.addSleepEntry(userId, night(10))).created, true, 'Sleep Read off: Apple Health copy is the only copy');
+    const covered = { ...payload, externalId: 'oura-hk-covered' };
+    assert.equal((await db.addSleepEntry(userId, covered)).created, false, 'never refills a night direct Oura covered');
+    const analysis = await db.getAnalysisSnapshot(userId, 3650);
+    assert.equal(analysis.sleep.dailyTotals.length, 1);
+  } finally {
+    await db.deleteUserAccount(userId).catch(() => {});
+  }
+});
+
 test('recovery preserves provider day, naps, missing values and separate source totals without inferred zeros', () => {
   const documents = [{ ...sleep, dataType: 'sleep', syncedAt: '2026-09-08T12:00:00Z' },
     { ...sleep, providerDocumentId: 'nap', dataType: 'sleep', data: { ...sleep.data, type: 'rest', bedtimeStart: '2026-09-08T14:00:00-04:00', bedtimeEnd: '2026-09-08T14:30:00-04:00', totalSleepSeconds: 1800 } },
