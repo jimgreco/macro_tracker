@@ -91,6 +91,15 @@ test('the stable verify / Required Checks context aggregates every required surf
   }
 });
 
+test('JavaScript CI audits production dependencies after install', () => {
+  const javascript = jobBlock(read('.github/workflows/verify.yml'), 'javascript');
+  assert.match(javascript, /^\s+run: npm audit --omit=dev\s*$/m);
+  assert.ok(
+    javascript.indexOf('npm ci') < javascript.indexOf('npm audit --omit=dev'),
+    'audit must run against the installed lockfile'
+  );
+});
+
 test('PostgreSQL CI fails if any mandatory database suite skips', () => {
   const postgres = jobBlock(read('.github/workflows/verify.yml'), 'postgres');
   assert.match(postgres, /npm run test:db:integration/);
