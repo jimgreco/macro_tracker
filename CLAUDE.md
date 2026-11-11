@@ -151,7 +151,7 @@ The iOS app communicates with the backend via Bearer token auth. Sign in with Ap
 - Active platform: EC2 host running Docker Compose from `~/deploy`.
 - Production database: shared Docker Postgres container in the remote Compose stack (`shared_db`).
 - Nightly logical database backup: `dailymacros-db-backup.timer` runs `scripts/production-db-backup.sh` before the AWS DLM daily EBS snapshot window; DLM policy `policy-06a5ef1af3cbbc321` retains 7 daily off-host snapshots.
-- Release workflow: `.github/workflows/ci.yml` → `jimgreco/release-tools` `server-release.yml` (manifest `.github/release/server.json`) and `testflight.yml` (release-tools `ios/prepare` → `ios/upload` → `ios/cleanup`), all pinned to one release-tools commit.
+- Release workflow: `.github/workflows/release.yml` (verbatim release-tools template; `verify.yml` holds the checks) → `jimgreco/release-tools` `server-release.yml` (manifest `.github/release/server.json`) and `testflight.yml` (release-tools `ios/prepare` → `ios/upload` → `ios/cleanup`), all pinned to one release-tools commit.
 - Release runbook: `docs/ec2-release-runbook.md`.
 - Health check: `GET /healthz` (performs live DB query).
 - Version check: `GET /version`.
@@ -161,7 +161,7 @@ The iOS app communicates with the backend via Bearer token auth. Sign in with Ap
 
 ### Deployment Process
 
-Deployment is automated via GitHub Actions. `.github/workflows/ci.yml` (`Required CI and Release`) runs the full `Required Checks` on every push to `main`, then runs the `deploy` job (release-tools `server-release.yml`: GHCR image build, then `release.py` on the host refuses Compose drift, backs up `macro_tracker`, recreates only `macros`, health-checks the exact build and rolls back on failure; no migrations run, schema changes remain the separate owner-run `npm run db:migrate`) and `testflight.yml` (build number = commit count). Pull requests never release. To re-release without a new commit, dispatch `Required CI and Release` on `main`. Every TestFlight upload is App Store-eligible (policy `buildAudience` default). For an App Store update: bump `MARKETING_VERSION` (and `.github/scripts/release-policy.json`) if the current version is already live, release normally, then dispatch `App Store Submit` with that build number and What's New text (unchecked `submit` prints the GET-only plan first). No manual `eb deploy` step is part of the active path.
+Deployment is automated via GitHub Actions. `.github/workflows/release.yml` (`Release`) runs `verify.yml` (the full `Required Checks`) on every pull request and push to `main`; on `main` it then runs the `server` job (release-tools `server-release.yml`: GHCR image build, then `release.py` on the host refuses Compose drift, backs up `macro_tracker`, recreates only `macros`, health-checks the exact build and rolls back on failure; no migrations run, schema changes remain the separate owner-run `npm run db:migrate`) and the `ios` job (`testflight.yml`, build number = commit count). Pull requests never release. To re-release without a new commit, dispatch `Release` on `main`. Every TestFlight upload is App Store-eligible (policy `buildAudience` default). For an App Store update: bump `MARKETING_VERSION` (and `.github/scripts/release-policy.json`) if the current version is already live, release normally, then dispatch `App Store Submit` with that build number and What's New text (unchecked `submit` prints the GET-only plan first). No manual `eb deploy` step is part of the active path.
 
 When asked to deploy or "push live", always run these steps in order — no skipping:
 
@@ -169,9 +169,9 @@ When asked to deploy or "push live", always run these steps in order — no skip
 2. **`git add`** all changed files relevant to the work
 3. **Update `CLAUDE.md`** if anything was learned (new gotchas, architecture decisions, changed patterns) — then `git add CLAUDE.md`
 4. **`git commit`** with a clear message describing what changed and why
-5. **`git push origin main`** — once Required Checks pass, GitHub Actions deploys to EC2 and uploads to TestFlight
+5. **`git push origin main`** — once `verify` passes, GitHub Actions deploys to EC2 and uploads to TestFlight
 
-The release uses the `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` and `EC2_SSH_KNOWN_HOSTS` secrets; the post-deploy `smoke` job runs `scripts/production-smoke.sh` when `PRODUCTION_BASE_URL` is configured.
+The release uses the `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` and `EC2_SSH_KNOWN_HOSTS` secrets; release-tools confirms the public `/version` after the release, and the scheduled `production-smoke.yml` monitor runs `scripts/production-smoke.sh` when `PRODUCTION_BASE_URL` is configured.
 
 ## Content Security Policy
 

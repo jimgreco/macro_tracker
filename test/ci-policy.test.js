@@ -26,36 +26,45 @@ function jobBlock(source, jobName) {
   return endMatch ? remainder.slice(0, endMatch.index) : remainder;
 }
 
-test('release workflows run only on main after required CI and cannot bypass it', () => {
-  const testflight = topLevelBlock(read('.github/workflows/testflight.yml'), 'on');
-  assert.match(testflight, /^\s{2}workflow_call:\s*$/m);
-  assert.doesNotMatch(testflight, /^\s+push:/m, 'testflight.yml must not release directly on push');
-  assert.doesNotMatch(testflight, /^\s+workflow_dispatch:/m, 'testflight.yml must not expose a gate-bypassing dispatch');
-  assert.doesNotMatch(testflight, /distribution/, 'audience comes from the release policy, not a workflow input');
+test('release workflows run only on main after verify and cannot bypass it', () => {
+  for (const reusable of ['verify.yml', 'testflight.yml']) {
+    const workflow = read(`.github/workflows/${reusable}`);
+    const on = topLevelBlock(workflow, 'on');
+    assert.match(on, /^\s{2}workflow_call:\s*$/m, `${reusable} must be reusable`);
+    assert.doesNotMatch(on, /^\s{2}(push|pull_request|workflow_dispatch|schedule):/m, `${reusable} must only run through release.yml`);
+  }
+  assert.doesNotMatch(read('.github/workflows/testflight.yml'), /distribution/, 'audience comes from the release policy, not a workflow input');
+  for (const retired of ['ci.yml', 'deploy.yml', 'publish.yml']) {
+    assert.equal(fs.existsSync(path.join(__dirname, '..', '.github/workflows', retired)), false, `${retired} is replaced by release.yml`);
+  }
 
-  const orchestrator = read('.github/workflows/ci.yml');
-  for (const [jobName, input, uses] of [
-    ['deploy', 'deploy_production', /uses: jimgreco\/release-tools\/\.github\/workflows\/server-release\.yml@[0-9a-f]{40}\s*$/m],
-    ['testflight', 'upload_testflight', /uses: \.\/\.github\/workflows\/testflight\.yml\s*$/m]
+  const release = read('.github/workflows/release.yml');
+  const on = topLevelBlock(release, 'on');
+  assert.match(on, /^\s{2}pull_request:\s*$/m);
+  assert.match(on, /^\s{2}push:\s*\n\s{4}branches: \[main\]\s*$/m);
+  assert.match(on, /^\s{2}workflow_dispatch:\s*$/m);
+  assert.match(jobBlock(release, 'verify'), /uses: \.\/\.github\/workflows\/verify\.yml\s*$/m);
+  for (const [jobName, uses] of [
+    ['server', /uses: jimgreco\/release-tools\/\.github\/workflows\/server-release\.yml@[0-9a-f]{40}\s*$/m],
+    ['ios', /uses: \.\/\.github\/workflows\/testflight\.yml\s*$/m]
   ]) {
-    const block = jobBlock(orchestrator, jobName);
-    assert.match(block, /^\s{4}needs: required\s*$/m);
-    assert.match(block, /if: needs\.required\.result == 'success'/);
+    const block = jobBlock(release, jobName);
+    assert.match(block, /^\s{4}needs: verify\s*$/m);
     assert.match(block, /github\.ref == 'refs\/heads\/main'/);
     // Pushes to main release automatically; pull requests never release.
     assert.match(block, /github\.event_name == 'push'/);
     assert.doesNotMatch(block, /pull_request/);
-    assert.match(block, new RegExp(`inputs\\.${input}`));
+    assert.match(block, new RegExp(`inputs\\.${jobName}\\)`));
     assert.match(block, uses);
   }
-  const deploy = jobBlock(orchestrator, 'deploy');
-  const pinned = /server-release\.yml@([0-9a-f]{40})/.exec(deploy)[1];
-  assert.match(deploy, new RegExp(`tools_ref: ${pinned}`));
+  const server = jobBlock(release, 'server');
+  const pinned = /server-release\.yml@([0-9a-f]{40})/.exec(server)[1];
+  assert.match(server, new RegExp(`tools_ref: ${pinned}`));
   for (const secret of ['EC2_HOST', 'EC2_USER', 'EC2_SSH_KEY', 'EC2_SSH_KNOWN_HOSTS']) {
-    assert.match(deploy, new RegExp(`${secret}: \\$\\{\\{ secrets\\.${secret} \\}\\}`));
+    assert.match(server, new RegExp(`${secret}: \\$\\{\\{ secrets\\.${secret} \\}\\}`));
   }
-  assert.doesNotMatch(orchestrator, /app_store_build|distribution:/);
-  assert.match(jobBlock(orchestrator, 'smoke'), /needs: deploy/);
+  assert.match(read('.github/workflows/testflight.yml'), new RegExp(`ios/prepare@${pinned}`), 'server and iOS share one release-tools pin');
+  assert.doesNotMatch(release, /app_store_build|distribution:|production-smoke/);
 });
 
 test('App Store submission is main-only, plans by default, and never uploads', () => {
@@ -67,9 +76,9 @@ test('App Store submission is main-only, plans by default, and never uploads', (
   assert.doesNotMatch(workflow, /altool|xcodebuild|\$\{\{ inputs\.whats_new \}\}"/);
 });
 
-test('the stable Required Checks context aggregates every required surface', () => {
-  const orchestrator = read('.github/workflows/ci.yml');
-  const required = jobBlock(orchestrator, 'required');
+test('the stable verify / Required Checks context aggregates every required surface', () => {
+  const verify = read('.github/workflows/verify.yml');
+  const required = jobBlock(verify, 'required');
   assert.match(required, /^\s{4}name: Required Checks\s*$/m);
   assert.match(required, /^\s{4}if: always\(\)\s*$/m);
 
@@ -83,7 +92,7 @@ test('the stable Required Checks context aggregates every required surface', () 
 });
 
 test('PostgreSQL CI fails if any mandatory database suite skips', () => {
-  const postgres = jobBlock(read('.github/workflows/ci.yml'), 'postgres');
+  const postgres = jobBlock(read('.github/workflows/verify.yml'), 'postgres');
   assert.match(postgres, /npm run test:db:integration/);
   assert.match(postgres, /macro_tracker_fresh_test/);
   assert.match(postgres, /npm run test:db:upgrade/);

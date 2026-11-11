@@ -3,7 +3,7 @@
 This is the production release path for the friends and family beta.
 
 ## Source Of Truth
-- GitHub workflow: `deploy` job in `.github/workflows/ci.yml`, calling the
+- GitHub workflow: `server` job in `.github/workflows/release.yml`, calling the
   commit-pinned `jimgreco/release-tools/.github/workflows/server-release.yml`
 - Release manifest: `.github/release/server.json` (format: release-tools `server/README.md`)
 - Image: `ghcr.io/jimgreco/macro_tracker:<full sha>` (ARM64, built in CI)
@@ -21,7 +21,7 @@ This is the production release path for the friends and family beta.
 - `EC2_USER`: deploy user on the EC2 host.
 - `EC2_HOST`: EC2 hostname or IP.
 - `EC2_SSH_KNOWN_HOSTS`: pinned host key line(s); the release fails closed without it.
-- `PRODUCTION_BASE_URL`: optional canonical HTTPS origin, without a trailing slash; enables post-deploy smoke checks.
+- `PRODUCTION_BASE_URL`: optional canonical HTTPS origin, without a trailing slash; enables the scheduled `production-smoke.yml` checks.
 - `PRODUCTION_SMOKE_API_TOKEN`: optional API token for authenticated scheduled smoke checks.
 
 ## Production Env Inventory
@@ -108,7 +108,7 @@ gh secret list
 ```
 
 ## Deploy
-Push or merge to `main`. After `Required Checks`, the workflow will:
+Push or merge to `main`. After `verify`, the workflow will:
 1. Build and push `ghcr.io/jimgreco/macro_tracker:<sha>` (linux/arm64).
 2. Read the live `https://macrovana.com/version` `appBuild` for the log.
 3. Pipe release-tools `server/release.py` over the pinned SSH connection. It
@@ -124,7 +124,8 @@ Push or merge to `main`. After `Required Checks`, the workflow will:
 4. Require `/healthz` and `/version` `appBuild == <sha7>` inside the container,
    rolling back to the previous image on failure, then confirm the public
    `/version` reports the new build. Records: `~/deploy/release-records/macros-<sha>.json`.
-5. Run `scripts/production-smoke.sh` against `PRODUCTION_BASE_URL` (`smoke` job).
+5. The release itself no longer runs `scripts/production-smoke.sh`; the hourly
+   `production-smoke.yml` monitor runs it against `PRODUCTION_BASE_URL`.
 
 Releases never run migrations. A schema change is applied beforehand with the
 owner-run `npm run db:migrate` (or `db:migrate:fiber`) and `MIGRATION_DATABASE_URL`,
@@ -242,13 +243,13 @@ Run `TEST_DATABASE_URL=... node --test test/health-reconciliation.test.js` for t
 
 ## Release safety gate
 
-A main push runs Required Checks and, when they pass, releases to EC2 and
+A main push runs `verify` and, when it passes, releases to EC2 and
 uploads a TestFlight build. Release-tools' `release.py` performs the live-host
 preflight itself and fails closed on drift, a missing Compose input, an
 installed Compose version that differs from the one that created the container,
 less than 1 GiB free, or an unreadable backup. It never edits `.env`, shared
 Compose files, grants or credentials, and never prunes images. To re-release a
-commit, dispatch `Required CI and Release` on main (both release inputs default
+commit, dispatch `Release` on main (the `server` and `ios` inputs default
 true). TestFlight upload is a separate result from an installed or App Store release.
 
 Pre-hardening Macrovana images were confirmed to include host configuration,

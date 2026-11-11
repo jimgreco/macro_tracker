@@ -1111,14 +1111,15 @@ test('subscription indexes exist', () => {
 
 // ── Release infrastructure ──
 
-test('server release uses the pinned shared engine and smokes production endpoints', () => {
-  const ci = read('.github/workflows/ci.yml');
+test('server release uses the pinned shared engine and leaves production smoke to the scheduled monitor', () => {
+  const release = read('.github/workflows/release.yml');
   const manifest = JSON.parse(read('.github/release/server.json'));
   const script = read('scripts/production-smoke.sh');
-  assert.ok(ci.includes('jimgreco/release-tools/.github/workflows/server-release.yml@'));
-  assert.equal(ci.includes('ssh-keyscan'), false);
-  assert.equal(ci.includes('rsync'), false);
-  assert.equal(ci.includes('docker system prune'), false);
+  assert.ok(release.includes('jimgreco/release-tools/.github/workflows/server-release.yml@'));
+  assert.equal(release.includes('ssh-keyscan'), false);
+  assert.equal(release.includes('rsync'), false);
+  assert.equal(release.includes('docker system prune'), false);
+  assert.equal(release.includes('scripts/production-smoke.sh'), false, 'release-tools runs the public post-release check');
   assert.equal(manifest.image, 'ghcr.io/jimgreco/macro_tracker');
   assert.deepEqual(Object.keys(manifest.services), ['macros']);
   assert.deepEqual(manifest.services.macros.metadata_env, { APP_BUILD: '{sha7}' });
@@ -1126,11 +1127,6 @@ test('server release uses the pinned shared engine and smokes production endpoin
   assert.equal(manifest.public.field, 'appBuild');
   assert.equal(manifest.backup.database, 'macro_tracker');
   assert.equal(manifest.migrate, undefined, 'production migrations stay a separate owner-run command');
-  assert.ok(ci.includes('PRODUCTION_BASE_URL'));
-  assert.ok(ci.includes('Skip post-deploy smoke when production URL is not configured'));
-  assert.ok(ci.includes("if: env.PRODUCTION_BASE_URL == ''"));
-  assert.ok(ci.includes("if: env.PRODUCTION_BASE_URL != ''"));
-  assert.ok(ci.includes('scripts/production-smoke.sh'));
   assert.ok(script.includes('SMOKE_CURL_RETRIES'));
   assert.ok(script.includes('--retry "$SMOKE_CURL_RETRIES"'));
 });
@@ -1247,6 +1243,8 @@ test('TestFlight uses the pinned release engine with the canonical Macrovana ori
   const ref = /ios\/prepare@([0-9a-f]{40})/.exec(workflow)[1];
   assert.ok(workflow.includes('workflow_call:'));
   assert.ok(!workflow.includes('  push:'));
+  assert.ok(!workflow.includes('  workflow_dispatch:'));
+  assert.ok(!workflow.includes('  pull_request:'));
   assert.ok(workflow.includes("github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')"));
   const prepare = workflow.indexOf(`jimgreco/release-tools/ios/prepare@${ref}`);
   const upload = workflow.indexOf(`jimgreco/release-tools/ios/upload@${ref}`);

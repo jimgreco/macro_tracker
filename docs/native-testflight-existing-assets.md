@@ -1,6 +1,6 @@
 # Existing-assets-only Macros TestFlight release
 
-**Required CI and Release** uploads a TestFlight build on every push to `main` after successful Required Checks; a manual run can re-upload via the `upload_testflight` input (default true). The reusable `.github/workflows/testflight.yml` has no direct dispatch or push trigger. It runs the shared engine pinned by commit: `jimgreco/release-tools/ios/prepare`, then `ios/upload` (archive with `API_BASE_URL=https://macrovana.com`, `APP_BUILD=<commit count>`, `GIT_COMMIT_HASH=<sha7>` and the pinned profile UUID), then `ios/cleanup`. There is no Info.plist configure step. Engine behaviour and the policy schema are documented in release-tools `ios/README.md`.
+**Release** (`.github/workflows/release.yml`) uploads a TestFlight build on every push to `main` after `verify` succeeds; a manual run can re-upload via the `ios` input (default true). The reusable `.github/workflows/testflight.yml` (called by the `ios` job) has no direct dispatch or push trigger. It runs the shared engine pinned by commit: `jimgreco/release-tools/ios/prepare`, then `ios/upload` (archive with `API_BASE_URL=https://macrovana.com`, `APP_BUILD=<commit count>`, `GIT_COMMIT_HASH=<sha7>` and the pinned profile UUID), then `ios/cleanup`. There is no Info.plist configure step. Engine behaviour and the policy schema are documented in release-tools `ios/README.md`.
 
 `.github/scripts/release-policy.json` pins everything the release may use: app id `6770046577`, bundle/team, the existing distribution certificate (SHA-1 and SHA-256), the existing App Store profile (UUID, name, entitlements incl. Apple sign-in and HealthKit), every existing TestFlight group, the approved tester email hash, the marketing version and the artifact Info.plist values (`APIBaseURL`, `AppBuild`, `GitCommitHash`). Any difference stops the release before upload; never create, renew or edit Apple resources, testers or groups to make a guard pass, and never copy another app's credentials. Rotating the profile requires a policy commit.
 
@@ -13,7 +13,7 @@ Local checks (no Apple authentication, signing or upload):
 ```sh
 node --test .github/scripts/release-guard-tests.mjs   # submit tooling + marketing-version alignment
 node <release-tools>/ios/scripts/asc-readonly.mjs validate-policy --policy .github/scripts/release-policy.json
-actionlint .github/workflows/testflight.yml .github/workflows/ci.yml
+actionlint .github/workflows/release.yml .github/workflows/verify.yml .github/workflows/testflight.yml
 npm run test:check
 ```
 

@@ -1,27 +1,13 @@
-name: Required CI and Release
+name: Verify
 
+# Every check that gates a merge or a release. Called by release.yml on pull
+# requests, pushes to main and manual runs; `Required Checks` is the single
+# aggregate result (`verify / Required Checks` in the caller).
 on:
-  pull_request:
-  push:
-    branches: [main]
-  # Re-release main without a new commit. Pushes to main always release.
-  workflow_dispatch:
-    inputs:
-      deploy_production:
-        description: Deploy this main commit to EC2
-        type: boolean
-        default: true
-      upload_testflight:
-        description: Upload this main commit to TestFlight
-        type: boolean
-        default: true
+  workflow_call:
 
 permissions:
   contents: read
-
-concurrency:
-  group: required-ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   javascript:
@@ -299,51 +285,3 @@ jobs:
             echo "- iOS simulator tests: $IOS_RESULT"
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$failed"
-
-  # Server release: build and push the exact-commit image to GHCR, then replace
-  # only the `macros` container on the shared host with release-tools' release.py
-  # (manifest: .github/release/server.json).
-  deploy:
-    name: Deploy to EC2
-    if: needs.required.result == 'success' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy_production))
-    needs: required
-    permissions:
-      contents: read
-      packages: write
-    uses: jimgreco/release-tools/.github/workflows/server-release.yml@ff61f1c6a6eb51ea982246473203bcc903ce8153
-    with:
-      tools_ref: ff61f1c6a6eb51ea982246473203bcc903ce8153
-    secrets:
-      EC2_HOST: ${{ secrets.EC2_HOST }}
-      EC2_USER: ${{ secrets.EC2_USER }}
-      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-      EC2_SSH_KNOWN_HOSTS: ${{ secrets.EC2_SSH_KNOWN_HOSTS }}
-
-  # Public post-release smoke (no SSH). Runs only when PRODUCTION_BASE_URL is set.
-  smoke:
-    name: Post-deploy smoke
-    needs: deploy
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Skip post-deploy smoke when production URL is not configured
-        if: env.PRODUCTION_BASE_URL == ''
-        run: |
-          echo "::notice::PRODUCTION_BASE_URL is not configured; skipping post-deploy smoke checks."
-
-      - name: Post-deploy smoke checks
-        if: env.PRODUCTION_BASE_URL != ''
-        run: |
-          set -euo pipefail
-          scripts/production-smoke.sh
-
-  testflight:
-    name: TestFlight
-    if: needs.required.result == 'success' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload_testflight))
-    needs: required
-    uses: ./.github/workflows/testflight.yml
-    secrets: inherit

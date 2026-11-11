@@ -1,6 +1,6 @@
 name: TestFlight
 
-# Reusable only: called by `Required CI and Release` after Required Checks pass.
+# Reusable only: called by release.yml's `ios` job after `verify` passes.
 # The release guards and upload path live in jimgreco/release-tools/ios, pinned
 # by commit. The policy (.github/scripts/release-policy.json) pins the existing
 # app, TestFlight audience, certificate and profile, and its buildAudience
