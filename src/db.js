@@ -6099,6 +6099,20 @@ async function getWeeklySummaryRows(email, { startDay, endDay }) {
         ORDER BY logged_at`,
       [user.id, timezone, startDay, endDay]
     );
+    // Sleep from Apple Health and manual logs only, using the same live-row
+    // filter as getAnalysisSnapshot (already AI-eligible). Direct Oura API sleep
+    // lives in the Oura document store and is never read here; rows linked to an Oura
+    // document are excluded as a backstop.
+    const sleep = await client.query(
+      `SELECT to_char((logged_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS day,
+              SUM(duration_hours)::float8 AS hours
+         FROM sleep_entries
+        WHERE user_id = $1 AND deleted_at IS NULL
+          AND source IN ('healthkit', 'manual') AND oura_document_id IS NULL
+          AND (logged_at AT TIME ZONE $2)::date BETWEEN $3::date AND $4::date
+        GROUP BY 1`,
+      [user.id, timezone, startDay, endDay]
+    );
     await client.query('COMMIT');
     return {
       user: { id: user.id, timezone },
@@ -6106,7 +6120,8 @@ async function getWeeklySummaryRows(email, { startDay, endDay }) {
       states: Object.fromEntries(states.rows.map((row) => [row.day, row.state])),
       targets: Object.fromEntries(targets.rows.map((row) => [row.macro, row.target])),
       weights: weights.rows,
-      waists: waists.rows
+      waists: waists.rows,
+      sleep: sleep.rows
     };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});

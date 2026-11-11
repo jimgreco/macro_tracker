@@ -5,7 +5,8 @@ const crypto = require('crypto');
 // weekly-review src/sources/macros.js collectMacros (same keys, rounding and
 // statuses), except that Oura-derived values are always null: Oura API data
 // and derived values must never reach an AI/ML model, and the routine passes
-// this payload to one.
+// this payload to one. Sleep hours come only from Apple Health and manual
+// sleep_entries (see getWeeklySummaryRows), never from the Oura API.
 
 const WEEK_ERROR = 'week must be a Monday (YYYY-MM-DD)';
 const CM_PER_IN = 2.54;
@@ -68,6 +69,7 @@ function summarizeWeek(week, rows) {
   const weights = inWeek(rows.weights);
   const waists = inWeek(rows.waists);
   const latestWaist = waists.at(-1);
+  const nights = inWeek(rows.sleep || []).filter((r) => r.hours > 0);
 
   return {
     days,
@@ -84,6 +86,9 @@ function summarizeWeek(week, rows) {
     waistIn: latestWaist
       ? { latest: round(latestWaist.value_cm / CM_PER_IN, 2), method: latestWaist.method, day: latestWaist.day }
       : null,
+    // Apple Health / manual sleep: nights with any logged sleep, and their mean.
+    sleepNights: nights.length,
+    avgSleepHours: round(mean(nights.map((r) => r.hours)), 1),
     // Oura-derived; withheld from this AI-bound payload (see file header).
     sleepScore: null,
     readinessScore: null,
@@ -91,7 +96,7 @@ function summarizeWeek(week, rows) {
   };
 }
 
-// rows: { user, totals, states, weights, waists, targets } from getWeeklySummaryRows.
+// rows: { user, totals, states, weights, waists, sleep, targets } from getWeeklySummaryRows.
 function buildMacrosSummary(rows, { week, prev }) {
   if (!rows || !rows.user) return { status: 'no-account' };
   const current = summarizeWeek(week, rows);
@@ -111,6 +116,7 @@ function buildMacrosSummary(rows, { week, prev }) {
       avgCalories: delta(current.avgCalories, previous.avgCalories),
       avgProtein: delta(current.avgProtein, previous.avgProtein),
       weight: delta(current.weight.avg, previous.weight.avg, 1),
+      avgSleepHours: delta(current.avgSleepHours, previous.avgSleepHours, 1),
       sleepScore: delta(current.sleepScore, previous.sleepScore)
     }
   };

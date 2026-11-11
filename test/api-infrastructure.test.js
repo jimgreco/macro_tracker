@@ -688,6 +688,8 @@ test('weekly summary rows come from one read-only snapshot without Oura data', (
   assert.doesNotMatch(section, /\b(INSERT|UPDATE|DELETE|UPSERT|last_used_at)\b/);
   assert.doesNotMatch(section, /oura_documents/, 'Oura data must stay out of this AI-bound payload');
   assert.ok(section.includes('deleted_at IS NULL'));
+  // Sleep comes only from Apple Health / manual rows, never Oura-linked ones.
+  assert.ok(section.includes("source IN ('healthkit', 'manual') AND oura_document_id IS NULL"));
 });
 
 test('server.js has per-user rate limiting', () => {

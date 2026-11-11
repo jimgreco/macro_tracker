@@ -1079,6 +1079,15 @@ test('weekly summary rows match the weekly-review collector on PostgreSQL', { sk
   await pool.query(`INSERT INTO waist_entries (user_id, value_cm, unit, method, readings, logged_at) VALUES
                     ($1, 85.725, 'in', 'navel_relaxed', '[85.725]', '2026-10-31T12:00:00Z')`, [userId]);
 
+  // Apple Health and manual sleep count; deleted rows and rows linked to a direct
+  // Oura document (Oura API data) never do.
+  await pool.query(`INSERT INTO sleep_entries (user_id, duration_hours, logged_at, source, external_id) VALUES
+                    ($1, 7.0, '2026-10-28T03:30:00Z', 'healthkit', 'hk-1'), ($1, 1.5, '2026-10-28T01:00:00Z', 'manual', NULL),
+                    ($1, 6.0, '2026-10-21T03:30:00Z', 'manual', NULL)`, [userId]);
+  await pool.query(`INSERT INTO sleep_entries (user_id, duration_hours, logged_at, source, external_id, deleted_at) VALUES
+                    ($1, 12, '2026-10-29T03:30:00Z', 'healthkit', 'hk-del', now())`, [userId]);
+  await pool.query(`INSERT INTO sleep_entries (user_id, duration_hours, logged_at, source, external_id, oura_document_id) VALUES
+                    ($1, 11, '2026-10-30T03:30:00Z', 'healthkit', 'hk-oura', 'oura-doc-1')`, [userId]);
   const rows = await db.getWeeklySummaryRows(email.toUpperCase(), { startDay: range.prev.start, endDay: range.week.end });
   assert.equal(rows.user.id, userId);
   const r = buildMacrosSummary(rows, range);
@@ -1094,6 +1103,10 @@ test('weekly summary rows match the weekly-review collector on PostgreSQL', { sk
   assert.equal(r.current.waistIn.latest, 33.75);
   assert.equal(r.change.weight, -1.2);
   assert.equal(r.current.sleepScore, null);
+  assert.equal(r.current.sleepNights, 1); // Oct 27 local: 7.0 + 1.5 summed
+  assert.equal(r.current.avgSleepHours, 8.5);
+  assert.equal(r.previous.avgSleepHours, 6);
+  assert.equal(r.change.avgSleepHours, 2.5);
 
   assert.deepEqual(await db.getWeeklySummaryRows('nobody-weekly-summary@example.test', { startDay: range.prev.start, endDay: range.week.end }), { user: null });
 });

@@ -1424,7 +1424,13 @@ test('weekly summary returns the collectMacros shape with no writes', routeTestO
       { day: '2026-11-03', weight: 179.6 },
       { day: '2026-11-05', weight: 179.2 }
     ],
-    waists: [{ day: '2026-11-06', value_cm: 85.725, method: 'navel_relaxed' }]
+    waists: [{ day: '2026-11-06', value_cm: 85.725, method: 'navel_relaxed' }],
+    sleep: [
+      { day: '2026-10-28', hours: 6.5 },
+      { day: '2026-11-03', hours: 7.25 },
+      { day: '2026-11-04', hours: 7.3 },
+      { day: '2026-11-05', hours: 0 }
+    ]
   };
   dbInvocations.length = 0;
   resetCalls();
@@ -1453,7 +1459,7 @@ test('weekly summary returns the collectMacros shape with no writes', routeTestO
     assert.equal(data.status, 'ok');
     assert.deepEqual(data.targets, { calories: 2000, protein: 140, fiber: null, sleepHours: null });
     assert.deepEqual(Object.keys(data.current), ['days', 'loggedDays', 'completeDays', 'avgCalories', 'avgProtein',
-      'avgFiber', 'weight', 'waistIn', 'sleepScore', 'readinessScore', 'avgSteps']);
+      'avgFiber', 'weight', 'waistIn', 'sleepNights', 'avgSleepHours', 'sleepScore', 'readinessScore', 'avgSteps']);
     assert.equal(data.current.days.length, 7);
     assert.deepEqual(data.current.days[0], { date: '2026-11-02', state: 'unlogged', calories: null, protein: null, carbs: null, fat: null, fiber: null });
     assert.deepEqual(data.current.days[1], { date: '2026-11-03', state: 'complete', calories: 2050, protein: 125, carbs: 290, fat: 90, fiber: 12 });
@@ -1467,12 +1473,15 @@ test('weekly summary returns the collectMacros shape with no writes', routeTestO
     assert.deepEqual(data.current.weight, { count: 2, avg: 179.4 });
     assert.deepEqual(data.current.waistIn, { latest: 33.75, method: 'navel_relaxed', day: '2026-11-06' });
     assert.equal(data.current.sleepScore, null);
+    assert.equal(data.current.sleepNights, 2); // zero-hour rows are not nights
+    assert.equal(data.current.avgSleepHours, 7.3); // 7.275 rounds half up
+    assert.equal(data.previous.avgSleepHours, 6.5);
     assert.equal('days' in data.previous, false);
     assert.equal(data.previous.avgCalories, 1950); // 1949.6 rounds half up
     assert.equal(data.previous.avgProtein, 111); // 110.5 rounds half up
     assert.equal(data.previous.avgFiber, null); // 1 of 2 entries had fiber
     assert.equal(data.previous.waistIn, null);
-    assert.deepEqual(data.change, { avgCalories: 100, avgProtein: 14, weight: -1.6, sleepScore: null });
+    assert.deepEqual(data.change, { avgCalories: 100, avgProtein: 14, weight: -1.6, avgSleepHours: 0.8, sleepScore: null });
   } finally {
     weeklySummaryRows = { user: null };
   }
