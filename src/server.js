@@ -1802,6 +1802,26 @@ function buildAnalysisEligibleSnapshot(snapshot) {
   };
 }
 
+const ANALYSIS_SYSTEM_PROMPT = [
+  'You are a direct fitness and nutrition coach writing a user\'s periodic check-in for a macro-tracking app. Be honest, specific, neutral, and practical, and use only the data provided.',
+  '',
+  'The data:',
+  '- baseline holds metrics the app has already calculated (adherence, target deltas, week-over-week changes, nutrition signals). The app shows these same numbers on screen, so quote them as given rather than recalculating them, or your text will contradict the dashboard.',
+  '- Nutrition dailyTotals counts only days the user explicitly marked complete. Never infer calorie or protein adherence from partial or unknown days, and never describe an unmarked day as a failure; the user may simply not have marked it.',
+  '- completedWorkoutCount and plannedWorkoutCount count distinct days with at least one workout, not sessions. Two workouts on one day is one workout day.',
+  '- Compare against the prior week only when the data actually covers it. With 7 days or fewer, or no entries in the prior week, a week-over-week delta is just comparison against nothing; do not report it.',
+  '- If sleep data is present, connect it to recovery, appetite, and training. If it is absent, mention that at most once.',
+  '',
+  'What to write:',
+  '- summary: 3-5 sentences. State the nutrition sample size here once (e.g. "across 11 complete days"); do not repeat it in every bullet.',
+  '- progress: 1-6 things that are going well, each one sentence with the supporting number.',
+  '- needsImprovement: 1-6 gaps, each one sentence with the number. Do not create punitive streaks around completeness.',
+  '- nextWeekPlan: 3-7 actions, each with a numeric, measurable target.',
+  '- confidence: high, medium, or low, based on how much complete data there is.',
+  'Lead with what matters most for the user\'s goal. Prefer fewer, sharper bullets over padding with weak observations.',
+  'Write for the user, not for the app: give every number its unit (kcal, g, lb, hours), and describe metrics in plain words instead of quoting internal scores or field names such as goal alignment score or calorie volatility.'
+].join('\n');
+
 async function generateAiAnalysis(snapshot, context) {
   if (!hasAiApiKey()) {
     return buildFallbackAnalysis(snapshot, context);
@@ -1813,111 +1833,21 @@ async function generateAiAnalysis(snapshot, context) {
   let parsed = {};
   try {
     parsed = await createStructuredJson({
-      system:
-        'You are a direct fitness and nutrition coach. Be honest, specific, neutral, and practical. Use only the data provided. Return strict JSON only. Nutrition dailyTotals contains only days the user explicitly marked complete. Never infer calorie or protein adherence from partial or unknown days, never describe missing completeness as failure, and always state the nutrition sample count when making a nutrition claim. Do not create punitive completeness streaks. Next-week plan items must be numeric and measurable. IMPORTANT: completedWorkoutCount and plannedWorkoutCount represent distinct days with at least one workout — not total session counts. Two workouts logged on the same day still count as only one workout day. If sleep data is available, incorporate sleep patterns into your analysis and recommendations.',
+      system: ANALYSIS_SYSTEM_PROMPT,
       content:
-        'Analyze this account data. Include goal alignment score, adherence metrics with target variance (value and percent above/below), week-over-week deltas, nutrition quality signals, data confidence, and a concrete next-week plan with numeric targets. Give 1-6 progress items, 1-6 needsImprovement items, and 3-7 nextWeekPlan items.\nData:\n' +
+        'Write this user\'s check-in from the data below.\n' +
         JSON.stringify({ snapshot: eligibleSnapshot, context, baseline }),
       effort: 'high',
       schema: {
         type: 'object',
         additionalProperties: false,
-        required: [
-          'summary',
-          'progress',
-          'needsImprovement',
-          'nextWeekPlan',
-          'confidence',
-          'goalAlignment',
-          'adherence',
-          'weekOverWeek',
-          'nutritionSignals',
-          'dataConfidence'
-        ],
+        required: ['summary', 'progress', 'needsImprovement', 'nextWeekPlan', 'confidence'],
         properties: {
           summary: { type: 'string' },
-          progress: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 6 },
-          needsImprovement: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 6 },
-          nextWeekPlan: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 7 },
-          confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-          goalAlignment: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['goal', 'status', 'score', 'reason'],
-            properties: {
-              goal: { type: 'string', enum: ['lose', 'maintain', 'gain'] },
-              status: { type: 'string', enum: ['on_track', 'partially_on_track', 'off_track'] },
-              score: { type: 'number' },
-              reason: { type: 'string' }
-            }
-          },
-          adherence: {
-            type: 'object',
-            additionalProperties: false,
-            required: [
-              'mealLoggingPct',
-              'completeDayCoveragePct',
-              'completeDayCount',
-              'partialDayCount',
-              'unknownDayCount',
-              'nutritionSampleCount',
-              'calorieTargetSet',
-              'calorieTargetDelta',
-              'calorieTargetDeltaPct',
-              'proteinTargetSet',
-              'proteinTargetDelta',
-              'proteinTargetDeltaPct',
-              'plannedWorkoutCount',
-              'completedWorkoutCount'
-            ],
-            properties: {
-              mealLoggingPct: { type: 'number' },
-              completeDayCoveragePct: { type: 'number' },
-              completeDayCount: { type: 'number' },
-              partialDayCount: { type: 'number' },
-              unknownDayCount: { type: 'number' },
-              nutritionSampleCount: { type: 'number' },
-              calorieTargetSet: { type: 'boolean' },
-              calorieTargetDelta: { type: ['number', 'null'] },
-              calorieTargetDeltaPct: { type: ['number', 'null'] },
-              proteinTargetSet: { type: 'boolean' },
-              proteinTargetDelta: { type: ['number', 'null'] },
-              proteinTargetDeltaPct: { type: ['number', 'null'] },
-              plannedWorkoutCount: { type: 'number' },
-              completedWorkoutCount: { type: 'number' }
-            }
-          },
-          weekOverWeek: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['weightChangeDelta', 'avgCaloriesDelta', 'avgProteinDelta', 'workoutHoursDelta'],
-            properties: {
-              weightChangeDelta: { type: 'number' },
-              avgCaloriesDelta: { type: ['number', 'null'] },
-              avgProteinDelta: { type: ['number', 'null'] },
-              workoutHoursDelta: { type: 'number' }
-            }
-          },
-          nutritionSignals: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['proteinConsistency', 'calorieVolatility', 'lateNightEatingPct', 'weekendCalorieDrift'],
-            properties: {
-              proteinConsistency: { type: 'string', enum: ['high', 'medium', 'low', 'insufficient_data'] },
-              calorieVolatility: { type: ['number', 'null'] },
-              lateNightEatingPct: { type: 'number' },
-              weekendCalorieDrift: { type: ['number', 'null'] }
-            }
-          },
-          dataConfidence: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['score', 'notes'],
-            properties: {
-              score: { type: 'number' },
-              notes: { type: 'string' }
-            }
-          }
+          progress: { type: 'array', items: { type: 'string' } },
+          needsImprovement: { type: 'array', items: { type: 'string' } },
+          nextWeekPlan: { type: 'array', items: { type: 'string' } },
+          confidence: { type: 'string', enum: ['high', 'medium', 'low'] }
         }
       }
     });
