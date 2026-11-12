@@ -2,7 +2,7 @@
 
 A web app for tracking macros with:
 - PostgreSQL database backend
-- ChatGPT natural-language meal parsing
+- Claude natural-language meal parsing
 - Barcode lookup for packaged foods via Open Food Facts
 - Quick-add saved items/meals
 - Daily grouping and totals
@@ -32,7 +32,7 @@ A web app for tracking macros with:
    cp .env.example .env
    ```
 4. Configure `.env` values:
-   - `OPENAI_API_KEY`
+   - `ANTHROPIC_API_KEY` (optional `ANTHROPIC_MODEL`, default `claude-opus-5-5`)
    - `SESSION_SECRET`
    - `APP_BASE_URL` (your canonical app URL; used for request-origin validation)
    - `APP_BUILD` (CI sets this to the git SHA for `/version`)
@@ -138,7 +138,7 @@ Run the production release runbook in:
 - `/admin` is restricted to the `ADMIN_EMAILS`/`ADMIN_USER_IDS` allowlist; local auth bypass users are admins only outside production.
 - When `LOCAL_AUTH_BYPASS=true` in a non-production environment, the app injects a local default user and skips the Google sign-in flow.
 - If Google OAuth env vars are missing, login will show an auth configuration error.
-- If `OPENAI_API_KEY` is missing, AI parsing and analysis are unavailable.
+- If `ANTHROPIC_API_KEY` is missing, AI parsing and analysis are unavailable.
 - Barcode lookup uses Open Food Facts product data when a UPC/EAN is scanned or entered; nutrition coverage depends on that public database.
 - Data is stored in PostgreSQL.
 - Native iOS users can export diagnostics from Settings. Pending log writes are queued locally after connectivity failures and retried when the app becomes active or when the user taps Sync Pending Logs.

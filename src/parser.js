@@ -1,5 +1,4 @@
-const OpenAI = require('openai');
-const { toFile } = require('openai/uploads');
+const { createStructuredJson, imageBlockFromDataUrl } = require('./ai-client');
 const { normalizeMealParse } = require('./meal-normalizer');
 const { capConservativeWorkoutCalories } = require('./workout-calories');
 
@@ -16,27 +15,54 @@ const WORKOUT_PARSE_SYSTEM_PROMPT = [
   'For low/light or medium/moderate intensity strength training, average calorie burn over the full session including those rests; do not treat every minute as continuous lifting.'
 ].join(' ');
 
-function parseImageDataUrl(imageDataUrl) {
-  const match = String(imageDataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/s);
-  if (!match) {
-    return null;
-  }
-  return {
-    mimeType: String(match[1] || '').toLowerCase(),
-    base64Payload: String(match[2] || '').replace(/\s+/g, '')
-  };
-}
+const MEAL_PARSE_SYSTEM_PROMPT =
+  'You extract nutrition logs from user input that may include meal text, one or more meal photos/screenshots, or both. Return strict JSON only. Break meals into itemized foods with estimated macros per consumed amount. Include fiber in grams for each consumed amount, estimating from the identified food and portion; return null when unknown, never use zero for missing data. Fiber is part of carbohydrate, do not add its calories again. Use grams for protein/carbs/fat and kcal for calories. Prefer practical food units from user language (egg, bottle, can, slice, cup, serving) over tiny base units like 1 ml or 1 g when a practical unit is implied. If the user says a fractional container (like half bottle), keep quantity fractional with that container unit (quantity 0.5, unit bottle). For repeated multi-item meal sets, put the repetition on mealQuantity and make each component describe one meal unit: for "2 pancakes and 2 syrup", return mealQuantity 2, mealUnit "serving", one pancake item with quantity 1, and one syrup item with quantity 1, with item macros for one pancake and one syrup. If the user only lists one food, keep the count on the item. If uncertain, provide best estimate and confidence. If text and photos conflict, use the text as primary and photos as supporting context. When estimating macros, be conservative and err on the higher end -- it is better to slightly overestimate calories and macros than to underestimate them. For cooked meals, assume they were prepared with a reasonable amount of oil or butter and include that in the macro estimates. For mealName, generate a short descriptive name for the overall meal (e.g. "Lentil Soup", "Chicken Caesar Salad", "Breakfast Burrito") -- do not just echo the user\'s raw input; clean it up into a proper, concise meal title.';
 
-function extensionFromMimeType(mimeType) {
-  const map = {
-    'image/jpeg': 'jpg',
-    'image/jpg': 'jpg',
-    'image/png': 'png',
-    'image/webp': 'webp',
-    'image/gif': 'gif'
-  };
-  return map[String(mimeType || '').toLowerCase()] || 'jpg';
-}
+const MEAL_PARSE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['consumedAt', 'mealName', 'mealQuantity', 'mealUnit', 'items', 'notes'],
+  properties: {
+    consumedAt: { type: 'string' },
+    mealName: { type: 'string' },
+    mealQuantity: { type: 'number' },
+    mealUnit: { type: 'string' },
+    notes: { type: 'string' },
+    items: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'itemName',
+          'quantity',
+          'unit',
+          'calories',
+          'protein',
+          'carbs',
+          'fat',
+          'fiber',
+          'confidence'
+        ],
+        properties: {
+          itemName: { type: 'string' },
+          quantity: { type: 'number' },
+          unit: { type: 'string' },
+          calories: { type: 'number' },
+          protein: { type: 'number' },
+          carbs: { type: 'number' },
+          fat: { type: 'number' },
+          fiber: { type: ['number', 'null'] },
+          confidence: {
+            type: 'string',
+            enum: ['high', 'medium', 'low']
+          }
+        }
+      }
+    }
+  }
+};
 
 async function parseMealText({ text, consumedAt, imageDataUrl, imageDataUrls }) {
   const normalizedText = String(text || '').trim();
@@ -50,129 +76,34 @@ async function parseMealText({ text, consumedAt, imageDataUrl, imageDataUrls }) 
     throw new Error('Meal text or a meal photo is required.');
   }
 
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
   const userContent = [
     {
-      type: 'input_text',
+      type: 'text',
       text: `ConsumedAt: ${consumedAt}\nMeal description: ${normalizedText || '(none provided)'}`
     }
   ];
 
-  const uploadedImageFileIds = [];
-  if (hasImage) {
-    for (const [index, dataUrl] of normalizedImageDataUrls.entries()) {
-      const parsedDataUrl = parseImageDataUrl(dataUrl);
-      if (!parsedDataUrl) {
-        throw new Error('Invalid image data. Please reselect the photo and try again.');
-      }
-
-      const imageBuffer = Buffer.from(parsedDataUrl.base64Payload, 'base64');
-      const extension = extensionFromMimeType(parsedDataUrl.mimeType);
-      const imageFile = await toFile(imageBuffer, `meal-photo-${index + 1}.${extension}`, { type: parsedDataUrl.mimeType });
-      const uploaded = await client.files.create({
-        file: imageFile,
-        purpose: 'vision'
-      });
-      const uploadedImageFileId = String(uploaded.id || '');
-      uploadedImageFileIds.push(uploadedImageFileId);
-      userContent.push({
-        type: 'input_image',
-        file_id: uploadedImageFileId,
-        detail: 'high'
-      });
+  for (const dataUrl of normalizedImageDataUrls) {
+    const imageBlock = imageBlockFromDataUrl(dataUrl);
+    if (!imageBlock) {
+      throw new Error('Invalid image data. Please reselect the photo and try again.');
     }
+    userContent.push(imageBlock);
   }
 
-  try {
-    const response = await client.responses.create({
-      model: process.env.OPENAI_MODEL || 'gpt-6-sol',
-      input: [
-        {
-          role: 'system',
-          content:
-            'You extract nutrition logs from user input that may include meal text, one or more meal photos/screenshots, or both. Return strict JSON only. Break meals into itemized foods with estimated macros per consumed amount. Include fiber in grams for each consumed amount, estimating from the identified food and portion; return null when unknown, never use zero for missing data. Fiber is part of carbohydrate, do not add its calories again. Use grams for protein/carbs/fat and kcal for calories. Prefer practical food units from user language (egg, bottle, can, slice, cup, serving) over tiny base units like 1 ml or 1 g when a practical unit is implied. If the user says a fractional container (like half bottle), keep quantity fractional with that container unit (quantity 0.5, unit bottle). For repeated multi-item meal sets, put the repetition on mealQuantity and make each component describe one meal unit: for "2 pancakes and 2 syrup", return mealQuantity 2, mealUnit "serving", one pancake item with quantity 1, and one syrup item with quantity 1, with item macros for one pancake and one syrup. If the user only lists one food, keep the count on the item. If uncertain, provide best estimate and confidence. If text and photos conflict, use the text as primary and photos as supporting context. When estimating macros, be conservative and err on the higher end -- it is better to slightly overestimate calories and macros than to underestimate them. For cooked meals, assume they were prepared with a reasonable amount of oil or butter and include that in the macro estimates. For mealName, generate a short descriptive name for the overall meal (e.g. "Lentil Soup", "Chicken Caesar Salad", "Breakfast Burrito") -- do not just echo the user\'s raw input; clean it up into a proper, concise meal title.'
-        },
-        {
-          role: 'user',
-          content: userContent
-        }
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'meal_parse',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['consumedAt', 'mealName', 'mealQuantity', 'mealUnit', 'items', 'notes'],
-            properties: {
-              consumedAt: { type: 'string' },
-              mealName: { type: 'string' },
-              mealQuantity: { type: 'number' },
-              mealUnit: { type: 'string' },
-              notes: { type: 'string' },
-              items: {
-                type: 'array',
-                minItems: 1,
-                items: {
-                  type: 'object',
-                  additionalProperties: false,
-                  required: [
-                    'itemName',
-                    'quantity',
-                    'unit',
-                    'calories',
-                    'protein',
-                    'carbs',
-                    'fat',
-                    'fiber',
-                    'confidence'
-                  ],
-                  properties: {
-                    itemName: { type: 'string' },
-                    quantity: { type: 'number' },
-                    unit: { type: 'string' },
-                    calories: { type: 'number' },
-                    protein: { type: 'number' },
-                    carbs: { type: 'number' },
-                    fat: { type: 'number' },
-                    fiber: { type: ['number', 'null'] },
-                    confidence: {
-                      type: 'string',
-                      enum: ['high', 'medium', 'low']
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    });
+  const parsedJson = await createStructuredJson({
+    system: MEAL_PARSE_SYSTEM_PROMPT,
+    content: userContent,
+    schema: MEAL_PARSE_SCHEMA
+  });
 
-    const content = response.output_text || '{}';
-    const parsed = normalizeMealParse(JSON.parse(content), { text });
-
-    if (!Array.isArray(parsed.items) || parsed.items.length === 0) {
-      throw new Error('Unable to parse meal items from input.');
-    }
-
-    return parsed;
-  } finally {
-    for (const uploadedImageFileId of uploadedImageFileIds) {
-      if (uploadedImageFileId) {
-        try {
-          await client.files.del(uploadedImageFileId);
-        } catch (_error) {
-          // Best-effort cleanup.
-        }
-      }
-    }
+  const parsed = normalizeMealParse(parsedJson, { text });
+  if (!Array.isArray(parsed.items) || parsed.items.length === 0) {
+    throw new Error('Unable to parse meal items from input.');
   }
+
+  return parsed;
 }
-
 
 function normalizeWorkoutDescription(text) {
   return String(text || '')
@@ -214,44 +145,29 @@ async function parseWorkoutText({ text }) {
     throw new Error('Workout text is required.');
   }
 
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const response = await client.responses.create({
-    model: process.env.OPENAI_MODEL || 'gpt-6-sol',
-    input: [
-      {
-        role: 'system',
-        content: WORKOUT_PARSE_SYSTEM_PROMPT
-      },
-      {
-        role: 'user',
-        content: [{ type: 'input_text', text: normalizedText }]
-      }
-    ],
-    text: {
-      format: {
-        type: 'json_schema',
-        name: 'workout_parse',
-        strict: true,
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['description', 'intensity', 'durationHours', 'caloriesBurned'],
-          properties: {
-            description: { type: 'string' },
-            intensity: { type: 'string', enum: ['low', 'medium', 'high'] },
-            durationHours: { type: 'number' },
-            caloriesBurned: { type: 'number' }
-          }
-        }
-      }
-    }
-  });
-
-  const content = response.output_text || '{}';
   let parsed = {};
   try {
-    parsed = JSON.parse(content);
-  } catch (_error) {
+    parsed = await createStructuredJson({
+      system: WORKOUT_PARSE_SYSTEM_PROMPT,
+      content: normalizedText,
+      effort: 'low',
+      maxTokens: 4000,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['description', 'intensity', 'durationHours', 'caloriesBurned'],
+        properties: {
+          description: { type: 'string' },
+          intensity: { type: 'string', enum: ['low', 'medium', 'high'] },
+          durationHours: { type: 'number' },
+          caloriesBurned: { type: 'number' }
+        }
+      }
+    });
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) {
+      throw error;
+    }
     parsed = {};
   }
 

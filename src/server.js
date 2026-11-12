@@ -11,7 +11,7 @@ const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
 const { Strategy: GoogleStrategy } = require('passport-google-oauth20');
-const OpenAI = require('openai');
+const { createStructuredJson, hasAiApiKey } = require('./ai-client');
 const Stripe = require('stripe');
 const appleSignin = require('apple-signin-auth');
 const heicConvert = require('heic-convert');
@@ -983,7 +983,7 @@ function parseImageDataUrl(imageDataUrl) {
   };
 }
 
-function normalizeOpenAiImageMimeType(mimeType) {
+function normalizeAiImageMimeType(mimeType) {
   const value = String(mimeType || '').toLowerCase();
   if (value === 'image/jpg') {
     return 'image/jpeg';
@@ -1039,7 +1039,7 @@ async function normalizeMealImageDataUrl(rawImageDataUrl) {
   if (!parsedImage) {
     throw new Error('Invalid image format. Use an image file.');
   }
-  const mimeType = normalizeOpenAiImageMimeType(parsedImage.mimeType);
+  const mimeType = normalizeAiImageMimeType(parsedImage.mimeType);
   const allowedMimeTypes = new Set([
     'image/jpeg',
     'image/png',
@@ -1195,10 +1195,6 @@ function normalizeAnalysisDays(daysInput) {
     return 90;
   }
   return Math.max(14, Math.min(180, Math.round(parsed)));
-}
-
-function hasOpenAiApiKey() {
-  return Boolean(process.env.OPENAI_API_KEY);
 }
 
 function toFinite(value, fallback = 0) {
@@ -1807,148 +1803,128 @@ function buildAnalysisEligibleSnapshot(snapshot) {
 }
 
 async function generateAiAnalysis(snapshot, context) {
-  if (!hasOpenAiApiKey()) {
+  if (!hasAiApiKey()) {
     return buildFallbackAnalysis(snapshot, context);
   }
 
   const baseline = buildAnalysisMetrics(snapshot, context);
   const eligibleSnapshot = buildAnalysisEligibleSnapshot(snapshot);
 
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const response = await client.responses.create({
-    model: process.env.OPENAI_MODEL || 'gpt-6-sol',
-    input: [
-      {
-        role: 'system',
-        content:
-          'You are a direct fitness and nutrition coach. Be honest, specific, neutral, and practical. Use only the data provided. Return strict JSON only. Nutrition dailyTotals contains only days the user explicitly marked complete. Never infer calorie or protein adherence from partial or unknown days, never describe missing completeness as failure, and always state the nutrition sample count when making a nutrition claim. Do not create punitive completeness streaks. Next-week plan items must be numeric and measurable. IMPORTANT: completedWorkoutCount and plannedWorkoutCount represent distinct days with at least one workout — not total session counts. Two workouts logged on the same day still count as only one workout day. If sleep data is available, incorporate sleep patterns into your analysis and recommendations.'
-      },
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'input_text',
-            text:
-              'Analyze this account data. Include goal alignment score, adherence metrics with target variance (value and percent above/below), week-over-week deltas, nutrition quality signals, data confidence, and a concrete next-week plan with numeric targets.\nData:\n' +
-              JSON.stringify({ snapshot: eligibleSnapshot, context, baseline })
-          }
-        ]
-      }
-    ],
-    text: {
-      format: {
-        type: 'json_schema',
-        name: 'weekly_analysis',
-        strict: true,
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          required: [
-            'summary',
-            'progress',
-            'needsImprovement',
-            'nextWeekPlan',
-            'confidence',
-            'goalAlignment',
-            'adherence',
-            'weekOverWeek',
-            'nutritionSignals',
-            'dataConfidence'
-          ],
-          properties: {
-            summary: { type: 'string' },
-            progress: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 6 },
-            needsImprovement: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 6 },
-            nextWeekPlan: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 7 },
-            confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-            goalAlignment: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['goal', 'status', 'score', 'reason'],
-              properties: {
-                goal: { type: 'string', enum: ['lose', 'maintain', 'gain'] },
-                status: { type: 'string', enum: ['on_track', 'partially_on_track', 'off_track'] },
-                score: { type: 'number' },
-                reason: { type: 'string' }
-              }
-            },
-            adherence: {
-              type: 'object',
-              additionalProperties: false,
-              required: [
-                'mealLoggingPct',
-                'completeDayCoveragePct',
-                'completeDayCount',
-                'partialDayCount',
-                'unknownDayCount',
-                'nutritionSampleCount',
-                'calorieTargetSet',
-                'calorieTargetDelta',
-                'calorieTargetDeltaPct',
-                'proteinTargetSet',
-                'proteinTargetDelta',
-                'proteinTargetDeltaPct',
-                'plannedWorkoutCount',
-                'completedWorkoutCount'
-              ],
-              properties: {
-                mealLoggingPct: { type: 'number' },
-                completeDayCoveragePct: { type: 'number' },
-                completeDayCount: { type: 'number' },
-                partialDayCount: { type: 'number' },
-                unknownDayCount: { type: 'number' },
-                nutritionSampleCount: { type: 'number' },
-                calorieTargetSet: { type: 'boolean' },
-                calorieTargetDelta: { type: ['number', 'null'] },
-                calorieTargetDeltaPct: { type: ['number', 'null'] },
-                proteinTargetSet: { type: 'boolean' },
-                proteinTargetDelta: { type: ['number', 'null'] },
-                proteinTargetDeltaPct: { type: ['number', 'null'] },
-                plannedWorkoutCount: { type: 'number' },
-                completedWorkoutCount: { type: 'number' }
-              }
-            },
-            weekOverWeek: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['weightChangeDelta', 'avgCaloriesDelta', 'avgProteinDelta', 'workoutHoursDelta'],
-              properties: {
-                weightChangeDelta: { type: 'number' },
-                avgCaloriesDelta: { type: ['number', 'null'] },
-                avgProteinDelta: { type: ['number', 'null'] },
-                workoutHoursDelta: { type: 'number' }
-              }
-            },
-            nutritionSignals: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['proteinConsistency', 'calorieVolatility', 'lateNightEatingPct', 'weekendCalorieDrift'],
-              properties: {
-                proteinConsistency: { type: 'string', enum: ['high', 'medium', 'low', 'insufficient_data'] },
-                calorieVolatility: { type: ['number', 'null'] },
-                lateNightEatingPct: { type: 'number' },
-                weekendCalorieDrift: { type: ['number', 'null'] }
-              }
-            },
-            dataConfidence: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['score', 'notes'],
-              properties: {
-                score: { type: 'number' },
-                notes: { type: 'string' }
-              }
+  let parsed = {};
+  try {
+    parsed = await createStructuredJson({
+      system:
+        'You are a direct fitness and nutrition coach. Be honest, specific, neutral, and practical. Use only the data provided. Return strict JSON only. Nutrition dailyTotals contains only days the user explicitly marked complete. Never infer calorie or protein adherence from partial or unknown days, never describe missing completeness as failure, and always state the nutrition sample count when making a nutrition claim. Do not create punitive completeness streaks. Next-week plan items must be numeric and measurable. IMPORTANT: completedWorkoutCount and plannedWorkoutCount represent distinct days with at least one workout — not total session counts. Two workouts logged on the same day still count as only one workout day. If sleep data is available, incorporate sleep patterns into your analysis and recommendations.',
+      content:
+        'Analyze this account data. Include goal alignment score, adherence metrics with target variance (value and percent above/below), week-over-week deltas, nutrition quality signals, data confidence, and a concrete next-week plan with numeric targets. Give 1-6 progress items, 1-6 needsImprovement items, and 3-7 nextWeekPlan items.\nData:\n' +
+        JSON.stringify({ snapshot: eligibleSnapshot, context, baseline }),
+      effort: 'high',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'summary',
+          'progress',
+          'needsImprovement',
+          'nextWeekPlan',
+          'confidence',
+          'goalAlignment',
+          'adherence',
+          'weekOverWeek',
+          'nutritionSignals',
+          'dataConfidence'
+        ],
+        properties: {
+          summary: { type: 'string' },
+          progress: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 6 },
+          needsImprovement: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 6 },
+          nextWeekPlan: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 7 },
+          confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+          goalAlignment: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['goal', 'status', 'score', 'reason'],
+            properties: {
+              goal: { type: 'string', enum: ['lose', 'maintain', 'gain'] },
+              status: { type: 'string', enum: ['on_track', 'partially_on_track', 'off_track'] },
+              score: { type: 'number' },
+              reason: { type: 'string' }
+            }
+          },
+          adherence: {
+            type: 'object',
+            additionalProperties: false,
+            required: [
+              'mealLoggingPct',
+              'completeDayCoveragePct',
+              'completeDayCount',
+              'partialDayCount',
+              'unknownDayCount',
+              'nutritionSampleCount',
+              'calorieTargetSet',
+              'calorieTargetDelta',
+              'calorieTargetDeltaPct',
+              'proteinTargetSet',
+              'proteinTargetDelta',
+              'proteinTargetDeltaPct',
+              'plannedWorkoutCount',
+              'completedWorkoutCount'
+            ],
+            properties: {
+              mealLoggingPct: { type: 'number' },
+              completeDayCoveragePct: { type: 'number' },
+              completeDayCount: { type: 'number' },
+              partialDayCount: { type: 'number' },
+              unknownDayCount: { type: 'number' },
+              nutritionSampleCount: { type: 'number' },
+              calorieTargetSet: { type: 'boolean' },
+              calorieTargetDelta: { type: ['number', 'null'] },
+              calorieTargetDeltaPct: { type: ['number', 'null'] },
+              proteinTargetSet: { type: 'boolean' },
+              proteinTargetDelta: { type: ['number', 'null'] },
+              proteinTargetDeltaPct: { type: ['number', 'null'] },
+              plannedWorkoutCount: { type: 'number' },
+              completedWorkoutCount: { type: 'number' }
+            }
+          },
+          weekOverWeek: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['weightChangeDelta', 'avgCaloriesDelta', 'avgProteinDelta', 'workoutHoursDelta'],
+            properties: {
+              weightChangeDelta: { type: 'number' },
+              avgCaloriesDelta: { type: ['number', 'null'] },
+              avgProteinDelta: { type: ['number', 'null'] },
+              workoutHoursDelta: { type: 'number' }
+            }
+          },
+          nutritionSignals: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['proteinConsistency', 'calorieVolatility', 'lateNightEatingPct', 'weekendCalorieDrift'],
+            properties: {
+              proteinConsistency: { type: 'string', enum: ['high', 'medium', 'low', 'insufficient_data'] },
+              calorieVolatility: { type: ['number', 'null'] },
+              lateNightEatingPct: { type: 'number' },
+              weekendCalorieDrift: { type: ['number', 'null'] }
+            }
+          },
+          dataConfidence: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['score', 'notes'],
+            properties: {
+              score: { type: 'number' },
+              notes: { type: 'string' }
             }
           }
         }
       }
+    });
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) {
+      throw error;
     }
-  });
-
-  let parsed = {};
-  try {
-    parsed = JSON.parse(response.output_text || '{}');
-  } catch (_error) {
     parsed = {};
   }
 
@@ -3317,7 +3293,7 @@ apiRouter.post('/parse-meal', async (req, res) => {
         parsed.items.map((item) => ({
           ...item,
           source,
-          sourceDetail: hasImage ? 'OpenAI meal photo parse' : 'OpenAI meal text parse',
+          sourceDetail: hasImage ? 'Claude meal photo parse' : 'Claude meal text parse',
           needsReview: true
         }))
       );
@@ -3445,7 +3421,7 @@ apiRouter.post('/sync-workouts', async (req, res) => {
     // A calendar day can legitimately contain multiple sessions.
     let syncedCount = 0;
     for (const log of filteredLogs) {
-      // Format log for ChatGPT
+      // Format log for the AI workout parser
       const items = log.exerciseItems || log.items || [];
       const exerciseSummary = items.map(item => {
         const setsSummary = (item.sets || []).map(s => `${s.reps || 0} reps @ ${s.weight || 0} lbs`).join(', ');
@@ -3454,7 +3430,7 @@ apiRouter.post('/sync-workouts', async (req, res) => {
 
       const text = `Workout: ${log.name || 'Unspecified'}. Exercises: ${exerciseSummary}. Notes: ${log.notes || ''}`;
       
-      // Categorize with ChatGPT
+      // Categorize with the AI workout parser
       const parsed = await parseWorkoutText({ text });
 
       // Calculate duration from logs if available
@@ -3465,7 +3441,7 @@ apiRouter.post('/sync-workouts', async (req, res) => {
         const diffMs = end - start;
         if (diffMs > 0) {
           durationHours = Number((diffMs / (1000 * 60 * 60)).toFixed(2));
-          // If we have a real duration, re-estimate calories based on it if ChatGPT inferred a very different duration
+          // If we have a real duration, re-estimate calories based on it if the AI inferred a very different duration
           if (Math.abs(durationHours - parsed.durationHours) > 0.2) {
              parsed.caloriesBurned = estimateWorkoutCalories(`${text} ${parsed.description}`, durationHours, parsed.intensity);
           }

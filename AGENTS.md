@@ -55,7 +55,7 @@
 
 ## Project Overview
 
-Full-stack macro/nutrition tracking web app with iOS companion. Node.js + Express backend, vanilla JS frontend (SPA), PostgreSQL database, SwiftUI iOS app. Uses OpenAI for natural language meal/workout parsing and Open Food Facts for barcode nutrition lookup. Supports Google OAuth and Apple Sign-In for authentication. Stripe for paid subscriptions.
+Full-stack macro/nutrition tracking web app with iOS companion. Node.js + Express backend, vanilla JS frontend (SPA), PostgreSQL database, SwiftUI iOS app. Uses Claude (Anthropic API) for natural language meal/workout parsing and Open Food Facts for barcode nutrition lookup. Supports Google OAuth and Apple Sign-In for authentication. Stripe for paid subscriptions.
 
 ## Tech Stack
 
@@ -63,7 +63,7 @@ Full-stack macro/nutrition tracking web app with iOS companion. Node.js + Expres
 - **Frontend**: Vanilla JS, HTML5, CSS3 (no frameworks)
 - **iOS App**: SwiftUI (iOS 17+), AuthenticationServices (Sign in with Apple), AVFoundation barcode scanning, Keychain token storage, HealthKit sync, local reminders, pending-log retry
 - **Database**: PostgreSQL 16 (Docker locally and in the current EC2/Docker Compose production stack; RDS notes are legacy)
-- **AI**: OpenAI API (`gpt-6-sol` by default) for meal/workout parsing
+- **AI**: Anthropic Claude API (`claude-opus-5-5` by default, override with `ANTHROPIC_MODEL`) for meal/workout parsing and analysis via `src/ai-client.js`
 - **Billing**: Stripe (checkout sessions, customer portal, webhooks)
 - **Deployment**: GitHub Actions to EC2/Docker Compose, with legacy Elastic Beanstalk notes retained only for historical recovery context
 
@@ -103,7 +103,8 @@ If Docker is unavailable locally but Homebrew Postgres binaries exist, a throwaw
 |------|---------|
 | `src/server.js` | Express server, all routes, auth, Stripe webhooks |
 | `src/db.js` | All PostgreSQL queries |
-| `src/parser.js` | OpenAI meal/workout parsing (~230 lines) |
+| `src/parser.js` | Claude meal/workout parsing |
+| `src/ai-client.js` | Shared Claude structured-output client (model, refusal fallbacks, schema sanitizing) |
 | `public/script.js` | Frontend SPA logic (~4,800 lines) |
 | `public/index.html` | Main app HTML |
 | `public/login.html` | Login page (Google + Apple buttons) |
@@ -117,7 +118,7 @@ If Docker is unavailable locally but Homebrew Postgres binaries exist, a throwaw
 ```
 SESSION_SECRET=          # Long random string (required in production)
 DATABASE_URL=            # postgres://... connection string
-OPENAI_API_KEY=          # For meal/workout parsing
+ANTHROPIC_API_KEY=       # For meal/workout parsing and analysis
 OPEN_FOOD_FACTS_USER_AGENT= # Optional custom user agent for barcode lookups
 GOOGLE_CLIENT_ID=        # Google OAuth
 GOOGLE_CLIENT_SECRET=    # Google OAuth
@@ -175,7 +176,7 @@ preserved there.
 - Nightly logical database backup: `dailymacros-db-backup.timer` runs `scripts/production-db-backup.sh` before the AWS DLM daily EBS snapshot window; DLM policy `policy-06a5ef1af3cbbc321` retains 7 daily off-host snapshots.
 - Release workflow: `.github/workflows/release.yml`, a verbatim copy of release-tools `templates/release.yml` (only the pinned commit differs). Its `verify` job calls `.github/workflows/verify.yml` (`workflow_call` only), which gates JavaScript/HTTP, PostgreSQL fresh and upgrade paths, Docker, browser/accessibility, and iOS simulator tests behind the stable `verify / Required Checks` context.
 - Server releases use the shared engine `jimgreco/release-tools` (`.github/workflows/server-release.yml` + `server/release.py`, pinned by commit in `release.yml`) with the manifest `.github/release/server.json`. TestFlight is the reusable `.github/workflows/testflight.yml`, built on `release-tools/ios/{prepare,upload,cleanup}` at the same pinned commit. Both are called only after `verify` succeeds. Bump both pins together when adopting a newer release-tools commit.
-- The EC2 Compose override pins `OPENAI_MODEL=gpt-6-sol`; keep it aligned with API defaults when upgrading models so a stale host environment cannot override the release.
+- The EC2 Compose override pins `ANTHROPIC_MODEL=claude-opus-5-5`; keep it aligned with API defaults when upgrading models so a stale host environment cannot override the release.
 - Canonical production auth routing is `APP_BASE_URL=https://macrovana.com`, `GOOGLE_CALLBACK_URL=https://macrovana.com/auth/google/callback`, and `APPLE_REDIRECT_URI=https://macrovana.com/auth/apple/callback`. The EC2 deploy override pins these values. TestFlight builds with `API_BASE_URL=https://macrovana.com` and the engine's artifact check enforces `APIBaseURL == apiOrigin` from the release policy.
 - Release runbook: `docs/ec2-release-runbook.md`.
 - Health check: `GET /healthz` (performs live DB query).
@@ -223,12 +224,12 @@ The server sets a strict CSP header. Key constraints for frontend development:
 - All state lives in the global `state` object in `public/script.js`
 - The shared web visual tokens and component overrides live in the final commercial-app layer of `public/styles.css`. At mobile widths, the existing five-item `.main-nav` becomes the safe-area-aware bottom dock; do not add a second navigation implementation or change the destination data attributes.
 - Keep the meal date header able to wrap and review-dialog grid tracks able to shrink. Browser fixtures block remote fonts, so narrow-screen checks must also cover wider fallback glyph metrics; preserve the document and dialog overflow assertions.
-- Web Coach Tony P. cards live in `public/index.html` slots (`macros-coach`, `workout-coach`, `weight-coach`, `sleep-coach`) and are rendered from deterministic local rules in `public/coach-rules.js`; `public/script.js` owns DOM rendering, category controls in Account & Privacy, admin-only source labels in cards and the "Why am I seeing this?" modal, and dismissal sync. Web Coach Tony P. shares `/api/coach/dismissals` today/pattern sync with iOS and must not call OpenAI for routine coaching.
+- Web Coach Tony P. cards live in `public/index.html` slots (`macros-coach`, `workout-coach`, `weight-coach`, `sleep-coach`) and are rendered from deterministic local rules in `public/coach-rules.js`; `public/script.js` owns DOM rendering, category controls in Account & Privacy, admin-only source labels in cards and the "Why am I seeing this?" modal, and dismissal sync. Web Coach Tony P. shares `/api/coach/dismissals` today/pattern sync with iOS and must not call Anthropic/OpenAI for routine coaching.
 - Period toggles (weekly/monthly/annual) controlled by `state.macroSnapshotPeriod`, `state.weightSnapshotPeriod`, `state.workoutSnapshotPeriod`. Switching period triggers a server request with `scope` param (e.g. `/api/daily-totals?scope=month`) to fetch the full date range.
 - Charts are drawn on `<canvas>` elements with device pixel ratio scaling. All charts support tooltips on hover/click/touch.
 - TDEE/energy balance feature was removed — no longer present in the codebase.
 - Meal photo previews: use base64 data URLs from `state.mealImageAttachments` for `<img src>` — not blob URLs (blocked by CSP)
-- OpenAI API key is required; no fallback parsing exists
+- Anthropic API key is required for parsing; no fallback parsing exists
 
 ## Workout period coverage
 

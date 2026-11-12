@@ -38,39 +38,41 @@ function loadWorkoutParser() {
   return context.module.exports.parseWorkoutInput;
 }
 
-async function withMockedOpenAIWorkoutParser(outputText, callback) {
+async function withMockedClaudeWorkoutParser(outputText, callback) {
   const parserPath = require.resolve(path.join(__dirname, '..', 'src', 'parser.js'));
+  const aiClientPath = require.resolve(path.join(__dirname, '..', 'src', 'ai-client.js'));
   const originalLoad = Module._load;
   let capturedRequest = null;
 
-  class FakeOpenAI {
+  class FakeAnthropic {
     constructor() {
-      this.responses = {
-        create: async (request) => {
-          capturedRequest = request;
-          return { output_text: outputText };
+      this.beta = {
+        messages: {
+          create: async (request) => {
+            capturedRequest = request;
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: outputText }] };
+          }
         }
       };
     }
   }
 
   Module._load = function patchedLoad(request, parent, isMain) {
-    if (request === 'openai') {
-      return FakeOpenAI;
-    }
-    if (request === 'openai/uploads') {
-      return { toFile: async () => ({}) };
+    if (request === '@anthropic-ai/sdk') {
+      return FakeAnthropic;
     }
     return originalLoad.call(this, request, parent, isMain);
   };
 
   delete require.cache[parserPath];
+  delete require.cache[aiClientPath];
   try {
     const parser = require(parserPath);
     return await callback(parser, () => capturedRequest);
   } finally {
     Module._load = originalLoad;
     delete require.cache[parserPath];
+    delete require.cache[aiClientPath];
   }
 }
 
@@ -106,7 +108,7 @@ test('removes intensity/workout words from description', () => {
   assert.equal(parsed.durationHours, 1.25);
 });
 
-test('server workout ChatGPT prompt asks for active conservative calories with strength rests', async () => {
+test('server workout Claude prompt asks for active conservative calories with strength rests', async () => {
   const outputText = JSON.stringify({
     description: 'Chest',
     intensity: 'medium',
@@ -114,9 +116,13 @@ test('server workout ChatGPT prompt asks for active conservative calories with s
     caloriesBurned: 150
   });
 
-  await withMockedOpenAIWorkoutParser(outputText, async ({ parseWorkoutText }, getRequest) => {
+  await withMockedClaudeWorkoutParser(outputText, async ({ parseWorkoutText }, getRequest) => {
     const parsed = await parseWorkoutText({ text: '45 minute moderate chest workout' });
-    const prompt = getRequest().input[0].content;
+    const request = getRequest();
+    const prompt = request.system;
+
+    assert.equal(request.model, 'claude-opus-5-5');
+    assert.equal(request.output_config.format.type, 'json_schema');
 
     assert.equal(parsed.caloriesBurned, 150);
     assert.match(prompt, /active exercise calories only/i);
@@ -135,7 +141,7 @@ test('server workout parser caps non-explicit medium strength calories conservat
     caloriesBurned: 600
   });
 
-  await withMockedOpenAIWorkoutParser(outputText, async ({ parseWorkoutText }) => {
+  await withMockedClaudeWorkoutParser(outputText, async ({ parseWorkoutText }) => {
     const parsed = await parseWorkoutText({ text: '1 hour moderate chest workout' });
 
     assert.equal(parsed.caloriesBurned, 220);
@@ -150,7 +156,7 @@ test('server workout parser preserves explicitly reported active calories', asyn
     caloriesBurned: 480
   });
 
-  await withMockedOpenAIWorkoutParser(outputText, async ({ parseWorkoutText }) => {
+  await withMockedClaudeWorkoutParser(outputText, async ({ parseWorkoutText }) => {
     const parsed = await parseWorkoutText({
       text: '1 hour strength training, Apple Watch active calories 480 and total calories 620'
     });

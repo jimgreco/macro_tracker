@@ -647,9 +647,9 @@ struct SettingsView: View {
 
     private var aiProcessingCopy: String {
         if canViewCoachSourceDetails {
-            return "Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them. \(CoachBrand.name) uses local rule gates and, when available, the on-device Apple model to rank or phrase eligible cards."
+            return "Meal text, workout text, and meal photos may be sent to Anthropic only when you ask the app to parse or analyze them. \(CoachBrand.name) uses local rule gates and, when available, the on-device Apple model to rank or phrase eligible cards."
         }
-        return "Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them. \(CoachBrand.name) suggestions are generated from your app data for routine coaching, not sent to OpenAI."
+        return "Meal text, workout text, and meal photos may be sent to Anthropic only when you ask the app to parse or analyze them. \(CoachBrand.name) suggestions are generated from your app data for routine coaching, not sent to Anthropic."
     }
 
     private var coachSettingsFooterCopy: String {

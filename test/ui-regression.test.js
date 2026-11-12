@@ -811,7 +811,7 @@ test('web account menu surfaces privacy support export delete and build info', (
   assert.equal(script.includes('/api/account/export'), true);
   assert.equal(script.includes("/api/account', { method: 'DELETE' }"), true);
   assert.equal(script.includes('/api/version'), true);
-  assert.equal(script.includes('meal photos may be sent to OpenAI'), true);
+  assert.equal(script.includes('meal photos may be sent to Anthropic'), true);
   assert.equal(script.includes('href="/privacy"'), true);
   assert.equal(script.includes('function supportedTimezones()'), true);
   assert.equal(script.includes("Intl.supportedValuesOf('timeZone')"), true);
@@ -1328,7 +1328,7 @@ test('iOS Coach Tony P. exposes settings and title-first cards', () => {
   assert.ok(coach.includes('recordCoachEvent("acted_on"'));
   assert.ok(coach.includes('recordCoachEvent("not_useful"'));
   assert.ok(coach.includes('recordCoachEvent("local_ai_narrated"'));
-  assert.equal(coach.includes('OpenAI'), false);
+  assert.equal(coach.includes('Anthropic'), false);
   assert.equal(coach.includes('/parse'), false);
   assert.ok(coach.includes('mode.allowsTemplateFallback ? topCandidates : []'));
   assert.ok(coach.includes('private struct AICoachPageIndicator'));
@@ -1461,7 +1461,7 @@ test('web Coach Tony P. renders local suggestions with synced dismissals', () =>
   assert.ok(script.includes("renderCoachForPage('workout')"));
   assert.ok(script.includes("renderCoachForPage('weight')"));
   assert.ok(script.includes("renderCoachForPage('sleep')"));
-  assert.equal(coachSection.includes('OpenAI'), false);
+  assert.equal(coachSection.includes('Anthropic'), false);
   assert.equal(coachSection.includes('/api/parse'), false);
 });
 

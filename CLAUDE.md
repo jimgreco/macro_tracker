@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Full-stack macro/nutrition tracking web app with iOS companion. Node.js + Express backend, vanilla JS frontend (SPA), PostgreSQL database, SwiftUI iOS app. Uses OpenAI for natural language meal/workout parsing and Open Food Facts for barcode nutrition lookup. Supports Google OAuth and Apple Sign-In for authentication. Stripe for paid subscriptions.
+Full-stack macro/nutrition tracking web app with iOS companion. Node.js + Express backend, vanilla JS frontend (SPA), PostgreSQL database, SwiftUI iOS app. Uses Claude (Anthropic API) for natural language meal/workout parsing and Open Food Facts for barcode nutrition lookup. Supports Google OAuth and Apple Sign-In for authentication. Stripe for paid subscriptions.
 
 ## Tech Stack
 
@@ -10,7 +10,7 @@ Full-stack macro/nutrition tracking web app with iOS companion. Node.js + Expres
 - **Frontend**: Vanilla JS, HTML5, CSS3 (no frameworks)
 - **iOS App**: SwiftUI (iOS 17+), AuthenticationServices (Sign in with Apple), AVFoundation barcode scanning, Keychain token storage, HealthKit sync, local reminders, pending-log retry
 - **Database**: PostgreSQL 16 (Docker locally and in the current EC2/Docker Compose production stack; RDS notes are legacy)
-- **AI**: OpenAI API (`gpt-6-sol` by default) for meal/workout parsing
+- **AI**: Anthropic Claude API (`claude-opus-5-5` by default, override with `ANTHROPIC_MODEL`) for meal/workout parsing and analysis via `src/ai-client.js`
 - **Billing**: Stripe (checkout sessions, customer portal, webhooks)
 - **Deployment**: GitHub Actions to EC2/Docker Compose, with legacy Elastic Beanstalk notes retained only for historical recovery context
 
@@ -45,7 +45,8 @@ Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google/Apple OAuth setup locally.
 |------|---------|
 | `src/server.js` | Express server, all routes, auth, Stripe webhooks |
 | `src/db.js` | All PostgreSQL queries |
-| `src/parser.js` | OpenAI meal/workout parsing (~230 lines) |
+| `src/parser.js` | Claude meal/workout parsing |
+| `src/ai-client.js` | Shared Claude structured-output client (model, refusal fallbacks, schema sanitizing) |
 | `public/script.js` | Frontend SPA logic (~4,800 lines) |
 | `public/index.html` | Main app HTML |
 | `public/login.html` | Login page (Google + Apple buttons) |
@@ -59,7 +60,7 @@ Set `LOCAL_AUTH_BYPASS=true` in `.env` to skip Google/Apple OAuth setup locally.
 ```
 SESSION_SECRET=          # Long random string (required in production)
 DATABASE_URL=            # postgres://... connection string
-OPENAI_API_KEY=          # For meal/workout parsing
+ANTHROPIC_API_KEY=       # For meal/workout parsing and analysis
 OPEN_FOOD_FACTS_USER_AGENT= # Optional custom user agent for barcode lookups
 GOOGLE_CLIENT_ID=        # Google OAuth
 GOOGLE_CLIENT_SECRET=    # Google OAuth
@@ -188,4 +189,4 @@ The server sets a strict CSP header. Key constraints for frontend development:
 - Charts are drawn on `<canvas>` elements with device pixel ratio scaling. All charts support tooltips on hover/click/touch.
 - TDEE/energy balance feature was removed — no longer present in the codebase.
 - Meal photo previews: use base64 data URLs from `state.mealImageAttachments` for `<img src>` — not blob URLs (blocked by CSP)
-- OpenAI API key is required; no fallback parsing exists
+- Anthropic API key is required for parsing; no fallback parsing exists

@@ -3879,7 +3879,7 @@ struct MacrosView: View {
                 mealUnit: parsedMealUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : parsedMealUnit,
                 itemsAreMealUnit: parsedItems.count > 1,
                 source: parsedMealSource,
-                sourceDetail: parsedMealSource == "barcode" ? "Open Food Facts barcode lookup" : "OpenAI meal parse",
+                sourceDetail: parsedMealSource == "barcode" ? "Open Food Facts barcode lookup" : "Claude meal parse",
                 saveItems: saveItems
             )
             showAddSheet = false
