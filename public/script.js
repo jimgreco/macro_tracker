@@ -3437,8 +3437,8 @@ function showAccountPrivacyModal() {
     ? 'sexual activity entries, '
     : 'sexual activity entries only if an admin enables that view, ';
   const aiProcessingCopy = canViewCoachSourceDetails()
-    ? 'Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them. Coach Tony P. uses local rule gates for eligible coach cards; on supported iOS versions, the on-device Apple model may rank or phrase those cards.'
-    : 'Meal text, workout text, and meal photos may be sent to OpenAI only when you ask the app to parse or analyze them. Coach Tony P. suggestions are generated from your app data for routine coaching, not sent to OpenAI.';
+    ? 'Meal text, workout text, and meal photos may be sent to Anthropic only when you ask the app to parse or analyze them. Coach Tony P. uses local rule gates for eligible coach cards; on supported iOS versions, the on-device Apple model may rank or phrase those cards.'
+    : 'Meal text, workout text, and meal photos may be sent to Anthropic only when you ask the app to parse or analyze them. Coach Tony P. suggestions are generated from your app data for routine coaching, not sent to Anthropic.';
   const sexualActivityPageControl = state.features?.sexualActivity
     ? `
       <fieldset class="account-preference-controls">
@@ -6593,7 +6593,7 @@ saveParsedBtnEl.addEventListener('click', async () => {
   const consumedAt = mealConsumedAt();
   const editedItems = collectParsedItemsFromUi();
   const parseSource = state.parsedMeal?.review?.source || (state.mealImageAttachments.length ? 'ai_photo' : 'ai_text');
-  const parseSourceDetail = state.mealImageAttachments.length ? 'OpenAI meal photo parse' : 'OpenAI meal text parse';
+  const parseSourceDetail = state.mealImageAttachments.length ? 'Claude meal photo parse' : 'Claude meal text parse';
 
   const items = editedItems.map((item) => ({
     itemName: item.itemName,

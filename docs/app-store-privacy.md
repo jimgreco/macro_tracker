@@ -35,8 +35,8 @@ DailyMacros does not use third-party advertising SDKs, does not sell personal da
 
 ## Third-Party Processing To Disclose
 
-- OpenAI: meal/workout/report text, meal photos, and eligible connected health data may be sent only when the user asks the app to parse or analyze them. Oura API data and values derived from it are always excluded.
-- Coach Tony P. coaching: routine coach cards are generated from local deterministic rules. On supported iOS versions, on-device Apple Foundation Models may rank or rephrase already-eligible cards without sending those cards to OpenAI.
+- Anthropic: meal/workout/report text, meal photos, and eligible connected health data may be sent only when the user asks the app to parse or analyze them. Oura API data and values derived from it are always excluded.
+- Coach Tony P. coaching: routine coach cards are generated from local deterministic rules. On supported iOS versions, on-device Apple Foundation Models may rank or rephrase already-eligible cards without sending those cards to Anthropic.
 - Google and Apple: sign-in provider data is used for authentication.
 - Stripe: subscription checkout, customer portal, and webhook state when paid features are enabled.
 - Open Food Facts: barcode lookup sends the barcode needed to retrieve product nutrition.

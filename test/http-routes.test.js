@@ -10,7 +10,7 @@ const requiredRuntimeDependencies = [
   'express-session',
   'passport',
   'passport-google-oauth20',
-  'openai',
+  '@anthropic-ai/sdk',
   'stripe',
   'apple-signin-auth',
   'heic-convert'

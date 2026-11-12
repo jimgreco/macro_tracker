@@ -23,6 +23,7 @@
     "db:migrate:fiber": "node scripts/migrate-fiber.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "@aws-sdk/client-s3": "^3.1127.0",
     "@aws-sdk/s3-request-presigner": "^3.1127.0",
     "apple-signin-auth": "^2.0.0",
@@ -30,7 +31,6 @@
     "express": "^4.22.2",
     "express-session": "^1.18.1",
     "heic-convert": "^2.1.0",
-    "openai": "^4.86.1",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "pg": "^8.18.0",

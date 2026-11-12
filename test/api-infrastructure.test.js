@@ -812,8 +812,7 @@ test('server.js bounds parse payloads before invoking AI parsers', () => {
   assert.ok(server.includes('rawMealImageDataUrlsFromBody'));
   assert.ok(server.includes('imageDataUrls'));
   assert.ok(parser.includes('normalizedImageDataUrls'));
-  assert.ok(parser.includes('uploadedImageFileIds'));
-  assert.ok(parser.includes('meal-photo-${index + 1}.${extension}'));
+  assert.ok(parser.includes('imageBlockFromDataUrl(dataUrl)'));
 });
 
 test('server.js upserts user on OAuth callback', () => {
@@ -1199,7 +1198,7 @@ test('public privacy policy and support are served before frontend auth guard', 
   assert.ok(server.indexOf("app.get(['/privacy', '/privacy.html']") < server.indexOf('app.use(requireAuth, enforceActiveAccount);'));
   assert.ok(server.indexOf("app.get(['/support', '/support.html']") < server.indexOf('app.use(requireAuth, enforceActiveAccount);'));
   assert.ok(privacyHtml.includes('DailyMacros Privacy Policy'));
-  assert.ok(privacyHtml.includes('OpenAI'));
+  assert.ok(privacyHtml.includes('Anthropic'));
   assert.ok(privacyHtml.includes('HealthKit'));
   assert.ok(privacyHtml.includes('does not use third-party advertising or cross-app tracking'));
   assert.ok(policy.includes('DailyMacros Privacy Policy'));
