@@ -172,7 +172,7 @@ When asked to deploy or "push live", always run these steps in order — no skip
 4. **`git commit`** with a clear message describing what changed and why
 5. **`git push origin main`** — once `verify` passes, GitHub Actions deploys to EC2 and uploads to TestFlight
 
-The release uses the `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` and `EC2_SSH_KNOWN_HOSTS` secrets; there is no pre-release DB dump (the nightly backup timer and DLM snapshots cover it) and no public `/version` check after the release; the scheduled `production-smoke.yml` monitor runs `scripts/production-smoke.sh` when `PRODUCTION_BASE_URL` is configured.
+The release uses the `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` and `EC2_SSH_KNOWN_HOSTS` secrets; there is no pre-release DB dump (the nightly backup timer and DLM snapshots cover it) and no public `/version` check after the release; `scripts/production-smoke.sh` is run by hand, and uptime is monitored by the shared check in `jimgreco/consolidated-deploy`.
 
 ## Content Security Policy
 

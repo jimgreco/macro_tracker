@@ -97,16 +97,14 @@ then call the EC2 server release and the TestFlight workflow. The EC2 deploy cal
 `jimgreco/release-tools` server release (manifest `.github/release/server.json`):
 it pushes an exact-commit ARM64 image to GHCR and replaces only the `macros`
 container on the host after a drift check and a verified database backup, then
-confirms the public `/version`. The scheduled `production-smoke.yml` monitor runs
-`scripts/production-smoke.sh` when `PRODUCTION_BASE_URL` is configured.
+confirms the public `/version`. Uptime is monitored by the shared check in
+`jimgreco/consolidated-deploy`; `scripts/production-smoke.sh` can be run by hand.
 
 Required GitHub Actions secrets for deploy:
 - `EC2_SSH_KEY`
 - `EC2_USER`
 - `EC2_HOST`
 - `EC2_SSH_KNOWN_HOSTS` (pinned host key; required)
-- `PRODUCTION_BASE_URL` (optional; enables the scheduled smoke monitor)
-- `PRODUCTION_SMOKE_API_TOKEN` (optional; enables authenticated scheduled smoke checks)
 
 For the current EC2/Docker Compose deployment set:
 - `DATABASE_URL` to the internal Docker Postgres connection string
@@ -121,7 +119,7 @@ Operational safeguards:
 - `GET /healthz` performs a live `SELECT 1` against PostgreSQL and returns `503` if the database is unavailable.
 - `GET /version` exposes app version, build SHA, Node version, and start time for smoke checks and support.
 - The release pins the SSH host key from `EC2_SSH_KNOWN_HOSTS` and fails if the exact build is not healthy and publicly reported by `/version`.
-- `.github/workflows/production-smoke.yml` runs hourly production smoke checks using `scripts/production-smoke.sh`.
+- `scripts/production-smoke.sh` runs production smoke checks on demand; uptime is monitored by the shared check in `jimgreco/consolidated-deploy`.
 - Authenticated production smoke checks use the configured smoke account to exercise disposable meal, quick-add, weight, sleep, and optional sexual-activity create/update/delete journeys, then clean up created records.
 - `dailymacros-db-backup.timer` runs `scripts/production-db-backup.sh` nightly on the EC2 host before the AWS DLM snapshot window; local dumps are pruned by `RETENTION_DAYS` and the DLM policy retains 7 daily off-host EBS snapshots.
 - Before wider beta pushes, run `RESTORE_DRILL=true DEPLOY_DIR=~/deploy scripts/production-db-backup.sh` from the EC2 host to create and restore-test a Docker Postgres backup, confirm the latest DLM snapshot is fresh, and confirm the smoke token still reaches the intended production account.

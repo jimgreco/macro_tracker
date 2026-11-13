@@ -1110,7 +1110,7 @@ test('subscription indexes exist', () => {
 
 // ── Release infrastructure ──
 
-test('server release uses the pinned shared engine and leaves production smoke to the scheduled monitor', () => {
+test('server release uses the pinned shared engine and does not run the production smoke script', () => {
   const release = read('.github/workflows/release.yml');
   const manifest = JSON.parse(read('.github/release/server.json'));
   const script = read('scripts/production-smoke.sh');
@@ -1131,16 +1131,9 @@ test('server release uses the pinned shared engine and leaves production smoke t
   assert.ok(script.includes('--retry "$SMOKE_CURL_RETRIES"'));
 });
 
-test('scheduled production smoke workflow can run public and authenticated checks', () => {
-  const workflow = read('.github/workflows/production-smoke.yml');
+test('production smoke script runs public and authenticated checks', () => {
   const script = read('scripts/production-smoke.sh');
 
-  assert.ok(workflow.includes("cron: '17 * * * *'"));
-  assert.ok(workflow.includes('PRODUCTION_SMOKE_API_TOKEN'));
-  assert.ok(workflow.includes('Skip when production URL is not configured'));
-  assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL == ''"));
-  assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL != ''"));
-  assert.ok(workflow.includes('scripts/production-smoke.sh'));
   assert.ok(script.includes('$BASE_URL/healthz'));
   assert.ok(script.includes('$BASE_URL/version'));
   assert.ok(script.includes('$BASE_URL/api/me'));

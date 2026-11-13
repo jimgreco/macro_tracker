@@ -21,8 +21,6 @@ This is the production release path for the friends and family beta.
 - `EC2_USER`: deploy user on the EC2 host.
 - `EC2_HOST`: EC2 hostname or IP.
 - `EC2_SSH_KNOWN_HOSTS`: pinned host key line(s); the release fails closed without it.
-- `PRODUCTION_BASE_URL`: optional canonical HTTPS origin, without a trailing slash; enables the scheduled `production-smoke.yml` checks.
-- `PRODUCTION_SMOKE_API_TOKEN`: optional API token for authenticated scheduled smoke checks.
 
 ## Production Env Inventory
 Set these on the remote compose environment for the `macros` service:
@@ -124,8 +122,8 @@ Push or merge to `main`. After `verify`, the workflow will:
 4. Require `/healthz` and `/version` `appBuild == <sha7>` inside the container,
    rolling back to the previous image on failure, then confirm the public
    `/version` reports the new build. Records: `~/deploy/release-records/macros-<sha>.json`.
-5. The release itself no longer runs `scripts/production-smoke.sh`; the hourly
-   `production-smoke.yml` monitor runs it against `PRODUCTION_BASE_URL`.
+5. The release itself does not run `scripts/production-smoke.sh`; run it by hand
+   when needed. Uptime is monitored by the shared check in `jimgreco/consolidated-deploy`.
 
 Releases never run migrations. A schema change is applied beforehand with the
 owner-run `npm run db:migrate` (or `db:migrate:fiber`) and `MIGRATION_DATABASE_URL`,
@@ -179,7 +177,7 @@ If the database migration is the suspected cause, stop and restore from the late
 - Server logs are JSON lines with `requestId`, method, path, status, duration, and user id when available.
 - Verified Stripe deliveries are acknowledged only after the minimized event is committed to `webhook_events`. Processing is leased from PostgreSQL and resumes after a process restart or stale lease.
 - Graceful shutdown stops new provider-event claims, drains the active reconciliation/worker attempt for up to `WEBHOOK_SHUTDOWN_TIMEOUT_MS`, then closes the database pool. An attempt still running at the bound leaves its database lease behind; the next process recovers it after `WEBHOOK_LEASE_MS`.
-- Deploy and `.github/workflows/production-smoke.yml` run `scripts/production-smoke.sh`; both include authenticated checks when `PRODUCTION_SMOKE_API_TOKEN` is set.
+- Run `scripts/production-smoke.sh` by hand for smoke checks; it includes authenticated checks when `API_TOKEN` is set.
 - Treat `/healthz` failures and sustained 5xx spikes as beta-stopping incidents.
 - The public privacy policy is served at `/privacy` and the repo copy lives in `docs/privacy-policy.md`.
 
