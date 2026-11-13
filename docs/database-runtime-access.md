@@ -59,6 +59,6 @@ The task evidence includes runtime startup, CRUD/sequences/functions/jobs as app
 
 References: [PostgreSQL privileges](https://www.postgresql.org/docs/16/ddl-priv.html), [creator-specific default privileges](https://www.postgresql.org/docs/16/sql-alterdefaultprivileges.html).
 
-Macrovana compatibility preserves the supported legacy `ejaculation_entries_id_seq` / primary-key index alias after table rename, and missing default values for effective dates that the runtime explicitly supplies. The exact observed sequence must be granted; do not rename it during this cutover. The existing `scripts/production-db-backup.sh` defaults to shared `admin` and can prune old dumps or drop a drill database; do not invoke its cleanup paths as implicit approval. Its restore invocation also lacks `--exit-on-error`, so use the guarded rehearsal above.
+Macrovana compatibility preserves the supported legacy `ejaculation_entries_id_seq` / primary-key index alias after table rename, and missing default values for effective dates that the runtime explicitly supplies. The exact observed sequence must be granted; do not rename it during this cutover.
 
 The separate test observer in persistence fault-injection tests may inspect locks/terminate fixture connections. It is never the app's pool and is never a production runtime privilege. CI now prepares a NOLOGIN runtime role for those same journeys, and prepares the browser schema before starting the web server. `npm run check` is now read-only.

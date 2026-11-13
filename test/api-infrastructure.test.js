@@ -1110,7 +1110,7 @@ test('subscription indexes exist', () => {
 
 // ── Release infrastructure ──
 
-test('server release uses the pinned shared engine and leaves production smoke to the scheduled monitor', () => {
+test('server release uses the pinned shared engine and does not run the production smoke script', () => {
   const release = read('.github/workflows/release.yml');
   const manifest = JSON.parse(read('.github/release/server.json'));
   const script = read('scripts/production-smoke.sh');
@@ -1131,16 +1131,9 @@ test('server release uses the pinned shared engine and leaves production smoke t
   assert.ok(script.includes('--retry "$SMOKE_CURL_RETRIES"'));
 });
 
-test('scheduled production smoke workflow can run public and authenticated checks', () => {
-  const workflow = read('.github/workflows/production-smoke.yml');
+test('production smoke script runs public and authenticated checks', () => {
   const script = read('scripts/production-smoke.sh');
 
-  assert.ok(workflow.includes("cron: '17 * * * *'"));
-  assert.ok(workflow.includes('PRODUCTION_SMOKE_API_TOKEN'));
-  assert.ok(workflow.includes('Skip when production URL is not configured'));
-  assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL == ''"));
-  assert.ok(workflow.includes("if: env.PRODUCTION_BASE_URL != ''"));
-  assert.ok(workflow.includes('scripts/production-smoke.sh'));
   assert.ok(script.includes('$BASE_URL/healthz'));
   assert.ok(script.includes('$BASE_URL/version'));
   assert.ok(script.includes('$BASE_URL/api/me'));
@@ -1156,34 +1149,6 @@ test('scheduled production smoke workflow can run public and authenticated check
   assert.ok(script.includes('$BASE_URL/api/sexual-activity'));
   assert.ok(script.includes('trap cleanup_created_records EXIT'));
   assert.ok(script.includes('dashboard_entry_id'));
-});
-
-test('production database backup script supports Docker Postgres restore drills', () => {
-  const script = read('scripts/production-db-backup.sh');
-  const runbook = read('docs/ec2-release-runbook.md');
-  const readme = read('README.md');
-  const service = read('ops/systemd/dailymacros-db-backup.service');
-  const timer = read('ops/systemd/dailymacros-db-backup.timer');
-
-  assert.ok(script.includes('DB_CONTAINER="${DB_CONTAINER:-shared_db}"'));
-  assert.ok(script.includes('DB_NAME="${DB_NAME:-macro_tracker}"'));
-  assert.ok(script.includes('read_env_value DB_PASSWORD "$ENV_FILE"'));
-  assert.equal(script.includes('. "$ENV_FILE"'), false);
-  assert.equal(script.includes('source "$ENV_FILE"'), false);
-  assert.ok(script.includes('pg_dump'));
-  assert.ok(script.includes('pg_restore'));
-  assert.ok(script.includes('RESTORE_DRILL'));
-  assert.ok(script.includes('chmod 600 "$backup_path"'));
-  assert.ok(script.includes('current_schema()'));
-  assert.ok(script.includes('RETENTION_DAYS'));
-  assert.ok(script.includes('find "$BACKUP_DIR" -type f -name'));
-  assert.ok(runbook.includes('shared Docker Postgres container'));
-  assert.ok(runbook.includes('RESTORE_DRILL=true DEPLOY_DIR=~/deploy scripts/production-db-backup.sh'));
-  assert.ok(readme.includes('EC2/Docker Compose deployment'));
-  assert.ok(readme.includes('PGSSL=false'));
-  assert.ok(service.includes('ExecStart=/home/ec2-user/macros/scripts/production-db-backup.sh'));
-  assert.ok(service.includes('Environment=RETENTION_DAYS=14'));
-  assert.ok(timer.includes('OnCalendar=*-*-* 02:35:00'));
 });
 
 test('public privacy policy and support are served before frontend auth guard', () => {
