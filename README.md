@@ -121,8 +121,8 @@ Operational safeguards:
 - The release pins the SSH host key from `EC2_SSH_KNOWN_HOSTS` and fails if the exact build is not healthy and publicly reported by `/version`.
 - `scripts/production-smoke.sh` runs production smoke checks on demand; uptime is monitored by the shared check in `jimgreco/consolidated-deploy`.
 - Authenticated production smoke checks use the configured smoke account to exercise disposable meal, quick-add, weight, sleep, and optional sexual-activity create/update/delete journeys, then clean up created records.
-- `dailymacros-db-backup.timer` runs `scripts/production-db-backup.sh` nightly on the EC2 host before the AWS DLM snapshot window; local dumps are pruned by `RETENTION_DAYS` and the DLM policy retains 7 daily off-host EBS snapshots.
-- Before wider beta pushes, run `RESTORE_DRILL=true DEPLOY_DIR=~/deploy scripts/production-db-backup.sh` from the EC2 host to create and restore-test a Docker Postgres backup, confirm the latest DLM snapshot is fresh, and confirm the smoke token still reaches the intended production account.
+- Nightly backups: the shared nightly off-server backup in `jimgreco/consolidated-deploy` (timer `backup-pilot-macrovana` on the host) takes a verified `pg_dump` and uploads it to S3; the AWS DLM policy also retains 7 daily EBS snapshots.
+- Before wider beta pushes, confirm the latest shared backup and DLM snapshot are fresh, and confirm the smoke token still reaches the intended production account.
 - The public privacy policy is served at `/privacy`; the repo copy lives in `docs/privacy-policy.md`, and App Store privacy notes live in `docs/app-store-privacy.md`.
 - Elastic Beanstalk material in `docs/aws-production-security-audit.md` is legacy unless that platform is intentionally revived.
 - Use `npm run ops:rotate-prod-db-password` only if the RDS/Elastic Beanstalk path is revived and verified.

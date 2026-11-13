@@ -7,12 +7,11 @@ This is the production release path for the friends and family beta.
   commit-pinned `jimgreco/release-tools/.github/workflows/server-release.yml`
 - Release manifest: `.github/release/server.json` (format: release-tools `server/README.md`)
 - Image: `ghcr.io/jimgreco/macro_tracker:<full sha>` (ARM64, built in CI)
-- Remote app checkout `~/macros`: no longer synced by releases; it still holds
-  the host copy of `scripts/production-db-backup.sh` used by the backup timer
+- Remote app checkout `~/macros`: no longer used by releases or backups
 - Remote compose directory: `~/deploy`
 - Remote service name: `macros`
 - Production database: shared Docker Postgres container in the remote compose stack (`shared_db`)
-- Logical DB backup timer: `dailymacros-db-backup.timer`
+- Logical DB backup: shared off-server backup in `jimgreco/consolidated-deploy` (timer `backup-pilot-macrovana`)
 - Off-host backup layer: AWS DLM policy `policy-06a5ef1af3cbbc321` snapshots the tagged EC2 instance daily at 03:00 UTC and retains 7 snapshots.
 - Smoke endpoints: `/healthz` and `/version`
 
@@ -93,11 +92,9 @@ npm audit --omit=dev
 
 Confirm the app has a recent restorable database backup:
 - The active production database is Dockerized Postgres on the EC2 host, not RDS.
-- The nightly systemd timer runs `scripts/production-db-backup.sh` at 02:35 UTC so a logical dump exists before the 03:00 UTC DLM EBS snapshot window.
-- From the EC2 host, run `systemctl list-timers dailymacros-db-backup.timer` to confirm the next scheduled logical backup.
-- For a manual proof, run `cd ~/macros && RESTORE_DRILL=true DEPLOY_DIR=~/deploy scripts/production-db-backup.sh`.
-- Confirm the script reports a successful restore drill and retains a fresh dump under `~/deploy/backups/macros/`.
-- If the release includes schema changes, run a fresh logical backup with `RESTORE_DRILL=true` before deploy.
+- The shared nightly backup uploads a verified dump to S3 under `macrovana/`; its hourly freshness workflow in `consolidated-deploy` alerts if it is stale.
+- From the EC2 host, run `systemctl list-timers backup-pilot-macrovana.timer` to confirm the next scheduled backup.
+- If the release includes schema changes, run `sudo systemctl start backup-pilot-macrovana.service` before deploy and update `scripts/backup-pilot/tables.json` in `consolidated-deploy` if tables change.
 - In AWS, confirm the DLM policy still reports completed snapshots for the consolidated EC2 volume and the most recent snapshot is less than 26 hours old.
 
 Confirm the workflow secrets are present:

@@ -151,7 +151,7 @@ The iOS app communicates with the backend via Bearer token auth. Sign in with Ap
 
 - Active platform: EC2 host running Docker Compose from `~/deploy`.
 - Production database: shared Docker Postgres container in the remote Compose stack (`shared_db`).
-- Nightly logical database backup: `dailymacros-db-backup.timer` runs `scripts/production-db-backup.sh` before the AWS DLM daily EBS snapshot window; DLM policy `policy-06a5ef1af3cbbc321` retains 7 daily off-host snapshots.
+- Nightly logical database backup: the shared nightly off-server backup in `jimgreco/consolidated-deploy` (timer `backup-pilot-macrovana` on the host) takes a verified `pg_dump` and uploads it to S3; DLM policy `policy-06a5ef1af3cbbc321` retains 7 daily off-host snapshots.
 - Release workflow: `.github/workflows/release.yml` (verbatim release-tools template; `verify.yml` holds the checks) → `jimgreco/release-tools` `server-release.yml` (manifest `.github/release/server.json`) and `testflight.yml` (release-tools `ios/prepare` → `ios/upload` → `ios/cleanup`), all pinned to one release-tools commit.
 - Release runbook: `docs/ec2-release-runbook.md`.
 - Health check: `GET /healthz` (performs live DB query).
