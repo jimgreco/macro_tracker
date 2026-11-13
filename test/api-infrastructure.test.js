@@ -1118,13 +1118,14 @@ test('server release uses the pinned shared engine and leaves production smoke t
   assert.equal(release.includes('ssh-keyscan'), false);
   assert.equal(release.includes('rsync'), false);
   assert.equal(release.includes('docker system prune'), false);
-  assert.equal(release.includes('scripts/production-smoke.sh'), false, 'release-tools runs the public post-release check');
+  assert.equal(release.includes('scripts/production-smoke.sh'), false, 'release-tools host health checks gate the release');
   assert.equal(manifest.image, 'ghcr.io/jimgreco/macro_tracker');
   assert.deepEqual(Object.keys(manifest.services), ['macros']);
   assert.deepEqual(manifest.services.macros.metadata_env, { APP_BUILD: '{sha7}' });
   assert.ok(manifest.services.macros.health.join(' ').includes("version.appBuild === '{sha7}'"));
-  assert.equal(manifest.public.field, 'appBuild');
-  assert.equal(manifest.backup.database, 'macro_tracker');
+  assert.equal(manifest.public, undefined, 'host health checks are the release gate');
+  assert.equal(manifest.backup, undefined, 'no pre-release dump; scheduled backups cover the database');
+  assert.equal(manifest.refuse_backwards, true);
   assert.equal(manifest.migrate, undefined, 'production migrations stay a separate owner-run command');
   assert.ok(script.includes('SMOKE_CURL_RETRIES'));
   assert.ok(script.includes('--retry "$SMOKE_CURL_RETRIES"'));
