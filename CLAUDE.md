@@ -162,7 +162,7 @@ The iOS app communicates with the backend via Bearer token auth. Sign in with Ap
 
 ### Deployment Process
 
-Deployment is automated via GitHub Actions. `.github/workflows/release.yml` (`Release`) runs `verify.yml` (the full `Required Checks`) on every pull request and push to `main`; on `main` it then runs the `server` job (release-tools `server-release.yml`: GHCR image build, then `release.py` on the host refuses Compose drift, backs up `macro_tracker`, recreates only `macros`, health-checks the exact build and rolls back on failure; no migrations run, schema changes remain the separate owner-run `npm run db:migrate`) and the `ios` job (`testflight.yml`, build number = commit count). Pull requests never release. To re-release without a new commit, dispatch `Release` on `main`. Every TestFlight upload is App Store-eligible (policy `buildAudience` default). For an App Store update: bump `MARKETING_VERSION` (and `.github/scripts/release-policy.json`) if the current version is already live, release normally, then dispatch `App Store Submit` with that build number and What's New text (unchecked `submit` prints the GET-only plan first). No manual `eb deploy` step is part of the active path.
+Deployment is automated via GitHub Actions. `.github/workflows/release.yml` (`Release`) runs `verify.yml` (the full `Required Checks`) on every pull request and push to `main`; on `main` it then runs the `server` job (release-tools `server-release.yml`: GHCR image build, then `release.py` on the host refuses Compose drift, refuses to roll backwards (live build read from host image tags), recreates only `macros`, health-checks the exact build and rolls back on failure; no migrations run, schema changes remain the separate owner-run `npm run db:migrate`) and the `ios` job (`testflight.yml`, build number = commit count). Pull requests never release. To re-release without a new commit, dispatch `Release` on `main`. Every TestFlight upload is App Store-eligible (policy `buildAudience` default). For an App Store update: bump `MARKETING_VERSION` (and `.github/scripts/release-policy.json`) if the current version is already live, release normally, then dispatch `App Store Submit` with that build number and What's New text (unchecked `submit` prints the GET-only plan first). No manual `eb deploy` step is part of the active path.
 
 When asked to deploy or "push live", always run these steps in order — no skipping:
 
@@ -172,7 +172,7 @@ When asked to deploy or "push live", always run these steps in order — no skip
 4. **`git commit`** with a clear message describing what changed and why
 5. **`git push origin main`** — once `verify` passes, GitHub Actions deploys to EC2 and uploads to TestFlight
 
-The release uses the `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` and `EC2_SSH_KNOWN_HOSTS` secrets; release-tools confirms the public `/version` after the release, and the scheduled `production-smoke.yml` monitor runs `scripts/production-smoke.sh` when `PRODUCTION_BASE_URL` is configured.
+The release uses the `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` and `EC2_SSH_KNOWN_HOSTS` secrets; there is no pre-release DB dump (the nightly backup timer and DLM snapshots cover it) and no public `/version` check after the release; the scheduled `production-smoke.yml` monitor runs `scripts/production-smoke.sh` when `PRODUCTION_BASE_URL` is configured.
 
 ## Content Security Policy
 

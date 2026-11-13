@@ -1123,8 +1123,9 @@ test('server release uses the pinned shared engine and leaves production smoke t
   assert.deepEqual(Object.keys(manifest.services), ['macros']);
   assert.deepEqual(manifest.services.macros.metadata_env, { APP_BUILD: '{sha7}' });
   assert.ok(manifest.services.macros.health.join(' ').includes("version.appBuild === '{sha7}'"));
-  assert.equal(manifest.public.field, 'appBuild');
-  assert.equal(manifest.backup.database, 'macro_tracker');
+  assert.equal(manifest.refuse_backwards, true, 'host-side image tags guard against rolling backwards');
+  assert.equal(manifest.public, undefined, 'no public post-release check; health verifies the exact build on the host');
+  assert.equal(manifest.backup, undefined, 'nightly backup timer and DLM snapshots cover the database, not a pre-release dump');
   assert.equal(manifest.migrate, undefined, 'production migrations stay a separate owner-run command');
   assert.ok(script.includes('SMOKE_CURL_RETRIES'));
   assert.ok(script.includes('--retry "$SMOKE_CURL_RETRIES"'));
