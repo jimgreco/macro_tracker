@@ -67,6 +67,10 @@ final class OfflineMutationStore: ObservableObject {
 
     @Published private(set) var mutations: [PendingMutation]
     @Published private(set) var activeOwnerUserId: String?
+    /// Write-ahead entries whose first send is still awaiting a response. They are
+    /// persisted for crash safety but are not "pending" until that send fails, so
+    /// ordinary online saves never flash the offline banner. Runtime-only.
+    @Published private(set) var inFlightMutationIds: Set<UUID> = []
 
     private static let storageVersion = 3
     private static let legacyStorageKey = "pending_mutations_v1"
@@ -115,7 +119,9 @@ final class OfflineMutationStore: ObservableObject {
     }
 
     var pendingCount: Int {
-        mutations.count
+        inFlightMutationIds.isEmpty
+            ? mutations.count
+            : mutations.filter { !inFlightMutationIds.contains($0.clientMutationId) }.count
     }
 
     func activateAccount(userId: String) {
@@ -155,7 +161,7 @@ final class OfflineMutationStore: ObservableObject {
         )
     }
 
-    func enqueue(_ mutation: PendingMutation) throws {
+    func enqueue(_ mutation: PendingMutation, inFlight: Bool = false) throws {
         let normalizedOwner = mutation.ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedOwner.isEmpty else {
             throw OfflineMutationStoreError.noActiveAccount
@@ -176,17 +182,25 @@ final class OfflineMutationStore: ObservableObject {
 
         let previous = allMutations
         allMutations.append(mutation)
+        if inFlight { inFlightMutationIds.insert(mutation.clientMutationId) }
         do {
             try persist()
             refreshPublishedMutations()
         } catch {
             allMutations = previous
+            inFlightMutationIds.remove(mutation.clientMutationId)
             refreshPublishedMutations()
             throw OfflineMutationStoreError.persistenceFailed(error)
         }
     }
 
+    /// The first send did not succeed, so the entry now counts as pending work.
+    func markQueued(clientMutationId: UUID) {
+        inFlightMutationIds.remove(clientMutationId)
+    }
+
     func remove(clientMutationId: UUID, ownerUserId: String) throws {
+        inFlightMutationIds.remove(clientMutationId)
         let previous = allMutations
         allMutations.removeAll {
             $0.ownerUserId == ownerUserId && $0.clientMutationId == clientMutationId && $0.archivedAt == nil && $0.reviewReason == nil
@@ -283,6 +297,7 @@ final class OfflineMutationStore: ObservableObject {
     func hold(_ mutation: PendingMutation, reason: String) throws {
         guard let index = allMutations.firstIndex(where: { $0.id == mutation.id && $0.ownerUserId == mutation.ownerUserId }) else { return }
         guard allMutations[index].archivedAt == nil else { return }
+        inFlightMutationIds.remove(mutation.clientMutationId)
         let previous = allMutations
         allMutations[index].reviewReason = reason
         do { try persist(); refreshPublishedMutations() }

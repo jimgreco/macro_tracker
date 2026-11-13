@@ -22,6 +22,29 @@ final class OfflineMutationStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testInFlightFirstSendIsNotCountedAsPendingUntilItFails() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let store = OfflineMutationStore(storageURL: fixture.storageURL, legacyDefaults: fixture.defaults)
+        store.activateAccount(userId: "account-a")
+        let ok = store.makeMutation(ownerUserId: "account-a", method: "POST", path: "/entries", body: nil, kind: .meal)
+        try store.enqueue(ok, inFlight: true)
+        XCTAssertEqual(store.pendingCount, 0, "an online save in flight must not show the offline banner")
+        XCTAssertEqual(store.snapshot(for: "account-a").count, 1, "write-ahead entry is still persisted")
+        try store.remove(clientMutationId: ok.clientMutationId, ownerUserId: "account-a")
+        XCTAssertEqual(store.pendingCount, 0)
+
+        let failed = store.makeMutation(ownerUserId: "account-a", method: "POST", path: "/entries", body: nil, kind: .meal)
+        try store.enqueue(failed, inFlight: true)
+        store.markQueued(clientMutationId: failed.clientMutationId)
+        XCTAssertEqual(store.pendingCount, 1)
+
+        let reloaded = OfflineMutationStore(storageURL: fixture.storageURL, legacyDefaults: fixture.defaults)
+        reloaded.activateAccount(userId: "account-a")
+        XCTAssertEqual(reloaded.pendingCount, 1, "in-flight state is runtime-only; a crash leaves the entry pending")
+    }
+
+    @MainActor
     func testCombinedCheckinKeepsItsIdentityAndRawWaistReadingsWhenQueued() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }

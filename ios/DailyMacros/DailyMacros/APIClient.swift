@@ -311,12 +311,13 @@ class APIClient: ObservableObject {
             clientMutationId: mutation.clientMutationId
         )
 
-        try offlineStore.enqueue(mutation)
+        try offlineStore.enqueue(mutation, inFlight: true)
         do {
             let result: T = try await perform(request)
             try offlineStore.remove(clientMutationId: mutation.id, ownerUserId: ownerUserId)
             return result
         } catch {
+            offlineStore.markQueued(clientMutationId: mutation.id)
             if isTerminalReplayConflict(error) {
                 try offlineStore.hold(mutation, reason: "The server could not confirm this change. Review history before retrying the same request.")
             }
@@ -1011,12 +1012,13 @@ class APIClient: ObservableObject {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         struct Saved: Decodable { let id: String }
         let mutation = PendingMutation(clientMutationId: mutationID, ownerUserId: ownerUserId, createdAt: Date(), method: "POST", path: "/checkins", body: request.httpBody, kind: .waist)
-        try offlineStore.enqueue(mutation)
+        try offlineStore.enqueue(mutation, inFlight: true)
         do {
             let saved: Saved = try await perform(request)
             try offlineStore.remove(clientMutationId: mutationID, ownerUserId: ownerUserId)
             return CheckinSaveResult(id: saved.id, queued: false)
         } catch {
+            offlineStore.markQueued(clientMutationId: mutationID)
             if isTerminalReplayConflict(error) {
                 try offlineStore.hold(mutation, reason: "The server could not confirm this check-in. Review history before retrying the same request.")
             }
