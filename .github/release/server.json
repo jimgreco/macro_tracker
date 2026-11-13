@@ -15,6 +15,5 @@
   },
   "interpolate_from_live": { "APP_BUILD": "env:macros:APP_BUILD" },
   "legacy_overrides": ["app-release-[a-z0-9_]+\\.json"],
-  "backup": { "database": "macro_tracker", "require_table": "users", "keep": 20 },
-  "public": { "url": "https://macrovana.com/version", "field": "appBuild", "length": 7 }
+  "refuse_backwards": true
 }
