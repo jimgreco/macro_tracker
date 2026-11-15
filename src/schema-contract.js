@@ -25,28 +25,51 @@ function missingObjects(objects, actual) {
 
 // Optional features ship code before their owner-run migration. Each one is
 // either entirely absent (feature off, startup still passes) or exactly
-// matches its reviewed objects; partial or drifted structure is refused.
-function optionalFeatureState(actual) {
-  const features = {};
+// matches its reviewed objects; partial or drifted structure is refused. An
+// object may list `alternatives` from an earlier structure version
+// (`version` on the alternative): the feature is then on at that older
+// version, so code can keep serving it until the next migration runs.
+function optionalFeatureVersions(actual) {
+  const versions = {};
   for (const feature of contract.optionalFeatures || []) {
     const table = feature.objects.find(row => row.kind === 'table');
     if (!actual.has('table:' + table.name)) {
-      features[feature.name] = false;
+      versions[feature.name] = null;
       continue;
     }
     if (missingObjects(feature.objects, actual).length) throw new Error('optional feature structure mismatch');
-    features[feature.name] = true;
+    let version = feature.version;
+    for (const row of feature.objects) {
+      if (actual.get(row.kind + ':' + row.name) === row.definition) continue;
+      const matched = (row.alternatives || [])
+        .filter(candidate => actual.get(row.kind + ':' + candidate.name) === candidate.definition)
+        .map(candidate => candidate.version ?? feature.version);
+      version = Math.min(version, Math.max(...matched));
+    }
+    versions[feature.name] = version;
   }
-  return features;
+  return versions;
+}
+
+function optionalFeatureState(actual) {
+  return Object.fromEntries(Object.entries(optionalFeatureVersions(actual)).map(([name, version]) => [name, version != null]));
+}
+
+async function readCatalog(queryable) {
+  return new Map((await queryable.query(catalogSQL)).rows.map(row => [row.kind + ':' + row.name, row.definition]));
 }
 
 // Read-only probe for one optional feature; false when absent or drifted.
 async function detectOptionalFeature(queryable, name) {
+  return (await detectOptionalFeatureVersion(queryable, name)) != null;
+}
+
+// Read-only probe: the feature's structure version, or null when absent or drifted.
+async function detectOptionalFeatureVersion(queryable, name) {
   try {
-    const actual = new Map((await queryable.query(catalogSQL)).rows.map(row => [row.kind + ':' + row.name, row.definition]));
-    return optionalFeatureState(actual)[name] === true;
+    return optionalFeatureVersions(await readCatalog(queryable))[name] ?? null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -78,11 +101,17 @@ async function migrateSchema(pool, initialize, { adoptExisting = false, validate
     await client.query('INSERT INTO public.app_schema_versions (app, version) VALUES ($1, $2) ON CONFLICT DO NOTHING',
       [contract.app, contract.version]);
     // Fresh initialization creates optional features too; record their versions.
-    const { features } = await assertSchemaCompatible(client, { requireVersion: false });
+    // Fresh structure includes every earlier step of a feature, so record the
+    // structure version found plus the earlier versions it supersedes.
+    await assertSchemaCompatible(client, { requireVersion: false });
+    const versions = optionalFeatureVersions(await readCatalog(client));
     for (const feature of contract.optionalFeatures || []) {
-      if (!features[feature.name]) continue;
-      await client.query('INSERT INTO public.app_schema_versions (app, version) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-        [contract.app, feature.version]);
+      const version = versions[feature.name];
+      if (version == null) continue;
+      for (const recorded of featureLedgerVersions(feature, version)) {
+        await client.query('INSERT INTO public.app_schema_versions (app, version) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [contract.app, recorded]);
+      }
     }
     await client.query('COMMIT');
   } catch (error) {
@@ -90,4 +119,15 @@ async function migrateSchema(pool, initialize, { adoptExisting = false, validate
     throw error;
   } finally { client.release(); }
 }
-module.exports = { assertSchemaCompatible, detectOptionalFeature, migrateSchema, catalogSQL };
+// Ledger versions implied by a feature at `version`: that version and every
+// earlier alternative version it supersedes, ascending.
+function featureLedgerVersions(feature, version) {
+  const earlier = feature.objects.flatMap(row => (row.alternatives || []).map(candidate => candidate.version))
+    .filter(candidate => Number.isInteger(candidate) && candidate < version);
+  return [...new Set([...earlier, version])].sort((a, b) => a - b);
+}
+
+module.exports = {
+  assertSchemaCompatible, detectOptionalFeature, detectOptionalFeatureVersion, featureLedgerVersions,
+  migrateSchema, catalogSQL
+};

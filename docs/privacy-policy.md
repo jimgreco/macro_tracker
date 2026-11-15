@@ -1,6 +1,6 @@
 # DailyMacros Privacy Policy
 
-Last updated: September 21, 2026
+Last updated: November 15, 2026
 
 Macrovana is an app for nutrition, workout, weight, waist measurements, sleep, and wellness tracking. The public policy is served by the app at `/privacy`; this Markdown copy exists so privacy and App Store review details can be reviewed in the repo.
 
@@ -8,7 +8,7 @@ Macrovana is an app for nutrition, workout, weight, waist measurements, sleep, a
 
 - Account details from sign-in providers, such as name, email address, provider identifiers, and profile image when provided.
 - Nutrition data, saved foods, meal groups, macro targets, meal text, barcode lookups, and meal photos submitted for parsing.
-- Workout, weight, waist measurements, sleep, Apple Health activity and heart metrics, and wellness entries. Apple Health activity and heart metrics are optional daily totals or averages read from HealthKit: steps, active energy, exercise minutes, resting heart rate, heart rate variability (SDNN), and VO₂ max. If Oura is connected, this includes Oura sleep, readiness, activity, stress, resilience, bedtime-guidance, and optional workout aggregates. Sexual activity entries are available only when enabled for an account.
+- Workout, weight, waist measurements, sleep, Apple Health activity and heart metrics, and wellness entries. Apple Health activity and heart metrics are optional daily totals or averages read from HealthKit: steps, walking and running distance, flights climbed, walking speed, walking step length, active energy, exercise minutes, heart rate (daily average and lowest), resting heart rate, heart rate variability (SDNN), respiratory rate, blood oxygen saturation, and VO₂ max. Heart rate, respiratory rate and blood oxygen may come from any app or device that writes them to Apple Health, such as the Oura app. If Oura is connected, this includes Oura sleep, readiness, activity, stress, resilience, bedtime-guidance, and optional workout aggregates. Sexual activity entries are available only when enabled for an account.
 - Subscription and billing state from Stripe when paid features are enabled.
 - Authentication and security records such as API credential metadata, browser-session metadata, audit events, and request references needed to secure and support the service.
 - Operational usage records such as per-feature daily usage limits and replay-safe mutation metadata needed to run the service.
@@ -16,7 +16,7 @@ Macrovana is an app for nutrition, workout, weight, waist measurements, sleep, a
 
 ## Apple Health
 
-HealthKit permissions are optional. Before DailyMacros requests HealthKit access, users choose Read and Write separately for each supported data type: weight, workouts, sleep, and sexual activity where enabled. Activity (steps, active energy, exercise minutes) and Heart (resting heart rate, heart rate variability, VO₂ max) are optional Read-only types; DailyMacros stores one daily total or average per metric, not individual samples, and never writes them back to Apple Health. A missing choice defaults to no access. These in-app choices control whether DailyMacros imports from or adds new entries to Apple Health; Apple's system permission remains an additional device-level control. Turning a direction off stops future transfers in that direction and does not delete records already imported or samples already written. Users can change both the in-app choices and Apple's Health permissions at any time.
+HealthKit permissions are optional. Before DailyMacros requests HealthKit access, users choose Read and Write separately for each supported data type: weight, workouts, sleep, and sexual activity where enabled. Activity (steps, walking and running distance, flights climbed, walking speed and step length, active energy, exercise minutes) and Heart (heart rate, resting heart rate, heart rate variability, respiratory rate, blood oxygen, VO₂ max) are optional Read-only types; DailyMacros stores one daily total or average per metric, not individual samples, and never writes them back to Apple Health. A missing choice defaults to no access. These in-app choices control whether DailyMacros imports from or adds new entries to Apple Health; Apple's system permission remains an additional device-level control. Turning a direction off stops future transfers in that direction and does not delete records already imported or samples already written. Users can change both the in-app choices and Apple's Health permissions at any time.
 
 ## Oura
 

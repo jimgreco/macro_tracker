@@ -713,13 +713,23 @@
           </div>
           <div id="activity-empty" class="activity-empty" role="status" hidden>
             <p><strong>No Apple Health activity yet.</strong></p>
-            <p>Turn on Activity and Heart in the Macrovana iOS app under Settings &rarr; Data Sources &rarr; Apple Health to import daily steps, active energy, exercise minutes, resting heart rate, HRV and VO&#8322; max.</p>
+            <p>Turn on Activity and Heart in the Macrovana iOS app under Settings &rarr; Data Sources &rarr; Apple Health to import daily steps, distance, flights climbed, walking speed and step length, active energy, exercise minutes, heart rate, resting heart rate, HRV, respiratory rate, blood oxygen and VO&#8322; max.</p>
           </div>
           <div class="cards stats-cards avg-cards activity-stats" id="activity-stats" aria-label="Apple Health averages">
             <article class="card metric" data-activity-stat="steps">
               <span class="metric-label">Steps / day</span>
               <strong class="metric-value" id="activity-stat-steps">—</strong>
               <span class="metric-target" id="activity-stat-steps-change">—</span>
+            </article>
+            <article class="card metric" data-activity-stat="distance">
+              <span class="metric-label">Distance / day</span>
+              <strong class="metric-value" id="activity-stat-distance">—</strong>
+              <span class="metric-target" id="activity-stat-distance-change">—</span>
+            </article>
+            <article class="card metric" data-activity-stat="flights">
+              <span class="metric-label">Flights / day</span>
+              <strong class="metric-value" id="activity-stat-flights">—</strong>
+              <span class="metric-target" id="activity-stat-flights-change">—</span>
             </article>
             <article class="card metric" data-activity-stat="energy">
               <span class="metric-label">Active cal / day</span>
@@ -731,6 +741,26 @@
               <strong class="metric-value" id="activity-stat-exercise">—</strong>
               <span class="metric-target" id="activity-stat-exercise-change">—</span>
             </article>
+            <article class="card metric" data-activity-stat="speed">
+              <span class="metric-label">Walking speed</span>
+              <strong class="metric-value" id="activity-stat-speed">—</strong>
+              <span class="metric-target" id="activity-stat-speed-change">—</span>
+            </article>
+            <article class="card metric" data-activity-stat="stride">
+              <span class="metric-label">Step length</span>
+              <strong class="metric-value" id="activity-stat-stride">—</strong>
+              <span class="metric-target" id="activity-stat-stride-change">—</span>
+            </article>
+            <article class="card metric" data-activity-stat="hr">
+              <span class="metric-label">Heart rate</span>
+              <strong class="metric-value" id="activity-stat-hr">—</strong>
+              <span class="metric-target" id="activity-stat-hr-change">—</span>
+            </article>
+            <article class="card metric" data-activity-stat="hrmin">
+              <span class="metric-label">Daily low HR</span>
+              <strong class="metric-value" id="activity-stat-hrmin">—</strong>
+              <span class="metric-target" id="activity-stat-hrmin-change">—</span>
+            </article>
             <article class="card metric" data-activity-stat="rhr">
               <span class="metric-label">Resting HR</span>
               <strong class="metric-value" id="activity-stat-rhr">—</strong>
@@ -741,13 +771,23 @@
               <strong class="metric-value" id="activity-stat-hrv">—</strong>
               <span class="metric-target" id="activity-stat-hrv-change">—</span>
             </article>
+            <article class="card metric" data-activity-stat="resp">
+              <span class="metric-label">Respiratory rate</span>
+              <strong class="metric-value" id="activity-stat-resp">—</strong>
+              <span class="metric-target" id="activity-stat-resp-change">—</span>
+            </article>
+            <article class="card metric" data-activity-stat="spo2">
+              <span class="metric-label">Blood oxygen</span>
+              <strong class="metric-value" id="activity-stat-spo2">—</strong>
+              <span class="metric-target" id="activity-stat-spo2-change">—</span>
+            </article>
             <article class="card metric" data-activity-stat="vo2">
               <span class="metric-label">VO&#8322; max</span>
               <strong class="metric-value" id="activity-stat-vo2">—</strong>
               <span class="metric-target" id="activity-stat-vo2-change">—</span>
             </article>
           </div>
-          <p class="avg-note" id="activity-stats-note">Averages cover days with Apple Health data. Change compares with the previous period.</p>
+          <p class="avg-note" id="activity-stats-note">Averages cover days with Apple Health data. Daily low HR is the average of each day's lowest heart rate. Change compares with the previous period.</p>
         </section>
         <section id="activity-charts-section" class="panel glass">
           <h2>Trends</h2>
@@ -765,6 +805,19 @@
             </div>
           </div>
           <div class="activity-chart">
+            <h3 class="activity-chart-title">Distance</h3>
+            <div class="trend-wrap">
+              <canvas id="activity-distance-canvas" height="130" aria-label="Daily walking and running distance trend graph, in miles"></canvas>
+              <div id="activity-distance-tooltip" class="trend-tooltip" hidden></div>
+              <div class="trend-legend" aria-live="polite">
+                <span class="trend-legend-item">
+                  <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
+                  Average: <span id="activity-distance-average">none</span> mi
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="activity-chart">
             <h3 class="activity-chart-title">Active energy</h3>
             <div class="trend-wrap">
               <canvas id="activity-energy-canvas" height="130" aria-label="Daily active energy trend graph"></canvas>
@@ -773,6 +826,19 @@
                 <span class="trend-legend-item">
                   <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
                   Average: <span id="activity-energy-average">none</span> cal
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="activity-chart">
+            <h3 class="activity-chart-title">Heart rate</h3>
+            <div class="trend-wrap">
+              <canvas id="activity-hr-canvas" height="130" aria-label="Daily average heart rate trend graph"></canvas>
+              <div id="activity-hr-tooltip" class="trend-tooltip" hidden></div>
+              <div class="trend-legend" aria-live="polite">
+                <span class="trend-legend-item">
+                  <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
+                  Average: <span id="activity-hr-average">none</span> bpm
                 </span>
               </div>
             </div>

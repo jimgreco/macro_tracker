@@ -5,9 +5,9 @@ struct HealthKitAccessPlan: Equatable, Sendable {
     let weight: IntegrationDirectionSelection
     let sleep: IntegrationDirectionSelection
     let sexualActivity: IntegrationDirectionSelection
-    /// Daily steps, active energy and exercise minutes (read-only).
+    /// Daily steps, distance, flights, walking speed/step length, active energy and exercise minutes (read-only).
     var activity: IntegrationDirectionSelection = .denied
-    /// Daily resting heart rate, HRV and VO2 max (read-only).
+    /// Daily heart rate (average, minimum), resting heart rate, HRV, respiratory rate, blood oxygen and VO2 max (read-only).
     var heart: IntegrationDirectionSelection = .denied
     let revisionKey: Int
 

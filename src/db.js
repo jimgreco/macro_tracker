@@ -2,7 +2,7 @@ const { fiberValue, scaleFiber, fiberSummary } = require('./fiber');
 const healthReconciliation = require('./health-reconciliation');
 const { initCheckinDb } = require('./checkins');
 const { initWaistDb, createWaistStore } = require('./waist');
-const { HEALTH_METRICS_DDL, createHealthMetricsStore } = require('./health-metrics');
+const { HEALTH_METRICS_DDL, createHealthMetricsStore, widenHealthMetricsCheck } = require('./health-metrics');
 const fs = require('fs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
@@ -949,10 +949,13 @@ async function initDb(queryable = pool) {
   await initCheckinDb(pool);
   await recordSchemaMigration('2026-09-08_progress_checkins', pool);
   await recordSchemaMigration('2026-09-19_checkin_waist_measurements', pool);
-  // Existing databases get this table only from `npm run db:migrate:health-metrics`.
+  // Existing databases get this table only from `npm run db:migrate:health-metrics`
+  // and its wider metric CHECK from `npm run db:migrate:health-metrics-v2`.
   await pool.query(HEALTH_METRICS_DDL);
   await pool.query('ALTER TABLE health_daily_metrics ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;');
+  await widenHealthMetricsCheck(pool);
   await recordSchemaMigration('2026-11-15_health_daily_metrics', pool);
+  await recordSchemaMigration('2026-11-15_health_daily_metrics_more_metrics', pool);
   await recordSchemaMigration('2026-06-11_feature_foundations', pool);
   await recordSchemaMigration('2026-07-20_direct_oura_integration', pool);
   await recordSchemaMigration('2026-07-27_client_mutation_idempotency', pool);
@@ -6172,7 +6175,7 @@ async function getWeeklySummaryRows(email, { startDay, endDay }) {
 }
 
 const healthMetricsStore = createHealthMetricsStore(pool, {
-  detect: (queryable) => require('./schema-contract').detectOptionalFeature(queryable, 'health_daily_metrics')
+  detect: (queryable) => require('./schema-contract').detectOptionalFeatureVersion(queryable, 'health_daily_metrics')
 });
 
 module.exports = {

@@ -2621,8 +2621,8 @@
   "optionalFeatures": [
     {
       "name": "health_daily_metrics",
-      "version": 3,
-      "migration": "npm run db:migrate:health-metrics",
+      "version": 4,
+      "migration": "npm run db:migrate:health-metrics-v2",
       "objects": [
         {
           "kind": "column",
@@ -2681,8 +2681,15 @@
         },
         {
           "kind": "constraint",
-          "name": "health_daily_metrics:CHECK ((metric = ANY (ARRAY['steps'::text, 'active_energy_kcal'::text, 'exercise_minutes'::text, 'resting_heart_rate_bpm'::text, 'hrv_sdnn_ms'::text, 'vo2max_ml_kg_min'::text])))",
-          "definition": "true"
+          "name": "health_daily_metrics:CHECK ((metric = ANY (ARRAY['steps'::text, 'active_energy_kcal'::text, 'exercise_minutes'::text, 'resting_heart_rate_bpm'::text, 'hrv_sdnn_ms'::text, 'vo2max_ml_kg_min'::text, 'walking_running_distance_m'::text, 'flights_climbed'::text, 'walking_speed_mps'::text, 'walking_step_length_m'::text, 'heart_rate_avg_bpm'::text, 'heart_rate_min_bpm'::text, 'respiratory_rate_brpm'::text, 'oxygen_saturation_pct'::text])))",
+          "definition": "true",
+          "alternatives": [
+            {
+              "name": "health_daily_metrics:CHECK ((metric = ANY (ARRAY['steps'::text, 'active_energy_kcal'::text, 'exercise_minutes'::text, 'resting_heart_rate_bpm'::text, 'hrv_sdnn_ms'::text, 'vo2max_ml_kg_min'::text])))",
+              "definition": "true",
+              "version": 3
+            }
+          ]
         },
         {
           "kind": "constraint",

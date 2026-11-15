@@ -3491,7 +3491,7 @@ function showAccountPrivacyModal() {
       <h3 id="${headingId}" tabindex="-1">Account & Privacy</h3>
       <div class="account-privacy-copy">
         <p><strong>Support</strong><span>Email <a href="mailto:info@macrovana.com">info@macrovana.com</a> or visit our <a href="/support.html">support page</a>. Include any request reference shown in an error message and the build details below.</span></p>
-        <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, optional Apple Health activity and heart metrics (daily steps, active energy, exercise minutes, resting heart rate, HRV and VO₂ max), optional Oura aggregate metrics, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
+        <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, optional Apple Health activity and heart metrics (daily steps, walking and running distance, flights climbed, walking speed and step length, active energy, exercise minutes, heart rate, resting heart rate, HRV, respiratory rate, blood oxygen and VO₂ max), optional Oura aggregate metrics, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
         <p><strong>AI processing</strong><span>${escapeHtml(aiProcessingCopy)}</span></p>
         <p><strong>Diagnostics</strong><span>Optional browser diagnostics contain only a generic error category, route template, status, request reference, app version, and script location. They are retained for 30 days and never include request bodies, meal or health values, tokens, query strings, stacks, or full user agents.</span></p>
         <p><strong>Controls</strong><span>You can stop future optional diagnostic uploads, export a JSON copy of your account data, or permanently delete your account from here. Essential security and audit records remain enabled. <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span></p>
@@ -8337,21 +8337,44 @@ function renderSleepChart() {
 
 // ── Health / Activity (Apple Health daily metrics) ──
 
+// The API stores SI units; the pane shows US units (miles, mph, inches).
+const METERS_PER_MILE = 1609.344;
+const ACTIVITY_UNIT_CONVERSIONS = {
+  miles: (meters) => meters / METERS_PER_MILE,
+  mph: (metersPerSecond) => (metersPerSecond * 3600) / METERS_PER_MILE,
+  inches: (meters) => meters / 0.0254
+};
+
+function convertActivityValue(value, convert) {
+  if (value == null || !Number.isFinite(Number(value))) return null;
+  return convert ? ACTIVITY_UNIT_CONVERSIONS[convert](Number(value)) : Number(value);
+}
+
 // Change copy is neutral: no metric direction is labeled good or bad.
 const ACTIVITY_STATS = [
   { key: 'steps', summaryKey: 'avgSteps', digits: 0, unit: '' },
+  { key: 'distance', summaryKey: 'avgWalkingRunningDistanceM', digits: 1, unit: ' mi', convert: 'miles' },
+  { key: 'flights', summaryKey: 'avgFlightsClimbed', digits: 0, unit: '' },
   { key: 'energy', summaryKey: 'avgActiveEnergyKcal', digits: 0, unit: ' cal' },
   { key: 'exercise', summaryKey: 'avgExerciseMinutes', digits: 0, unit: ' min' },
+  { key: 'speed', summaryKey: 'avgWalkingSpeedMps', digits: 1, unit: ' mph', convert: 'mph' },
+  { key: 'stride', summaryKey: 'avgWalkingStepLengthM', digits: 0, unit: ' in', convert: 'inches' },
+  { key: 'hr', summaryKey: 'avgHeartRateAvgBpm', digits: 0, unit: ' bpm' },
+  { key: 'hrmin', summaryKey: 'avgHeartRateMinBpm', digits: 0, unit: ' bpm' },
   { key: 'rhr', summaryKey: 'avgRestingHeartRate', digits: 1, unit: ' bpm' },
   { key: 'hrv', summaryKey: 'avgHrvMs', digits: 1, unit: ' ms' },
+  { key: 'resp', summaryKey: 'avgRespiratoryRateBrpm', digits: 1, unit: ' br/min' },
+  { key: 'spo2', summaryKey: 'avgOxygenSaturationPct', digits: 1, unit: '%' },
   { key: 'vo2', summaryKey: 'latestVo2Max', digits: 1, unit: '', latest: true }
 ];
 
 const ACTIVITY_CHARTS = [
   { key: 'steps', dayKey: 'steps', unit: 'steps' },
+  { key: 'distance', dayKey: 'walkingRunningDistanceM', unit: 'mi', convert: 'miles' },
   { key: 'energy', dayKey: 'activeEnergyKcal', unit: 'cal' },
-  { key: 'rhr', dayKey: 'restingHeartRate', unit: 'bpm' },
-  { key: 'hrv', dayKey: 'hrvMs', unit: 'ms' }
+  { key: 'hr', dayKey: 'heartRateAvgBpm', unit: 'bpm', baseline: 'range' },
+  { key: 'rhr', dayKey: 'restingHeartRate', unit: 'bpm', baseline: 'range' },
+  { key: 'hrv', dayKey: 'hrvMs', unit: 'ms', baseline: 'range' }
 ];
 
 const ACTIVITY_PREVIOUS_LABEL = { weekly: 'last week', monthly: 'previous 30 days', annual: 'previous year' };
@@ -8379,10 +8402,18 @@ function formatActivityChange(current, previous, stat) {
 // metrics with no data are hidden rather than estimated.
 const ACTIVITY_METRIC_FIELDS = {
   steps: { day: 'steps', summary: 'avgSteps' },
+  distance: { day: 'walkingRunningDistanceM', summary: 'avgWalkingRunningDistanceM' },
+  flights: { day: 'flightsClimbed', summary: 'avgFlightsClimbed' },
   energy: { day: 'activeEnergyKcal', summary: 'avgActiveEnergyKcal' },
   exercise: { day: 'exerciseMinutes', summary: 'avgExerciseMinutes' },
+  speed: { day: 'walkingSpeedMps', summary: 'avgWalkingSpeedMps' },
+  stride: { day: 'walkingStepLengthM', summary: 'avgWalkingStepLengthM' },
+  hr: { day: 'heartRateAvgBpm', summary: 'avgHeartRateAvgBpm' },
+  hrmin: { day: 'heartRateMinBpm', summary: 'avgHeartRateMinBpm' },
   rhr: { day: 'restingHeartRate', summary: 'avgRestingHeartRate' },
   hrv: { day: 'hrvMs', summary: 'avgHrvMs' },
+  resp: { day: 'respiratoryRateBrpm', summary: 'avgRespiratoryRateBrpm' },
+  spo2: { day: 'oxygenSaturationPct', summary: 'avgOxygenSaturationPct' },
   vo2: { day: 'vo2max', summary: 'latestVo2Max' }
 };
 
@@ -8429,24 +8460,26 @@ function renderActivityPage() {
   for (const stat of ACTIVITY_STATS) {
     const valueEl = document.getElementById(`activity-stat-${stat.key}`);
     const changeEl = document.getElementById(`activity-stat-${stat.key}-change`);
-    const value = current[stat.summaryKey];
+    const value = convertActivityValue(current[stat.summaryKey], stat.convert);
     if (valueEl) {
       valueEl.textContent = value == null ? '—' : `${formatActivityValue(value, stat.digits)}${stat.unit}`;
     }
     if (changeEl) {
-      changeEl.textContent = value == null ? 'No data' : formatActivityChange(value, previous[stat.summaryKey], stat);
+      changeEl.textContent = value == null
+        ? 'No data'
+        : formatActivityChange(value, convertActivityValue(previous[stat.summaryKey], stat.convert), stat);
     }
   }
   if (hasCharts) renderActivityCharts();
 }
 
-function activityChartRows(dayKey) {
+function activityChartRows(dayKey, convert) {
   const days = state.activityMetrics?.days || [];
   return days
     .filter((day) => day[dayKey] != null)
     .map((day) => ({
       label: new Date(`${day.day}T00:00:00`).toLocaleDateString(),
-      value: Number(day[dayKey]),
+      value: convertActivityValue(day[dayKey], convert),
       time: new Date(`${day.day}T00:00:00`).getTime()
     }));
 }
@@ -8457,11 +8490,11 @@ function renderActivityCharts() {
     if (!visible.has(chart.key)) continue;
     drawSimpleLineChart(
       document.getElementById(`activity-${chart.key}-canvas`),
-      activityChartRows(chart.dayKey),
+      activityChartRows(chart.dayKey, chart.convert),
       'label',
       'value',
       {
-        baseline: chart.key === 'rhr' || chart.key === 'hrv' ? 'range' : 'zero',
+        baseline: chart.baseline || 'zero',
         showYAxis: true,
         showXAxisLabels: true,
         yTickCount: 4,
