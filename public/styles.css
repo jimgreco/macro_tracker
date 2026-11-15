@@ -6038,7 +6038,11 @@ button[disabled] {
 .activity-empty { display: grid; gap: 6px; padding: 12px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); }
 .activity-empty p { margin: 0; }
 .activity-empty strong { color: var(--text); }
-.activity-chart + .activity-chart { margin-top: 14px; }
+/* Metrics without Apple Health data are hidden; the grid and stack reflow. */
+.activity-stats > .card[hidden],
+.activity-chart[hidden],
+#activity-charts-section[hidden] { display: none; }
+.activity-chart:not([hidden]) ~ .activity-chart:not([hidden]) { margin-top: 14px; }
 .activity-chart-title { margin: 0 0 6px; font-size: 0.92rem; color: var(--muted); font-weight: 600; }
 [data-activity-stat="steps"] .metric-value { color: #05ffa1; }
 [data-activity-stat="energy"] .metric-value { color: #ffca28; }

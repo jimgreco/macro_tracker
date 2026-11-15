@@ -173,3 +173,106 @@ final class HealthKitMetricsSyncTests: XCTestCase {
         XCTAssertNil(disabled.summary)
     }
 }
+
+final class ActivityMetricVisibilityTests: XCTestCase {
+    private func day(
+        _ day: String,
+        steps: Double? = nil,
+        energy: Double? = nil,
+        exercise: Double? = nil,
+        rhr: Double? = nil,
+        hrv: Double? = nil,
+        vo2: Double? = nil
+    ) -> HealthMetricsDay {
+        HealthMetricsDay(
+            day: day,
+            steps: steps,
+            activeEnergyKcal: energy,
+            exerciseMinutes: exercise,
+            restingHeartRate: rhr,
+            hrvMs: hrv,
+            vo2max: vo2
+        )
+    }
+
+    private func summary(
+        steps: Double? = nil,
+        energy: Double? = nil,
+        exercise: Double? = nil,
+        rhr: Double? = nil,
+        hrv: Double? = nil,
+        vo2: Double? = nil
+    ) -> HealthMetricsPeriodSummary {
+        HealthMetricsPeriodSummary(
+            daysWithData: nil,
+            avgSteps: steps,
+            avgActiveEnergyKcal: energy,
+            avgExerciseMinutes: exercise,
+            avgRestingHeartRate: rhr,
+            avgHrvMs: hrv,
+            latestVo2Max: vo2
+        )
+    }
+
+    private func response(
+        days: [HealthMetricsDay],
+        current: HealthMetricsPeriodSummary? = nil,
+        previous: HealthMetricsPeriodSummary? = nil
+    ) -> HealthMetricsResponse {
+        HealthMetricsResponse(
+            scope: "week",
+            enabled: true,
+            days: days,
+            summary: HealthMetricsSummary(current: current ?? summary(), previous: previous ?? summary())
+        )
+    }
+
+    func testOnlyStepsAndEnergyPresentHidesWatchMetrics() {
+        let loaded = response(
+            days: [
+                day("2026-11-13", steps: 8_000, energy: 400),
+                day("2026-11-14", steps: 9_000, energy: 450)
+            ],
+            current: summary(steps: 8_500, energy: 425),
+            previous: summary(steps: 7_900, energy: 390)
+        )
+        XCTAssertEqual(ActivityMetricVisibility.visibleMetrics(for: loaded), [.steps, .activeEnergy])
+    }
+
+    func testNothingPresentShowsNoMetrics() {
+        XCTAssertEqual(ActivityMetricVisibility.visibleMetrics(for: nil), [])
+        XCTAssertEqual(ActivityMetricVisibility.visibleMetrics(for: response(days: [])), [])
+        let nullDays = response(days: [day("2026-11-14")])
+        XCTAssertEqual(ActivityMetricVisibility.visibleMetrics(for: nullDays), [])
+        let noSummary = HealthMetricsResponse(scope: "week", enabled: true, days: [], summary: nil)
+        XCTAssertEqual(ActivityMetricVisibility.visibleMetrics(for: noSummary), [])
+    }
+
+    func testMetricPresentOnlyInPreviousPeriodIsShown() {
+        let loaded = response(
+            days: [day("2026-11-14", steps: 8_000)],
+            current: summary(steps: 8_000),
+            previous: summary(steps: 7_000, rhr: 57.2)
+        )
+        XCTAssertEqual(ActivityMetricVisibility.visibleMetrics(for: loaded), [.steps, .restingHeartRate])
+    }
+
+    func testVo2MaxPresentOnOneDayIsShown() {
+        let loaded = response(
+            days: [
+                day("2026-11-12", steps: 8_000),
+                day("2026-11-13", steps: 8_500, vo2: 41.3),
+                day("2026-11-14", steps: 9_000)
+            ],
+            current: summary(steps: 8_500)
+        )
+        XCTAssertEqual(ActivityMetricVisibility.visibleMetrics(for: loaded), [.steps, .vo2Max])
+    }
+
+    func testAllMetricsPresentKeepDisplayOrder() {
+        let loaded = response(
+            days: [day("2026-11-14", steps: 1, energy: 1, exercise: 1, rhr: 1, hrv: 1, vo2: 1)]
+        )
+        XCTAssertEqual(ActivityMetricVisibility.visibleMetrics(for: loaded), ActivityMetric.allCases)
+    }
+}
