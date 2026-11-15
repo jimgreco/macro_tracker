@@ -78,17 +78,38 @@ test('Health Activity pane renders Apple Health metrics with period toggles and 
   const html = read('public/index.html');
   const script = read('public/script.js');
   for (const id of ['activity-period-toggle', 'activity-empty', 'activity-stats', 'activity-steps-canvas',
-    'activity-energy-canvas', 'activity-rhr-canvas', 'activity-hrv-canvas', 'activity-stat-vo2']) {
+    'activity-energy-canvas', 'activity-rhr-canvas', 'activity-hrv-canvas', 'activity-stat-vo2',
+    'activity-distance-canvas', 'activity-hr-canvas']) {
     assert.equal(html.includes(`id="${id}"`), true, id);
   }
+  // Every stat in the script has a card with value and change slots, and every
+  // chart a canvas, tooltip and average; visibility keys cover all of them.
+  const statKeys = [...script.matchAll(/\{ key: '([a-z0-9]+)', summaryKey: /g)].map((match) => match[1]);
+  assert.deepEqual(statKeys, ['steps', 'distance', 'flights', 'energy', 'exercise', 'speed', 'stride',
+    'hr', 'hrmin', 'rhr', 'hrv', 'resp', 'spo2', 'vo2']);
+  for (const key of statKeys) {
+    for (const id of [`activity-stat-${key}`, `activity-stat-${key}-change`]) assert.equal(html.includes(`id="${id}"`), true, id);
+    assert.equal(html.includes(`data-activity-stat="${key}"`), true, key);
+    assert.match(script, new RegExp(`\\n  ${key}: \\{ day: '`), key);
+  }
+  const chartKeys = [...script.matchAll(/\{ key: '([a-z0-9]+)', dayKey: /g)].map((match) => match[1]);
+  assert.deepEqual(chartKeys, ['steps', 'distance', 'energy', 'hr', 'rhr', 'hrv']);
+  for (const key of chartKeys) {
+    for (const suffix of ['canvas', 'tooltip', 'average']) assert.equal(html.includes(`id="activity-${key}-${suffix}"`), true, `${key}-${suffix}`);
+  }
+  // US units on the web: miles, mph and inches converted from the stored SI values.
+  assert.equal(script.includes("{ key: 'distance', summaryKey: 'avgWalkingRunningDistanceM', digits: 1, unit: ' mi', convert: 'miles' }"), true);
+  assert.equal(script.includes("{ key: 'speed', summaryKey: 'avgWalkingSpeedMps', digits: 1, unit: ' mph', convert: 'mph' }"), true);
+  assert.equal(script.includes("{ key: 'stride', summaryKey: 'avgWalkingStepLengthM', digits: 0, unit: ' in', convert: 'inches' }"), true);
   assert.equal(html.includes('Settings &rarr; Data Sources &rarr; Apple Health'), true);
   assert.equal(script.includes("activity: document.getElementById('activity-page')"), true);
   assert.equal(script.includes("pageKey === 'activity' || pageKey === 'sexual-activity'"), true);
   assert.equal(script.includes("} else if (state.selectedHealthPage === 'activity') {\n      await refreshActivityData();"), true);
   assert.equal(script.includes('api(`/api/health-metrics?scope=${scope}&tz=${encodeURIComponent(getTimezone())}`)'), true);
   assert.equal(script.includes("activitySnapshotPeriod: 'weekly'"), true);
-  // Steps, active energy, resting heart rate and HRV are line charts; VO2 max is a stat.
-  assert.equal((script.match(/dayKey: '(steps|activeEnergyKcal|restingHeartRate|hrvMs)'/g) || []).length, 4);
+  // Steps, distance, active energy, heart rate, resting heart rate and HRV are
+  // line charts; the other metrics (including VO2 max) are stats only.
+  assert.equal((script.match(/dayKey: '(steps|walkingRunningDistanceM|activeEnergyKcal|heartRateAvgBpm|restingHeartRate|hrvMs)'/g) || []).length, 6);
   assert.equal(script.includes("summaryKey: 'latestVo2Max'"), true);
   assert.equal(script.includes('drawSimpleLineChart(\n      document.getElementById(`activity-${chart.key}-canvas`)'), true);
   // Metrics with no data in the response are hidden (card and chart), not estimated.

@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { summarizeHealthRows } = require('./health-metrics');
+const { summarizeWeeklyHealthRows } = require('./health-metrics');
 
 // Read-only GET /api/weekly-summary for the weekly-review routine.
 // Contract: weekly-review/docs/weekly-summary-contract.md. `data` mirrors
@@ -97,7 +97,7 @@ function summarizeWeek(week, rows) {
     readinessScore: null,
     avgSteps: null,
     // Apple Health daily metrics; null until the optional table is migrated.
-    health: rows.health ? summarizeHealthRows(inWeek(rows.health)) : null
+    health: rows.health ? summarizeWeeklyHealthRows(inWeek(rows.health)) : null
   };
 }
 
@@ -127,7 +127,9 @@ function buildMacrosSummary(rows, { week, prev }) {
         ? {
           avgSteps: delta(current.health.avgSteps, previous.health.avgSteps),
           avgRestingHeartRate: delta(current.health.avgRestingHeartRate, previous.health.avgRestingHeartRate, 1),
-          avgHrvMs: delta(current.health.avgHrvMs, previous.health.avgHrvMs, 1)
+          avgHrvMs: delta(current.health.avgHrvMs, previous.health.avgHrvMs, 1),
+          avgDistanceMiles: delta(current.health.avgDistanceMiles, previous.health.avgDistanceMiles, 1),
+          avgHeartRateBpm: delta(current.health.avgHeartRateBpm, previous.health.avgHeartRateBpm)
         }
         : null
     }

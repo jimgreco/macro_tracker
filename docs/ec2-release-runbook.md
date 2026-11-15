@@ -163,6 +163,75 @@ the release that adds it is safe to merge before the migration:
 Rollback: older images ignore the extra table. Do not drop it; account
 deletion removes its rows.
 
+#### Version 4: more Apple Health metrics (`db:migrate:health-metrics-v2`)
+
+Version 4 adds walking + running distance, flights climbed, walking speed,
+walking step length, heart rate (daily average and daily minimum), respiratory
+rate and blood oxygen to the same table by widening its `metric` CHECK. Nothing
+else changes: same table, columns, indexes, owner (`macrovana_owner`) and grants,
+so the backup's `tables.json`, owner check and ACL comparison are unaffected.
+
+The contract lists the version-3 CHECK as an accepted `alternative` (with
+`"version": 3`), so a release with this change starts on production's current
+v3 table. While the table is still v3, the server keeps serving every original
+metric and skips the newer ids: `POST /api/health-metrics` returns 200 with
+them counted in `skipped` and named in `unsupportedMetrics` (iOS keeps its
+365-day backfill pending until they are accepted). The running server re-probes
+the structure at most once a minute, so it starts accepting the new ids within a
+minute of the migration, without a restart.
+
+Order matters, because images **older** than this release require the exact
+version-3 CHECK and refuse to start once it is widened:
+
+1. Merge/release this change normally and confirm `/healthz` and `/version`.
+   Do not run the migration while an older image is the live or rollback
+   target you intend to use.
+2. Take a fresh backup: `sudo systemctl start backup-pilot-macrovana.service`.
+3. From a checkout/image of the released commit, with the owner-supplied
+   migration connection running as the object owner (never the runtime
+   `DATABASE_URL`):
+   ```bash
+   MIGRATION_DATABASE_URL='postgres://...?options=-c%20role%3Dmacrovana_owner' \
+     npm run db:migrate:health-metrics-v2
+   ```
+   In one transaction it requires the v2 ledger and a valid v3 or v4 table
+   (any other CHECK is refused as drift; if the table is missing it runs the
+   v3 step first), takes the schema advisory lock (2 s lock timeout, 30 s
+   statement timeout), drops the v3 CHECK and adds
+   `health_daily_metrics_metric_check` with the wider list, verifies the table
+   owner is unchanged and the structure is now version 4, then records ledger
+   version 4 and `schema_migrations` `2026-11-15_health_daily_metrics_more_metrics`.
+   Existing rows are not read or rewritten (they already satisfy the wider
+   CHECK); the lock is held only for the constraint swap and validation.
+   A replay prints "already v4; nothing changed". The runtime role cannot run
+   it (no ownership, no ledger write).
+4. Within a minute, an iPhone sync uploads the new metrics; verify with an
+   authenticated `GET /api/health-metrics?scope=week` (the new day fields, such
+   as `walkingRunningDistanceM` and `heartRateAvgBpm`, are no longer all null).
+
+Rollback floor: after step 3 the oldest image that can start is this release.
+Rolling the image back further first needs the schema returned to v3, which
+deletes the new metrics' rows. Only with explicit approval and a fresh backup,
+as `macrovana_owner`:
+```sql
+BEGIN;
+SET LOCAL lock_timeout = '2s';
+SELECT pg_advisory_xact_lock(hashtext('macros:schema'));
+DELETE FROM public.health_daily_metrics
+ WHERE metric NOT IN ('steps', 'active_energy_kcal', 'exercise_minutes',
+                      'resting_heart_rate_bpm', 'hrv_sdnn_ms', 'vo2max_ml_kg_min');
+ALTER TABLE public.health_daily_metrics DROP CONSTRAINT health_daily_metrics_metric_check;
+ALTER TABLE public.health_daily_metrics ADD CONSTRAINT health_daily_metrics_metric_check
+  CHECK (metric IN ('steps', 'active_energy_kcal', 'exercise_minutes',
+                    'resting_heart_rate_bpm', 'hrv_sdnn_ms', 'vo2max_ml_kg_min'));
+DELETE FROM public.app_schema_versions WHERE app = 'macros' AND version = 4;
+DELETE FROM public.schema_migrations WHERE name = '2026-11-15_health_daily_metrics_more_metrics';
+COMMIT;
+```
+An older image that is already running when the migration commits keeps
+serving (it probed the table at startup and never re-checks); it only fails on
+its next start.
+
 ## Manual Smoke
 After deploy, run:
 ```bash

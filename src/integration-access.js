@@ -45,7 +45,7 @@ const HEALTHKIT_OPTIONAL_DATA_TYPES = Object.freeze([
   {
     id: 'activity',
     displayName: 'Activity',
-    detail: 'Import daily steps, active energy and exercise minutes from Apple Health.',
+    detail: 'Import daily steps, walking and running distance, flights climbed, walking speed and step length, active energy and exercise minutes from Apple Health.',
     readSupported: true,
     writeSupported: false,
     optional: true
@@ -53,7 +53,7 @@ const HEALTHKIT_OPTIONAL_DATA_TYPES = Object.freeze([
   {
     id: 'heart',
     displayName: 'Heart',
-    detail: 'Import daily resting heart rate, heart rate variability and VO\u2082 max from Apple Health.',
+    detail: 'Import daily heart rate (average and lowest), resting heart rate, heart rate variability, respiratory rate, blood oxygen and VO\u2082 max from Apple Health.',
     readSupported: true,
     writeSupported: false,
     optional: true

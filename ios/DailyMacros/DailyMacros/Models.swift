@@ -1205,8 +1205,16 @@ struct HealthMetricsUpload: Codable, Equatable, Sendable {
 struct HealthMetricsUploadResponse: Codable, Equatable, Sendable {
     let upserted: Int
     let skipped: Int
+    /// Ids the server skipped because its table does not accept them yet;
+    /// absent from older servers.
+    var unsupportedMetrics: [String]? = nil
 }
 
+private let metersPerMile = 1609.344
+private let inchesPerMeter = 1 / 0.0254
+
+/// One day of Apple Health metrics. Fields added after the first release are
+/// optional `var`s with defaults, so older servers that omit them decode.
 struct HealthMetricsDay: Codable, Equatable, Identifiable, Sendable {
     let day: String
     let steps: Double?
@@ -1215,8 +1223,19 @@ struct HealthMetricsDay: Codable, Equatable, Identifiable, Sendable {
     let restingHeartRate: Double?
     let hrvMs: Double?
     let vo2max: Double?
+    var walkingRunningDistanceM: Double? = nil
+    var flightsClimbed: Double? = nil
+    var walkingSpeedMps: Double? = nil
+    var walkingStepLengthM: Double? = nil
+    var heartRateAvgBpm: Double? = nil
+    var heartRateMinBpm: Double? = nil
+    var respiratoryRateBrpm: Double? = nil
+    var oxygenSaturationPct: Double? = nil
 
     var id: String { day }
+
+    /// US display units derived from the stored SI values.
+    var walkingRunningDistanceMiles: Double? { walkingRunningDistanceM.map { $0 / metersPerMile } }
 }
 
 struct HealthMetricsPeriodSummary: Codable, Equatable, Sendable {
@@ -1227,6 +1246,21 @@ struct HealthMetricsPeriodSummary: Codable, Equatable, Sendable {
     let avgRestingHeartRate: Double?
     let avgHrvMs: Double?
     let latestVo2Max: Double?
+    var avgWalkingRunningDistanceM: Double? = nil
+    var avgFlightsClimbed: Double? = nil
+    var avgWalkingSpeedMps: Double? = nil
+    var avgWalkingStepLengthM: Double? = nil
+    var avgHeartRateAvgBpm: Double? = nil
+    /// Mean of the daily minimum heart rates.
+    var avgHeartRateMinBpm: Double? = nil
+    /// Lowest daily minimum heart rate in the period.
+    var lowestHeartRateMinBpm: Double? = nil
+    var avgRespiratoryRateBrpm: Double? = nil
+    var avgOxygenSaturationPct: Double? = nil
+
+    var avgWalkingRunningDistanceMiles: Double? { avgWalkingRunningDistanceM.map { $0 / metersPerMile } }
+    var avgWalkingSpeedMph: Double? { avgWalkingSpeedMps.map { $0 * 3600 / metersPerMile } }
+    var avgWalkingStepLengthInches: Double? { avgWalkingStepLengthM.map { $0 * inchesPerMeter } }
 }
 
 struct HealthMetricsSummary: Codable, Equatable, Sendable {

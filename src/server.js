@@ -138,6 +138,7 @@ const {
   consumeDailyUsage,
   getWeeklySummaryRows,
   isHealthMetricsAvailable,
+  healthMetricIdsAccepted,
   upsertHealthDailyMetrics,
   listHealthDailyMetrics
 } = require('./db');
@@ -4142,13 +4143,21 @@ apiRouter.post('/health-metrics', async (req, res) => {
     if (!(await isHealthMetricsAvailable())) {
       return sendError(req, res, 503, 'Apple Health activity and heart metrics are not available on this server yet.');
     }
-    const upserted = await upsertHealthDailyMetrics(userId, items);
+    // Until the owner runs db:migrate:health-metrics-v2, the table's CHECK
+    // only accepts the original metrics: newer ones are skipped (and named, so
+    // the device keeps its backfill pending) instead of failing the batch.
+    const accepted = new Set(await healthMetricIdsAccepted());
+    const writable = items.filter((item) => accepted.has(item.metric));
+    const unsupportedMetrics = [...new Set(items.filter((item) => !accepted.has(item.metric)).map((item) => item.metric))].sort();
+    const totalSkipped = skipped + items.length - writable.length;
+    const upserted = writable.length ? await upsertHealthDailyMetrics(userId, writable) : 0;
     await logAudit(userId, 'import', 'health_daily_metrics', SOURCE_IDS.HEALTHKIT, {
       upserted,
-      skipped,
-      groups: [...enabledGroups].sort()
+      skipped: totalSkipped,
+      groups: [...enabledGroups].sort(),
+      ...(unsupportedMetrics.length ? { unsupportedMetrics } : {})
     });
-    return res.json({ upserted, skipped });
+    return res.json({ upserted, skipped: totalSkipped, unsupportedMetrics });
   } catch (error) {
     return sendError(req, res, 500, 'Unable to import Apple Health metrics.', error);
   }
