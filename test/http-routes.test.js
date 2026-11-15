@@ -1650,6 +1650,15 @@ test('optional Activity and Heart access is off when missing and survives older-
   await setHealthKitAccess({});
 });
 
+test('health metrics import rejects cross-site and source-less cookie requests', routeTestOptions, async () => {
+  const body = JSON.stringify({ source: 'healthkit', days: [{ date: isoDayOffset(-1), metric: 'steps', value: 1 }] });
+  for (const headers of [{ Origin: 'https://evil.example' }, { Referer: 'https://evil.example/page' }, {}]) {
+    const res = await fetch(`${baseUrl}/api/health-metrics`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
+    assert.equal(res.status, 403, JSON.stringify(headers));
+    assert.equal((await res.json()).error, 'Forbidden request origin.');
+  }
+});
+
 test('health metrics import enforces per-group read access, validates, and upserts', routeTestOptions, async () => {
   healthMetricRows.clear();
   healthMetricsAvailable = true;
