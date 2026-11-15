@@ -38,6 +38,28 @@ const HEALTHKIT_DATA_TYPES = Object.freeze([
   }
 ]);
 
+// Optional read-only HealthKit daily metrics. A missing permission row means
+// off; it never makes the source require configuration, and older app builds
+// may omit these from access replacements (their current choice is retained).
+const HEALTHKIT_OPTIONAL_DATA_TYPES = Object.freeze([
+  {
+    id: 'activity',
+    displayName: 'Activity',
+    detail: 'Import daily steps, active energy and exercise minutes from Apple Health.',
+    readSupported: true,
+    writeSupported: false,
+    optional: true
+  },
+  {
+    id: 'heart',
+    displayName: 'Heart',
+    detail: 'Import daily resting heart rate, heart rate variability and VO\u2082 max from Apple Health.',
+    readSupported: true,
+    writeSupported: false,
+    optional: true
+  }
+]);
+
 const HEALTHKIT_SEXUAL_ACTIVITY = Object.freeze({
   id: 'sexual_activity',
   displayName: 'Sexual Activity',
@@ -114,11 +136,14 @@ function catalogDataType(definition, sourceId) {
     ? undefined
     : sourceId === SOURCE_IDS.OURA
       ? 'Macrovana does not write health data to Oura.'
-      : 'Macrovana does not write workouts to Workout Planner.';
+      : sourceId === SOURCE_IDS.HEALTHKIT
+        ? "Macrovana reads these from Apple Health and doesn't write them back."
+        : 'Macrovana does not write workouts to Workout Planner.';
   return {
     id: definition.id,
     displayName: definition.displayName,
     detail: definition.detail,
+    optional: Boolean(definition.optional),
     read: {
       supported: Boolean(definition.readSupported),
       ...(!definition.readSupported ? { disabledReason: 'Reading this data type is not supported.' } : {})
@@ -136,8 +161,8 @@ function sourceCatalog(sourceId, {
 } = {}) {
   if (sourceId === SOURCE_IDS.HEALTHKIT) {
     const definitions = sexualActivityEnabled
-      ? [...HEALTHKIT_DATA_TYPES, HEALTHKIT_SEXUAL_ACTIVITY]
-      : [...HEALTHKIT_DATA_TYPES];
+      ? [...HEALTHKIT_DATA_TYPES, HEALTHKIT_SEXUAL_ACTIVITY, ...HEALTHKIT_OPTIONAL_DATA_TYPES]
+      : [...HEALTHKIT_DATA_TYPES, ...HEALTHKIT_OPTIONAL_DATA_TYPES];
     return definitions.map((definition) => catalogDataType(definition, sourceId));
   }
   if (sourceId === SOURCE_IDS.OURA) {
@@ -167,7 +192,7 @@ function permissionMap(permissions = []) {
 function sourceConfigurationRequired(dataTypes, permissions, { connected = true } = {}) {
   if (!connected) return false;
   const byDataType = permissionMap(permissions);
-  return dataTypes.some((dataType) => !byDataType.has(dataType.id));
+  return dataTypes.some((dataType) => !dataType.optional && !byDataType.has(dataType.id));
 }
 
 function buildSourceAccess({
@@ -237,7 +262,9 @@ function normalizeAccessSelection(sourceId, body, options = {}) {
     };
   });
 
-  const missing = [...expected.keys()].filter((id) => !seen.has(id));
+  const missing = [...expected.values()]
+    .filter((dataType) => !dataType.optional && !seen.has(dataType.id))
+    .map((dataType) => dataType.id);
   if (missing.length) {
     throw new Error(`Missing ${sourceId} data type selections: ${missing.join(', ')}.`);
   }

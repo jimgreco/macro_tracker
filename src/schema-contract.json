@@ -2617,5 +2617,104 @@
       "name": "food_corrections.fiber",
       "definition": "[\"double precision\", false, null]"
     }
+  ],
+  "optionalFeatures": [
+    {
+      "name": "health_daily_metrics",
+      "version": 3,
+      "migration": "npm run db:migrate:health-metrics",
+      "objects": [
+        {
+          "kind": "column",
+          "name": "health_daily_metrics.created_at",
+          "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+        },
+        {
+          "kind": "column",
+          "name": "health_daily_metrics.deleted_at",
+          "definition": "[\"timestamp with time zone\", false, null]"
+        },
+        {
+          "kind": "column",
+          "name": "health_daily_metrics.external_id",
+          "definition": "[\"text\", false, null]"
+        },
+        {
+          "kind": "column",
+          "name": "health_daily_metrics.id",
+          "definition": "[\"bigint\", true, \"nextval('health_daily_metrics_id_seq'::regclass)\"]"
+        },
+        {
+          "kind": "column",
+          "name": "health_daily_metrics.local_date",
+          "definition": "[\"date\", true, null]"
+        },
+        {
+          "kind": "column",
+          "name": "health_daily_metrics.metric",
+          "definition": "[\"text\", true, null]"
+        },
+        {
+          "kind": "column",
+          "name": "health_daily_metrics.sample_count",
+          "definition": "[\"integer\", false, null]"
+        },
+        {
+          "kind": "column",
+          "name": "health_daily_metrics.source",
+          "definition": "[\"text\", true, \"'healthkit'::text\"]"
+        },
+        {
+          "kind": "column",
+          "name": "health_daily_metrics.updated_at",
+          "definition": "[\"timestamp with time zone\", true, \"now()\"]"
+        },
+        {
+          "kind": "column",
+          "name": "health_daily_metrics.user_id",
+          "definition": "[\"text\", true, null]"
+        },
+        {
+          "kind": "column",
+          "name": "health_daily_metrics.value",
+          "definition": "[\"double precision\", true, null]"
+        },
+        {
+          "kind": "constraint",
+          "name": "health_daily_metrics:CHECK ((metric = ANY (ARRAY['steps'::text, 'active_energy_kcal'::text, 'exercise_minutes'::text, 'resting_heart_rate_bpm'::text, 'hrv_sdnn_ms'::text, 'vo2max_ml_kg_min'::text])))",
+          "definition": "true"
+        },
+        {
+          "kind": "constraint",
+          "name": "health_daily_metrics:PRIMARY KEY (id)",
+          "definition": "true"
+        },
+        {
+          "kind": "index",
+          "name": "health_daily_metrics_pkey",
+          "definition": "CREATE UNIQUE INDEX health_daily_metrics_pkey ON public.health_daily_metrics USING btree (id)"
+        },
+        {
+          "kind": "index",
+          "name": "idx_health_daily_metrics_user_metric_day",
+          "definition": "CREATE UNIQUE INDEX idx_health_daily_metrics_user_metric_day ON public.health_daily_metrics USING btree (user_id, metric, local_date) WHERE (deleted_at IS NULL)"
+        },
+        {
+          "kind": "index",
+          "name": "idx_health_daily_metrics_user_source_external",
+          "definition": "CREATE UNIQUE INDEX idx_health_daily_metrics_user_source_external ON public.health_daily_metrics USING btree (user_id, source, external_id) WHERE ((external_id IS NOT NULL) AND (deleted_at IS NULL))"
+        },
+        {
+          "kind": "sequence",
+          "name": "health_daily_metrics_id_seq",
+          "definition": "[\"bigint\", 1, 1, 9223372036854775807, 1, false]"
+        },
+        {
+          "kind": "table",
+          "name": "health_daily_metrics",
+          "definition": "[\"r\", \"p\", false, false]"
+        }
+      ]
+    }
   ]
 }

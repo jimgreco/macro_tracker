@@ -3,7 +3,7 @@ const DATA_INVENTORY_VERSION = '2026-09-08';
 const DISCLOSURE_GROUPS = Object.freeze({
   account: 'Account details',
   nutrition: 'Nutrition data',
-  health: 'Workout, weight, waist measurements, sleep, and wellness entries',
+  health: 'Workout, weight, waist measurements, sleep, Apple Health activity and heart metrics, and wellness entries',
   coaching: 'Coach Tony P.',
   billing: 'Subscription and billing state',
   authentication: 'Authentication and security records',
@@ -175,6 +175,12 @@ const DATA_INVENTORY = Object.freeze([
       columns: ['macro', 'target', 'effective_date', 'updated_at'],
       orderBy: 'effective_date DESC, macro'
     }
+  },
+  {
+    // Optional until `npm run db:migrate:health-metrics`; export/deletion skip it while absent.
+    table: 'health_daily_metrics', scope: 'account', userColumn: 'user_id', disclosureGroup: 'health',
+    optionalFeature: 'health_daily_metrics', accountDeletion: true, deleteOrder: 105,
+    export: { key: 'healthDailyMetrics', columns: ['id', 'local_date', 'metric', 'value', 'sample_count', 'source', 'external_id', 'created_at', 'updated_at', 'deleted_at'], orderBy: 'local_date DESC, metric' }
   },
   {
     table: 'waist_entries', scope: 'account', userColumn: 'user_id', disclosureGroup: 'health',

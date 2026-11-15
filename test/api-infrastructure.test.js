@@ -318,7 +318,8 @@ test('all data tables have deleted_at column', () => {
     'workout_entries',
     'analysis_reports',
     'sexual_activity_entries',
-    'sleep_entries'
+    'sleep_entries',
+    'health_daily_metrics'
   ];
 
   for (const table of tablesWithSoftDelete) {
@@ -489,7 +490,7 @@ test('data inventory enumerates every database table and every account table par
     accountDeletionInventory,
     accountExportInventory
   } = require('../src/data-inventory');
-  const schemaTables = [...(db + read('src/waist.js') + read('src/checkins.js') + read('src/health-reconciliation.js')).matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z_]+)/g)]
+  const schemaTables = [...(db + read('src/waist.js') + read('src/checkins.js') + read('src/health-reconciliation.js') + read('src/health-metrics.js')).matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z_]+)/g)]
     .map((match) => match[1])
     .sort();
   const inventoryTables = DATA_INVENTORY.map((item) => item.table).sort();
@@ -502,7 +503,9 @@ test('data inventory enumerates every database table and every account table par
     accountExportInventory().map((item) => item.table).sort(),
     accountDataInventory().map((item) => item.table).sort()
   );
-  assert.ok(db.includes('for (const item of accountDeletionInventory())'));
+  assert.ok(db.includes('for (const item of await presentInventoryItems(client, accountDeletionInventory()))'));
+  // Only optional-feature tables may be skipped, and only while absent.
+  assert.deepEqual(DATA_INVENTORY.filter((item) => item.optionalFeature).map((item) => item.table), ['health_daily_metrics']);
   assert.ok(db.includes('async function exportUserData'));
   assert.ok(db.includes('const inventory = accountExportInventory()'));
 });
@@ -690,6 +693,10 @@ test('weekly summary rows come from one read-only snapshot without Oura data', (
   assert.ok(section.includes('deleted_at IS NULL'));
   // Sleep comes only from Apple Health / manual rows, never Oura-linked ones.
   assert.ok(section.includes("source IN ('healthkit', 'manual') AND oura_document_id IS NULL"));
+  // Apple Health daily metrics: live HealthKit rows only, and tolerated as absent.
+  assert.match(section, /FROM health_daily_metrics\s+WHERE user_id = \$1 AND deleted_at IS NULL AND source = 'healthkit'/);
+  assert.ok(section.includes("to_regclass('public.health_daily_metrics')"));
+  assert.doesNotMatch(read('src/health-metrics.js'), /oura_documents/);
 });
 
 test('server.js has per-user rate limiting', () => {
