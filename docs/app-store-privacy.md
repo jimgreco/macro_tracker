@@ -22,7 +22,7 @@ https://<production-domain>/privacy
 
 - Contact Info: email address and name from Google or Apple sign-in, used for account management and app functionality.
 - Identifiers: app user id, OAuth provider ids, Oura's opaque user id when connected, API token records, and Stripe customer/subscription ids when billing is enabled, used for account management, auth, update routing, billing, and security.
-- Health & Fitness: weight, workouts, sleep, calories, nutrition/macros, HealthKit-synced wellness data, and connected Oura aggregate metrics, used for app functionality.
+- Health & Fitness: weight, workouts, sleep, calories, nutrition/macros, HealthKit-synced wellness data (including optional Apple Health daily steps, active energy, exercise minutes, resting heart rate, heart rate variability and VO₂ max), and connected Oura aggregate metrics, used for app functionality.
 - Sensitive Info: sexual activity entries only when that feature is enabled for the account, used for app functionality.
 - User Content: meal text, workout text, saved foods, meal photos submitted for parsing, analysis prompts/results, and diagnostics exported and shared by the user, used for app functionality and support.
 - Purchases: subscription status and billing events from Stripe when paid features are enabled, used for app functionality and billing support.
@@ -44,7 +44,7 @@ DailyMacros does not use third-party advertising SDKs, does not sell personal da
 
 ## HealthKit Notes
 
-HealthKit permissions are optional and controlled by the user at two layers. DailyMacros first requires an explicit per-data-type choice for Read and Write; a missing choice denies access. It then requests only the corresponding Apple permissions for weight, workouts, sleep, and sexual activity where enabled. Turning a direction off stops future transfers without deleting data already transferred. Apple's HealthKit guidance says apps using HealthKit must provide a clearly stated privacy policy URL during submission: <https://developer.apple.com/design/human-interface-guidelines/healthkit/>.
+HealthKit permissions are optional and controlled by the user at two layers. DailyMacros first requires an explicit per-data-type choice for Read and Write; a missing choice denies access. It then requests only the corresponding Apple permissions for weight, workouts, sleep, and sexual activity where enabled, plus the optional Read-only Activity (step count, active energy, exercise time) and Heart (resting heart rate, HRV SDNN, VO₂ max) types. Activity and Heart are never written to Apple Health; the server stores one daily total or average per metric, not individual samples. Turning a direction off stops future transfers without deleting data already transferred. Apple's HealthKit guidance says apps using HealthKit must provide a clearly stated privacy policy URL during submission: <https://developer.apple.com/design/human-interface-guidelines/healthkit/>.
 
 ## Reviewer Notes
 
