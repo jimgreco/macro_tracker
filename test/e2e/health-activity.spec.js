@@ -29,9 +29,29 @@ test('Health > Activity shows the empty state from the real API, then mocked App
   await expect(page.locator('#activity-stats')).toBeHidden();
 
   const requests = [];
+  let stepsAndEnergyOnly = false;
   await page.route('**/api/health-metrics?*', async (route) => {
     const url = new URL(route.request().url());
     requests.push(url.searchParams.get('scope'));
+    if (stepsAndEnergyOnly) {
+      // No Apple Watch: only steps and active energy ever have values.
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          scope: url.searchParams.get('scope'),
+          enabled: true,
+          days: [
+            { day: isoDay(-1), steps: 7000, activeEnergyKcal: 400, exerciseMinutes: null, restingHeartRate: null, hrvMs: null, vo2max: null }
+          ],
+          summary: {
+            current: { ...emptySummary(), daysWithData: 1, avgSteps: 7000, avgActiveEnergyKcal: 400 },
+            previous: emptySummary()
+          }
+        })
+      });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -67,6 +87,32 @@ test('Health > Activity shows the empty state from the real API, then mocked App
   await expect(page.locator('#activity-snapshot-heading')).toHaveText('Monthly Snapshot');
   await expect(page.locator('#activity-stat-steps-change')).toHaveText('+1,000 vs previous 30 days');
   expect(requests).toEqual(['week', 'month']);
+  for (const key of ['steps', 'energy', 'exercise', 'rhr', 'hrv', 'vo2']) {
+    await expect(page.locator(`[data-activity-stat="${key}"]`)).toBeVisible();
+  }
+  for (const key of ['steps', 'energy', 'rhr', 'hrv']) {
+    await expect(page.locator(`#activity-${key}-canvas`)).toBeVisible();
+  }
+
+  // Metrics with no data anywhere in the response are hidden, not shown as "—".
+  stepsAndEnergyOnly = true;
+  await page.locator('#activity-period-toggle').getByRole('button', { name: 'Year' }).click();
+  await expect(page.locator('#activity-stat-steps')).toHaveText('7,000');
+  await expect(page.locator('#activity-stat-steps-change')).toHaveText('No previous data');
+  await expect(page.locator('#activity-empty')).toBeHidden();
+  for (const key of ['steps', 'energy']) {
+    await expect(page.locator(`[data-activity-stat="${key}"]`)).toBeVisible();
+    await expect(page.locator(`#activity-${key}-canvas`)).toBeVisible();
+  }
+  for (const key of ['exercise', 'rhr', 'hrv', 'vo2']) {
+    await expect(page.locator(`[data-activity-stat="${key}"]`)).toBeHidden();
+  }
+  for (const key of ['rhr', 'hrv']) {
+    await expect(page.locator(`#activity-${key}-canvas`)).toBeHidden();
+  }
+  await expect(page.locator('#activity-stats > .card:visible')).toHaveCount(2);
+  await expect(page.locator('#activity-charts-section .activity-chart:visible')).toHaveCount(2);
+  expect(requests).toEqual(['week', 'month', 'year']);
 
   // Arrow keys move between Health sub-tabs.
   await tab.focus();

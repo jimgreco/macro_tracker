@@ -8374,17 +8374,56 @@ function formatActivityChange(current, previous, stat) {
   return `${sign}${formatActivityValue(Math.abs(delta), stat.digits)}${stat.unit} vs ${label}`;
 }
 
+// Day and summary fields for each Activity metric. A metric is shown only when
+// the response has a value for it (any day, or the current/previous summary);
+// metrics with no data are hidden rather than estimated.
+const ACTIVITY_METRIC_FIELDS = {
+  steps: { day: 'steps', summary: 'avgSteps' },
+  energy: { day: 'activeEnergyKcal', summary: 'avgActiveEnergyKcal' },
+  exercise: { day: 'exerciseMinutes', summary: 'avgExerciseMinutes' },
+  rhr: { day: 'restingHeartRate', summary: 'avgRestingHeartRate' },
+  hrv: { day: 'hrvMs', summary: 'avgHrvMs' },
+  vo2: { day: 'vo2max', summary: 'latestVo2Max' }
+};
+
+function activityVisibleMetrics(data) {
+  const visible = new Set();
+  if (!data) return visible;
+  const days = Array.isArray(data.days) ? data.days : [];
+  const current = data.summary?.current || {};
+  const previous = data.summary?.previous || {};
+  for (const [key, fields] of Object.entries(ACTIVITY_METRIC_FIELDS)) {
+    if (days.some((day) => day?.[fields.day] != null)
+      || current[fields.summary] != null
+      || previous[fields.summary] != null) {
+      visible.add(key);
+    }
+  }
+  return visible;
+}
+
 function activityHasData(data) {
-  return Boolean(data && Array.isArray(data.days) && data.days.length);
+  return activityVisibleMetrics(data).size > 0;
 }
 
 function renderActivityPage() {
   const data = state.activityMetrics;
-  const hasData = activityHasData(data);
+  const visible = activityVisibleMetrics(data);
+  const hasData = visible.size > 0;
+  const hasCharts = ACTIVITY_CHARTS.some((chart) => visible.has(chart.key));
   if (activityEmptyEl) activityEmptyEl.hidden = hasData;
   if (activityStatsEl) activityStatsEl.hidden = !hasData;
   if (activityStatsNoteEl) activityStatsNoteEl.hidden = !hasData;
-  if (activityChartsSectionEl) activityChartsSectionEl.hidden = !hasData;
+  if (activityChartsSectionEl) activityChartsSectionEl.hidden = !hasCharts;
+  for (const stat of ACTIVITY_STATS) {
+    const card = activityStatsEl?.querySelector(`[data-activity-stat="${stat.key}"]`);
+    if (card) card.hidden = !visible.has(stat.key);
+  }
+  for (const chart of ACTIVITY_CHARTS) {
+    const canvas = document.getElementById(`activity-${chart.key}-canvas`);
+    const wrapper = canvas?.closest('.activity-chart');
+    if (wrapper) wrapper.hidden = !visible.has(chart.key);
+  }
   const current = data?.summary?.current || {};
   const previous = data?.summary?.previous || {};
   for (const stat of ACTIVITY_STATS) {
@@ -8398,7 +8437,7 @@ function renderActivityPage() {
       changeEl.textContent = value == null ? 'No data' : formatActivityChange(value, previous[stat.summaryKey], stat);
     }
   }
-  if (hasData) renderActivityCharts();
+  if (hasCharts) renderActivityCharts();
 }
 
 function activityChartRows(dayKey) {
@@ -8413,8 +8452,9 @@ function activityChartRows(dayKey) {
 }
 
 function renderActivityCharts() {
-  if (!activityHasData(state.activityMetrics)) return;
+  const visible = activityVisibleMetrics(state.activityMetrics);
   for (const chart of ACTIVITY_CHARTS) {
+    if (!visible.has(chart.key)) continue;
     drawSimpleLineChart(
       document.getElementById(`activity-${chart.key}-canvas`),
       activityChartRows(chart.dayKey),

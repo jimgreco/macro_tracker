@@ -91,6 +91,14 @@ test('Health Activity pane renders Apple Health metrics with period toggles and 
   assert.equal((script.match(/dayKey: '(steps|activeEnergyKcal|restingHeartRate|hrvMs)'/g) || []).length, 4);
   assert.equal(script.includes("summaryKey: 'latestVo2Max'"), true);
   assert.equal(script.includes('drawSimpleLineChart(\n      document.getElementById(`activity-${chart.key}-canvas`)'), true);
+  // Metrics with no data in the response are hidden (card and chart), not estimated.
+  assert.equal(script.includes('function activityVisibleMetrics(data)'), true);
+  assert.equal(script.includes("vo2: { day: 'vo2max', summary: 'latestVo2Max' }"), true);
+  assert.equal(script.includes('if (card) card.hidden = !visible.has(stat.key);'), true);
+  assert.equal(script.includes('if (wrapper) wrapper.hidden = !visible.has(chart.key);'), true);
+  assert.equal(script.includes('if (!visible.has(chart.key)) continue;'), true);
+  const styles = read('public/styles.css');
+  assert.equal(styles.includes('.activity-stats > .card[hidden],\n.activity-chart[hidden],'), true);
   // Optional HealthKit types read Off in the device-managed matrix column.
   assert.equal(script.includes("(dataType?.optional ? 'Off' : 'Not chosen')"), true);
 });

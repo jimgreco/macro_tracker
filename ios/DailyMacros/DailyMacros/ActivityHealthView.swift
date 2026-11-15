@@ -1,6 +1,57 @@
 import Foundation
 import SwiftUI
 
+/// The Activity metrics, in display order.
+enum ActivityMetric: String, CaseIterable, Sendable {
+    case steps
+    case activeEnergy
+    case exercise
+    case restingHeartRate
+    case hrv
+    case vo2Max
+}
+
+/// Health > Activity shows a metric only when the response has a value for it:
+/// any day in the selected scope, or the current or previous summary. Metrics
+/// with no data (for example heart metrics without an Apple Watch) are hidden,
+/// never estimated.
+enum ActivityMetricVisibility {
+    static func visibleMetrics(for response: HealthMetricsResponse?) -> [ActivityMetric] {
+        guard let response else { return [] }
+        let current = response.summary?.current
+        let previous = response.summary?.previous
+        return ActivityMetric.allCases.filter { metric in
+            let dayKey = dayValue(metric)
+            let summaryKey = summaryValue(metric)
+            return response.days.contains { $0[keyPath: dayKey] != nil }
+                || current?[keyPath: summaryKey] != nil
+                || previous?[keyPath: summaryKey] != nil
+        }
+    }
+
+    static func dayValue(_ metric: ActivityMetric) -> KeyPath<HealthMetricsDay, Double?> {
+        switch metric {
+        case .steps: return \.steps
+        case .activeEnergy: return \.activeEnergyKcal
+        case .exercise: return \.exerciseMinutes
+        case .restingHeartRate: return \.restingHeartRate
+        case .hrv: return \.hrvMs
+        case .vo2Max: return \.vo2max
+        }
+    }
+
+    static func summaryValue(_ metric: ActivityMetric) -> KeyPath<HealthMetricsPeriodSummary, Double?> {
+        switch metric {
+        case .steps: return \.avgSteps
+        case .activeEnergy: return \.avgActiveEnergyKcal
+        case .exercise: return \.avgExerciseMinutes
+        case .restingHeartRate: return \.avgRestingHeartRate
+        case .hrv: return \.avgHrvMs
+        case .vo2Max: return \.latestVo2Max
+        }
+    }
+}
+
 /// Health > Activity: daily steps, active energy, exercise minutes, resting
 /// heart rate, HRV and VO2 max read from Apple Health (including values other
 /// apps, such as the Oura app, write into Apple Health). Never uses the direct
@@ -36,6 +87,15 @@ struct ActivityHealthView: View {
 
     private var current: HealthMetricsPeriodSummary? { response?.summary?.current }
     private var previous: HealthMetricsPeriodSummary? { response?.summary?.previous }
+
+    /// Metrics with at least one value in this response; the rest are hidden.
+    private var visibleMetrics: [ActivityMetric] {
+        ActivityMetricVisibility.visibleMetrics(for: response)
+    }
+
+    private func isVisible(_ metric: ActivityMetric) -> Bool {
+        visibleMetrics.contains(metric)
+    }
 
     var body: some View {
         NavigationStack {
@@ -106,12 +166,14 @@ struct ActivityHealthView: View {
                 notAvailableCard
             } else if !anyReadEnabled && days.isEmpty {
                 accessOffCard
+            } else if visibleMetrics.isEmpty {
+                noDataCard
             } else {
                 summaryGrid
                 if days.isEmpty {
                     noDataCard
                 } else {
-                    if activityReadEnabled || hasValues(\.steps) {
+                    if isVisible(.steps) {
                         metricChart(
                             title: "Steps",
                             systemImage: "figure.walk",
@@ -122,7 +184,7 @@ struct ActivityHealthView: View {
                             formatter: formatSteps
                         )
                     }
-                    if activityReadEnabled || hasValues(\.activeEnergyKcal) {
+                    if isVisible(.activeEnergy) {
                         metricChart(
                             title: "Active energy",
                             systemImage: "flame.fill",
@@ -133,7 +195,7 @@ struct ActivityHealthView: View {
                             formatter: formatWhole
                         )
                     }
-                    if heartReadEnabled || hasValues(\.restingHeartRate) {
+                    if isVisible(.restingHeartRate) {
                         metricChart(
                             title: "Resting heart rate",
                             systemImage: "heart.fill",
@@ -144,7 +206,7 @@ struct ActivityHealthView: View {
                             formatter: formatWhole
                         )
                     }
-                    if heartReadEnabled || hasValues(\.hrvMs) {
+                    if isVisible(.hrv) {
                         metricChart(
                             title: "Heart rate variability",
                             systemImage: "waveform.path.ecg",
@@ -168,69 +230,81 @@ struct ActivityHealthView: View {
 
     private var summaryGrid: some View {
         LazyVGrid(columns: summaryColumns, spacing: 12) {
-            summaryCard(
-                title: "Steps",
-                systemImage: "figure.walk",
-                tint: AppVisualSystem.ColorToken.workout,
-                current: current?.avgSteps,
-                previous: previous?.avgSteps,
-                unit: "steps",
-                formatter: formatSteps,
-                isAverage: true
-            )
-            summaryCard(
-                title: "Active energy",
-                systemImage: "flame.fill",
-                tint: AppVisualSystem.ColorToken.calories,
-                current: current?.avgActiveEnergyKcal,
-                previous: previous?.avgActiveEnergyKcal,
-                unit: "kcal",
-                formatter: formatWhole,
-                isAverage: true
-            )
-            summaryCard(
-                title: "Exercise",
-                systemImage: "stopwatch.fill",
-                tint: AppVisualSystem.ColorToken.protein,
-                current: current?.avgExerciseMinutes,
-                previous: previous?.avgExerciseMinutes,
-                unit: "min",
-                formatter: formatWhole,
-                isAverage: true
-            )
-            summaryCard(
-                title: "Resting HR",
-                systemImage: "heart.fill",
-                tint: AppVisualSystem.ColorToken.danger,
-                current: current?.avgRestingHeartRate,
-                previous: previous?.avgRestingHeartRate,
-                unit: "bpm",
-                formatter: formatWhole,
-                isAverage: true,
-                spokenTitle: "Resting heart rate"
-            )
-            summaryCard(
-                title: "HRV",
-                systemImage: "waveform.path.ecg",
-                tint: AppVisualSystem.ColorToken.recovery,
-                current: current?.avgHrvMs,
-                previous: previous?.avgHrvMs,
-                unit: "ms",
-                formatter: formatWhole,
-                isAverage: true,
-                spokenTitle: "Heart rate variability"
-            )
-            summaryCard(
-                title: "VO₂ max",
-                systemImage: "lungs.fill",
-                tint: AppVisualSystem.ColorToken.carbs,
-                current: current?.latestVo2Max,
-                previous: previous?.latestVo2Max,
-                unit: "mL/kg/min",
-                formatter: formatOneDecimal,
-                isAverage: false,
-                spokenTitle: "V O 2 max"
-            )
+            if isVisible(.steps) {
+                summaryCard(
+                    title: "Steps",
+                    systemImage: "figure.walk",
+                    tint: AppVisualSystem.ColorToken.workout,
+                    current: current?.avgSteps,
+                    previous: previous?.avgSteps,
+                    unit: "steps",
+                    formatter: formatSteps,
+                    isAverage: true
+                )
+            }
+            if isVisible(.activeEnergy) {
+                summaryCard(
+                    title: "Active energy",
+                    systemImage: "flame.fill",
+                    tint: AppVisualSystem.ColorToken.calories,
+                    current: current?.avgActiveEnergyKcal,
+                    previous: previous?.avgActiveEnergyKcal,
+                    unit: "kcal",
+                    formatter: formatWhole,
+                    isAverage: true
+                )
+            }
+            if isVisible(.exercise) {
+                summaryCard(
+                    title: "Exercise",
+                    systemImage: "stopwatch.fill",
+                    tint: AppVisualSystem.ColorToken.protein,
+                    current: current?.avgExerciseMinutes,
+                    previous: previous?.avgExerciseMinutes,
+                    unit: "min",
+                    formatter: formatWhole,
+                    isAverage: true
+                )
+            }
+            if isVisible(.restingHeartRate) {
+                summaryCard(
+                    title: "Resting HR",
+                    systemImage: "heart.fill",
+                    tint: AppVisualSystem.ColorToken.danger,
+                    current: current?.avgRestingHeartRate,
+                    previous: previous?.avgRestingHeartRate,
+                    unit: "bpm",
+                    formatter: formatWhole,
+                    isAverage: true,
+                    spokenTitle: "Resting heart rate"
+                )
+            }
+            if isVisible(.hrv) {
+                summaryCard(
+                    title: "HRV",
+                    systemImage: "waveform.path.ecg",
+                    tint: AppVisualSystem.ColorToken.recovery,
+                    current: current?.avgHrvMs,
+                    previous: previous?.avgHrvMs,
+                    unit: "ms",
+                    formatter: formatWhole,
+                    isAverage: true,
+                    spokenTitle: "Heart rate variability"
+                )
+            }
+            if isVisible(.vo2Max) {
+                summaryCard(
+                    title: "VO₂ max",
+                    systemImage: "lungs.fill",
+                    tint: AppVisualSystem.ColorToken.carbs,
+                    current: current?.latestVo2Max,
+                    previous: previous?.latestVo2Max,
+                    unit: "mL/kg/min",
+                    formatter: formatOneDecimal,
+                    isAverage: false,
+                    spokenTitle: "V O 2 max"
+                )
+            }
         }
     }
 
@@ -376,10 +450,6 @@ struct ActivityHealthView: View {
     private enum ChartStyle {
         case bars
         case line
-    }
-
-    private func hasValues(_ value: KeyPath<HealthMetricsDay, Double?>) -> Bool {
-        days.contains { $0[keyPath: value] != nil }
     }
 
     private func metricChart(
