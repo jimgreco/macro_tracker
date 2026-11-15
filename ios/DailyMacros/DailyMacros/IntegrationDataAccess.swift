@@ -5,6 +5,10 @@ struct HealthKitAccessPlan: Equatable, Sendable {
     let weight: IntegrationDirectionSelection
     let sleep: IntegrationDirectionSelection
     let sexualActivity: IntegrationDirectionSelection
+    /// Daily steps, active energy and exercise minutes (read-only).
+    var activity: IntegrationDirectionSelection = .denied
+    /// Daily resting heart rate, HRV and VO2 max (read-only).
+    var heart: IntegrationDirectionSelection = .denied
     let revisionKey: Int
 
     static let denied = HealthKitAccessPlan(
@@ -12,13 +16,19 @@ struct HealthKitAccessPlan: Equatable, Sendable {
         weight: .denied,
         sleep: .denied,
         sexualActivity: .denied,
+        activity: .denied,
+        heart: .denied,
         revisionKey: 0
     )
 
     var hasAnyAccess: Bool {
-        [workouts, weight, sleep, sexualActivity].contains { selection in
+        [workouts, weight, sleep, sexualActivity, activity, heart].contains { selection in
             selection.readEnabled || selection.writeEnabled
         }
+    }
+
+    var hasDailyMetricsReadAccess: Bool {
+        activity.readEnabled || heart.readEnabled
     }
 
     func includingSexualActivity(_ enabled: Bool) -> HealthKitAccessPlan {
@@ -28,6 +38,8 @@ struct HealthKitAccessPlan: Equatable, Sendable {
             weight: weight,
             sleep: sleep,
             sexualActivity: .denied,
+            activity: activity,
+            heart: heart,
             revisionKey: revisionKey
         )
     }
@@ -183,6 +195,8 @@ final class IntegrationDataAccessStore: ObservableObject {
                 weight: .denied,
                 sleep: .denied,
                 sexualActivity: .denied,
+                activity: .denied,
+                heart: .denied,
                 revisionKey: revision
             )
         }
@@ -194,6 +208,9 @@ final class IntegrationDataAccessStore: ObservableObject {
             sexualActivity: source.effectiveSelection(
                 forAnyID: ["sexual_activity", "sexualActivity"]
             ),
+            // Daily metrics are read-only: HealthKit writes are never planned.
+            activity: source.effectiveSelection(forAnyID: ["activity"]).readOnly,
+            heart: source.effectiveSelection(forAnyID: ["heart"]).readOnly,
             revisionKey: revision
         )
         return plan.includingSexualActivity(includeSexualActivity)
@@ -247,8 +264,17 @@ final class IntegrationDataAccessStore: ObservableObject {
 }
 
 extension IntegrationDataSource {
+    /// A source needs review only when a required (non-optional) data type has
+    /// no saved choice. Optional types without a choice mean "off". The
+    /// server's `configurationRequired` is honored unless the only unreviewed
+    /// types are optional, so an older or newer catalog never blocks existing
+    /// Apple Health access because optional types were added.
     var needsAccessConfiguration: Bool {
-        configurationRequired || dataTypes.contains { $0.selection == nil }
+        let missingRequired = dataTypes.contains { $0.selection == nil && !$0.isOptional }
+        if missingRequired { return true }
+        guard configurationRequired else { return false }
+        let missingOnlyOptional = dataTypes.contains { $0.selection == nil && $0.isOptional }
+        return !missingOnlyOptional
     }
 
     var enabledDirectionCount: Int {
@@ -336,7 +362,7 @@ func integrationDataAccessMatrixDirectionState(
         return .disconnected
     }
     guard let selection = dataType.selection else {
-        return .reviewRequired
+        return dataType.isOptional ? .disabled : .reviewRequired
     }
     let enabled = direction == .read ? selection.readEnabled : selection.writeEnabled
     return enabled ? .enabled : .disabled
@@ -1154,6 +1180,10 @@ struct IntegrationDataAccessView: View {
             )
         } header: {
             Text(dataType.displayName)
+        } footer: {
+            if dataType.isOptional {
+                Text("Optional. Off unless you turn on Read.")
+            }
         }
     }
 

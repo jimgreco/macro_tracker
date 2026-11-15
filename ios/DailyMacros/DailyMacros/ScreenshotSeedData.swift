@@ -142,7 +142,8 @@ enum ScreenshotSeedData {
                     selection: IntegrationDirectionSelection(
                         readEnabled: update?.readEnabled ?? false,
                         writeEnabled: update?.writeEnabled ?? false
-                    )
+                    ),
+                    optional: dataType.optional
                 )
             }
         )
@@ -150,6 +151,10 @@ enum ScreenshotSeedData {
 
     private static var healthKitIntegrationSource: IntegrationDataSource {
         let supported = IntegrationDirectionCapability(supported: true, disabledReason: nil)
+        let readOnlyHealthKit = IntegrationDirectionCapability(
+            supported: false,
+            disabledReason: "macrovana does not write daily metrics to Apple Health."
+        )
         return IntegrationDataSource(
             id: "healthkit",
             displayName: "Apple Health",
@@ -161,7 +166,9 @@ enum ScreenshotSeedData {
                 integrationDataType(id: "workouts", name: "Workouts", detail: "Workout sessions and active energy", read: supported, write: supported),
                 integrationDataType(id: "weight", name: "Weight", detail: "Body mass measurements", read: supported, write: supported),
                 integrationDataType(id: "sleep", name: "Sleep", detail: "Sleep sessions and wake-ups", read: supported, write: supported),
-                integrationDataType(id: "sexual_activity", name: "Sexual Activity", detail: "Optional sexual activity records", read: supported, write: supported)
+                integrationDataType(id: "sexual_activity", name: "Sexual Activity", detail: "Optional sexual activity records", read: supported, write: supported),
+                integrationDataType(id: "activity", name: "Activity", detail: "Daily steps, active energy and exercise minutes", read: supported, write: readOnlyHealthKit, selection: .init(readEnabled: true, writeEnabled: false), optional: true),
+                integrationDataType(id: "heart", name: "Heart", detail: "Daily resting heart rate, HRV and VO₂ max", read: supported, write: readOnlyHealthKit, selection: .init(readEnabled: true, writeEnabled: false), optional: true)
             ]
         )
     }
@@ -264,7 +271,8 @@ enum ScreenshotSeedData {
         detail: String,
         read: IntegrationDirectionCapability,
         write: IntegrationDirectionCapability,
-        selection: IntegrationDirectionSelection? = .denied
+        selection: IntegrationDirectionSelection? = .denied,
+        optional: Bool? = nil
     ) -> IntegrationDataType {
         IntegrationDataType(
             id: id,
@@ -272,7 +280,8 @@ enum ScreenshotSeedData {
             detail: detail,
             read: read,
             write: write,
-            selection: selection
+            selection: selection,
+            optional: optional
         )
     }
 
@@ -789,6 +798,65 @@ enum ScreenshotSeedData {
             SleepDailyTotals(day: "2026-05-29", totalHours: 8.4, targetHours: 8),
             SleepDailyTotals(day: "2026-06-05", totalHours: 7.9, targetHours: 8)
         ] + base
+    }
+
+    /// Deterministic demo Activity/Heart history ending on the reference day.
+    static func healthMetrics(scope: String) -> HealthMetricsResponse {
+        let dayCount: Int
+        switch scope {
+        case "month": dayCount = 30
+        case "year": dayCount = 365
+        default: dayCount = 7
+        }
+        let calendar = Calendar(identifier: .gregorian)
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let reference = formatter.date(from: referenceDay) ?? referenceNow
+
+        func demoDay(_ offset: Int) -> HealthMetricsDay {
+            let date = calendar.date(byAdding: .day, value: -offset, to: reference) ?? reference
+            let wave = sin(Double(offset) * 0.9)
+            let weekend = offset % 7 == 2 || offset % 7 == 3
+            let steps = (weekend ? 11_800 : 8_600) + wave * 1_900
+            return HealthMetricsDay(
+                day: formatter.string(from: date),
+                steps: steps.rounded(),
+                activeEnergyKcal: (steps * 0.052).rounded(),
+                exerciseMinutes: (weekend ? 52 : 34) + (wave * 9).rounded(),
+                restingHeartRate: 56 + (cos(Double(offset) * 0.7) * 2.5).rounded() + Double(offset) * 0.01,
+                hrvMs: 48 + (sin(Double(offset) * 1.3) * 7).rounded() - Double(offset) * 0.01,
+                vo2max: offset % 6 == 0 ? 44.6 - Double(offset) * 0.004 : nil
+            )
+        }
+
+        let days = (0..<dayCount).reversed().map(demoDay)
+        let previousDays = (dayCount..<(dayCount * 2)).map(demoDay)
+
+        func summary(_ rows: [HealthMetricsDay]) -> HealthMetricsPeriodSummary {
+            func average(_ path: KeyPath<HealthMetricsDay, Double?>) -> Double? {
+                let values = rows.compactMap { $0[keyPath: path] }
+                return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+            }
+            return HealthMetricsPeriodSummary(
+                daysWithData: rows.count,
+                avgSteps: average(\.steps),
+                avgActiveEnergyKcal: average(\.activeEnergyKcal),
+                avgExerciseMinutes: average(\.exerciseMinutes),
+                avgRestingHeartRate: average(\.restingHeartRate),
+                avgHrvMs: average(\.hrvMs),
+                latestVo2Max: rows.sorted { $0.day > $1.day }.compactMap(\.vo2max).first
+            )
+        }
+
+        return HealthMetricsResponse(
+            scope: scope,
+            enabled: true,
+            days: days,
+            summary: HealthMetricsSummary(current: summary(days), previous: summary(previousDays))
+        )
     }
 
     private static func emptyTotals(for day: String) -> DailyTotals {

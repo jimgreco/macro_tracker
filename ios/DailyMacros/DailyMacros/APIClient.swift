@@ -1368,6 +1368,40 @@ class APIClient: ObservableObject {
         )
     }
 
+    // MARK: - Apple Health daily metrics
+
+    func getHealthMetrics(scope: String) async throws -> HealthMetricsResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return ScreenshotSeedData.healthMetrics(scope: scope)
+        }
+        #endif
+
+        var components = URLComponents(url: apiURL("/health-metrics"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            .init(name: "scope", value: scope),
+            .init(name: "tz", value: TimeZone.current.identifier)
+        ]
+        let request = try authorizedRequest(components.url!)
+        return try await perform(request)
+    }
+
+    /// Upserts daily HealthKit metric values. Not queued offline: every sync
+    /// re-reads the same window from Apple Health and re-sends it, and the
+    /// server replaces each (day, metric), so a failed upload is retried
+    /// idempotently on the next sync.
+    func postHealthMetrics(days: [HealthMetricDayPayload]) async throws -> HealthMetricsUploadResponse {
+        #if DEBUG
+        if ScreenshotSeedData.isEnabled {
+            return HealthMetricsUploadResponse(upserted: days.count, skipped: 0)
+        }
+        #endif
+
+        let body = try JSONEncoder().encode(HealthMetricsUpload(source: "healthkit", days: days))
+        let request = try authorizedRequest(apiURL("/health-metrics"), method: "POST", body: body)
+        return try await perform(request)
+    }
+
     // MARK: - Integration data access
 
     func getIntegrationDataAccess() async throws -> IntegrationDataAccessResponse {

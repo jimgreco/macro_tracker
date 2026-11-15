@@ -456,6 +456,287 @@ final class IntegrationDataAccessTests: XCTestCase {
         XCTAssertEqual(requestCount, 2)
     }
 
+    // MARK: - Optional Apple Health daily-metric types
+
+    @MainActor
+    func testOptionalHealthKitTypesWithoutChoicesNeverBlockExistingAccess() {
+        for serverFlag in [false, true] {
+            let store = IntegrationDataAccessStore()
+            let source = makeHealthKitSource(
+                configurationRequired: serverFlag,
+                activity: nil,
+                heart: nil
+            )
+            XCTAssertFalse(source.needsAccessConfiguration, "server flag \(serverFlag)")
+            store.apply(IntegrationDataAccessResponse(sources: [source]), userID: "user-1")
+            XCTAssertNil(store.requiredSource)
+
+            let plan = store.healthKitAccessPlan(includeSexualActivity: false)
+            XCTAssertEqual(plan.sleep, .init(readEnabled: true, writeEnabled: false))
+            XCTAssertEqual(plan.weight, .init(readEnabled: true, writeEnabled: true))
+            XCTAssertEqual(plan.workouts, .init(readEnabled: true, writeEnabled: false))
+            XCTAssertEqual(plan.activity, .denied)
+            XCTAssertEqual(plan.heart, .denied)
+            XCTAssertFalse(plan.hasDailyMetricsReadAccess)
+            XCTAssertTrue(plan.hasAnyAccess)
+        }
+    }
+
+    @MainActor
+    func testMissingRequiredChoiceStillFailsClosedAlongsideOptionalTypes() {
+        let store = IntegrationDataAccessStore()
+        let source = makeHealthKitSource(
+            configurationRequired: true,
+            activity: nil,
+            heart: nil,
+            sleep: nil
+        )
+        XCTAssertTrue(source.needsAccessConfiguration)
+        store.apply(IntegrationDataAccessResponse(sources: [source]), userID: "user-1")
+        XCTAssertEqual(store.requiredSource?.id, "healthkit")
+        XCTAssertFalse(store.healthKitAccessPlan(includeSexualActivity: false).hasAnyAccess)
+    }
+
+    @MainActor
+    func testDailyMetricPlanIsReadOnlyAndSurvivesSexualActivityFilter() {
+        let store = IntegrationDataAccessStore()
+        store.apply(
+            IntegrationDataAccessResponse(sources: [
+                makeHealthKitSource(
+                    configurationRequired: false,
+                    activity: .init(readEnabled: true, writeEnabled: true),
+                    heart: .init(readEnabled: true, writeEnabled: false)
+                )
+            ]),
+            userID: "user-1"
+        )
+
+        let plan = store.healthKitAccessPlan(includeSexualActivity: false)
+        XCTAssertEqual(plan.activity, .init(readEnabled: true, writeEnabled: false))
+        XCTAssertEqual(plan.heart, .init(readEnabled: true, writeEnabled: false))
+        XCTAssertTrue(plan.hasDailyMetricsReadAccess)
+
+        let filtered = plan.includingSexualActivity(false)
+        XCTAssertEqual(filtered.activity, plan.activity)
+        XCTAssertEqual(filtered.heart, plan.heart)
+        XCTAssertEqual(HealthKitAccessPlan.denied.activity, .denied)
+        XCTAssertEqual(HealthKitAccessPlan.denied.heart, .denied)
+        XCTAssertFalse(HealthKitAccessPlan.denied.hasAnyAccess)
+    }
+
+    @MainActor
+    func testOlderCatalogWithoutDailyMetricTypesKeepsExistingPlan() {
+        let store = IntegrationDataAccessStore()
+        let source = makeHealthKitSource(
+            configurationRequired: false,
+            activity: nil,
+            heart: nil,
+            includeDailyMetrics: false
+        )
+        store.apply(IntegrationDataAccessResponse(sources: [source]), userID: "user-1")
+        XCTAssertNil(store.requiredSource)
+        let plan = store.healthKitAccessPlan(includeSexualActivity: false)
+        XCTAssertEqual(plan.sleep, .init(readEnabled: true, writeEnabled: false))
+        XCTAssertEqual(plan.activity, .denied)
+        XCTAssertEqual(plan.heart, .denied)
+    }
+
+    func testCatalogDecodesOptionalFlagAndToleratesOlderServers() throws {
+        let payload = Data(
+            """
+            {
+              "sources": [{
+                "id": "healthkit",
+                "displayName": "Apple Health",
+                "connected": true,
+                "available": true,
+                "configurationRequired": false,
+                "dataTypes": [
+                  {
+                    "id": "sleep",
+                    "displayName": "Sleep",
+                    "read": { "supported": true },
+                    "write": { "supported": true },
+                    "selection": { "readEnabled": true, "writeEnabled": false }
+                  },
+                  {
+                    "id": "activity",
+                    "displayName": "Activity",
+                    "read": { "supported": true },
+                    "write": { "supported": false, "disabledReason": "Read-only." },
+                    "optional": true
+                  },
+                  {
+                    "id": "weight",
+                    "displayName": "Weight",
+                    "read": { "supported": true },
+                    "write": { "supported": true }
+                  }
+                ]
+              }]
+            }
+            """.utf8
+        )
+
+        let source = try XCTUnwrap(
+            JSONDecoder().decode(IntegrationDataAccessResponse.self, from: payload).sources.first
+        )
+        XCTAssertNil(source.dataTypes[0].optional)
+        XCTAssertFalse(source.dataTypes[0].isOptional)
+        XCTAssertTrue(source.dataTypes[1].isOptional)
+        XCTAssertNil(source.dataTypes[1].selection)
+        // The older-style "weight" entry has no `optional` and no choice, so it
+        // still requires review; the optional "activity" entry does not.
+        XCTAssertFalse(source.dataTypes[2].isOptional)
+        XCTAssertTrue(source.needsAccessConfiguration)
+
+        XCTAssertEqual(
+            integrationDataAccessMatrixDirectionState(
+                for: source.dataTypes[1],
+                direction: .read,
+                source: source
+            ),
+            .disabled
+        )
+        XCTAssertEqual(
+            integrationDataAccessMatrixDirectionState(
+                for: source.dataTypes[1],
+                direction: .write,
+                source: source
+            ),
+            .unsupported("Read-only.")
+        )
+        XCTAssertEqual(
+            integrationDataAccessMatrixDirectionState(
+                for: source.dataTypes[2],
+                direction: .read,
+                source: source
+            ),
+            .reviewRequired
+        )
+    }
+
+    @MainActor
+    func testSavingSelectionsSendsOnlyListedTypesAndNeverWritesDailyMetrics() async throws {
+        let defaults = UserDefaults.standard
+        let previousBaseURL = defaults.string(forKey: "api_base_url")
+        defaults.set("https://integration-access-unit.test", forKey: "api_base_url")
+        URLProtocol.registerClass(IntegrationAccessURLProtocolStub.self)
+
+        let source = makeHealthKitSource(
+            configurationRequired: false,
+            activity: nil,
+            heart: nil
+        )
+        var sentUpdates: [IntegrationDataTypeUpdate] = []
+        IntegrationAccessURLProtocolStub.handler = { request in
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            guard request.value(forHTTPHeaderField: "Authorization") == "Bearer unit-test-token" else {
+                return (response, Data(#"{"error":"Not this test's request."}"#.utf8))
+            }
+            XCTAssertEqual(request.httpMethod, "PUT")
+            sentUpdates = try JSONDecoder().decode(
+                IntegrationDataAccessUpdate.self,
+                from: try XCTUnwrap(request.integrationAccessBody)
+            ).dataTypes
+            return (response, try JSONEncoder().encode(source))
+        }
+
+        let client = APIClient()
+        client.token = "unit-test-token"
+        defer {
+            client.token = nil
+            IntegrationAccessURLProtocolStub.handler = nil
+            URLProtocol.unregisterClass(IntegrationAccessURLProtocolStub.self)
+            if let previousBaseURL {
+                defaults.set(previousBaseURL, forKey: "api_base_url")
+            } else {
+                defaults.removeObject(forKey: "api_base_url")
+            }
+        }
+
+        let store = IntegrationDataAccessStore()
+        store.apply(IntegrationDataAccessResponse(sources: [source]), userID: "user-1")
+        try await store.save(
+            sourceID: "healthkit",
+            selections: [
+                "activity": .init(readEnabled: true, writeEnabled: true),
+                "not_listed": .init(readEnabled: true, writeEnabled: false)
+            ],
+            api: client
+        )
+
+        XCTAssertEqual(sentUpdates.map(\.id), source.dataTypes.map(\.id))
+        XCTAssertFalse(sentUpdates.contains { $0.id == "not_listed" })
+        XCTAssertEqual(
+            sentUpdates.first { $0.id == "activity" },
+            IntegrationDataTypeUpdate(id: "activity", readEnabled: true, writeEnabled: false)
+        )
+        XCTAssertEqual(
+            sentUpdates.first { $0.id == "heart" },
+            IntegrationDataTypeUpdate(id: "heart", readEnabled: false, writeEnabled: false)
+        )
+    }
+
+    private func makeHealthKitSource(
+        configurationRequired: Bool,
+        activity: IntegrationDirectionSelection?,
+        heart: IntegrationDirectionSelection?,
+        sleep: IntegrationDirectionSelection? = .init(readEnabled: true, writeEnabled: false),
+        includeDailyMetrics: Bool = true
+    ) -> IntegrationDataSource {
+        let supported = IntegrationDirectionCapability(supported: true, disabledReason: nil)
+        let readOnly = IntegrationDirectionCapability(
+            supported: false,
+            disabledReason: "macrovana does not write this data to Apple Health."
+        )
+        var dataTypes = [
+            IntegrationDataType(
+                id: "workouts", displayName: "Workouts", detail: nil,
+                read: supported, write: supported,
+                selection: .init(readEnabled: true, writeEnabled: false)
+            ),
+            IntegrationDataType(
+                id: "weight", displayName: "Weight", detail: nil,
+                read: supported, write: supported,
+                selection: .init(readEnabled: true, writeEnabled: true)
+            ),
+            IntegrationDataType(
+                id: "sleep", displayName: "Sleep", detail: nil,
+                read: supported, write: supported,
+                selection: sleep
+            )
+        ]
+        if includeDailyMetrics {
+            dataTypes += [
+                IntegrationDataType(
+                    id: "activity", displayName: "Activity", detail: nil,
+                    read: supported, write: readOnly,
+                    selection: activity, optional: true
+                ),
+                IntegrationDataType(
+                    id: "heart", displayName: "Heart", detail: nil,
+                    read: supported, write: readOnly,
+                    selection: heart, optional: true
+                )
+            ]
+        }
+        return IntegrationDataSource(
+            id: "healthkit",
+            displayName: "Apple Health",
+            connected: true,
+            available: true,
+            unavailableReason: nil,
+            configurationRequired: configurationRequired,
+            dataTypes: dataTypes
+        )
+    }
+
     private func makeSource(
         id: String,
         configurationRequired: Bool,

@@ -7,6 +7,7 @@ final class HealthKitAutoSync: ObservableObject {
     private let healthStore = HKHealthStore()
     private let workoutSync = HealthKitWorkoutSync()
     private let wellnessSync = HealthKitWellnessSync()
+    private let metricsSync = HealthKitMetricsSync()
     private var observerQueries: [HKObserverQuery] = []
     private var api: APIClient?
     private var includeSexualActivity = false
@@ -93,6 +94,16 @@ final class HealthKitAutoSync: ObservableObject {
             if accessPlan.sexualActivity.readEnabled { readTypes.insert(sexualActivityType) }
         }
 
+        // Daily Activity/Heart metrics are read-only and requested per group.
+        readTypes.formUnion(
+            HealthKitMetricsSync.readTypes(
+                for: HealthKitMetricsSync.enabledGroups(
+                    activity: accessPlan.activity,
+                    heart: accessPlan.heart
+                )
+            )
+        )
+
         try await healthStore.requestAuthorization(toShare: shareTypes, read: readTypes)
     }
 
@@ -114,8 +125,22 @@ final class HealthKitAutoSync: ObservableObject {
            let sexualActivityType = HKCategoryType.categoryType(forIdentifier: .sexualActivity) {
             sampleTypes.append(sexualActivityType)
         }
+        // Steps and energy change many times an hour, so daily-metric observers
+        // keep the 10-minute throttle instead of forcing a full sync.
+        var throttledTypes: Set<HKSampleType> = []
+        for group in HealthKitMetricsSync.enabledGroups(
+            activity: accessPlan.activity,
+            heart: accessPlan.heart
+        ) {
+            for metricType in group.metrics.compactMap({ $0.quantityType })
+            where !sampleTypes.contains(metricType) {
+                sampleTypes.append(metricType)
+                throttledTypes.insert(metricType)
+            }
+        }
 
         for sampleType in sampleTypes {
+            let respectThrottle = throttledTypes.contains(sampleType)
             let query = HKObserverQuery(sampleType: sampleType, predicate: nil) { [weak self] _, completion, error in
                 guard error == nil else {
                     completion()
@@ -123,7 +148,7 @@ final class HealthKitAutoSync: ObservableObject {
                 }
 
                 Task { [weak self] in
-                    await self?.syncAll(reason: "observer", respectThrottle: false)
+                    await self?.syncAll(reason: "observer", respectThrottle: respectThrottle)
                     completion()
                 }
             }
@@ -176,6 +201,13 @@ final class HealthKitAutoSync: ObservableObject {
             _ = try? await wellnessSync.syncRecentSexualActivity(
                 api: api,
                 access: accessPlan.sexualActivity
+            )
+        }
+        if accessPlan.activity.readEnabled || accessPlan.heart.readEnabled {
+            _ = try? await metricsSync.syncDailyMetrics(
+                api: api,
+                activity: accessPlan.activity,
+                heart: accessPlan.heart
             )
         }
     }
