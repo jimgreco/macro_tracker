@@ -25,7 +25,7 @@ test('Health > Activity shows the empty state from the real API, then mocked App
   await expect(tab).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#activity-page')).toBeVisible();
   await expect(page.locator('#activity-empty')).toBeVisible();
-  await expect(page.locator('#activity-empty')).toContainText('Account & Privacy → Data sources (Apple Health)');
+  await expect(page.locator('#activity-empty')).toContainText('Settings → Data Sources → Apple Health');
   await expect(page.locator('#activity-stats')).toBeHidden();
 
   const requests = [];

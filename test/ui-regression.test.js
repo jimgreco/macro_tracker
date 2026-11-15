@@ -81,7 +81,7 @@ test('Health Activity pane renders Apple Health metrics with period toggles and 
     'activity-energy-canvas', 'activity-rhr-canvas', 'activity-hrv-canvas', 'activity-stat-vo2']) {
     assert.equal(html.includes(`id="${id}"`), true, id);
   }
-  assert.equal(html.includes('Account &amp; Privacy &rarr; Data sources (Apple Health)'), true);
+  assert.equal(html.includes('Settings &rarr; Data Sources &rarr; Apple Health'), true);
   assert.equal(script.includes("activity: document.getElementById('activity-page')"), true);
   assert.equal(script.includes("pageKey === 'activity' || pageKey === 'sexual-activity'"), true);
   assert.equal(script.includes("} else if (state.selectedHealthPage === 'activity') {\n      await refreshActivityData();"), true);
