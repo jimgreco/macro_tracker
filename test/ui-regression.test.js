@@ -65,6 +65,34 @@ test('primary navigation is limited to Today, Macros, Workouts, Health, and Insi
   assert.equal(html.includes('data-health-page="sleep"'), true);
   assert.equal(html.includes('aria-controls="weight-page"'), true);
   assert.equal(html.includes('aria-labelledby="health-tab-sleep"'), true);
+  // Activity sits after Sleep and before Sex.
+  const subnav = html.slice(html.indexOf('class="health-subnav"'), html.indexOf('id="weight-page"'));
+  const order = ['data-health-page="weight"', 'data-health-page="sleep"', 'data-health-page="activity"', 'data-health-page="sexual-activity"']
+    .map((marker) => subnav.indexOf(marker));
+  assert.ok(order.every((index, i) => index > -1 && (i === 0 || index > order[i - 1])), JSON.stringify(order));
+  assert.equal(html.includes('<button id="health-tab-activity" type="button" class="health-subnav-btn" role="tab" aria-controls="activity-page" aria-selected="false" tabindex="-1" data-health-page="activity">Activity</button>'), true);
+  assert.equal(html.includes('<section id="activity-page" class="health-pane" role="tabpanel" aria-labelledby="health-tab-activity" tabindex="0" hidden>'), true);
+});
+
+test('Health Activity pane renders Apple Health metrics with period toggles and an empty state', () => {
+  const html = read('public/index.html');
+  const script = read('public/script.js');
+  for (const id of ['activity-period-toggle', 'activity-empty', 'activity-stats', 'activity-steps-canvas',
+    'activity-energy-canvas', 'activity-rhr-canvas', 'activity-hrv-canvas', 'activity-stat-vo2']) {
+    assert.equal(html.includes(`id="${id}"`), true, id);
+  }
+  assert.equal(html.includes('Account &amp; Privacy &rarr; Data sources (Apple Health)'), true);
+  assert.equal(script.includes("activity: document.getElementById('activity-page')"), true);
+  assert.equal(script.includes("pageKey === 'activity' || pageKey === 'sexual-activity'"), true);
+  assert.equal(script.includes("} else if (state.selectedHealthPage === 'activity') {\n      await refreshActivityData();"), true);
+  assert.equal(script.includes('api(`/api/health-metrics?scope=${scope}&tz=${encodeURIComponent(getTimezone())}`)'), true);
+  assert.equal(script.includes("activitySnapshotPeriod: 'weekly'"), true);
+  // Steps, active energy, resting heart rate and HRV are line charts; VO2 max is a stat.
+  assert.equal((script.match(/dayKey: '(steps|activeEnergyKcal|restingHeartRate|hrvMs)'/g) || []).length, 4);
+  assert.equal(script.includes("summaryKey: 'latestVo2Max'"), true);
+  assert.equal(script.includes('drawSimpleLineChart(\n      document.getElementById(`activity-${chart.key}-canvas`)'), true);
+  // Optional HealthKit types read Off in the device-managed matrix column.
+  assert.equal(script.includes("(dataType?.optional ? 'Off' : 'Not chosen')"), true);
 });
 
 test('web and iOS use the same explicit day-completeness state for nutrition evidence', () => {

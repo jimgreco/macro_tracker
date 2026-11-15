@@ -42,6 +42,7 @@ test('iOS Safari pages remain togglable via hidden attribute', () => {
   assert.equal(html.includes('id="health-page" class="app-page" hidden'), true);
   assert.equal(html.includes('id="weight-page" class="health-pane"'), true);
   assert.equal(html.includes('id="sleep-page" class="health-pane'), true);
+  assert.equal(html.includes('id="activity-page" class="health-pane"'), true);
   assert.equal(css.includes('.app-page[hidden]'), true);
   assert.equal(css.includes('.health-pane[hidden]'), true);
   assert.equal(script.includes('function renderActivePage(pageKey'), true);
