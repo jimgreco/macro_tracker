@@ -1094,7 +1094,9 @@ test('weekly summary rows match the weekly-review collector on PostgreSQL', { sk
                     ($1, '2026-10-27', 'resting_heart_rate_bpm', 54.25, NULL), ($1, '2026-10-30', 'hrv_sdnn_ms', 48.06, NULL),
                     ($1, '2026-10-29', 'vo2max_ml_kg_min', 42.04, NULL), ($1, '2026-11-01', 'vo2max_ml_kg_min', 42.36, NULL),
                     ($1, '2026-10-21', 'steps', 6000, NULL), ($1, '2026-10-21', 'resting_heart_rate_bpm', 57, NULL),
-                    ($1, '2026-11-02', 'steps', 99999, NULL), ($1, '2026-10-18', 'steps', 99999, NULL)`, [userId]);
+                    ($1, '2026-11-02', 'steps', 99999, NULL), ($1, '2026-10-18', 'steps', 99999, NULL),
+                    ($1, '2026-10-27', 'walking_running_distance_m', 8047, NULL), ($1, '2026-10-27', 'heart_rate_avg_bpm', 66, NULL),
+                    ($1, '2026-10-21', 'walking_running_distance_m', 4828, NULL), ($1, '2026-10-21', 'heart_rate_avg_bpm', 70, NULL)`, [userId]);
   await pool.query(`INSERT INTO health_daily_metrics (user_id, local_date, metric, value, deleted_at) VALUES
                     ($1, '2026-10-29', 'steps', 99999, now())`, [userId]);
   await pool.query(`INSERT INTO health_daily_metrics (user_id, local_date, metric, value, source) VALUES
@@ -1126,13 +1128,24 @@ test('weekly summary rows match the weekly-review collector on PostgreSQL', { sk
     avgExerciseMinutes: null,
     avgRestingHeartRate: 54.3,
     avgHrvMs: 48.1,
-    latestVo2Max: 42.4
+    latestVo2Max: 42.4,
+    avgDistanceMiles: 5,
+    avgFlightsClimbed: null,
+    avgWalkingSpeedMph: null,
+    avgHeartRateBpm: 66,
+    avgLowestHeartRateBpm: null,
+    avgRespiratoryRate: null,
+    avgOxygenSaturationPct: null
   });
   assert.deepEqual(r.previous.health, {
     daysWithData: 1, avgSteps: 6000, avgActiveEnergyKcal: null, avgExerciseMinutes: null,
-    avgRestingHeartRate: 57, avgHrvMs: null, latestVo2Max: null
+    avgRestingHeartRate: 57, avgHrvMs: null, latestVo2Max: null,
+    avgDistanceMiles: 3, avgFlightsClimbed: null, avgWalkingSpeedMph: null, avgHeartRateBpm: 70,
+    avgLowestHeartRateBpm: null, avgRespiratoryRate: null, avgOxygenSaturationPct: null
   });
-  assert.deepEqual(r.change.health, { avgSteps: 2501, avgRestingHeartRate: -2.7, avgHrvMs: null });
+  assert.deepEqual(r.change.health, {
+    avgSteps: 2501, avgRestingHeartRate: -2.7, avgHrvMs: null, avgDistanceMiles: 2, avgHeartRateBpm: -4
+  });
 
   assert.deepEqual(await db.getWeeklySummaryRows('nobody-weekly-summary@example.test', { startDay: range.prev.start, endDay: range.week.end }), { user: null });
 });

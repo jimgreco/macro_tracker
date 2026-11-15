@@ -64,6 +64,17 @@ const dbInvocations = [];
 let weeklySummaryRows = { user: null };
 let healthMetricsAvailable = true;
 const healthMetricRows = new Map();
+const EMPTY_HEALTH_DAY = Object.freeze({
+  steps: null, activeEnergyKcal: null, exerciseMinutes: null, restingHeartRate: null, hrvMs: null, vo2max: null,
+  walkingRunningDistanceM: null, flightsClimbed: null, walkingSpeedMps: null, walkingStepLengthM: null,
+  heartRateAvgBpm: null, heartRateMinBpm: null, respiratoryRateBrpm: null, oxygenSaturationPct: null
+});
+const EMPTY_HEALTH_SUMMARY = Object.freeze({
+  daysWithData: 0, avgSteps: null, avgActiveEnergyKcal: null, avgExerciseMinutes: null, avgRestingHeartRate: null,
+  avgHrvMs: null, latestVo2Max: null, avgWalkingRunningDistanceM: null, avgFlightsClimbed: null,
+  avgWalkingSpeedMps: null, avgWalkingStepLengthM: null, avgHeartRateAvgBpm: null, avgHeartRateMinBpm: null,
+  lowestHeartRateMinBpm: null, avgRespiratoryRateBrpm: null, avgOxygenSaturationPct: null
+});
 
 function record(name, payload) {
   calls.push({ name, payload });
@@ -390,7 +401,10 @@ const fakeDb = {
   validateApiToken: async (token) => (token === 'normal-user-api-token'
     ? { ...fakeUser, apiTokenId: 7, apiTokenName: 'DailyMacros iOS', apiTokenExpiresAt: null }
     : null),
-  isHealthMetricsAvailable: async () => healthMetricsAvailable,
+  isHealthMetricsAvailable: async () => Boolean(healthMetricsAvailable),
+  // true: current structure (every id); 3: the production v3 CHECK; false: no table.
+  healthMetricIdsAccepted: async () => require('../src/health-metrics').healthMetricIdsForSchemaVersion(
+    healthMetricsAvailable === true ? 4 : Number(healthMetricsAvailable) || 0),
   upsertHealthDailyMetrics: async (userId, items) => {
     record('upsertHealthDailyMetrics', { userId, items });
     for (const item of items) healthMetricRows.set(`${userId}:${item.metric}:${item.date}`, { userId, ...item });
@@ -1459,7 +1473,20 @@ test('weekly summary returns the collectMacros shape with no writes', routeTestO
       { day: '2026-11-03', metric: 'vo2max_ml_kg_min', value: 41.26 },
       { day: '2026-11-04', metric: 'steps', value: 12000 },
       { day: '2026-11-04', metric: 'resting_heart_rate_bpm', value: 56 },
-      { day: '2026-11-06', metric: 'vo2max_ml_kg_min', value: 41.84 }
+      { day: '2026-11-06', metric: 'vo2max_ml_kg_min', value: 41.84 },
+      { day: '2026-10-28', metric: 'walking_running_distance_m', value: 4828 },
+      { day: '2026-10-28', metric: 'heart_rate_avg_bpm', value: 75 },
+      { day: '2026-11-03', metric: 'walking_running_distance_m', value: 8047 },
+      { day: '2026-11-03', metric: 'flights_climbed', value: 10 },
+      { day: '2026-11-03', metric: 'walking_speed_mps', value: 1.4 },
+      { day: '2026-11-03', metric: 'walking_step_length_m', value: 0.74 },
+      { day: '2026-11-03', metric: 'heart_rate_avg_bpm', value: 72 },
+      { day: '2026-11-03', metric: 'heart_rate_min_bpm', value: 50 },
+      { day: '2026-11-03', metric: 'respiratory_rate_brpm', value: 14.5 },
+      { day: '2026-11-03', metric: 'oxygen_saturation_pct', value: 96.6 },
+      { day: '2026-11-04', metric: 'walking_running_distance_m', value: 9656 },
+      { day: '2026-11-04', metric: 'heart_rate_avg_bpm', value: 70 },
+      { day: '2026-11-04', metric: 'heart_rate_min_bpm', value: 48 }
     ]
   };
   dbInvocations.length = 0;
@@ -1500,7 +1527,14 @@ test('weekly summary returns the collectMacros shape with no writes', routeTestO
       avgExerciseMinutes: 31,
       avgRestingHeartRate: 55.6, // (55.25 + 56) / 2 = 55.625
       avgHrvMs: 45,
-      latestVo2Max: 41.8
+      latestVo2Max: 41.8,
+      avgDistanceMiles: 5.5, // (8047 + 9656) / 2 m
+      avgFlightsClimbed: 10,
+      avgWalkingSpeedMph: 3.1,
+      avgHeartRateBpm: 71,
+      avgLowestHeartRateBpm: 49,
+      avgRespiratoryRate: 14.5,
+      avgOxygenSaturationPct: 97
     });
     assert.deepEqual(data.previous.health, {
       daysWithData: 1,
@@ -1509,7 +1543,14 @@ test('weekly summary returns the collectMacros shape with no writes', routeTestO
       avgExerciseMinutes: null,
       avgRestingHeartRate: 58,
       avgHrvMs: 40,
-      latestVo2Max: null
+      latestVo2Max: null,
+      avgDistanceMiles: 3,
+      avgFlightsClimbed: null,
+      avgWalkingSpeedMph: null,
+      avgHeartRateBpm: 75,
+      avgLowestHeartRateBpm: null,
+      avgRespiratoryRate: null,
+      avgOxygenSaturationPct: null
     });
     assert.equal(data.current.days.length, 7);
     assert.deepEqual(data.current.days[0], { date: '2026-11-02', state: 'unlogged', calories: null, protein: null, carbs: null, fat: null, fiber: null });
@@ -1534,7 +1575,7 @@ test('weekly summary returns the collectMacros shape with no writes', routeTestO
     assert.equal(data.previous.waistIn, null);
     assert.deepEqual(data.change, {
       avgCalories: 100, avgProtein: 14, weight: -1.6, avgSleepHours: 0.8, sleepScore: null,
-      health: { avgSteps: 3001, avgRestingHeartRate: -2.4, avgHrvMs: 5 }
+      health: { avgSteps: 3001, avgRestingHeartRate: -2.4, avgHrvMs: 5, avgDistanceMiles: 2.5, avgHeartRateBpm: -4 }
     });
   } finally {
     weeklySummaryRows = { user: null };
@@ -1680,7 +1721,7 @@ test('health metrics import enforces per-group read access, validates, and upser
   resetCalls();
   const partial = await post({ source: 'healthkit', days });
   assert.equal(partial.res.status, 200);
-  assert.deepEqual(partial.body, { upserted: 2, skipped: 1 });
+  assert.deepEqual(partial.body, { upserted: 2, skipped: 1, unsupportedMetrics: [] });
   const upsert = latestCall('upsertHealthDailyMetrics').payload;
   assert.deepEqual(upsert.items.map((item) => item.metric), ['steps', 'steps']);
   assert.equal(upsert.items[0].externalId, `steps:${yesterday}`);
@@ -1692,19 +1733,18 @@ test('health metrics import enforces per-group read access, validates, and upser
   // The device recomputes whole days: the latest value wins.
   await setHealthKitAccess({ activity: true, heart: true });
   const latest = await post({ source: 'healthkit', days: [{ date: yesterday, metric: 'steps', value: 9500 }, ...days.slice(1)] });
-  assert.deepEqual(latest.body, { upserted: 3, skipped: 0 });
+  assert.deepEqual(latest.body, { upserted: 3, skipped: 0, unsupportedMetrics: [] });
 
   const week = await request('/api/health-metrics?scope=week&tz=UTC');
   assert.equal(week.res.status, 200);
   assert.equal(week.body.scope, 'week');
   assert.equal(week.body.enabled, true);
   assert.deepEqual(week.body.days, [
-    { day: yesterday, steps: 9500, activeEnergyKcal: null, exerciseMinutes: null, restingHeartRate: 57.5, hrvMs: null, vo2max: null },
-    { day: today, steps: 4000, activeEnergyKcal: null, exerciseMinutes: null, restingHeartRate: null, hrvMs: null, vo2max: null }
+    { ...EMPTY_HEALTH_DAY, day: yesterday, steps: 9500, restingHeartRate: 57.5 },
+    { ...EMPTY_HEALTH_DAY, day: today, steps: 4000 }
   ]);
   assert.deepEqual(week.body.summary.current, {
-    daysWithData: 2, avgSteps: 6750, avgActiveEnergyKcal: null, avgExerciseMinutes: null,
-    avgRestingHeartRate: 57.5, avgHrvMs: null, latestVo2Max: null
+    ...EMPTY_HEALTH_SUMMARY, daysWithData: 2, avgSteps: 6750, avgRestingHeartRate: 57.5
   });
   assert.equal(week.body.summary.previous.daysWithData, 0);
   assert.deepEqual(latestCall('listHealthDailyMetrics').payload.range, { startDay: isoDayOffset(-13), endDay: today });
@@ -1730,6 +1770,74 @@ test('health metrics import enforces per-group read access, validates, and upser
   assert.equal(tomorrow.res.status, 200);
   healthMetricRows.clear();
   await setHealthKitAccess({});
+});
+
+test('health metrics on the production v3 structure skip newer ids; v4 accepts and reports them', routeTestOptions, async () => {
+  healthMetricRows.clear();
+  const yesterday = isoDayOffset(-1);
+  const post = (days) => request('/api/health-metrics', { method: 'POST', body: JSON.stringify({ source: 'healthkit', days }) });
+  const newDays = [
+    { date: yesterday, metric: 'walking_running_distance_m', value: 6437.4, sampleCount: 2 },
+    { date: yesterday, metric: 'flights_climbed', value: 12 },
+    { date: yesterday, metric: 'walking_speed_mps', value: 1.37 },
+    { date: yesterday, metric: 'walking_step_length_m', value: 0.74 },
+    { date: yesterday, metric: 'heart_rate_avg_bpm', value: 68.4, sampleCount: 900 },
+    { date: yesterday, metric: 'heart_rate_min_bpm', value: 47 },
+    { date: yesterday, metric: 'respiratory_rate_brpm', value: 14.2 },
+    { date: yesterday, metric: 'oxygen_saturation_pct', value: 96.5 }
+  ];
+  try {
+    await setHealthKitAccess({ activity: true, heart: true });
+    healthMetricsAvailable = 3;
+    resetCalls();
+    const legacy = await post([{ date: yesterday, metric: 'steps', value: 8000 }, ...newDays]);
+    assert.equal(legacy.res.status, 200);
+    assert.deepEqual(legacy.body, {
+      upserted: 1,
+      skipped: 8,
+      unsupportedMetrics: ['flights_climbed', 'heart_rate_avg_bpm', 'heart_rate_min_bpm', 'oxygen_saturation_pct',
+        'respiratory_rate_brpm', 'walking_running_distance_m', 'walking_speed_mps', 'walking_step_length_m']
+    });
+    assert.deepEqual(latestCall('upsertHealthDailyMetrics').payload.items.map((item) => item.metric), ['steps']);
+    const audit = calls.filter((call) => call.name === 'logAudit' && call.payload.entityType === 'health_daily_metrics').at(-1);
+    assert.equal(audit.payload.details.skipped, 8);
+    assert.equal(audit.payload.details.unsupportedMetrics.length, 8);
+    // Only newer ids: nothing is written, never a 500.
+    resetCalls();
+    const onlyNew = await post(newDays);
+    assert.equal(onlyNew.res.status, 200);
+    assert.deepEqual([onlyNew.body.upserted, onlyNew.body.skipped], [0, 8]);
+    assert.equal(latestCall('upsertHealthDailyMetrics'), undefined);
+    // Group read access still applies before the schema filter.
+    await setHealthKitAccess({ activity: true });
+    const heartOff = await post(newDays);
+    assert.deepEqual(heartOff.body, { upserted: 0, skipped: 8, unsupportedMetrics: [
+      'flights_climbed', 'walking_running_distance_m', 'walking_speed_mps', 'walking_step_length_m'] });
+
+    // After db:migrate:health-metrics-v2.
+    await setHealthKitAccess({ activity: true, heart: true });
+    healthMetricsAvailable = true;
+    const migrated = await post(newDays);
+    assert.deepEqual(migrated.body, { upserted: 8, skipped: 0, unsupportedMetrics: [] });
+    const week = await request('/api/health-metrics?scope=week&tz=UTC');
+    assert.deepEqual(week.body.days, [{
+      ...EMPTY_HEALTH_DAY, day: yesterday, steps: 8000, walkingRunningDistanceM: 6437, flightsClimbed: 12,
+      walkingSpeedMps: 1.37, walkingStepLengthM: 0.74, heartRateAvgBpm: 68.4, heartRateMinBpm: 47,
+      respiratoryRateBrpm: 14.2, oxygenSaturationPct: 96.5
+    }]);
+    assert.deepEqual(week.body.summary.current, {
+      ...EMPTY_HEALTH_SUMMARY, daysWithData: 1, avgSteps: 8000, avgWalkingRunningDistanceM: 6437,
+      avgFlightsClimbed: 12, avgWalkingSpeedMps: 1.37, avgWalkingStepLengthM: 0.74, avgHeartRateAvgBpm: 68.4,
+      avgHeartRateMinBpm: 47, lowestHeartRateMinBpm: 47, avgRespiratoryRateBrpm: 14.2, avgOxygenSaturationPct: 96.5
+    });
+    // HealthKit's 0-1 oxygen fraction must be converted on the device.
+    const fraction = await post([{ date: yesterday, metric: 'oxygen_saturation_pct', value: 0.97 }]);
+    assert.equal(fraction.res.status, 400);
+  } finally {
+    healthMetricsAvailable = true;
+    healthMetricRows.clear();
+    await setHealthKitAccess({});
+  }
 });
 
 test('health metrics stay off until the optional table is migrated', routeTestOptions, async () => {

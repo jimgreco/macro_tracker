@@ -21,7 +21,8 @@
     "test:check": "node --check public/login.js && node --check public/today-state.js && node --check public/coach-rules.js && node --check public/script.js && node --check src/today-summary.js && node --check src/server.js && npm test",
     "db:migrate": "node scripts/migrate-db.js",
     "db:migrate:fiber": "node scripts/migrate-fiber.js",
-    "db:migrate:health-metrics": "node scripts/migrate-health-metrics.js"
+    "db:migrate:health-metrics": "node scripts/migrate-health-metrics.js",
+    "db:migrate:health-metrics-v2": "node scripts/migrate-health-metrics-v2.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

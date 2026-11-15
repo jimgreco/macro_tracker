@@ -2,7 +2,7 @@
 // contract optionalFeatures health_daily_metrics, ledger version 3). Creates one
 // new empty table; no existing rows are read or rewritten. Idempotent: a replay
 // on an upgraded database is a validated no-op. No runtime credential fallback.
-const { HEALTH_METRICS_DDL } = require('../src/health-metrics');
+const { HEALTH_METRICS_V3_DDL } = require('../src/health-metrics');
 
 // `transaction: false` lets a test run the same steps inside its own
 // rollback-only transaction.
@@ -16,7 +16,7 @@ async function migrate(client, { transaction = true } = {}) {
     const contract = require('../src/schema-contract.json');
     // The required contract (with its recorded version) must already hold.
     await contractModule.assertSchemaCompatible(client);
-    await client.query(HEALTH_METRICS_DDL);
+    await client.query(HEALTH_METRICS_V3_DDL);
     await client.query('ALTER TABLE health_daily_metrics ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ');
     // Reviewed runtime grant, only where the proposed least-privilege role exists.
     await client.query(`DO $$
@@ -30,9 +30,10 @@ async function migrate(client, { transaction = true } = {}) {
       END $$`);
     const { features } = await contractModule.assertSchemaCompatible(client);
     if (!features.health_daily_metrics) throw new Error('health_daily_metrics structure missing after migration');
-    const feature = contract.optionalFeatures.find((item) => item.name === 'health_daily_metrics');
+    // This step is always ledger version 3; db:migrate:health-metrics-v2
+    // records version 4 when it widens the metric CHECK.
     await client.query('INSERT INTO app_schema_versions (app, version) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-      [contract.app, feature.version]);
+      [contract.app, 3]);
     await client.query(`INSERT INTO schema_migrations (name, applied_at) VALUES ('2026-11-15_health_daily_metrics', NOW())
       ON CONFLICT (name) DO NOTHING`);
     if (transaction) await client.query('COMMIT');

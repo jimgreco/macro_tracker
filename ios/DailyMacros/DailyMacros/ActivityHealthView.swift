@@ -4,17 +4,25 @@ import SwiftUI
 /// The Activity metrics, in display order.
 enum ActivityMetric: String, CaseIterable, Sendable {
     case steps
+    case distance
+    case flightsClimbed
     case activeEnergy
     case exercise
+    case walkingSpeed
+    case stepLength
+    case heartRate
+    case lowestHeartRate
     case restingHeartRate
     case hrv
+    case respiratoryRate
+    case bloodOxygen
     case vo2Max
 }
 
 /// Health > Activity shows a metric only when the response has a value for it:
 /// any day in the selected scope, or the current or previous summary. Metrics
 /// with no data (for example heart metrics without an Apple Watch) are hidden,
-/// never estimated.
+/// never estimated. Older servers omit the newer fields, which then stay hidden.
 enum ActivityMetricVisibility {
     static func visibleMetrics(for response: HealthMetricsResponse?) -> [ActivityMetric] {
         guard let response else { return [] }
@@ -32,10 +40,18 @@ enum ActivityMetricVisibility {
     static func dayValue(_ metric: ActivityMetric) -> KeyPath<HealthMetricsDay, Double?> {
         switch metric {
         case .steps: return \.steps
+        case .distance: return \.walkingRunningDistanceM
+        case .flightsClimbed: return \.flightsClimbed
         case .activeEnergy: return \.activeEnergyKcal
         case .exercise: return \.exerciseMinutes
+        case .walkingSpeed: return \.walkingSpeedMps
+        case .stepLength: return \.walkingStepLengthM
+        case .heartRate: return \.heartRateAvgBpm
+        case .lowestHeartRate: return \.heartRateMinBpm
         case .restingHeartRate: return \.restingHeartRate
         case .hrv: return \.hrvMs
+        case .respiratoryRate: return \.respiratoryRateBrpm
+        case .bloodOxygen: return \.oxygenSaturationPct
         case .vo2Max: return \.vo2max
         }
     }
@@ -43,19 +59,28 @@ enum ActivityMetricVisibility {
     static func summaryValue(_ metric: ActivityMetric) -> KeyPath<HealthMetricsPeriodSummary, Double?> {
         switch metric {
         case .steps: return \.avgSteps
+        case .distance: return \.avgWalkingRunningDistanceM
+        case .flightsClimbed: return \.avgFlightsClimbed
         case .activeEnergy: return \.avgActiveEnergyKcal
         case .exercise: return \.avgExerciseMinutes
+        case .walkingSpeed: return \.avgWalkingSpeedMps
+        case .stepLength: return \.avgWalkingStepLengthM
+        case .heartRate: return \.avgHeartRateAvgBpm
+        case .lowestHeartRate: return \.avgHeartRateMinBpm
         case .restingHeartRate: return \.avgRestingHeartRate
         case .hrv: return \.avgHrvMs
+        case .respiratoryRate: return \.avgRespiratoryRateBrpm
+        case .bloodOxygen: return \.avgOxygenSaturationPct
         case .vo2Max: return \.latestVo2Max
         }
     }
 }
 
-/// Health > Activity: daily steps, active energy, exercise minutes, resting
-/// heart rate, HRV and VO2 max read from Apple Health (including values other
-/// apps, such as the Oura app, write into Apple Health). Never uses the direct
-/// Oura API.
+/// Health > Activity: daily steps, distance, flights climbed, active energy,
+/// exercise minutes, walking speed and step length, heart rate (average and
+/// daily low), resting heart rate, HRV, respiratory rate, blood oxygen and VO2
+/// max read from Apple Health (including values other apps, such as the Oura
+/// app, write into Apple Health). Never uses the direct Oura API.
 struct ActivityHealthView: View {
     @EnvironmentObject private var api: APIClient
     @Environment(\.presentSettings) private var presentSettings
@@ -184,6 +209,18 @@ struct ActivityHealthView: View {
                             formatter: formatSteps
                         )
                     }
+                    if isVisible(.distance) {
+                        metricChart(
+                            title: "Distance",
+                            systemImage: "map.fill",
+                            tint: AppVisualSystem.ColorToken.carbs,
+                            style: .bars,
+                            unit: "mi",
+                            value: \.walkingRunningDistanceMiles,
+                            formatter: formatOneDecimal,
+                            spokenUnit: "miles"
+                        )
+                    }
                     if isVisible(.activeEnergy) {
                         metricChart(
                             title: "Active energy",
@@ -193,6 +230,18 @@ struct ActivityHealthView: View {
                             unit: "kcal",
                             value: \.activeEnergyKcal,
                             formatter: formatWhole
+                        )
+                    }
+                    if isVisible(.heartRate) {
+                        metricChart(
+                            title: "Heart rate",
+                            systemImage: "heart.text.square.fill",
+                            tint: AppVisualSystem.ColorToken.fat,
+                            style: .line,
+                            unit: "bpm",
+                            value: \.heartRateAvgBpm,
+                            formatter: formatWhole,
+                            spokenUnit: "beats per minute"
                         )
                     }
                     if isVisible(.restingHeartRate) {
@@ -242,6 +291,33 @@ struct ActivityHealthView: View {
                     isAverage: true
                 )
             }
+            if isVisible(.distance) {
+                summaryCard(
+                    title: "Distance",
+                    systemImage: "map.fill",
+                    tint: AppVisualSystem.ColorToken.carbs,
+                    current: current?.avgWalkingRunningDistanceMiles,
+                    previous: previous?.avgWalkingRunningDistanceMiles,
+                    unit: "mi",
+                    formatter: formatOneDecimal,
+                    isAverage: true,
+                    spokenTitle: "Walking and running distance",
+                    spokenUnit: "miles"
+                )
+            }
+            if isVisible(.flightsClimbed) {
+                summaryCard(
+                    title: "Flights",
+                    systemImage: "figure.stairs",
+                    tint: AppVisualSystem.ColorToken.warning,
+                    current: current?.avgFlightsClimbed,
+                    previous: previous?.avgFlightsClimbed,
+                    unit: "flights",
+                    formatter: formatWhole,
+                    isAverage: true,
+                    spokenTitle: "Flights climbed"
+                )
+            }
             if isVisible(.activeEnergy) {
                 summaryCard(
                     title: "Active energy",
@@ -264,6 +340,59 @@ struct ActivityHealthView: View {
                     unit: "min",
                     formatter: formatWhole,
                     isAverage: true
+                )
+            }
+            if isVisible(.walkingSpeed) {
+                summaryCard(
+                    title: "Walking speed",
+                    systemImage: "speedometer",
+                    tint: AppVisualSystem.ColorToken.workout,
+                    current: current?.avgWalkingSpeedMph,
+                    previous: previous?.avgWalkingSpeedMph,
+                    unit: "mph",
+                    formatter: formatOneDecimal,
+                    isAverage: true,
+                    spokenUnit: "miles per hour"
+                )
+            }
+            if isVisible(.stepLength) {
+                summaryCard(
+                    title: "Step length",
+                    systemImage: "ruler",
+                    tint: AppVisualSystem.ColorToken.workout,
+                    current: current?.avgWalkingStepLengthInches,
+                    previous: previous?.avgWalkingStepLengthInches,
+                    unit: "in",
+                    formatter: formatWhole,
+                    isAverage: true,
+                    spokenUnit: "inches"
+                )
+            }
+            if isVisible(.heartRate) {
+                summaryCard(
+                    title: "Heart rate",
+                    systemImage: "heart.text.square.fill",
+                    tint: AppVisualSystem.ColorToken.fat,
+                    current: current?.avgHeartRateAvgBpm,
+                    previous: previous?.avgHeartRateAvgBpm,
+                    unit: "bpm",
+                    formatter: formatWhole,
+                    isAverage: true,
+                    spokenUnit: "beats per minute"
+                )
+            }
+            if isVisible(.lowestHeartRate) {
+                summaryCard(
+                    title: "Daily low HR",
+                    systemImage: "arrow.down.heart.fill",
+                    tint: AppVisualSystem.ColorToken.fat,
+                    current: current?.avgHeartRateMinBpm,
+                    previous: previous?.avgHeartRateMinBpm,
+                    unit: "bpm",
+                    formatter: formatWhole,
+                    isAverage: true,
+                    spokenTitle: "Daily lowest heart rate",
+                    spokenUnit: "beats per minute"
                 )
             }
             if isVisible(.restingHeartRate) {
@@ -292,6 +421,32 @@ struct ActivityHealthView: View {
                     spokenTitle: "Heart rate variability"
                 )
             }
+            if isVisible(.respiratoryRate) {
+                summaryCard(
+                    title: "Respiratory rate",
+                    systemImage: "wind",
+                    tint: AppVisualSystem.ColorToken.recovery,
+                    current: current?.avgRespiratoryRateBrpm,
+                    previous: previous?.avgRespiratoryRateBrpm,
+                    unit: "br/min",
+                    formatter: formatOneDecimal,
+                    isAverage: true,
+                    spokenUnit: "breaths per minute"
+                )
+            }
+            if isVisible(.bloodOxygen) {
+                summaryCard(
+                    title: "Blood oxygen",
+                    systemImage: "drop.fill",
+                    tint: AppVisualSystem.ColorToken.danger,
+                    current: current?.avgOxygenSaturationPct,
+                    previous: previous?.avgOxygenSaturationPct,
+                    unit: "%",
+                    formatter: formatOneDecimal,
+                    isAverage: true,
+                    spokenUnit: "percent"
+                )
+            }
             if isVisible(.vo2Max) {
                 summaryCard(
                     title: "VO₂ max",
@@ -317,11 +472,13 @@ struct ActivityHealthView: View {
         unit: String,
         formatter: (Double) -> String,
         isAverage: Bool,
-        spokenTitle: String? = nil
+        spokenTitle: String? = nil,
+        spokenUnit: String? = nil
     ) -> some View {
         let valueText = current.map(formatter) ?? "—"
         let caption = isAverage ? "Daily average" : "Latest"
-        let change = changeText(current: current, previous: previous, unit: unit, formatter: formatter)
+        let spoken = spokenUnit ?? unit
+        let change = changeText(current: current, previous: previous, unit: spoken, formatter: formatter)
 
         return VStack(alignment: .leading, spacing: AppVisualSystem.Spacing.small) {
             Label(title, systemImage: systemImage)
@@ -359,7 +516,7 @@ struct ActivityHealthView: View {
         .accessibilityValue(
             current == nil
                 ? "No data"
-                : "\(caption) \(valueText) \(unit). \(change.spoken)"
+                : "\(caption) \(valueText) \(spoken). \(change.spoken)"
         )
     }
 
@@ -394,7 +551,7 @@ struct ActivityHealthView: View {
                 systemImage: "heart.text.square",
                 tint: AppVisualSystem.ColorToken.workout
             )
-            Text("To see steps, active energy, exercise minutes, resting heart rate, HRV and VO₂ max from Apple Health, open Settings → Data Sources → Apple Health and turn on Read for Activity or Heart.")
+            Text("To see steps, distance, flights climbed, walking speed and step length, active energy, exercise minutes, heart rate, resting heart rate, HRV, respiratory rate, blood oxygen and VO₂ max from Apple Health, open Settings → Data Sources → Apple Health and turn on Read for Activity or Heart.")
                 .font(.subheadline)
                 .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -459,7 +616,8 @@ struct ActivityHealthView: View {
         style: ChartStyle,
         unit: String,
         value: KeyPath<HealthMetricsDay, Double?>,
-        formatter: @escaping (Double) -> String
+        formatter: @escaping (Double) -> String,
+        spokenUnit: String? = nil
     ) -> some View {
         let data = days
         let values = data.compactMap { $0[keyPath: value] }
@@ -497,7 +655,7 @@ struct ActivityHealthView: View {
                     chartAccessibilitySummary(
                         data: data,
                         value: value,
-                        unit: unit,
+                        unit: spokenUnit ?? unit,
                         formatter: formatter
                     )
                 )
@@ -702,6 +860,10 @@ struct ActivityHealthView: View {
         }
         if value >= 1000 {
             return (value / 1000).formatted(.number.precision(.fractionLength(1))) + "k"
+        }
+        if value < 10 {
+            // Small ranges (distance in miles) keep one decimal on the axis.
+            return value.formatted(.number.precision(.fractionLength(0...1)))
         }
         return Int(value.rounded()).formatted()
     }

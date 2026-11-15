@@ -167,8 +167,8 @@ enum ScreenshotSeedData {
                 integrationDataType(id: "weight", name: "Weight", detail: "Body mass measurements", read: supported, write: supported),
                 integrationDataType(id: "sleep", name: "Sleep", detail: "Sleep sessions and wake-ups", read: supported, write: supported),
                 integrationDataType(id: "sexual_activity", name: "Sexual Activity", detail: "Optional sexual activity records", read: supported, write: supported),
-                integrationDataType(id: "activity", name: "Activity", detail: "Daily steps, active energy and exercise minutes", read: supported, write: readOnlyHealthKit, selection: .init(readEnabled: true, writeEnabled: false), optional: true),
-                integrationDataType(id: "heart", name: "Heart", detail: "Daily resting heart rate, HRV and VO₂ max", read: supported, write: readOnlyHealthKit, selection: .init(readEnabled: true, writeEnabled: false), optional: true)
+                integrationDataType(id: "activity", name: "Activity", detail: "Daily steps, distance, flights, walking speed and step length, active energy and exercise minutes", read: supported, write: readOnlyHealthKit, selection: .init(readEnabled: true, writeEnabled: false), optional: true),
+                integrationDataType(id: "heart", name: "Heart", detail: "Daily heart rate, resting heart rate, HRV, respiratory rate, blood oxygen and VO₂ max", read: supported, write: readOnlyHealthKit, selection: .init(readEnabled: true, writeEnabled: false), optional: true)
             ]
         )
     }
