@@ -84,6 +84,13 @@ struct IntegrationDataType: Codable, Equatable, Identifiable, Sendable {
     let read: IntegrationDirectionCapability
     let write: IntegrationDirectionCapability
     let selection: IntegrationDirectionSelection?
+    /// Optional data types (for example Apple Health Activity and Heart) are
+    /// off until the user turns them on: a missing selection means no access
+    /// and never makes the source require review. Older servers omit the
+    /// field, which decodes as a required (non-optional) type.
+    var optional: Bool? = nil
+
+    var isOptional: Bool { optional == true }
 }
 
 struct IntegrationDirectionCapability: Codable, Equatable, Sendable {
@@ -99,6 +106,10 @@ struct IntegrationDirectionSelection: Codable, Equatable, Sendable {
         readEnabled: false,
         writeEnabled: false
     )
+
+    var readOnly: IntegrationDirectionSelection {
+        IntegrationDirectionSelection(readEnabled: readEnabled, writeEnabled: false)
+    }
 }
 
 struct IntegrationDataAccessUpdate: Codable, Equatable, Sendable {
@@ -1172,5 +1183,87 @@ struct ScopedHistoryLoad {
 
     mutating func finish(_ request: Request) {
         if currentRequest == request { isLoading = false }
+    }
+}
+
+// MARK: - Apple Health daily metrics
+
+/// One local-calendar day of one Apple Health metric, as sent to
+/// `POST /health-metrics`. Re-sending the same day and metric replaces it.
+struct HealthMetricDayPayload: Codable, Equatable, Sendable {
+    let date: String
+    let metric: String
+    let value: Double
+    let sampleCount: Int
+}
+
+struct HealthMetricsUpload: Codable, Equatable, Sendable {
+    let source: String
+    let days: [HealthMetricDayPayload]
+}
+
+struct HealthMetricsUploadResponse: Codable, Equatable, Sendable {
+    let upserted: Int
+    let skipped: Int
+}
+
+struct HealthMetricsDay: Codable, Equatable, Identifiable, Sendable {
+    let day: String
+    let steps: Double?
+    let activeEnergyKcal: Double?
+    let exerciseMinutes: Double?
+    let restingHeartRate: Double?
+    let hrvMs: Double?
+    let vo2max: Double?
+
+    var id: String { day }
+}
+
+struct HealthMetricsPeriodSummary: Codable, Equatable, Sendable {
+    let daysWithData: Int?
+    let avgSteps: Double?
+    let avgActiveEnergyKcal: Double?
+    let avgExerciseMinutes: Double?
+    let avgRestingHeartRate: Double?
+    let avgHrvMs: Double?
+    let latestVo2Max: Double?
+}
+
+struct HealthMetricsSummary: Codable, Equatable, Sendable {
+    let current: HealthMetricsPeriodSummary?
+    let previous: HealthMetricsPeriodSummary?
+}
+
+struct HealthMetricsResponse: Codable, Equatable, Sendable {
+    let scope: String?
+    /// `false` while the server's metrics table is not migrated yet.
+    let enabled: Bool?
+    let days: [HealthMetricsDay]
+    let summary: HealthMetricsSummary?
+
+    var isEnabled: Bool { enabled != false }
+
+    private enum CodingKeys: String, CodingKey {
+        case scope, enabled, days, summary
+    }
+
+    init(
+        scope: String?,
+        enabled: Bool?,
+        days: [HealthMetricsDay],
+        summary: HealthMetricsSummary?
+    ) {
+        self.scope = scope
+        self.enabled = enabled
+        self.days = days
+        self.summary = summary
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        scope = try container.decodeIfPresent(String.self, forKey: .scope)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled)
+        days = try container.decodeIfPresent([HealthMetricsDay].self, forKey: .days) ?? []
+        summary = try container.decodeIfPresent(HealthMetricsSummary.self, forKey: .summary)
     }
 }

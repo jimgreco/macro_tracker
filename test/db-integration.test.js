@@ -1088,6 +1088,17 @@ test('weekly summary rows match the weekly-review collector on PostgreSQL', { sk
                     ($1, 12, '2026-10-29T03:30:00Z', 'healthkit', 'hk-del', now())`, [userId]);
   await pool.query(`INSERT INTO sleep_entries (user_id, duration_hours, logged_at, source, external_id, oura_document_id) VALUES
                     ($1, 11, '2026-10-30T03:30:00Z', 'healthkit', 'hk-oura', 'oura-doc-1')`, [userId]);
+  // Apple Health daily metrics: live HealthKit rows inside each week only.
+  await pool.query(`INSERT INTO health_daily_metrics (user_id, local_date, metric, value, external_id) VALUES
+                    ($1, '2026-10-27', 'steps', 10000, 'steps:2026-10-27'), ($1, '2026-10-28', 'steps', 7001, 'steps:2026-10-28'),
+                    ($1, '2026-10-27', 'resting_heart_rate_bpm', 54.25, NULL), ($1, '2026-10-30', 'hrv_sdnn_ms', 48.06, NULL),
+                    ($1, '2026-10-29', 'vo2max_ml_kg_min', 42.04, NULL), ($1, '2026-11-01', 'vo2max_ml_kg_min', 42.36, NULL),
+                    ($1, '2026-10-21', 'steps', 6000, NULL), ($1, '2026-10-21', 'resting_heart_rate_bpm', 57, NULL),
+                    ($1, '2026-11-02', 'steps', 99999, NULL), ($1, '2026-10-18', 'steps', 99999, NULL)`, [userId]);
+  await pool.query(`INSERT INTO health_daily_metrics (user_id, local_date, metric, value, deleted_at) VALUES
+                    ($1, '2026-10-29', 'steps', 99999, now())`, [userId]);
+  await pool.query(`INSERT INTO health_daily_metrics (user_id, local_date, metric, value, source) VALUES
+                    ($1, '2026-10-31', 'steps', 99999, 'imported')`, [userId]);
   const rows = await db.getWeeklySummaryRows(email.toUpperCase(), { startDay: range.prev.start, endDay: range.week.end });
   assert.equal(rows.user.id, userId);
   const r = buildMacrosSummary(rows, range);
@@ -1107,6 +1118,21 @@ test('weekly summary rows match the weekly-review collector on PostgreSQL', { sk
   assert.equal(r.current.avgSleepHours, 8.5);
   assert.equal(r.previous.avgSleepHours, 6);
   assert.equal(r.change.avgSleepHours, 2.5);
+  assert.equal(r.current.avgSteps, null); // Oura slot stays null
+  assert.deepEqual(r.current.health, {
+    daysWithData: 5, // Oct 27, 28, 29 (VO2), 30, Nov 1; deleted/other-source/out-of-week rows excluded
+    avgSteps: 8501,
+    avgActiveEnergyKcal: null,
+    avgExerciseMinutes: null,
+    avgRestingHeartRate: 54.3,
+    avgHrvMs: 48.1,
+    latestVo2Max: 42.4
+  });
+  assert.deepEqual(r.previous.health, {
+    daysWithData: 1, avgSteps: 6000, avgActiveEnergyKcal: null, avgExerciseMinutes: null,
+    avgRestingHeartRate: 57, avgHrvMs: null, latestVo2Max: null
+  });
+  assert.deepEqual(r.change.health, { avgSteps: 2501, avgRestingHeartRate: -2.7, avgHrvMs: null });
 
   assert.deepEqual(await db.getWeeklySummaryRows('nobody-weekly-summary@example.test', { startDay: range.prev.start, endDay: range.week.end }), { user: null });
 });

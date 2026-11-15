@@ -126,6 +126,43 @@ Releases never run migrations. A schema change is applied beforehand with the
 owner-run `npm run db:migrate` (or `db:migrate:fiber`) and `MIGRATION_DATABASE_URL`,
 as described in `docs/database-runtime-access.md`.
 
+### Optional-feature schema (Apple Health daily metrics)
+
+Some tables ship as contract `optionalFeatures` (`src/schema-contract.json`):
+startup passes whether the feature's objects are entirely absent (feature off)
+or exactly match; partial or drifted structure still fails startup. The first is
+`health_daily_metrics` (ledger version 3; the required contract stays v2), so
+the release that adds it is safe to merge before the migration:
+
+1. Merge/release normally. Until the table exists, `GET /api/health-metrics`
+   returns empty with `"enabled": false`, `POST /api/health-metrics` returns
+   503, the weekly summary `health` blocks are null, and export/deletion skip
+   the table. Nothing else changes for existing users.
+2. When ready, on the EC2 host take a fresh backup
+   (`sudo systemctl start backup-pilot-macrovana.service`) and add
+   `health_daily_metrics` to `scripts/backup-pilot/tables.json` in
+   `consolidated-deploy` if that list is used for verification.
+3. Run the one-shot additive migration with the owner-supplied migration
+   connection (never the runtime `DATABASE_URL`), from a checkout/image of the
+   released commit:
+   ```bash
+   MIGRATION_DATABASE_URL=... npm run db:migrate:health-metrics
+   ```
+   It requires the v2 ledger, takes the schema advisory lock (2 s lock
+   timeout, 30 s statement timeout), creates the empty table and its indexes,
+   grants `macrovana_runtime` only if that role exists, validates the full
+   contract and records version 3 plus `schema_migrations`
+   `2026-11-15_health_daily_metrics`. Replaying it is a validated no-op. If the
+   runtime connects as a role other than the table creator, grant it
+   `SELECT, INSERT, UPDATE, DELETE` on the table and `USAGE` on
+   `health_daily_metrics_id_seq` (see `docs/database-access-proposal.sql`).
+4. No restart is needed: the running server re-probes the optional table at
+   most once a minute and turns the feature on. Verify with an authenticated
+   `GET /api/health-metrics?scope=week` (`"enabled": true`).
+
+Rollback: older images ignore the extra table. Do not drop it; account
+deletion removes its rows.
+
 ## Manual Smoke
 After deploy, run:
 ```bash

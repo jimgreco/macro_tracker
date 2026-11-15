@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { summarizeHealthRows } = require('./health-metrics');
 
 // Read-only GET /api/weekly-summary for the weekly-review routine.
 // Contract: weekly-review/docs/weekly-summary-contract.md. `data` mirrors
@@ -6,7 +7,9 @@ const crypto = require('crypto');
 // statuses), except that Oura-derived values are always null: Oura API data
 // and derived values must never reach an AI/ML model, and the routine passes
 // this payload to one. Sleep hours come only from Apple Health and manual
-// sleep_entries (see getWeeklySummaryRows), never from the Oura API.
+// sleep_entries (see getWeeklySummaryRows), never from the Oura API. The
+// nested `health` block is Apple Health daily metrics (health_daily_metrics,
+// source healthkit only); the top-level avgSteps stays the null Oura slot.
 
 const WEEK_ERROR = 'week must be a Monday (YYYY-MM-DD)';
 const CM_PER_IN = 2.54;
@@ -92,11 +95,13 @@ function summarizeWeek(week, rows) {
     // Oura-derived; withheld from this AI-bound payload (see file header).
     sleepScore: null,
     readinessScore: null,
-    avgSteps: null
+    avgSteps: null,
+    // Apple Health daily metrics; null until the optional table is migrated.
+    health: rows.health ? summarizeHealthRows(inWeek(rows.health)) : null
   };
 }
 
-// rows: { user, totals, states, weights, waists, sleep, targets } from getWeeklySummaryRows.
+// rows: { user, totals, states, weights, waists, sleep, health, targets } from getWeeklySummaryRows.
 function buildMacrosSummary(rows, { week, prev }) {
   if (!rows || !rows.user) return { status: 'no-account' };
   const current = summarizeWeek(week, rows);
@@ -117,7 +122,14 @@ function buildMacrosSummary(rows, { week, prev }) {
       avgProtein: delta(current.avgProtein, previous.avgProtein),
       weight: delta(current.weight.avg, previous.weight.avg, 1),
       avgSleepHours: delta(current.avgSleepHours, previous.avgSleepHours, 1),
-      sleepScore: delta(current.sleepScore, previous.sleepScore)
+      sleepScore: delta(current.sleepScore, previous.sleepScore),
+      health: current.health && previous.health
+        ? {
+          avgSteps: delta(current.health.avgSteps, previous.health.avgSteps),
+          avgRestingHeartRate: delta(current.health.avgRestingHeartRate, previous.health.avgRestingHeartRate, 1),
+          avgHrvMs: delta(current.health.avgHrvMs, previous.health.avgHrvMs, 1)
+        }
+        : null
     }
   };
 }

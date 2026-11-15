@@ -62,6 +62,8 @@ let analysisSnapshotOverride = null;
 // Every fakeDb function the server calls, by name, for read-only route checks.
 const dbInvocations = [];
 let weeklySummaryRows = { user: null };
+let healthMetricsAvailable = true;
+const healthMetricRows = new Map();
 
 function record(name, payload) {
   calls.push({ name, payload });
@@ -388,6 +390,18 @@ const fakeDb = {
   validateApiToken: async (token) => (token === 'normal-user-api-token'
     ? { ...fakeUser, apiTokenId: 7, apiTokenName: 'DailyMacros iOS', apiTokenExpiresAt: null }
     : null),
+  isHealthMetricsAvailable: async () => healthMetricsAvailable,
+  upsertHealthDailyMetrics: async (userId, items) => {
+    record('upsertHealthDailyMetrics', { userId, items });
+    for (const item of items) healthMetricRows.set(`${userId}:${item.metric}:${item.date}`, { userId, ...item });
+    return items.length;
+  },
+  listHealthDailyMetrics: async (userId, range) => {
+    record('listHealthDailyMetrics', { userId, range });
+    return [...healthMetricRows.values()]
+      .filter((row) => row.userId === userId && row.date >= range.startDay && row.date <= range.endDay)
+      .map((row) => ({ day: row.date, metric: row.metric, value: row.value }));
+  },
   getWeeklySummaryRows: async (email, range) => {
     record('getWeeklySummaryRows', { email, range });
     return weeklySummaryRows;
@@ -629,7 +643,9 @@ test('integration access GET distinguishes missing choices from explicit false v
   assert.equal(missingHealthKit.connected, true);
   assert.equal(missingHealthKit.available, true);
   assert.equal(missingHealthKit.configurationRequired, true);
-  assert.equal(missingHealthKit.dataTypes.length, 4);
+  assert.equal(missingHealthKit.dataTypes.length, 6);
+  assert.deepEqual(missingHealthKit.dataTypes.filter((dataType) => dataType.optional).map((dataType) => dataType.id),
+    ['activity', 'heart']);
   assert.equal(Object.hasOwn(missingHealthKit.dataTypes[0], 'selection'), false);
 
   const selections = missingHealthKit.dataTypes.map((dataType) => ({
@@ -1430,6 +1446,20 @@ test('weekly summary returns the collectMacros shape with no writes', routeTestO
       { day: '2026-11-03', hours: 7.25 },
       { day: '2026-11-04', hours: 7.3 },
       { day: '2026-11-05', hours: 0 }
+    ],
+    health: [
+      { day: '2026-10-28', metric: 'steps', value: 8000 },
+      { day: '2026-10-28', metric: 'resting_heart_rate_bpm', value: 58 },
+      { day: '2026-10-28', metric: 'hrv_sdnn_ms', value: 40 },
+      { day: '2026-11-03', metric: 'steps', value: 10001 },
+      { day: '2026-11-03', metric: 'active_energy_kcal', value: 512.4 },
+      { day: '2026-11-03', metric: 'exercise_minutes', value: 31 },
+      { day: '2026-11-03', metric: 'resting_heart_rate_bpm', value: 55.25 },
+      { day: '2026-11-03', metric: 'hrv_sdnn_ms', value: 45.04 },
+      { day: '2026-11-03', metric: 'vo2max_ml_kg_min', value: 41.26 },
+      { day: '2026-11-04', metric: 'steps', value: 12000 },
+      { day: '2026-11-04', metric: 'resting_heart_rate_bpm', value: 56 },
+      { day: '2026-11-06', metric: 'vo2max_ml_kg_min', value: 41.84 }
     ]
   };
   dbInvocations.length = 0;
@@ -1459,7 +1489,28 @@ test('weekly summary returns the collectMacros shape with no writes', routeTestO
     assert.equal(data.status, 'ok');
     assert.deepEqual(data.targets, { calories: 2000, protein: 140, fiber: null, sleepHours: null });
     assert.deepEqual(Object.keys(data.current), ['days', 'loggedDays', 'completeDays', 'avgCalories', 'avgProtein',
-      'avgFiber', 'weight', 'waistIn', 'sleepNights', 'avgSleepHours', 'sleepScore', 'readinessScore', 'avgSteps']);
+      'avgFiber', 'weight', 'waistIn', 'sleepNights', 'avgSleepHours', 'sleepScore', 'readinessScore', 'avgSteps', 'health']);
+    // Oura slots stay null; Apple Health metrics are nested under health.
+    assert.equal(data.current.avgSteps, null);
+    assert.equal(data.current.readinessScore, null);
+    assert.deepEqual(data.current.health, {
+      daysWithData: 3,
+      avgSteps: 11001,
+      avgActiveEnergyKcal: 512,
+      avgExerciseMinutes: 31,
+      avgRestingHeartRate: 55.6, // (55.25 + 56) / 2 = 55.625
+      avgHrvMs: 45,
+      latestVo2Max: 41.8
+    });
+    assert.deepEqual(data.previous.health, {
+      daysWithData: 1,
+      avgSteps: 8000,
+      avgActiveEnergyKcal: null,
+      avgExerciseMinutes: null,
+      avgRestingHeartRate: 58,
+      avgHrvMs: 40,
+      latestVo2Max: null
+    });
     assert.equal(data.current.days.length, 7);
     assert.deepEqual(data.current.days[0], { date: '2026-11-02', state: 'unlogged', calories: null, protein: null, carbs: null, fat: null, fiber: null });
     assert.deepEqual(data.current.days[1], { date: '2026-11-03', state: 'complete', calories: 2050, protein: 125, carbs: 290, fat: 90, fiber: 12 });
@@ -1481,7 +1532,10 @@ test('weekly summary returns the collectMacros shape with no writes', routeTestO
     assert.equal(data.previous.avgProtein, 111); // 110.5 rounds half up
     assert.equal(data.previous.avgFiber, null); // 1 of 2 entries had fiber
     assert.equal(data.previous.waistIn, null);
-    assert.deepEqual(data.change, { avgCalories: 100, avgProtein: 14, weight: -1.6, avgSleepHours: 0.8, sleepScore: null });
+    assert.deepEqual(data.change, {
+      avgCalories: 100, avgProtein: 14, weight: -1.6, avgSleepHours: 0.8, sleepScore: null,
+      health: { avgSteps: 3001, avgRestingHeartRate: -2.4, avgHrvMs: 5 }
+    });
   } finally {
     weeklySummaryRows = { user: null };
   }
@@ -1521,3 +1575,183 @@ test('weekly summary token is not accepted on other API routes and /api/v1 has n
   assert.ok(dbInvocations.includes('validateApiToken'));
   assert.equal(latestCall('getWeeklySummaryRows'), undefined);
 }));
+
+// ── Apple Health daily metrics ──
+
+function isoDayOffset(days) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+async function setHealthKitAccess(readById) {
+  const access = await request('/api/integrations/access');
+  const healthKit = access.body.sources.find((source) => source.id === 'healthkit');
+  return request('/api/integrations/healthkit/access', {
+    method: 'PUT',
+    body: JSON.stringify({
+      dataTypes: healthKit.dataTypes.map((dataType) => ({
+        id: dataType.id, readEnabled: readById[dataType.id] === true, writeEnabled: false
+      }))
+    })
+  });
+}
+
+const legacyHealthKitIds = ['workouts', 'weight', 'sleep', 'sexual_activity'];
+
+test('optional Activity and Heart access is off when missing and survives older-client replacements', routeTestOptions, async () => {
+  await fakeDb.deleteIntegrationDataPermissions(fakeUser.id, 'healthkit');
+  // Older builds send only the required types; that is a complete selection.
+  const legacy = await request('/api/integrations/healthkit/access', {
+    method: 'PUT',
+    body: JSON.stringify({ dataTypes: legacyHealthKitIds.map((id) => ({
+      id, readEnabled: id === 'sleep', writeEnabled: false
+    })) })
+  });
+  assert.equal(legacy.res.status, 200);
+  assert.equal(legacy.body.configurationRequired, false);
+  const activity = legacy.body.dataTypes.find((dataType) => dataType.id === 'activity');
+  const heart = legacy.body.dataTypes.find((dataType) => dataType.id === 'heart');
+  assert.equal(activity.optional, true);
+  assert.equal(Object.hasOwn(activity, 'selection'), false);
+  assert.equal(activity.write.supported, false);
+  assert.match(activity.write.disabledReason, /doesn't write them back/);
+  assert.match(heart.detail, /VO₂ max/);
+  assert.equal(legacy.body.dataTypes.find((dataType) => dataType.id === 'sleep').optional, false);
+  assert.equal(await fakeDb.isIntegrationDataAccessEnabled(fakeUser.id, 'healthkit', 'activity', 'read'), false);
+
+  const enabled = await setHealthKitAccess({ sleep: true, activity: true, heart: false });
+  assert.equal(enabled.res.status, 200);
+  assert.deepEqual(enabled.body.dataTypes.find((dataType) => dataType.id === 'activity').selection,
+    { readEnabled: true, writeEnabled: false });
+  assert.deepEqual(enabled.body.dataTypes.find((dataType) => dataType.id === 'heart').selection,
+    { readEnabled: false, writeEnabled: false });
+
+  // A later older-client replacement keeps the stored optional choices.
+  const replay = await request('/api/integrations/healthkit/access', {
+    method: 'PUT',
+    body: JSON.stringify({ dataTypes: legacyHealthKitIds.map((id) => ({
+      id, readEnabled: false, writeEnabled: false
+    })) })
+  });
+  assert.equal(replay.res.status, 200);
+  assert.equal(await fakeDb.isIntegrationDataAccessEnabled(fakeUser.id, 'healthkit', 'activity', 'read'), true);
+  assert.equal(await fakeDb.isIntegrationDataAccessEnabled(fakeUser.id, 'healthkit', 'sleep', 'read'), false);
+
+  const writeRejected = await request('/api/integrations/healthkit/access', {
+    method: 'PUT',
+    body: JSON.stringify({ dataTypes: [
+      ...legacyHealthKitIds.map((id) => ({ id, readEnabled: false, writeEnabled: false })),
+      { id: 'heart', readEnabled: true, writeEnabled: true }
+    ] })
+  });
+  assert.equal(writeRejected.res.status, 400);
+  assert.match(writeRejected.body.error, /heart write access is not supported/);
+  await setHealthKitAccess({});
+});
+
+test('health metrics import rejects cross-site and source-less cookie requests', routeTestOptions, async () => {
+  const body = JSON.stringify({ source: 'healthkit', days: [{ date: isoDayOffset(-1), metric: 'steps', value: 1 }] });
+  for (const headers of [{ Origin: 'https://evil.example' }, { Referer: 'https://evil.example/page' }, {}]) {
+    const res = await fetch(`${baseUrl}/api/health-metrics`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
+    assert.equal(res.status, 403, JSON.stringify(headers));
+    assert.equal((await res.json()).error, 'Forbidden request origin.');
+  }
+});
+
+test('health metrics import enforces per-group read access, validates, and upserts', routeTestOptions, async () => {
+  healthMetricRows.clear();
+  healthMetricsAvailable = true;
+  const today = isoDayOffset(0);
+  const yesterday = isoDayOffset(-1);
+  const post = (body) => request('/api/health-metrics', { method: 'POST', body: JSON.stringify(body) });
+  const days = [
+    { date: yesterday, metric: 'steps', value: 9000, sampleCount: 120 },
+    { date: yesterday, metric: 'resting_heart_rate_bpm', value: 57.5 },
+    { date: today, metric: 'steps', value: 4000 }
+  ];
+
+  await setHealthKitAccess({});
+  const blocked = await post({ source: 'healthkit', days });
+  assert.equal(blocked.res.status, 403);
+  assert.equal(blocked.body.error, 'Enable Apple Health Activity or Heart read access before importing.');
+
+  await setHealthKitAccess({ activity: true });
+  resetCalls();
+  const partial = await post({ source: 'healthkit', days });
+  assert.equal(partial.res.status, 200);
+  assert.deepEqual(partial.body, { upserted: 2, skipped: 1 });
+  const upsert = latestCall('upsertHealthDailyMetrics').payload;
+  assert.deepEqual(upsert.items.map((item) => item.metric), ['steps', 'steps']);
+  assert.equal(upsert.items[0].externalId, `steps:${yesterday}`);
+  assert.equal(upsert.items[0].sampleCount, 120);
+  const audits = calls.filter((call) => call.name === 'logAudit' && call.payload.entityType === 'health_daily_metrics');
+  assert.equal(audits.length, 1);
+  assert.deepEqual(audits[0].payload.details, { upserted: 2, skipped: 1, groups: ['activity'] });
+
+  // The device recomputes whole days: the latest value wins.
+  await setHealthKitAccess({ activity: true, heart: true });
+  const latest = await post({ source: 'healthkit', days: [{ date: yesterday, metric: 'steps', value: 9500 }, ...days.slice(1)] });
+  assert.deepEqual(latest.body, { upserted: 3, skipped: 0 });
+
+  const week = await request('/api/health-metrics?scope=week&tz=UTC');
+  assert.equal(week.res.status, 200);
+  assert.equal(week.body.scope, 'week');
+  assert.equal(week.body.enabled, true);
+  assert.deepEqual(week.body.days, [
+    { day: yesterday, steps: 9500, activeEnergyKcal: null, exerciseMinutes: null, restingHeartRate: 57.5, hrvMs: null, vo2max: null },
+    { day: today, steps: 4000, activeEnergyKcal: null, exerciseMinutes: null, restingHeartRate: null, hrvMs: null, vo2max: null }
+  ]);
+  assert.deepEqual(week.body.summary.current, {
+    daysWithData: 2, avgSteps: 6750, avgActiveEnergyKcal: null, avgExerciseMinutes: null,
+    avgRestingHeartRate: 57.5, avgHrvMs: null, latestVo2Max: null
+  });
+  assert.equal(week.body.summary.previous.daysWithData, 0);
+  assert.deepEqual(latestCall('listHealthDailyMetrics').payload.range, { startDay: isoDayOffset(-13), endDay: today });
+
+  for (const invalid of [
+    {},
+    { source: 'oura', days },
+    { source: 'healthkit', days: [] },
+    { source: 'healthkit', days: Array.from({ length: 1001 }, () => days[0]) },
+    { source: 'healthkit', days: [{ ...days[0], metric: 'daily_activity' }] },
+    { source: 'healthkit', days: [{ ...days[0], value: -1 }] },
+    { source: 'healthkit', days: [{ ...days[0], value: 250001 }] },
+    { source: 'healthkit', days: [{ ...days[0], value: '9000' }] },
+    { source: 'healthkit', days: [{ ...days[0], sampleCount: 1.5 }] },
+    { source: 'healthkit', days: [{ ...days[0], date: isoDayOffset(2) }] },
+    { source: 'healthkit', days: [{ ...days[0], date: isoDayOffset(-401) }] },
+    { source: 'healthkit', days: [{ ...days[0], date: '2026-02-30' }] }
+  ]) {
+    const rejected = await post(invalid);
+    assert.equal(rejected.res.status, 400, JSON.stringify(invalid).slice(0, 120));
+  }
+  const tomorrow = await post({ source: 'healthkit', days: [{ date: isoDayOffset(1), metric: 'steps', value: 10 }] });
+  assert.equal(tomorrow.res.status, 200);
+  healthMetricRows.clear();
+  await setHealthKitAccess({});
+});
+
+test('health metrics stay off until the optional table is migrated', routeTestOptions, async () => {
+  healthMetricsAvailable = false;
+  try {
+    await setHealthKitAccess({ activity: true, heart: true });
+    resetCalls();
+    const read = await request('/api/v1/health-metrics?scope=month');
+    assert.equal(read.res.status, 200);
+    assert.equal(read.body.enabled, false);
+    assert.equal(read.body.scope, 'month');
+    assert.deepEqual(read.body.days, []);
+    assert.equal(read.body.summary.current.daysWithData, 0);
+    assert.equal(latestCall('listHealthDailyMetrics'), undefined);
+    const write = await request('/api/v1/health-metrics', {
+      method: 'POST',
+      body: JSON.stringify({ source: 'healthkit', days: [{ date: isoDayOffset(0), metric: 'steps', value: 10 }] })
+    });
+    assert.equal(write.res.status, 503);
+    assert.equal(latestCall('upsertHealthDailyMetrics'), undefined);
+  } finally {
+    healthMetricsAvailable = true;
+    await setHealthKitAccess({});
+  }
+});

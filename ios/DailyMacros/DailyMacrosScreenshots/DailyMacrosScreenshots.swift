@@ -505,6 +505,28 @@ final class DailyMacrosScreenshots: XCTestCase {
         add(attachment)
     }
 
+    func testActivityHealthSectionShowsDailyMetrics() throws {
+        selectTab("Health")
+        selectHealthSection("Activity")
+        XCTAssertTrue(app.navigationBars["Activity"].waitForExistence(timeout: 10))
+        let stepsCard = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@", "Steps")
+        ).firstMatch
+        XCTAssertTrue(stepsCard.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["Resting heart rate"].exists)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Activity and heart daily metrics"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        app.segmentedControls.buttons["Month"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["Steps chart"].waitForExistence(timeout: 10))
+        let monthAttachment = XCTAttachment(screenshot: app.screenshot())
+        monthAttachment.name = "Activity and heart month charts"
+        monthAttachment.lifetime = .keepAlways
+        add(monthAttachment)
+    }
+
     func testSexCategorySummaries() throws {
         selectTab("Health")
         selectHealthSection("Sex")
@@ -527,6 +549,7 @@ final class DailyMacrosScreenshots: XCTestCase {
             selectTab("Health")
             selectHealthSection("Weight")
             selectHealthSection("Sleep")
+            selectHealthSection("Activity")
             selectHealthSection("Sex")
             XCTAssertEqual(app.state, .runningForeground, "App stopped while switching Health sections")
         }
@@ -686,7 +709,10 @@ final class DailyMacrosScreenshots: XCTestCase {
     }
 
     private func selectHealthSection(_ name: String) {
-        let button = app.segmentedControls.buttons[name]
+        // Segment labels may carry a longer VoiceOver label ("Activity and heart").
+        let button = app.segmentedControls.buttons.matching(
+            NSPredicate(format: "label == %@ OR label BEGINSWITH %@", name, "\(name) ")
+        ).firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 5), "Could not find Health section named \(name)")
         button.tap()
     }

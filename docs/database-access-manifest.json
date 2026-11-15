@@ -75,6 +75,12 @@
       "UPDATE",
       "DELETE"
     ],
+    "health_daily_metrics": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
     "health_transport_coverage": [
       "SELECT",
       "INSERT",
@@ -239,6 +245,9 @@
       "USAGE"
     ],
     "entries_id_seq": [
+      "USAGE"
+    ],
+    "health_daily_metrics_id_seq": [
       "USAGE"
     ],
     "saved_items_id_seq": [

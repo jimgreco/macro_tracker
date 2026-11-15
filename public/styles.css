@@ -6031,3 +6031,18 @@ button[disabled] {
 .quick-search-row { display: flex; gap: 8px; margin-bottom: 10px; }
 .quick-search-row input { flex: 1; min-width: 0; }
 .quick-search-row button { flex: 0 0 auto; width: auto; min-width: 0; }
+
+/* Health > Activity (Apple Health daily metrics). */
+.activity-stats { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.activity-stats .metric-target { overflow-wrap: anywhere; }
+.activity-empty { display: grid; gap: 6px; padding: 12px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); }
+.activity-empty p { margin: 0; }
+.activity-empty strong { color: var(--text); }
+.activity-chart + .activity-chart { margin-top: 14px; }
+.activity-chart-title { margin: 0 0 6px; font-size: 0.92rem; color: var(--muted); font-weight: 600; }
+[data-activity-stat="steps"] .metric-value { color: #05ffa1; }
+[data-activity-stat="energy"] .metric-value { color: #ffca28; }
+[data-activity-stat="exercise"] .metric-value { color: #00cfff; }
+[data-activity-stat="rhr"] .metric-value { color: #ff6b9d; }
+[data-activity-stat="hrv"] .metric-value { color: #c48aff; }
+#activity-page [hidden] { display: none !important; }

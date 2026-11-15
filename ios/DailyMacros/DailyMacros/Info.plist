@@ -17,7 +17,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>macrovana uses the camera to parse meal photos.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>macrovana reads recent workouts, body weight, sleep, and sexual activity from Apple Health so your health logs stay in sync.</string>
+	<string>macrovana reads recent workouts, body weight, sleep, and sexual activity, plus daily steps, active energy, exercise minutes, resting heart rate, heart rate variability, and VO₂ max when you turn them on, from Apple Health so your health logs stay in sync.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>macrovana writes workouts, body weight, sleep, and sexual activity you log to Apple Health when you choose to sync.</string>
 	<key>NSAppTransportSecurity</key>

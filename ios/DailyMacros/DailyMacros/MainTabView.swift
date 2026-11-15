@@ -15,18 +15,21 @@ enum AppDestination: String, CaseIterable {
 enum HealthArea: String, CaseIterable {
     case weight
     case sleep
+    case activity
     case sexualActivity
 
     var label: String {
         switch self {
         case .weight: return "Weight"
         case .sleep: return "Sleep"
+        case .activity: return "Activity"
         case .sexualActivity: return "Sex"
         }
     }
 
     var accessibilityLabel: String {
         switch self {
+        case .activity: return "Activity and heart"
         case .sexualActivity: return "Sex"
         default: return label
         }
@@ -144,7 +147,10 @@ final class AppNavigationModel: ObservableObject {
         } else if route.contains("health/sleep") || route.hasSuffix("/sleep") {
             healthArea = .sleep
             open(.health)
-        } else if route.contains("sexual") || route.contains("health/activity") {
+        } else if route.contains("health/activity") || route.contains("health/heart") {
+            healthArea = .activity
+            open(.health)
+        } else if route.contains("sexual") || route.contains("health/sex") {
             healthArea = .sexualActivity
             open(.health)
         } else if route.contains("workout") {
@@ -384,7 +390,9 @@ private struct HealthHubView: View {
     }
 
     private var availableAreas: [HealthArea] {
-        showsSexualActivity ? [.weight, .sleep, .sexualActivity] : [.weight, .sleep]
+        showsSexualActivity
+            ? [.weight, .sleep, .activity, .sexualActivity]
+            : [.weight, .sleep, .activity]
     }
 
     private var visibleHealthArea: HealthArea {
@@ -422,6 +430,8 @@ private struct HealthHubView: View {
                     WeightView()
                 case .sleep:
                     SleepView()
+                case .activity:
+                    ActivityHealthView()
                 case .sexualActivity:
                     SexualActivityView()
                 }

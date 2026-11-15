@@ -102,6 +102,17 @@ test('Integration Data Access matrix has no critical accessibility violations', 
               read: { supported: true },
               write: { supported: true },
               selection: { readEnabled: true, writeEnabled: false }
+            }, {
+              // Optional read-only HealthKit types: no row means off.
+              id: 'heart',
+              displayName: 'Heart',
+              detail: 'Import daily resting heart rate, heart rate variability and VO₂ max from Apple Health.',
+              optional: true,
+              read: { supported: true },
+              write: {
+                supported: false,
+                disabledReason: "Macrovana reads these from Apple Health and doesn't write them back."
+              }
             }]
           },
           {
@@ -159,6 +170,9 @@ test('Integration Data Access matrix has no critical accessibility violations', 
   const matrix = page.locator('.integration-access-matrix');
   await expect(matrix).toBeVisible();
   await expect(matrix.getByRole('columnheader', { name: /Apple Health/ })).toContainText('Manage on iPhone');
+  const heartRow = matrix.getByRole('row', { name: /Heart/ });
+  await expect(heartRow).toContainText('Off');
+  await expect(heartRow).not.toContainText('Not chosen');
   const matrixScroller = page.locator('.integration-access-matrix-scroll');
   const geometry = await matrixScroller.evaluate((element) => ({
     clientWidth: element.clientWidth,

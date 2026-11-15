@@ -52,6 +52,8 @@ const state = {
   workoutSnapshotPeriod: 'weekly',
   healthSnapshotPeriod: 'weekly',
   sleepSnapshotPeriod: 'weekly',
+  activitySnapshotPeriod: 'weekly',
+  activityMetrics: null,
   sleepTargetHours: 8,
   healthEntries: [],
   healthOccurrenceRows: [],
@@ -199,6 +201,7 @@ const healthPageMenuItems = Array.from(document.querySelectorAll('.health-subnav
 const healthPanes = {
   weight: document.getElementById('weight-page'),
   sleep: document.getElementById('sleep-page'),
+  activity: document.getElementById('activity-page'),
   'sexual-activity': document.getElementById('sexual-activity-page')
 };
 const sexualActivityFeatureEls = Array.from(document.querySelectorAll('.sexual-activity-feature'));
@@ -278,6 +281,12 @@ const sleepLogListEl = document.getElementById('sleep-log-list');
 const sleepCanvasEl = document.getElementById('sleep-canvas');
 const sleepSnapshotHeadingEl = document.getElementById('sleep-snapshot-heading');
 const sleepPeriodToggleEl = document.getElementById('sleep-period-toggle');
+const activityPeriodToggleEl = document.getElementById('activity-period-toggle');
+const activitySnapshotHeadingEl = document.getElementById('activity-snapshot-heading');
+const activityEmptyEl = document.getElementById('activity-empty');
+const activityStatsEl = document.getElementById('activity-stats');
+const activityStatsNoteEl = document.getElementById('activity-stats-note');
+const activityChartsSectionEl = document.getElementById('activity-charts-section');
 const sleepAverageValueEl = document.getElementById('sleep-average-value');
 const sleepTargetValueEl = document.getElementById('sleep-target-value');
 const sleepTooltipEl = document.getElementById('sleep-tooltip');
@@ -2284,6 +2293,8 @@ async function refreshPageData(pageKey = state.selectedPage) {
       await refreshWeightData();
     } else if (state.selectedHealthPage === 'sexual-activity') {
       await refreshHealthData();
+    } else if (state.selectedHealthPage === 'activity') {
+      await refreshActivityData();
     } else {
       await refreshSleepData();
     }
@@ -2714,7 +2725,8 @@ function integrationAccessMatrixDirection(source, dataType, direction) {
   }
 
   if (sourceId === 'healthkit') {
-    const choice = dataType?.selection ? (enabled ? 'On' : 'Off') : 'Not chosen';
+    // Optional types (Activity, Heart) are off until chosen on iPhone.
+    const choice = dataType?.selection ? (enabled ? 'On' : 'Off') : (dataType?.optional ? 'Off' : 'Not chosen');
     return `
       <span class="integration-access-matrix-direction is-device-managed">
         <span>${directionName}</span>
@@ -3479,7 +3491,7 @@ function showAccountPrivacyModal() {
       <h3 id="${headingId}" tabindex="-1">Account & Privacy</h3>
       <div class="account-privacy-copy">
         <p><strong>Support</strong><span>Email <a href="mailto:info@macrovana.com">info@macrovana.com</a> or visit our <a href="/support.html">support page</a>. Include any request reference shown in an error message and the build details below.</span></p>
-        <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, optional Oura aggregate metrics, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
+        <p><strong>Your data</strong><span>Daily Macros stores nutrition, weight, workouts, sleep, optional Apple Health activity and heart metrics (daily steps, active energy, exercise minutes, resting heart rate, HRV and VO₂ max), optional Oura aggregate metrics, ${sexualActivityCopy}meal photos you submit for parsing, account details, and app usage needed to run the beta.</span></p>
         <p><strong>AI processing</strong><span>${escapeHtml(aiProcessingCopy)}</span></p>
         <p><strong>Diagnostics</strong><span>Optional browser diagnostics contain only a generic error category, route template, status, request reference, app version, and script location. They are retained for 30 days and never include request bodies, meal or health values, tokens, query strings, stacks, or full user agents.</span></p>
         <p><strong>Controls</strong><span>You can stop future optional diagnostic uploads, export a JSON copy of your account data, or permanently delete your account from here. Essential security and audit records remain enabled. <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span></p>
@@ -6877,7 +6889,7 @@ function normalizedAppRoute(pageKey, healthPage) {
   if (pageKey === 'analysis') {
     return { page: 'insights', healthPage: null };
   }
-  if (pageKey === 'weight' || pageKey === 'sleep' || pageKey === 'sexual-activity') {
+  if (pageKey === 'weight' || pageKey === 'sleep' || pageKey === 'activity' || pageKey === 'sexual-activity') {
     return { page: 'health', healthPage: pageKey };
   }
   if (!appPages[pageKey]) {
@@ -7641,6 +7653,8 @@ function bindPageChartsResize() {
           renderWeightChart();
         } else if (state.selectedHealthPage === 'sleep') {
           renderSleepChart();
+        } else if (state.selectedHealthPage === 'activity') {
+          renderActivityCharts();
         } else if (state.selectedHealthPage === 'sexual-activity') {
           drawHealthOccurrenceChart(state.healthOccurrenceRows || state.healthEntries, state.healthSnapshotPeriod || 'weekly');
         }
@@ -8319,6 +8333,140 @@ function renderSleepChart() {
     targetKey: 'targetValue',
     targetValue: getSleepTargetHours()
   });
+}
+
+// ── Health / Activity (Apple Health daily metrics) ──
+
+// Change copy is neutral: no metric direction is labeled good or bad.
+const ACTIVITY_STATS = [
+  { key: 'steps', summaryKey: 'avgSteps', digits: 0, unit: '' },
+  { key: 'energy', summaryKey: 'avgActiveEnergyKcal', digits: 0, unit: ' cal' },
+  { key: 'exercise', summaryKey: 'avgExerciseMinutes', digits: 0, unit: ' min' },
+  { key: 'rhr', summaryKey: 'avgRestingHeartRate', digits: 1, unit: ' bpm' },
+  { key: 'hrv', summaryKey: 'avgHrvMs', digits: 1, unit: ' ms' },
+  { key: 'vo2', summaryKey: 'latestVo2Max', digits: 1, unit: '', latest: true }
+];
+
+const ACTIVITY_CHARTS = [
+  { key: 'steps', dayKey: 'steps', unit: 'steps' },
+  { key: 'energy', dayKey: 'activeEnergyKcal', unit: 'cal' },
+  { key: 'rhr', dayKey: 'restingHeartRate', unit: 'bpm' },
+  { key: 'hrv', dayKey: 'hrvMs', unit: 'ms' }
+];
+
+const ACTIVITY_PREVIOUS_LABEL = { weekly: 'last week', monthly: 'previous 30 days', annual: 'previous year' };
+
+function formatActivityValue(value, digits) {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  return Number(value).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  });
+}
+
+function formatActivityChange(current, previous, stat) {
+  if (current == null || previous == null) return stat.latest ? 'Latest reading' : 'No previous data';
+  const factor = 10 ** stat.digits;
+  const delta = Math.round((Number(current) - Number(previous)) * factor) / factor;
+  const label = ACTIVITY_PREVIOUS_LABEL[state.activitySnapshotPeriod] || 'previous period';
+  if (delta === 0) return `Same as ${label}`;
+  const sign = delta > 0 ? '+' : '−';
+  return `${sign}${formatActivityValue(Math.abs(delta), stat.digits)}${stat.unit} vs ${label}`;
+}
+
+function activityHasData(data) {
+  return Boolean(data && Array.isArray(data.days) && data.days.length);
+}
+
+function renderActivityPage() {
+  const data = state.activityMetrics;
+  const hasData = activityHasData(data);
+  if (activityEmptyEl) activityEmptyEl.hidden = hasData;
+  if (activityStatsEl) activityStatsEl.hidden = !hasData;
+  if (activityStatsNoteEl) activityStatsNoteEl.hidden = !hasData;
+  if (activityChartsSectionEl) activityChartsSectionEl.hidden = !hasData;
+  const current = data?.summary?.current || {};
+  const previous = data?.summary?.previous || {};
+  for (const stat of ACTIVITY_STATS) {
+    const valueEl = document.getElementById(`activity-stat-${stat.key}`);
+    const changeEl = document.getElementById(`activity-stat-${stat.key}-change`);
+    const value = current[stat.summaryKey];
+    if (valueEl) {
+      valueEl.textContent = value == null ? '—' : `${formatActivityValue(value, stat.digits)}${stat.unit}`;
+    }
+    if (changeEl) {
+      changeEl.textContent = value == null ? 'No data' : formatActivityChange(value, previous[stat.summaryKey], stat);
+    }
+  }
+  if (hasData) renderActivityCharts();
+}
+
+function activityChartRows(dayKey) {
+  const days = state.activityMetrics?.days || [];
+  return days
+    .filter((day) => day[dayKey] != null)
+    .map((day) => ({
+      label: new Date(`${day.day}T00:00:00`).toLocaleDateString(),
+      value: Number(day[dayKey]),
+      time: new Date(`${day.day}T00:00:00`).getTime()
+    }));
+}
+
+function renderActivityCharts() {
+  if (!activityHasData(state.activityMetrics)) return;
+  for (const chart of ACTIVITY_CHARTS) {
+    drawSimpleLineChart(
+      document.getElementById(`activity-${chart.key}-canvas`),
+      activityChartRows(chart.dayKey),
+      'label',
+      'value',
+      {
+        baseline: chart.key === 'rhr' || chart.key === 'hrv' ? 'range' : 'zero',
+        showYAxis: true,
+        showXAxisLabels: true,
+        yTickCount: 4,
+        showTrendLine: true,
+        trendLineMode: 'average',
+        averageValueEl: document.getElementById(`activity-${chart.key}-average`),
+        tooltipEl: document.getElementById(`activity-${chart.key}-tooltip`),
+        tooltipUnit: chart.unit,
+        timeKey: 'time'
+      }
+    );
+  }
+}
+
+let activityRequestRevision = 0;
+
+async function refreshActivityData() {
+  const revision = ++activityRequestRevision;
+  const periodToScope = { weekly: 'week', monthly: 'month', annual: 'year' };
+  const scope = periodToScope[state.activitySnapshotPeriod] || 'week';
+  try {
+    const data = await api(`/api/health-metrics?scope=${scope}&tz=${encodeURIComponent(getTimezone())}`);
+    if (revision !== activityRequestRevision) return;
+    state.activityMetrics = data;
+  } catch (error) {
+    if (revision !== activityRequestRevision) return;
+    state.activityMetrics = null;
+    setActionBanner(error.message, 'error');
+  }
+  renderActivityPage();
+}
+
+if (activityPeriodToggleEl) {
+  for (const btn of activityPeriodToggleEl.querySelectorAll('.period-btn')) {
+    btn.addEventListener('click', async () => {
+      const period = btn.dataset.period;
+      if (!period || period === state.activitySnapshotPeriod) return;
+      state.activitySnapshotPeriod = period;
+      syncPeriodToggle(activityPeriodToggleEl, period);
+      if (activitySnapshotHeadingEl) {
+        activitySnapshotHeadingEl.textContent = PERIOD_HEADING[period] || 'Snapshot';
+      }
+      await refreshActivityData();
+    });
+  }
 }
 
 // ── Health / Sexual Health ──

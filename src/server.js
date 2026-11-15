@@ -136,8 +136,16 @@ const {
   applyStripeBillingEvent,
   listStripeSubscriptionsForReconciliation,
   consumeDailyUsage,
-  getWeeklySummaryRows
+  getWeeklySummaryRows,
+  isHealthMetricsAvailable,
+  upsertHealthDailyMetrics,
+  listHealthDailyMetrics
 } = require('./db');
+const {
+  buildHealthMetricsResponse,
+  healthMetricsWindow,
+  normalizeHealthMetricsPayload
+} = require('./health-metrics');
 const { parseMealText, parseWorkoutText } = require('./parser');
 const { estimateWorkoutCalories } = require('./workout-calories');
 const { scaleMealUnitRows } = require('./meal-normalizer');
@@ -2920,6 +2928,13 @@ apiRouter.put('/integrations/:source/access', async (req, res) => {
     )) {
       return sendError(req, res, 409, current.unavailableReason || 'Integration source is unavailable.');
     }
+    // Older app builds omit optional data types; keep the stored choice for
+    // those instead of letting the replacement delete it.
+    for (const dataType of current.dataTypes) {
+      if (!dataType.optional || !dataType.selection) continue;
+      if (selections.some((selection) => selection.dataType === dataType.id)) continue;
+      selections.push({ dataType: dataType.id, ...dataType.selection });
+    }
     await replaceIntegrationDataPermissions(userId, sourceId, selections);
     await logAudit(userId, 'update', 'integration_data_access', sourceId, {
       dataTypes: selections
@@ -4084,6 +4099,60 @@ apiRouter.delete('/sexual-activity/:id', async (req, res) => {
 });
 
 // ── Sleep endpoints ──
+
+// ── Apple Health daily metrics (steps, energy, exercise, heart) ──
+
+apiRouter.get('/health-metrics', async (req, res) => {
+  try {
+    const scope = normalizeScope(req.query.scope);
+    const window = healthMetricsWindow(scope, requestTimezone(req));
+    if (!(await isHealthMetricsAvailable())) {
+      return res.json(buildHealthMetricsResponse(scope, [], window, { enabled: false }));
+    }
+    const rows = await listHealthDailyMetrics(userIdFromReq(req), {
+      startDay: window.previous.start,
+      endDay: window.current.end
+    });
+    return res.json(buildHealthMetricsResponse(scope, rows, window));
+  } catch (error) {
+    return sendError(req, res, 500, 'Unable to load Apple Health metrics.', error);
+  }
+});
+
+apiRouter.post('/health-metrics', async (req, res) => {
+  let payload;
+  try {
+    payload = normalizeHealthMetricsPayload(req.body);
+  } catch (error) {
+    return sendError(req, res, 400, error.message);
+  }
+  try {
+    const userId = userIdFromReq(req);
+    const enabledGroups = new Set();
+    for (const group of new Set(payload.items.map((item) => item.group))) {
+      if (await isIntegrationDataAccessEnabled(userId, SOURCE_IDS.HEALTHKIT, group, 'read')) {
+        enabledGroups.add(group);
+      }
+    }
+    const items = payload.items.filter((item) => enabledGroups.has(item.group));
+    const skipped = payload.items.length - items.length;
+    if (!items.length) {
+      return sendError(req, res, 403, 'Enable Apple Health Activity or Heart read access before importing.');
+    }
+    if (!(await isHealthMetricsAvailable())) {
+      return sendError(req, res, 503, 'Apple Health activity and heart metrics are not available on this server yet.');
+    }
+    const upserted = await upsertHealthDailyMetrics(userId, items);
+    await logAudit(userId, 'import', 'health_daily_metrics', SOURCE_IDS.HEALTHKIT, {
+      upserted,
+      skipped,
+      groups: [...enabledGroups].sort()
+    });
+    return res.json({ upserted, skipped });
+  } catch (error) {
+    return sendError(req, res, 500, 'Unable to import Apple Health metrics.', error);
+  }
+});
 
 apiRouter.get('/sleep', async (req, res) => {
   try {

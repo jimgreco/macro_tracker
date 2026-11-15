@@ -575,6 +575,7 @@
           <div class="health-subnav" role="tablist" aria-label="Health sections">
             <button id="health-tab-weight" type="button" class="health-subnav-btn" role="tab" aria-controls="weight-page" aria-selected="false" tabindex="-1" data-health-page="weight">Weight</button>
             <button id="health-tab-sleep" type="button" class="health-subnav-btn is-active" role="tab" aria-controls="sleep-page" aria-selected="true" data-health-page="sleep">Sleep</button>
+            <button id="health-tab-activity" type="button" class="health-subnav-btn" role="tab" aria-controls="activity-page" aria-selected="false" tabindex="-1" data-health-page="activity">Activity</button>
             <button id="health-tab-sexual-activity" type="button" class="health-subnav-btn sexual-activity-feature" role="tab" aria-controls="sexual-activity-page" aria-selected="false" tabindex="-1" data-health-page="sexual-activity" hidden>Sex</button>
           </div>
         </div>
@@ -695,6 +696,111 @@
                 <span class="trend-legend-swatch trend-legend-swatch-target" aria-hidden="true"></span>
                 Target: <span id="sleep-target-value">8 hrs</span>
               </span>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section id="activity-page" class="health-pane" role="tabpanel" aria-labelledby="health-tab-activity" tabindex="0" hidden>
+        <section id="activity-snapshot-section" class="panel glass">
+          <div class="snapshot-header">
+            <h2 id="activity-snapshot-heading">Weekly Snapshot</h2>
+            <div class="period-toggle" id="activity-period-toggle" role="group" aria-label="Activity snapshot time period">
+              <button class="period-btn is-active" data-period="weekly">Week</button>
+              <button class="period-btn" data-period="monthly">Month</button>
+              <button class="period-btn" data-period="annual">Year</button>
+            </div>
+          </div>
+          <div id="activity-empty" class="activity-empty" role="status" hidden>
+            <p><strong>No Apple Health activity yet.</strong></p>
+            <p>Turn on Activity and Heart in the Macrovana iOS app under Settings &rarr; Data Sources &rarr; Apple Health to import daily steps, active energy, exercise minutes, resting heart rate, HRV and VO&#8322; max.</p>
+          </div>
+          <div class="cards stats-cards avg-cards activity-stats" id="activity-stats" aria-label="Apple Health averages">
+            <article class="card metric" data-activity-stat="steps">
+              <span class="metric-label">Steps / day</span>
+              <strong class="metric-value" id="activity-stat-steps">—</strong>
+              <span class="metric-target" id="activity-stat-steps-change">—</span>
+            </article>
+            <article class="card metric" data-activity-stat="energy">
+              <span class="metric-label">Active cal / day</span>
+              <strong class="metric-value" id="activity-stat-energy">—</strong>
+              <span class="metric-target" id="activity-stat-energy-change">—</span>
+            </article>
+            <article class="card metric" data-activity-stat="exercise">
+              <span class="metric-label">Exercise min / day</span>
+              <strong class="metric-value" id="activity-stat-exercise">—</strong>
+              <span class="metric-target" id="activity-stat-exercise-change">—</span>
+            </article>
+            <article class="card metric" data-activity-stat="rhr">
+              <span class="metric-label">Resting HR</span>
+              <strong class="metric-value" id="activity-stat-rhr">—</strong>
+              <span class="metric-target" id="activity-stat-rhr-change">—</span>
+            </article>
+            <article class="card metric" data-activity-stat="hrv">
+              <span class="metric-label">HRV</span>
+              <strong class="metric-value" id="activity-stat-hrv">—</strong>
+              <span class="metric-target" id="activity-stat-hrv-change">—</span>
+            </article>
+            <article class="card metric" data-activity-stat="vo2">
+              <span class="metric-label">VO&#8322; max</span>
+              <strong class="metric-value" id="activity-stat-vo2">—</strong>
+              <span class="metric-target" id="activity-stat-vo2-change">—</span>
+            </article>
+          </div>
+          <p class="avg-note" id="activity-stats-note">Averages cover days with Apple Health data. Change compares with the previous period.</p>
+        </section>
+        <section id="activity-charts-section" class="panel glass">
+          <h2>Trends</h2>
+          <div class="activity-chart">
+            <h3 class="activity-chart-title">Steps</h3>
+            <div class="trend-wrap">
+              <canvas id="activity-steps-canvas" height="130" aria-label="Daily steps trend graph"></canvas>
+              <div id="activity-steps-tooltip" class="trend-tooltip" hidden></div>
+              <div class="trend-legend" aria-live="polite">
+                <span class="trend-legend-item">
+                  <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
+                  Average: <span id="activity-steps-average">none</span> steps
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="activity-chart">
+            <h3 class="activity-chart-title">Active energy</h3>
+            <div class="trend-wrap">
+              <canvas id="activity-energy-canvas" height="130" aria-label="Daily active energy trend graph"></canvas>
+              <div id="activity-energy-tooltip" class="trend-tooltip" hidden></div>
+              <div class="trend-legend" aria-live="polite">
+                <span class="trend-legend-item">
+                  <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
+                  Average: <span id="activity-energy-average">none</span> cal
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="activity-chart">
+            <h3 class="activity-chart-title">Resting heart rate</h3>
+            <div class="trend-wrap">
+              <canvas id="activity-rhr-canvas" height="130" aria-label="Resting heart rate trend graph"></canvas>
+              <div id="activity-rhr-tooltip" class="trend-tooltip" hidden></div>
+              <div class="trend-legend" aria-live="polite">
+                <span class="trend-legend-item">
+                  <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
+                  Average: <span id="activity-rhr-average">none</span> bpm
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="activity-chart">
+            <h3 class="activity-chart-title">Heart rate variability</h3>
+            <div class="trend-wrap">
+              <canvas id="activity-hrv-canvas" height="130" aria-label="Heart rate variability trend graph"></canvas>
+              <div id="activity-hrv-tooltip" class="trend-tooltip" hidden></div>
+              <div class="trend-legend" aria-live="polite">
+                <span class="trend-legend-item">
+                  <span class="trend-legend-swatch trend-legend-swatch-average" aria-hidden="true"></span>
+                  Average: <span id="activity-hrv-average">none</span> ms
+                </span>
+              </div>
             </div>
           </div>
         </section>

@@ -2,6 +2,7 @@ const { fiberValue, scaleFiber, fiberSummary } = require('./fiber');
 const healthReconciliation = require('./health-reconciliation');
 const { initCheckinDb } = require('./checkins');
 const { initWaistDb, createWaistStore } = require('./waist');
+const { HEALTH_METRICS_DDL, createHealthMetricsStore } = require('./health-metrics');
 const fs = require('fs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
@@ -948,6 +949,10 @@ async function initDb(queryable = pool) {
   await initCheckinDb(pool);
   await recordSchemaMigration('2026-09-08_progress_checkins', pool);
   await recordSchemaMigration('2026-09-19_checkin_waist_measurements', pool);
+  // Existing databases get this table only from `npm run db:migrate:health-metrics`.
+  await pool.query(HEALTH_METRICS_DDL);
+  await pool.query('ALTER TABLE health_daily_metrics ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;');
+  await recordSchemaMigration('2026-11-15_health_daily_metrics', pool);
   await recordSchemaMigration('2026-06-11_feature_foundations', pool);
   await recordSchemaMigration('2026-07-20_direct_oura_integration', pool);
   await recordSchemaMigration('2026-07-27_client_mutation_idempotency', pool);
@@ -5315,10 +5320,28 @@ function inventoryExportQuery(item) {
   return `SELECT ${columns} FROM ${table} WHERE ${userColumn} = $1${orderBy}`;
 }
 
+// Optional-feature tables (see schema-contract optionalFeatures) may not exist
+// until their owner-run migration; export and deletion skip them meanwhile.
+async function presentInventoryItems(queryable, items) {
+  const present = [];
+  for (const item of items) {
+    if (item.optionalFeature) {
+      const table = assertInventoryIdentifier(item.table, 'table');
+      const { rows } = await queryable.query('SELECT to_regclass($1) IS NOT NULL AS present', [`public.${table}`]);
+      if (!rows[0]?.present) continue;
+    }
+    present.push(item);
+  }
+  return present;
+}
+
 async function exportUserData(userId) {
   const inventory = accountExportInventory();
+  const present = new Set(await presentInventoryItems(pool, inventory));
   const [results, weightTarget] = await Promise.all([
-    Promise.all(inventory.map((item) => pool.query(inventoryExportQuery(item), [userId]))),
+    Promise.all(inventory.map((item) => (present.has(item)
+      ? pool.query(inventoryExportQuery(item), [userId])
+      : { rows: [] }))),
     getWeightTarget(userId)
   ]);
   const retention = Object.fromEntries(
@@ -5353,7 +5376,7 @@ async function deleteUserAccount(userId) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    for (const item of accountDeletionInventory()) {
+    for (const item of await presentInventoryItems(client, accountDeletionInventory())) {
       const table = assertInventoryIdentifier(item.table, 'table');
       const userColumn = assertInventoryIdentifier(item.userColumn, 'user column');
       await client.query(`DELETE FROM ${table} WHERE ${userColumn} = $1`, [userId]);
@@ -6113,6 +6136,22 @@ async function getWeeklySummaryRows(email, { startDay, endDay }) {
         GROUP BY 1`,
       [user.id, timezone, startDay, endDay]
     );
+    // Apple Health daily metrics: HealthKit rows only (HealthKit copies written by
+    // the Oura app are allowed; direct Oura API data never lands in this table).
+    // null until the optional table exists (owner-run migration not yet applied).
+    const healthTable = await client.query(
+      "SELECT to_regclass('public.health_daily_metrics') IS NOT NULL AS present"
+    );
+    const health = healthTable.rows[0].present
+      ? (await client.query(
+        `SELECT to_char(local_date, 'YYYY-MM-DD') AS day, metric, value::float8 AS value
+           FROM health_daily_metrics
+          WHERE user_id = $1 AND deleted_at IS NULL AND source = 'healthkit'
+            AND local_date BETWEEN $2::date AND $3::date
+          ORDER BY local_date, metric`,
+        [user.id, startDay, endDay]
+      )).rows
+      : null;
     await client.query('COMMIT');
     return {
       user: { id: user.id, timezone },
@@ -6121,7 +6160,8 @@ async function getWeeklySummaryRows(email, { startDay, endDay }) {
       targets: Object.fromEntries(targets.rows.map((row) => [row.macro, row.target])),
       weights: weights.rows,
       waists: waists.rows,
-      sleep: sleep.rows
+      sleep: sleep.rows,
+      health
     };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
@@ -6131,8 +6171,13 @@ async function getWeeklySummaryRows(email, { startDay, endDay }) {
   }
 }
 
+const healthMetricsStore = createHealthMetricsStore(pool, {
+  detect: (queryable) => require('./schema-contract').detectOptionalFeature(queryable, 'health_daily_metrics')
+});
+
 module.exports = {
   ...createWaistStore(pool),
+  ...healthMetricsStore,
   initDb,
   getPool,
   checkDatabaseHealth,
