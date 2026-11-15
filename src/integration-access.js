@@ -217,7 +217,12 @@ function buildSourceAccess({
       connected: Boolean(connected)
     }),
     dataTypes: dataTypes.map((dataType) => {
-      const selection = byDataType.get(dataType.id);
+      // An optional type with no saved choice is Off. Send that explicitly:
+      // app builds before the optional types existed (App Store 1.3/1.4) treat
+      // any data type without a selection as "needs review" and stop all
+      // Apple Health sync until it is configured.
+      const selection = byDataType.get(dataType.id)
+        ?? (dataType.optional ? { readEnabled: false, writeEnabled: false } : undefined);
       return {
         ...dataType,
         ...(selection ? { selection } : {})

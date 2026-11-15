@@ -1654,7 +1654,12 @@ test('optional Activity and Heart access is off when missing and survives older-
   const activity = legacy.body.dataTypes.find((dataType) => dataType.id === 'activity');
   const heart = legacy.body.dataTypes.find((dataType) => dataType.id === 'heart');
   assert.equal(activity.optional, true);
-  assert.equal(Object.hasOwn(activity, 'selection'), false);
+  // Unset optional types are sent as an explicit Off: App Store 1.3/1.4 treat a
+  // data type without a selection as "needs review" and stop all Apple Health sync.
+  assert.deepEqual(activity.selection, { readEnabled: false, writeEnabled: false });
+  assert.deepEqual(heart.selection, { readEnabled: false, writeEnabled: false });
+  assert.equal(legacy.body.dataTypes.every((dataType) => dataType.selection), true,
+    'every data type carries a selection once the required types are chosen');
   assert.equal(activity.write.supported, false);
   assert.match(activity.write.disabledReason, /doesn't write them back/);
   assert.match(heart.detail, /VO₂ max/);
