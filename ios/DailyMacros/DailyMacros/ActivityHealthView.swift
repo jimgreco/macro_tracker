@@ -93,6 +93,7 @@ struct ActivityHealthView: View {
     @State private var metricsLoad = ScopedHistoryLoad()
     @State private var isSyncing = false
     @State private var alertMessage: String?
+    @State private var syncStatus: ManualSyncStatus?
 
     @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 140
 
@@ -177,6 +178,8 @@ struct ActivityHealthView: View {
     @ViewBuilder
     private var content: some View {
         VStack(spacing: 12) {
+            ManualSyncStatusLine(status: syncStatus)
+
             Picker("Scope", selection: $scope) {
                 ForEach(scopes, id: \.self) { value in
                     Text(value.capitalized).tag(value)
@@ -917,9 +920,8 @@ struct ActivityHealthView: View {
                 activity: accessPlan.activity,
                 heart: accessPlan.heart
             )
-            alertMessage = result.importedCount > 0
-                ? "Apple Health: updated \(result.importedCount) daily value\(result.importedCount == 1 ? "" : "s")."
-                : "Apple Health: no activity or heart data found in recent days."
+            syncStatus = ManualSyncStatus(syncedAt: Date(), noNewData: result.importedCount == 0)
+            ManualSyncStatusLine.announceSuccess()
         } catch APIError.httpError(let status, _) where status == 403 {
             alertMessage = "Apple Health activity and heart access is off for this account. You can change it in Settings → Data Sources."
         } catch {

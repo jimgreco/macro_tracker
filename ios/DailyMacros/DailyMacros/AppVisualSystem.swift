@@ -266,6 +266,28 @@ extension AppSectionHeader where Trailing == EmptyView {
     }
 }
 
+/// Quiet, non-blocking status line shown after a successful manual sync.
+struct ManualSyncStatusLine: View {
+    let status: ManualSyncStatus?
+
+    var body: some View {
+        if let status {
+            TimelineView(.periodic(from: status.syncedAt, by: 30)) { context in
+                Text(status.label(now: context.date))
+                    .font(.footnote)
+                    .foregroundStyle(AppVisualSystem.ColorToken.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    /// VoiceOver announcement for a successful manual sync, since the visual
+    /// change is subtle.
+    static func announceSuccess() {
+        AccessibilityNotification.Announcement("Synced").post()
+    }
+}
+
 // Compatibility aliases keep the existing macro-specific code readable while
 // moving its palette into the shared semantic system.
 extension Color {
