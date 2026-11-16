@@ -34,6 +34,7 @@
 		A1000025 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000025; };
 		A1000026 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = A2000026; };
 		A1000027 /* AppVisualSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000027; };
+		A1000099 /* ChartSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000099; };
 		A1000028 /* IntegrationDataAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000028; };
 		A1000029 /* HealthKitMetricsSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000029; };
 		A1000030 /* ActivityHealthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000030; };
@@ -44,6 +45,7 @@
 		B1000005 /* IntegrationDataAccessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000005; };
 		B1000007 /* HealthKitMetricsSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000007; };
 		B1000006 /* QuickAddFitRankerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000006; };
+		B1000099 /* ChartSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000099; };
 		U1000001 /* DailyMacrosScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000002; };
 		U1000002 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000003; };
 /* End PBXBuildFile section */
@@ -93,6 +95,7 @@
 		A2000025 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		A2000026 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		A2000027 /* AppVisualSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVisualSystem.swift; sourceTree = "<group>"; };
+		A2000099 /* ChartSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartSelection.swift; sourceTree = "<group>"; };
 		A2000028 /* IntegrationDataAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationDataAccess.swift; sourceTree = "<group>"; };
 		A2000029 /* HealthKitMetricsSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitMetricsSync.swift; sourceTree = "<group>"; };
 		A2000030 /* ActivityHealthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityHealthView.swift; sourceTree = "<group>"; };
@@ -104,6 +107,7 @@
 		B2000005 /* IntegrationDataAccessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationDataAccessTests.swift; sourceTree = "<group>"; };
 		B2000007 /* HealthKitMetricsSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitMetricsSyncTests.swift; sourceTree = "<group>"; };
 		B2000006 /* QuickAddFitRankerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickAddFitRankerTests.swift; sourceTree = "<group>"; };
+		B2000099 /* ChartSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartSelectionTests.swift; sourceTree = "<group>"; };
 		B3000001 /* DailyMacrosTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DailyMacrosTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		U2000001 /* ScreenshotSeedData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotSeedData.swift; sourceTree = "<group>"; };
 		U2000002 /* DailyMacrosScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyMacrosScreenshots.swift; sourceTree = "<group>"; };
@@ -147,6 +151,7 @@
 				A2000002 /* APIClient.swift */,
 				A2000003 /* Models.swift */,
 				A2000027 /* AppVisualSystem.swift */,
+				A2000099 /* ChartSelection.swift */,
 				A2000028 /* IntegrationDataAccess.swift */,
 				A2000029 /* HealthKitMetricsSync.swift */,
 				A2000030 /* ActivityHealthView.swift */,
@@ -197,6 +202,7 @@
 				B2000005 /* IntegrationDataAccessTests.swift */,
 				B2000007 /* HealthKitMetricsSyncTests.swift */,
 				B2000006 /* QuickAddFitRankerTests.swift */,
+				B2000099 /* ChartSelectionTests.swift */,
 			);
 			path = DailyMacrosTests;
 			sourceTree = "<group>";
@@ -371,6 +377,7 @@
 				A1000024 /* ScreenshotSeedData.swift in Sources */,
 				A1000025 /* TodayView.swift in Sources */,
 				A1000027 /* AppVisualSystem.swift in Sources */,
+				A1000099 /* ChartSelection.swift in Sources */,
 				A1000028 /* IntegrationDataAccess.swift in Sources */,
 				A1000029 /* HealthKitMetricsSync.swift in Sources */,
 				A1000030 /* ActivityHealthView.swift in Sources */,
@@ -388,6 +395,7 @@
 				B1000005 /* IntegrationDataAccessTests.swift in Sources */,
 				B1000007 /* HealthKitMetricsSyncTests.swift in Sources */,
 				B1000006 /* QuickAddFitRankerTests.swift in Sources */,
+				B1000099 /* ChartSelectionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

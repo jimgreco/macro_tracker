@@ -527,6 +527,50 @@ final class DailyMacrosScreenshots: XCTestCase {
         add(monthAttachment)
     }
 
+    func testActivityChartTapShowsCalloutAndPageStillScrolls() throws {
+        selectTab("Health")
+        selectHealthSection("Activity")
+        XCTAssertTrue(app.navigationBars["Activity"].waitForExistence(timeout: 10))
+        let chart = app.descendants(matching: .any)["activity-chart-Steps"]
+        XCTAssertTrue(chart.waitForExistence(timeout: 10))
+        // Bring the whole chart above the tab bar so taps land on it.
+        let tabBarTop = app.tabBars.firstMatch.frame.minY
+        for _ in 0..<6 where chart.frame.maxY > tabBarTop - 20 {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertLessThan(chart.frame.maxY, tabBarTop)
+        let callout = app.descendants(matching: .any)["chart-selection-callout"]
+        XCTAssertFalse(callout.exists)
+
+        // Tap a bar: the callout appears and stays after the finger lifts.
+        let point = chart.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5))
+        point.tap()
+        XCTAssertTrue(callout.waitForExistence(timeout: 3))
+        XCTAssertTrue(callout.label.contains("steps"), "Callout label was \(callout.label)")
+        let calloutFrame = callout.frame
+        XCTAssertTrue(chart.frame.insetBy(dx: -1, dy: -1).contains(calloutFrame), "Callout \(calloutFrame) left chart \(chart.frame)")
+        XCTAssertTrue((chart.value as? String)?.contains("steps") == true)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Activity steps chart selection"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        // Tapping the same bar again clears it.
+        point.tap()
+        XCTAssertFalse(callout.waitForExistence(timeout: 1))
+
+        // Select, then tap outside the plot (the axis-label strip) to clear.
+        point.tap()
+        XCTAssertTrue(callout.waitForExistence(timeout: 3))
+        chart.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.98)).tap()
+        XCTAssertFalse(callout.waitForExistence(timeout: 1))
+
+        // A vertical swipe that starts on the chart still scrolls the page.
+        let before = chart.frame.minY
+        chart.swipeUp(velocity: .slow)
+        XCTAssertLessThan(chart.frame.minY, before - 20, "Page did not scroll from a swipe on the chart")
+    }
+
     func testSexCategorySummaries() throws {
         selectTab("Health")
         selectHealthSection("Sex")

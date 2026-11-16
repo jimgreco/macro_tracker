@@ -94,6 +94,7 @@ struct ActivityHealthView: View {
     @State private var isSyncing = false
     @State private var alertMessage: String?
     @State private var syncStatus: ManualSyncStatus?
+    @State private var chartSelection: ChartSelectionKey?
 
     @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 140
 
@@ -640,6 +641,17 @@ struct ActivityHealthView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 80)
             } else {
+                let selection = ChartSelectionKey.binding($chartSelection, chart: title)
+                let selected = selection.wrappedValue
+                let callouts = data.map { day in
+                    day[keyPath: value].map { metricValue in
+                        ChartCalloutText(
+                            value: ChartValueFormat.metric(metricValue, unit: unit),
+                            date: ChartValueFormat.day(isoDay: day.day),
+                            spoken: "\(formatter(metricValue)) \(spokenUnit ?? unit), \(chartSpokenDate(day.day))"
+                        )
+                    }
+                }
                 Canvas { context, size in
                     drawMetricChart(
                         data: data,
@@ -647,6 +659,7 @@ struct ActivityHealthView: View {
                         style: style,
                         tint: tint,
                         formatter: formatter,
+                        selectedIndex: selected,
                         context: context,
                         size: size
                     )
@@ -654,12 +667,29 @@ struct ActivityHealthView: View {
                 .frame(height: chartHeight)
                 .accessibilityElement()
                 .accessibilityLabel("\(title) chart")
-                .accessibilityValue(
-                    chartAccessibilitySummary(
+                .accessibilityIdentifier("activity-chart-\(title)")
+                .chartSelection(
+                    selection,
+                    count: data.count,
+                    resetID: scope,
+                    plotRect: { MetricChartGeometry(data: data, value: value, style: style, size: $0).plotRect },
+                    anchor: { index, size in
+                        MetricChartGeometry(data: data, value: value, style: style, size: size).anchor(index)
+                    },
+                    callout: { callouts.indices.contains($0) ? callouts[$0] : nil },
+                    tint: tint,
+                    accessibilitySummary: chartAccessibilitySummary(
                         data: data,
                         value: value,
                         unit: spokenUnit ?? unit,
                         formatter: formatter
+                    ),
+                    descriptor: ChartAccessibilityDescriptor(
+                        title: title,
+                        yTitle: spokenUnit ?? unit,
+                        isContinuous: style == .line,
+                        values: data.map { $0[keyPath: value] },
+                        callouts: callouts
                     )
                 )
             }
@@ -682,57 +712,96 @@ struct ActivityHealthView: View {
         return "\(points.count) \(dayWord) with data. Average \(formatter(average)) \(unit). High \(formatter(high.1)) on \(chartDateLabel(high.0)). Low \(formatter(low.1)) on \(chartDateLabel(low.0))."
     }
 
+    /// Scale and plot area shared by drawing and tap selection.
+    private struct MetricChartGeometry {
+        static let topPadding: CGFloat = 10
+        static let rightPadding: CGFloat = 8
+        static let bottomPadding: CGFloat = 26
+        static let leftPadding: CGFloat = 46
+
+        let points: [(index: Int, value: Double)]
+        let values: [Double?]
+        let style: ChartStyle
+        let count: Int
+        let minValue: Double
+        let maxValue: Double
+        let span: Double
+        let chartW: CGFloat
+        let chartH: CGFloat
+
+        init(data: [HealthMetricsDay], value: KeyPath<HealthMetricsDay, Double?>, style: ChartStyle, size: CGSize) {
+            values = data.map { $0[keyPath: value] }
+            points = values.enumerated().compactMap { index, value in value.map { (index, $0) } }
+            self.style = style
+            count = data.count
+            let rawMax = points.map(\.value).max() ?? 1
+            let rawMin = points.map(\.value).min() ?? 0
+            // Bars start at zero; lines zoom to their range so small changes show.
+            switch style {
+            case .bars:
+                minValue = 0
+                maxValue = max(rawMax * 1.1, 1)
+            case .line:
+                let padding = max((rawMax - rawMin) * 0.2, max(rawMax * 0.05, 1))
+                minValue = max(rawMin - padding, 0)
+                maxValue = rawMax + padding
+            }
+            span = max(maxValue - minValue, 1)
+            chartW = max(size.width - Self.leftPadding - Self.rightPadding, 1)
+            chartH = max(size.height - Self.topPadding - Self.bottomPadding, 1)
+        }
+
+        var plotRect: CGRect {
+            CGRect(x: Self.leftPadding, y: Self.topPadding, width: chartW, height: chartH)
+        }
+
+        func xPos(_ index: Int) -> CGFloat {
+            ChartSelectionMath.xPosition(
+                index: index,
+                count: count,
+                minX: Self.leftPadding,
+                width: chartW,
+                centeredInSlots: style == .bars
+            )
+        }
+
+        func yPos(_ value: Double) -> CGFloat {
+            let ratio = (value - minValue) / span
+            return Self.topPadding + chartH * (1 - CGFloat(ratio))
+        }
+
+        /// Top of the bar, or the dot, for a point with a value.
+        func anchor(_ index: Int) -> CGPoint? {
+            guard values.indices.contains(index), let value = values[index] else { return nil }
+            return CGPoint(x: xPos(index), y: yPos(value))
+        }
+    }
+
     private func drawMetricChart(
         data: [HealthMetricsDay],
         value: KeyPath<HealthMetricsDay, Double?>,
         style: ChartStyle,
         tint: Color,
         formatter: (Double) -> String,
+        selectedIndex: Int?,
         context: GraphicsContext,
         size: CGSize
     ) {
-        let points: [(index: Int, value: Double)] = data.enumerated().compactMap { index, day in
-            day[keyPath: value].map { (index, $0) }
-        }
+        let geometry = MetricChartGeometry(data: data, value: value, style: style, size: size)
+        let points = geometry.points
         guard !points.isEmpty else { return }
 
-        let rawMax = points.map(\.value).max() ?? 1
-        let rawMin = points.map(\.value).min() ?? 0
-        // Bars start at zero; lines zoom to their range so small changes show.
-        let minValue: Double
-        let maxValue: Double
-        switch style {
-        case .bars:
-            minValue = 0
-            maxValue = max(rawMax * 1.1, 1)
-        case .line:
-            let padding = max((rawMax - rawMin) * 0.2, max(rawMax * 0.05, 1))
-            minValue = max(rawMin - padding, 0)
-            maxValue = rawMax + padding
-        }
-        let span = max(maxValue - minValue, 1)
-        let topPadding: CGFloat = 10
-        let rightPadding: CGFloat = 8
-        let bottomPadding: CGFloat = 26
-        let leftPadding: CGFloat = 46
-        let chartW = max(size.width - leftPadding - rightPadding, 1)
-        let chartH = max(size.height - topPadding - bottomPadding, 1)
+        let maxValue = geometry.maxValue
+        let span = geometry.span
+        let topPadding = MetricChartGeometry.topPadding
+        let leftPadding = MetricChartGeometry.leftPadding
+        let chartW = geometry.chartW
+        let chartH = geometry.chartH
         let tickCount = 3
         let count = data.count
 
-        func xPos(_ index: Int) -> CGFloat {
-            if style == .bars {
-                let slot = chartW / CGFloat(max(count, 1))
-                return leftPadding + slot * (CGFloat(index) + 0.5)
-            }
-            guard count > 1 else { return leftPadding + chartW / 2 }
-            return leftPadding + CGFloat(index) / CGFloat(count - 1) * chartW
-        }
-
-        func yPos(_ value: Double) -> CGFloat {
-            let ratio = (value - minValue) / span
-            return topPadding + chartH * (1 - CGFloat(ratio))
-        }
+        func xPos(_ index: Int) -> CGFloat { geometry.xPos(index) }
+        func yPos(_ value: Double) -> CGFloat { geometry.yPos(value) }
 
         for tickIndex in 0...tickCount {
             let ratio = CGFloat(tickIndex) / CGFloat(tickCount)
@@ -780,9 +849,15 @@ struct ActivityHealthView: View {
                     width: barWidth,
                     height: max(topPadding + chartH - top, 0)
                 )
+                let opacity: Double
+                if let selectedIndex {
+                    opacity = point.index == selectedIndex ? 1 : ChartSelectionStyle.dimmedOpacity
+                } else {
+                    opacity = 0.85
+                }
                 context.fill(
                     Path(roundedRect: rect, cornerRadius: min(barWidth / 3, 3)),
-                    with: .color(tint.opacity(0.85))
+                    with: .color(tint.opacity(opacity))
                 )
             }
         case .line:
@@ -806,6 +881,9 @@ struct ActivityHealthView: View {
                     height: dotSize
                 )
                 context.fill(Path(ellipseIn: rect), with: .color(tint))
+            }
+            if let selectedIndex, let anchor = geometry.anchor(selectedIndex) {
+                ChartSelectionStyle.drawSelectedDot(at: anchor, tint: tint, radius: 4, context: context)
             }
         }
 
@@ -869,6 +947,16 @@ struct ActivityHealthView: View {
             return value.formatted(.number.precision(.fractionLength(0...1)))
         }
         return Int(value.rounded()).formatted()
+    }
+
+    private func chartSpokenDate(_ day: String) -> String {
+        let input = DateFormatter()
+        input.calendar = Calendar(identifier: .gregorian)
+        input.locale = Locale(identifier: "en_US_POSIX")
+        input.timeZone = .current
+        input.dateFormat = "yyyy-MM-dd"
+        guard let date = input.date(from: day) else { return day }
+        return date.formatted(.dateTime.weekday(.wide).month(.wide).day())
     }
 
     private func chartDateLabel(_ day: String) -> String {

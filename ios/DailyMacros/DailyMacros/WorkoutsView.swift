@@ -24,6 +24,7 @@ struct WorkoutsView: View {
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var workouts: [WorkoutEntry] = []
     @State private var dailyCalories: [WorkoutDailyCalories] = []
+    @State private var occurrenceChartSelection: Int?
     @State private var workoutDaysCounted = 0
     @State private var sleepDailyTotals: [SleepDailyTotals] = []
     @State private var includesOuraSleepData = false
@@ -337,6 +338,16 @@ struct WorkoutsView: View {
             } else if scope == "year" {
                 workoutYearOccurrenceGrid(points)
             } else {
+                let selected = occurrenceChartSelection
+                let caloriesByDay = Dictionary(dailyCalories.map { ($0.day, $0.calories) }, uniquingKeysWith: +)
+                let callouts = points.map { point in
+                    ChartCalloutText(
+                        value: point.active
+                            ? (caloriesByDay[point.id].map { "Workout · \(ChartValueFormat.kcal($0))" } ?? "Workout")
+                            : "No workout",
+                        date: ChartValueFormat.day(point.date, calendar: workoutCalendar)
+                    )
+                }
                 Canvas { context, size in
                     guard !points.isEmpty else { return }
 
@@ -359,8 +370,41 @@ struct WorkoutsView: View {
                             let strokeColor: Color = point.isToday ? .cyan.opacity(0.55) : .white.opacity(0.15)
                             context.stroke(Path(ellipseIn: rect), with: .color(strokeColor), lineWidth: point.isToday ? 1.5 : 1)
                         }
+
+                        if index == selected {
+                            let ring = rect.insetBy(dx: -2.5, dy: -2.5)
+                            context.stroke(Path(ellipseIn: ring), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
+                        }
                     }
                 }
+                .accessibilityElement()
+                .accessibilityLabel("\(occurrenceTitle) chart")
+                .accessibilityIdentifier("workout-occurrence-chart")
+                .chartSelection(
+                    $occurrenceChartSelection,
+                    count: points.count,
+                    resetID: scope,
+                    plotRect: { size in
+                        CGRect(x: 8, y: 0, width: max(size.width - 16, 1), height: size.height)
+                    },
+                    anchor: { index, size in
+                        CGPoint(
+                            x: ChartSelectionMath.xPosition(index: index, count: points.count, minX: 8, width: max(size.width - 16, 1), centeredInSlots: false),
+                            y: size.height / 2
+                        )
+                    },
+                    markerClearance: 7,
+                    callout: { callouts.indices.contains($0) ? callouts[$0] : nil },
+                    tint: .green,
+                    accessibilitySummary: "\(points.filter(\.active).count) active days",
+                    descriptor: ChartAccessibilityDescriptor(
+                        title: occurrenceTitle,
+                        yTitle: "Workout",
+                        isContinuous: false,
+                        values: points.map { $0.active ? 1 : 0 },
+                        callouts: callouts
+                    )
+                )
             }
         }
         .frame(height: scope == "year" ? nil : occurrenceDotPlotHeight)

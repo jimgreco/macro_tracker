@@ -375,6 +375,7 @@ struct MacrosView: View {
     @State private var trendLoadedScope: String?
     @State private var trendLoadError = false
     @State private var selectedTrendMacro = "calories"
+    @State private var trendChartSelection: Int?
 
     // Target editing state
     @State private var editCalories = ""
@@ -2117,6 +2118,22 @@ struct MacrosView: View {
                 .frame(width: axisLabelWidth)
                 .padding(.trailing, 4)
 
+                let selectedTrendIndex = trendChartSelection
+                let trendTint = macroColor(selectedTrendMacro)
+                let trendMacro = selectedTrendMacro
+                let trendCallouts = zip(rows, values).map { row, value in
+                    ChartCalloutText(
+                        value: ChartValueFormat.macro(value, macro: trendMacro),
+                        date: ChartValueFormat.day(isoDay: row.day)
+                    )
+                }
+                let trendPoint: (Int, CGSize) -> CGPoint? = { index, size in
+                    guard values.indices.contains(index) else { return nil }
+                    let stepX = size.width / CGFloat(max(values.count - 1, 1))
+                    let x = values.count == 1 ? size.width / 2 : CGFloat(index) * stepX
+                    let y = size.height - ((values[index] - minV) / range) * size.height
+                    return CGPoint(x: x, y: y)
+                }
                 Canvas { context, size in
                     let chartWidth = size.width
                     let chartHeight = size.height
@@ -2158,11 +2175,32 @@ struct MacrosView: View {
                         let y = chartHeight - ((val - minV) / range) * chartHeight
                         context.fill(Circle().path(in: CGRect(x: x - 3, y: y - 3, width: 6, height: 6)), with: .color(macroColor(selectedTrendMacro)))
                     }
+
+                    if let selectedTrendIndex, let point = trendPoint(selectedTrendIndex, size) {
+                        ChartSelectionStyle.drawSelectedDot(at: point, tint: trendTint, radius: 4, context: context)
+                    }
                 }
                 .frame(height: 180)
+                .accessibilityElement()
                 .accessibilityIdentifier("macro-trend-series")
                 .accessibilityLabel("\(selectedTrendMacro.capitalized) trend, completed days only")
-                .accessibilityValue(rows.map { "\($0.day): \(Int(valueForMacro($0, macro: selectedTrendMacro))) \(unit)" }.joined(separator: "; "))
+                .chartSelection(
+                    $trendChartSelection,
+                    count: values.count,
+                    resetID: "\(trendPeriod)-\(selectedTrendMacro)",
+                    plotRect: { CGRect(origin: .zero, size: $0) },
+                    anchor: trendPoint,
+                    callout: { trendCallouts.indices.contains($0) ? trendCallouts[$0] : nil },
+                    tint: trendTint,
+                    accessibilitySummary: rows.map { "\($0.day): \(Int(valueForMacro($0, macro: selectedTrendMacro))) \(unit)" }.joined(separator: "; "),
+                    descriptor: ChartAccessibilityDescriptor(
+                        title: "\(selectedTrendMacro.capitalized) trend",
+                        yTitle: unit,
+                        isContinuous: true,
+                        values: values.map { Optional($0) },
+                        callouts: trendCallouts
+                    )
+                )
             }
             .frame(height: 180)
 
