@@ -1149,3 +1149,101 @@ test('weekly summary rows match the weekly-review collector on PostgreSQL', { sk
 
   assert.deepEqual(await db.getWeeklySummaryRows('nobody-weekly-summary@example.test', { startDay: range.prev.start, endDay: range.week.end }), { user: null });
 });
+
+test('checkin evidence rows are read-only, bounded and Oura-free on PostgreSQL', { skip: !process.env.TEST_DATABASE_URL }, async (t) => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+  const dbPath = path.join(__dirname, '..', 'src', 'db.js');
+  delete require.cache[dbPath];
+  const db = require(dbPath);
+  const { buildCheckinEvidence } = require('../src/checkin-evidence');
+  const userId = `checkin-evidence-${crypto.randomUUID()}`;
+  const otherId = `checkin-evidence-other-${crypto.randomUUID()}`;
+  const email = `${userId}@Example.test`;
+  t.after(async () => {
+    try {
+      await db.deleteUserAccount(userId);
+      await db.deleteUserAccount(otherId);
+    } finally {
+      await db.getPool().end();
+      delete require.cache[dbPath];
+      if (originalDatabaseUrl == null) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = originalDatabaseUrl;
+    }
+  });
+  await require('./helpers/database').initializeTestSchema(db);
+  await db.upsertUser({ id: userId, provider: 'local-dev', providerUserId: userId,
+    email, name: 'Checkin evidence', timezone: 'America/Chicago' });
+  await db.upsertUser({ id: otherId, provider: 'local-dev', providerUserId: otherId,
+    email: `${otherId}@example.test`, name: 'Other', timezone: 'America/Chicago' });
+  const pool = db.getPool();
+
+  // Nov 2-8 in America/Chicago. 05:30Z on Nov 2 is still Nov 1 local.
+  await pool.query(`INSERT INTO entries (user_id, item_name, quantity, unit, calories, protein, carbs, fat, fiber, consumed_at, meal_name, source, source_detail) VALUES
+    ($1, 'oats', 1, 'cup', 300, 10, 54, 5, 8, '2026-11-03T14:00:00Z', 'Breakfast', 'manual', NULL),
+    ($1, 'early', 1, NULL, 100, 1, 1, 1, NULL, '2026-11-02T05:30:00Z', NULL, 'manual', NULL),
+    ($1, 'oura-src', 1, NULL, 100, 1, 1, 1, NULL, '2026-11-03T15:00:00Z', NULL, 'Oura', NULL),
+    ($1, 'oura-detail', 1, NULL, 100, 1, 1, 1, NULL, '2026-11-03T15:00:00Z', NULL, 'import', 'via OURA ring')`, [userId]);
+  await pool.query(`INSERT INTO entries (user_id, item_name, quantity, calories, protein, carbs, fat, consumed_at, deleted_at)
+    VALUES ($1, 'deleted', 1, 999, 0, 0, 0, '2026-11-03T15:00:00Z', now()), ($2, 'other', 1, 999, 0, 0, 0, '2026-11-03T15:00:00Z', NULL)`, [userId, otherId]);
+  await db.setNutritionDayCompleteness(userId, '2026-11-03', 'complete', 'America/Chicago');
+  await db.setNutritionDayCompleteness(userId, '2026-11-04', 'partial', 'America/Chicago');
+  await pool.query(`INSERT INTO macro_targets (user_id, macro, effective_date, target) VALUES
+    ($1,'protein','2026-01-01',170), ($1,'protein','2026-11-05',180), ($1,'protein','2026-11-09',190),
+    ($1,'workouts','2026-01-01',4)`, [userId]);
+  await pool.query(`INSERT INTO weight_entries (user_id, weight, logged_at, source, external_id) VALUES
+    ($1, 180.2, '2026-11-03T12:00:00Z', 'manual', NULL), ($1, 179.9, '2026-11-04T12:00:00Z', 'healthkit', 'hk-w1'),
+    ($1, 175, '2026-11-05T12:00:00Z', 'oura', NULL), ($1, 175, '2026-11-05T13:00:00Z', 'healthkit', 'oura:abc')`, [userId]);
+  await pool.query(`INSERT INTO weight_entries (user_id, weight, logged_at, deleted_at) VALUES ($1, 150, '2026-11-05T12:00:00Z', now())`, [userId]);
+  const waist = await pool.query(`INSERT INTO waist_entries (user_id, value_cm, unit, method, readings, notes, logged_at) VALUES
+    ($1, 85.725, 'in', 'navel_relaxed', '[33.75]', 'am', '2026-11-04T12:00:00Z') RETURNING id`, [userId]);
+  const checkinId = crypto.randomUUID();
+  await pool.query(`INSERT INTO progress_checkins (id, user_id, day, notes, waist_entry_id) VALUES ($1, $2, '2026-11-04', 'leaner', $3)`,
+    [checkinId, userId, waist.rows[0].id]);
+  await pool.query(`INSERT INTO progress_photos (id, user_id, checkin_id, view, object_key, ready) VALUES
+    ($1, $3, $4, 'front', 'private/front.jpg', TRUE), ($2, $3, $4, 'side', 'private/side.jpg', FALSE)`,
+  [crypto.randomUUID(), crypto.randomUUID(), userId, checkinId]);
+  await pool.query(`INSERT INTO weight_targets (user_id, target_weight, target_date, effective_date) VALUES
+    ($1, 172, '2027-06-01', '2026-09-01'), ($1, 170, '2027-06-01', '2026-12-01')`, [userId]);
+  await pool.query(`INSERT INTO sleep_entries (user_id, duration_hours, wake_ups, logged_at, source, external_id) VALUES
+    ($1, 7.5, 1, '2026-11-04T04:00:00Z', 'healthkit', 'hk-1'), ($1, 6, 0, '2026-11-05T05:00:00Z', 'manual', NULL),
+    ($1, 9, 0, '2026-11-05T05:00:00Z', 'oura', 'o-1'), ($1, 9, 0, '2026-11-06T05:00:00Z', 'healthkit', 'Oura-sleep-1')`, [userId]);
+  await pool.query(`INSERT INTO sleep_entries (user_id, duration_hours, logged_at, source, external_id, oura_document_id) VALUES
+    ($1, 9, '2026-11-07T05:00:00Z', 'healthkit', 'hk-linked', 'oura-doc-1')`, [userId]);
+  await pool.query(`INSERT INTO sleep_entries (user_id, duration_hours, logged_at, source, deleted_at) VALUES
+    ($1, 9, '2026-11-07T05:00:00Z', 'manual', now())`, [userId]);
+
+  const before = await pool.query(`SELECT (SELECT COUNT(*) FROM audit_log) AS audits,
+    (SELECT COUNT(*) FROM entries WHERE user_id = $1) AS entries`, [userId]);
+  const rows = await db.getCheckinEvidenceRows(email.toUpperCase(), { startDay: '2026-11-02', endDay: '2026-11-08' });
+  const after = await pool.query(`SELECT (SELECT COUNT(*) FROM audit_log) AS audits,
+    (SELECT COUNT(*) FROM entries WHERE user_id = $1) AS entries`, [userId]);
+  assert.deepEqual(after.rows, before.rows);
+  assert.deepEqual(rows.user, { id: userId, timezone: 'America/Chicago' });
+  const data = JSON.parse(JSON.stringify(buildCheckinEvidence(rows)));
+  assert.equal(data.status, 'ok');
+  assert.deepEqual(data.entries.map((e) => e.item_name), ['oats']);
+  assert.equal(data.entries[0].localDate, '2026-11-03');
+  assert.equal(data.entries[0].consumed_at, '2026-11-03T14:00:00.000Z');
+  assert.equal(typeof data.entries[0].id, 'number');
+  assert.deepEqual(data.nutritionDays, [{ localDate: '2026-11-03', state: 'complete' }, { localDate: '2026-11-04', state: 'partial' }]);
+  assert.deepEqual(data.macroTargets, [
+    { macro: 'protein', target: 170, effective_date: '2026-01-01' },
+    { macro: 'protein', target: 180, effective_date: '2026-11-05' }
+  ]);
+  assert.deepEqual(data.weights.map((w) => [w.weight, w.localDate, w.source]), [[180.2, '2026-11-03', 'manual'], [179.9, '2026-11-04', 'healthkit']]);
+  assert.equal(data.waists.length, 1);
+  const { id: waistId, logged_at: waistLoggedAt, ...waistFields } = data.waists[0];
+  assert.equal(waistId, Number(waist.rows[0].id));
+  assert.equal(waistLoggedAt, '2026-11-04T12:00:00.000Z');
+  assert.deepEqual(waistFields, { readings: [33.75], unit: 'in', method: 'navel_relaxed', value_cm: 85.725, notes: 'am', localDate: '2026-11-04' });
+  assert.deepEqual(data.checkins, [{ id: checkinId, day: '2026-11-04', notes: 'leaner' }]);
+  assert.deepEqual(data.photos.map((p) => [p.checkin_id, p.view, p.day]), [[checkinId, 'front', '2026-11-04']]);
+  assert.doesNotMatch(JSON.stringify(data), /private\//);
+  assert.deepEqual(data.weightTargets, [{ target_weight: 172, target_date: '2027-06-01', effective_date: '2026-09-01' }]);
+  // Nights of Nov 3 (22:00 local) and Nov 4 (23:00 local); Oura-sourced, Oura-linked and deleted rows excluded.
+  assert.deepEqual(data.sleep.map((s) => [s.localDate, s.durationHours, s.wakeUps, s.source]),
+    [['2026-11-03', 7.5, 1, 'healthkit'], ['2026-11-04', 6, 0, 'manual']]);
+
+  assert.deepEqual(await db.getCheckinEvidenceRows('nobody-checkin-evidence@example.test', { startDay: '2026-11-02', endDay: '2026-11-08' }), { user: null });
+});

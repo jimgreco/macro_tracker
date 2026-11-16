@@ -160,10 +160,12 @@ function sendExactJson(res, status, body) {
   res.status(status).type('application/json').send(JSON.stringify(body));
 }
 
-// Middleware chain for the route. It never reads the session or validates
-// normal API tokens (that writes last_used_at), so user credentials are
-// neither accepted nor touched.
-function createWeeklySummaryRoute({ getWeeklySummaryRows, rateLimiter, notFound, logError, env = process.env, now = () => new Date() }) {
+// Auth guards shared by the two read-only routes this token unlocks
+// (/api/weekly-summary and /api/checkin-evidence). They never read the session
+// or validate normal API tokens (that writes last_used_at), so user
+// credentials are neither accepted nor touched. Unconfigured, missing or
+// wrong tokens all get notFound.
+function createWeeklySummaryAuth({ notFound, env = process.env }) {
   const requireConfig = (req, res, next) => {
     const config = readWeeklySummaryConfig(env);
     if (!config) return notFound(req, res);
@@ -177,6 +179,13 @@ function createWeeklySummaryRoute({ getWeeklySummaryRows, rateLimiter, notFound,
     }
     return next();
   };
+
+  return { requireConfig, requireToken };
+}
+
+// Middleware chain for the route.
+function createWeeklySummaryRoute({ getWeeklySummaryRows, rateLimiter, notFound, logError, env = process.env, now = () => new Date() }) {
+  const { requireConfig, requireToken } = createWeeklySummaryAuth({ notFound, env });
 
   const handler = async (req, res) => {
     const range = parseWeekParam(req.query.week);
@@ -213,5 +222,7 @@ module.exports = {
   buildMacrosSummary,
   readWeeklySummaryConfig,
   weeklySummaryTokenMatches,
+  sendExactJson,
+  createWeeklySummaryAuth,
   createWeeklySummaryRoute
 };

@@ -177,7 +177,8 @@ plus `getWeeklySummaryRows` in `src/db.js` (one `READ ONLY` snapshot).
 - Enabled only when both `WEEKLY_SUMMARY_TOKEN_SHA256` (lowercase hex SHA-256 of
   the bearer token) and `WEEKLY_SUMMARY_EMAIL` are set; otherwise, and for a
   missing or wrong token, it returns the normal API 404. Sessions and normal
-  `api_tokens` are never accepted on it, and its token works nowhere else.
+  `api_tokens` are never accepted on it, and its token works nowhere else except
+  `GET /api/checkin-evidence` below (same account, also read-only).
 - `week` must be a Monday (`400` otherwise). `200` responses are `Cache-Control: no-store`
   and report Monday–Sunday plus the previous week in the user's saved timezone;
   averages use Complete days only. An unknown email returns `data.status: "no-account"`.
@@ -185,3 +186,27 @@ plus `getWeeklySummaryRows` in `src/db.js` (one `READ ONLY` snapshot).
   the routine sends this payload to an AI model, and Oura data must stay out of AI inputs.
 - Shares the IP-keyed rate limiter (30 requests / 15 minutes), whose counter row
   is the route's only database write.
+
+### Check-in evidence (`GET /api/checkin-evidence?start=YYYY-MM-DD&end=YYYY-MM-DD`)
+Read-only detail behind the weekly summary, for the weekly-review coaching
+routine. Implemented in `src/checkin-evidence.js` plus `getCheckinEvidenceRows`
+in `src/db.js` (one `READ ONLY` snapshot), registered next to the weekly summary.
+- Deliberately reuses the weekly-summary token and account: the same
+  `WEEKLY_SUMMARY_TOKEN_SHA256` / `WEEKLY_SUMMARY_EMAIL` and the same auth guards
+  (`createWeeklySummaryAuth`), so it is a 404 whenever the weekly summary is, and
+  for a missing or wrong token. That token is accepted only on these two routes;
+  sessions and normal `api_tokens` are never accepted here.
+- `start`/`end` are calendar dates, `start <= end`, 1–31 days inclusive (`400`
+  otherwise). Days are local dates in the user's saved timezone.
+- `200` (`Cache-Control: no-store`): `{ version: 1, app: "macros", range: {start, end},
+  timezone, generatedAt, data }`. `data` is `{ status: "no-account" }` for an unknown
+  email, else `status: "ok"` with `entries`, `nutritionDays` (explicit
+  complete/partial; a missing day is unknown), `macroTargets` (calories, protein,
+  carbs, fat, fiber; full history with `effective_date <= end`), `weights`, `waists`,
+  `checkins`, `photos` (ready photo metadata only, never object keys or URLs),
+  `weightTargets` (history to `end`) and `sleep` (the weekly summary rule: live
+  `healthkit`/`manual` rows with no Oura document link).
+- Never reads `oura_documents`; rows whose `source`, `source_detail` or `external_id`
+  mentions Oura are excluded. Deleted rows are excluded. Each kind is bounded at
+  5,000 rows: more returns `500 {"error":"too-many-rows"}` rather than truncating.
+- Own rate-limiter bucket (30 requests / 15 minutes), its only database write.
