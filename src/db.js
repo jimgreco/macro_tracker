@@ -6063,6 +6063,124 @@ async function consumeDailyUsage(userId, feature, maxDaily) {
   };
 }
 
+// Read-only rows for GET /api/checkin-evidence (see src/checkin-evidence.js).
+// Detailed evidence for the same single account as the weekly summary, for
+// the weekly-review coaching routine. One READ ONLY snapshot, so PostgreSQL
+// itself rejects any write. Never reads oura_documents; rows whose provenance
+// mentions Oura are excluded, and sleep is Apple Health / manual only (the
+// weekly summary sleepNights rule). Each kind is bounded: more than
+// CHECKIN_EVIDENCE_ROW_LIMIT rows throws instead of truncating silently.
+const CHECKIN_EVIDENCE_ROW_LIMIT = 5000;
+const CHECKIN_EVIDENCE_QUERIES = [
+  ['entries', 'timed',
+    `SELECT id, item_name, quantity::float8 AS quantity, unit,
+            calories::float8 AS calories, protein::float8 AS protein, carbs::float8 AS carbs,
+            fat::float8 AS fat, fiber::float8 AS fiber, consumed_at,
+            to_char((consumed_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS "localDate",
+            meal_group, meal_name
+       FROM entries
+      WHERE user_id = $1 AND deleted_at IS NULL
+        AND (consumed_at AT TIME ZONE $2)::date BETWEEN $3::date AND $4::date
+        AND COALESCE(source, '') NOT ILIKE '%oura%' AND COALESCE(source_detail, '') NOT ILIKE '%oura%'
+      ORDER BY consumed_at, id LIMIT $5`],
+  ['nutritionDays', 'dated',
+    `SELECT to_char(local_date, 'YYYY-MM-DD') AS "localDate", state
+       FROM nutrition_day_completeness
+      WHERE user_id = $1 AND local_date BETWEEN $2::date AND $3::date
+      ORDER BY local_date LIMIT $4`],
+  ['macroTargets', 'history',
+    `SELECT macro, target::float8 AS target, to_char(effective_date, 'YYYY-MM-DD') AS effective_date
+       FROM macro_targets
+      WHERE user_id = $1 AND macro IN ('calories', 'protein', 'carbs', 'fat', 'fiber')
+        AND effective_date <= $2::date
+      ORDER BY effective_date, macro LIMIT $3`],
+  ['weights', 'timed',
+    `SELECT id, weight::float8 AS weight, logged_at,
+            to_char((logged_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS "localDate", source
+       FROM weight_entries
+      WHERE user_id = $1 AND deleted_at IS NULL
+        AND (logged_at AT TIME ZONE $2)::date BETWEEN $3::date AND $4::date
+        AND COALESCE(source, '') NOT ILIKE '%oura%' AND COALESCE(external_id, '') NOT ILIKE '%oura%'
+      ORDER BY logged_at, id LIMIT $5`],
+  ['waists', 'timed',
+    `SELECT id, readings, unit, method, value_cm::float8 AS value_cm, notes, logged_at,
+            to_char((logged_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS "localDate"
+       FROM waist_entries
+      WHERE user_id = $1 AND deleted_at IS NULL
+        AND (logged_at AT TIME ZONE $2)::date BETWEEN $3::date AND $4::date
+      ORDER BY logged_at, id LIMIT $5`],
+  ['checkins', 'dated',
+    `SELECT id, to_char(day, 'YYYY-MM-DD') AS day, notes
+       FROM progress_checkins
+      WHERE user_id = $1 AND day BETWEEN $2::date AND $3::date
+      ORDER BY day, id LIMIT $4`],
+  // Metadata only: never object keys or URLs.
+  ['photos', 'dated',
+    `SELECT p.id, p.checkin_id, p.view, to_char(c.day, 'YYYY-MM-DD') AS day
+       FROM progress_photos p
+       JOIN progress_checkins c ON c.id = p.checkin_id AND c.user_id = p.user_id
+      WHERE p.user_id = $1 AND p.ready AND c.day BETWEEN $2::date AND $3::date
+      ORDER BY c.day, p.view, p.id LIMIT $4`],
+  ['weightTargets', 'history',
+    `SELECT target_weight::float8 AS target_weight, to_char(target_date, 'YYYY-MM-DD') AS target_date,
+            to_char(effective_date, 'YYYY-MM-DD') AS effective_date
+       FROM weight_targets
+      WHERE user_id = $1 AND effective_date <= $2::date
+      ORDER BY effective_date LIMIT $3`],
+  // Same rule as the weekly summary sleepNights: Apple Health and manual
+  // sleep only, never Oura-linked rows (plus the Oura provenance backstop).
+  ['sleep', 'timed',
+    `SELECT id, to_char((logged_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS "localDate",
+            logged_at, duration_hours::float8 AS duration_hours, wake_ups, source
+       FROM sleep_entries
+      WHERE user_id = $1 AND deleted_at IS NULL
+        AND source IN ('healthkit', 'manual') AND oura_document_id IS NULL
+        AND COALESCE(source, '') NOT ILIKE '%oura%' AND COALESCE(external_id, '') NOT ILIKE '%oura%'
+        AND (logged_at AT TIME ZONE $2)::date BETWEEN $3::date AND $4::date
+      ORDER BY logged_at, id LIMIT $5`]
+];
+
+async function getCheckinEvidenceRows(email, { startDay, endDay }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    await client.query("SET LOCAL statement_timeout = '15s'");
+    const userResult = await client.query(
+      `SELECT id, timezone FROM users WHERE lower(email) = lower($1)
+       ORDER BY created_at LIMIT 1`,
+      [email]
+    );
+    const user = userResult.rows[0];
+    if (!user) {
+      await client.query('COMMIT');
+      return { user: null };
+    }
+    const timezone = user.timezone || 'America/New_York';
+    const fetchLimit = CHECKIN_EVIDENCE_ROW_LIMIT + 1;
+    const rows = {};
+    for (const [key, mode, sql] of CHECKIN_EVIDENCE_QUERIES) {
+      const values = mode === 'timed'
+        ? [user.id, timezone, startDay, endDay, fetchLimit]
+        : mode === 'dated'
+          ? [user.id, startDay, endDay, fetchLimit]
+          : [user.id, endDay, fetchLimit];
+      rows[key] = (await client.query(sql, values)).rows;
+      if (rows[key].length > CHECKIN_EVIDENCE_ROW_LIMIT) {
+        const error = new Error(`checkin evidence ${key} exceeds ${CHECKIN_EVIDENCE_ROW_LIMIT} rows`);
+        error.code = 'checkin_evidence_row_limit';
+        throw error;
+      }
+    }
+    await client.query('COMMIT');
+    return { user: { id: user.id, timezone }, ...rows };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 // Read-only rows for GET /api/weekly-summary (see src/weekly-summary.js).
 // SQL mirrors the weekly-review collector. One READ ONLY snapshot, so
 // PostgreSQL itself rejects any write and every query sees the same data.
@@ -6233,6 +6351,7 @@ module.exports = {
   getMacroTargets,
   getMacroTargetHistory,
   getWeeklySummaryRows,
+  getCheckinEvidenceRows,
   setMacroTarget,
   addWeightEntry,
   updateWeightEntry,

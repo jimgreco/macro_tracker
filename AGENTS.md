@@ -45,6 +45,11 @@
   serving is not interchangeable with grams or an item count.
 - Oura API data and derived values must stay out of every AI/ML input, including
   OpenAI, Apple Foundation Models, narration, and ChatGPT-targeted exports.
+- `GET /api/weekly-summary` and `GET /api/checkin-evidence` (README) are the only
+  routes that accept the `WEEKLY_SUMMARY_TOKEN_SHA256` token, for the single
+  `WEEKLY_SUMMARY_EMAIL` account; both are read-only AI-bound payloads, so they
+  never read `oura_documents` and exclude Oura-sourced or Oura-linked rows. Keep
+  their shared auth in `createWeeklySummaryAuth`; never widen the token further.
 - Progress check-in forms stage photos until Save. Preserve the returned check-in
   ID and unfinished selections on upload failure so retries cannot create another
   check-in; see the progress check-in notes in the feature reference.

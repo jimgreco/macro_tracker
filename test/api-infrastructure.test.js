@@ -103,7 +103,8 @@ test('db.js exports all required functions', () => {
     'applyStripeBillingEvent',
     'listStripeSubscriptionsForReconciliation',
     'consumeDailyUsage',
-    'getWeeklySummaryRows'
+    'getWeeklySummaryRows',
+    'getCheckinEvidenceRows'
   ];
 
   for (const name of requiredExports) {
@@ -697,6 +698,43 @@ test('weekly summary rows come from one read-only snapshot without Oura data', (
   assert.match(section, /FROM health_daily_metrics\s+WHERE user_id = \$1 AND deleted_at IS NULL AND source = 'healthkit'/);
   assert.ok(section.includes("to_regclass('public.health_daily_metrics')"));
   assert.doesNotMatch(read('src/health-metrics.js'), /oura_documents/);
+});
+
+test('checkin evidence route shares the weekly summary auth and stays isolated', () => {
+  const server = read('src/server.js');
+  const route = server.indexOf("app.get('/api/checkin-evidence'");
+  assert.ok(route > -1, 'checkin evidence route must be registered on app');
+  assert.ok(route < server.indexOf('app.use(\n  session({'), 'must run before session middleware');
+  assert.ok(route < server.indexOf('app.use(passport.initialize())'));
+  assert.ok(route < server.indexOf("app.use('/api/v1', bearerTokenAuth"), 'must run before the /api mounts');
+  assert.ok(route < server.indexOf("app.use('/api', bearerTokenAuth"));
+
+  const evidence = read('src/checkin-evidence.js');
+  assert.ok(evidence.includes('createWeeklySummaryAuth'), 'must reuse the weekly summary token guards');
+  for (const forbidden of ['validateApiToken', 'req.session', 'req.user', 'logAudit', 'process.env.WEEKLY_SUMMARY', 'env.WEEKLY_SUMMARY', 'object_key']) {
+    assert.equal(evidence.includes(forbidden), false, `checkin-evidence.js must not use ${forbidden}`);
+  }
+});
+
+test('checkin evidence rows come from one bounded read-only snapshot without Oura data', () => {
+  const db = read('src/db.js');
+  const start = db.indexOf('const CHECKIN_EVIDENCE_ROW_LIMIT');
+  const end = db.indexOf('async function getWeeklySummaryRows', start);
+  assert.ok(start > -1 && end > start);
+  const section = db.slice(start, end);
+  assert.ok(section.includes('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'));
+  assert.doesNotMatch(section, /\b(INSERT|UPDATE|DELETE|UPSERT|last_used_at)\b/);
+  assert.doesNotMatch(section, /oura_documents|object_key|healthkit_metadata/);
+  assert.ok(section.includes('CHECKIN_EVIDENCE_ROW_LIMIT = 5000'));
+  assert.ok(section.includes('rows[key].length > CHECKIN_EVIDENCE_ROW_LIMIT'));
+  // Same sleep rule as the weekly summary, plus the provenance backstop.
+  assert.ok(section.includes("source IN ('healthkit', 'manual') AND oura_document_id IS NULL"));
+  assert.ok(section.includes("COALESCE(source, '') NOT ILIKE '%oura%' AND COALESCE(source_detail, '') NOT ILIKE '%oura%'"));
+  assert.equal((section.match(/COALESCE\(external_id, ''\) NOT ILIKE '%oura%'/g) || []).length, 2);
+  for (const table of ['entries', 'weight_entries', 'waist_entries', 'sleep_entries']) {
+    assert.match(section, new RegExp(`FROM ${table}\\s+WHERE user_id = \\$1 AND deleted_at IS NULL`), table);
+  }
+  assert.match(section, /WHERE p\.user_id = \$1 AND p\.ready/);
 });
 
 test('server.js has per-user rate limiting', () => {

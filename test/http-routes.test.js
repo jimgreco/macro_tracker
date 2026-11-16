@@ -62,6 +62,7 @@ let analysisSnapshotOverride = null;
 // Every fakeDb function the server calls, by name, for read-only route checks.
 const dbInvocations = [];
 let weeklySummaryRows = { user: null };
+let checkinEvidenceRows = { user: null };
 let healthMetricsAvailable = true;
 const healthMetricRows = new Map();
 const EMPTY_HEALTH_DAY = Object.freeze({
@@ -419,6 +420,10 @@ const fakeDb = {
   getWeeklySummaryRows: async (email, range) => {
     record('getWeeklySummaryRows', { email, range });
     return weeklySummaryRows;
+  },
+  getCheckinEvidenceRows: async (email, range) => {
+    record('getCheckinEvidenceRows', { email, range });
+    return checkinEvidenceRows;
   },
   listApiTokens: async (_userId, currentTokenId) => [{
     id: 7,
@@ -1615,6 +1620,172 @@ test('weekly summary token is not accepted on other API routes and /api/v1 has n
   await fetch(`${baseUrl}/api/me`, { headers: summaryAuth });
   assert.ok(dbInvocations.includes('validateApiToken'));
   assert.equal(latestCall('getWeeklySummaryRows'), undefined);
+}));
+
+// ── GET /api/checkin-evidence ──
+
+async function checkinEvidence(query, headers = {}) {
+  const res = await fetch(`${baseUrl}/api/checkin-evidence${query}`, { headers });
+  const text = await res.text();
+  let body = null;
+  try { body = JSON.parse(text); } catch { body = text; }
+  return { res, body };
+}
+
+const evidenceQuery = '?start=2026-11-02&end=2026-11-08';
+
+test('checkin evidence is a 404 until both weekly-summary env vars are set', routeTestOptions, async () => {
+  for (const env of [
+    { WEEKLY_SUMMARY_TOKEN_SHA256: null, WEEKLY_SUMMARY_EMAIL: null },
+    { WEEKLY_SUMMARY_TOKEN_SHA256: weeklySummaryTokenHash, WEEKLY_SUMMARY_EMAIL: '' },
+    { WEEKLY_SUMMARY_TOKEN_SHA256: '', WEEKLY_SUMMARY_EMAIL: 'owner@example.com' },
+    { WEEKLY_SUMMARY_TOKEN_SHA256: 'not-a-sha256', WEEKLY_SUMMARY_EMAIL: 'owner@example.com' }
+  ]) {
+    await withWeeklySummaryEnv(env, async () => {
+      dbInvocations.length = 0;
+      const { res, body } = await checkinEvidence(evidenceQuery, summaryAuth);
+      assert.equal(res.status, 404);
+      assert.equal(body.error, 'API route not found.');
+      assert.deepEqual(dbInvocations, []);
+    })();
+  }
+});
+
+test('checkin evidence rejects missing, wrong and normal user tokens with 404', routeTestOptions, withWeeklySummaryEnv(weeklySummaryEnv, async () => {
+  for (const headers of [
+    {},
+    { Authorization: 'Bearer ' },
+    { Authorization: 'Bearer wrong-token' },
+    { Authorization: weeklySummaryToken },
+    { Authorization: `Basic ${weeklySummaryToken}` },
+    { Authorization: `Bearer ${weeklySummaryTokenHash}` },
+    { Authorization: 'Bearer normal-user-api-token' }
+  ]) {
+    dbInvocations.length = 0;
+    resetCalls();
+    const { res, body } = await checkinEvidence(evidenceQuery, headers);
+    assert.equal(res.status, 404, JSON.stringify(headers));
+    assert.equal(body.error, 'API route not found.');
+    assert.deepEqual(dbInvocations.filter((name) => name !== 'consumeRateLimit'), []);
+    assert.equal(latestCall('getCheckinEvidenceRows'), undefined);
+  }
+}));
+
+test('checkin evidence requires a valid 1-31 day range', routeTestOptions, withWeeklySummaryEnv(weeklySummaryEnv, async () => {
+  for (const query of ['', '?start=2026-11-02', '?end=2026-11-08', '?start=2026-11-09&end=2026-11-08',
+    '?start=2026-02-30&end=2026-03-02', '?start=2026-11-02&end=2026-13-01', '?start=11/02/2026&end=2026-11-08',
+    '?start=2026-11-2&end=2026-11-08', '?start=2026-11-02T00:00:00Z&end=2026-11-08',
+    '?start=2026-11-02&start=2026-11-03&end=2026-11-08', '?start=2026-10-01&end=2026-11-01']) {
+    dbInvocations.length = 0;
+    const { res, body } = await checkinEvidence(query, summaryAuth);
+    assert.equal(res.status, 400, query);
+    assert.deepEqual(body, { error: 'start and end must be YYYY-MM-DD dates with start <= end, spanning 1-31 days' });
+    assert.deepEqual(dbInvocations.filter((name) => name !== 'consumeRateLimit'), []);
+  }
+  // Boundaries: a single day and exactly 31 days are accepted.
+  checkinEvidenceRows = { user: null };
+  for (const query of ['?start=2026-11-08&end=2026-11-08', '?start=2026-10-01&end=2026-10-31', '?start=2026-02-15&end=2026-03-17']) {
+    const { res } = await checkinEvidence(query, summaryAuth);
+    assert.equal(res.status, 200, query);
+  }
+}));
+
+test('checkin evidence returns the detailed shape with no writes', routeTestOptions, withWeeklySummaryEnv(weeklySummaryEnv, async () => {
+  checkinEvidenceRows = {
+    user: { id: 'owner-user', timezone: 'America/Chicago' },
+    entries: [{
+      id: '41', item_name: 'Greek yogurt', quantity: 1, unit: 'cup', calories: 150, protein: 20, carbs: 9,
+      fat: 4, fiber: null, consumed_at: new Date('2026-11-03T13:00:00Z'), localDate: '2026-11-03',
+      meal_group: 'g-1', meal_name: 'Breakfast', source: 'manual', source_detail: 'internal-only', user_id: 'owner-user'
+    }],
+    nutritionDays: [{ localDate: '2026-11-03', state: 'complete' }],
+    macroTargets: [{ macro: 'protein', target: 180, effective_date: '2026-01-01' }],
+    weights: [{ id: '7', weight: 179.4, logged_at: new Date('2026-11-03T12:00:00Z'), localDate: '2026-11-03', source: 'healthkit', external_id: 'x' }],
+    waists: [{ id: '3', readings: [33.5, 33.6], unit: 'in', method: 'navel_relaxed', value_cm: 85.2, notes: '', logged_at: new Date('2026-11-04T12:00:00Z'), localDate: '2026-11-04' }],
+    checkins: [{ id: 'c-uuid', day: '2026-11-04', notes: 'felt good' }],
+    photos: [{ id: 'p-uuid', checkin_id: 'c-uuid', view: 'front', day: '2026-11-04', object_key: 'secret/key.jpg' }],
+    weightTargets: [{ target_weight: 172, target_date: '2027-06-01', effective_date: '2026-09-01' }],
+    sleep: [{ id: '9', localDate: '2026-11-03', logged_at: new Date('2026-11-04T04:30:00Z'), duration_hours: 7.25, wake_ups: 1, source: 'healthkit', healthkit_metadata: { x: 1 } }]
+  };
+  dbInvocations.length = 0;
+  resetCalls();
+  try {
+    const { res, body } = await checkinEvidence(evidenceQuery, { ...summaryAuth, Cookie: 'macro.sid=s%3Aanything' });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /^application\/json/);
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(res.headers.get('set-cookie'), null);
+    assert.deepEqual(Object.keys(body), ['version', 'app', 'range', 'timezone', 'generatedAt', 'data']);
+    assert.equal(body.version, 1);
+    assert.equal(body.app, 'macros');
+    assert.deepEqual(body.range, { start: '2026-11-02', end: '2026-11-08' });
+    assert.equal(body.timezone, 'America/Chicago');
+    assert.ok(!Number.isNaN(Date.parse(body.generatedAt)));
+    assert.deepEqual(latestCall('getCheckinEvidenceRows').payload, {
+      email: 'Owner@Example.com',
+      range: { startDay: '2026-11-02', endDay: '2026-11-08' }
+    });
+    assert.deepEqual(dbInvocations, ['consumeRateLimit', 'getCheckinEvidenceRows']);
+
+    const data = body.data;
+    assert.deepEqual(Object.keys(data), ['status', 'entries', 'nutritionDays', 'macroTargets', 'weights', 'waists',
+      'checkins', 'photos', 'weightTargets', 'sleep']);
+    assert.equal(data.status, 'ok');
+    assert.deepEqual(data.entries, [{
+      id: 41, item_name: 'Greek yogurt', quantity: 1, unit: 'cup', calories: 150, protein: 20, carbs: 9, fat: 4,
+      fiber: null, consumed_at: '2026-11-03T13:00:00.000Z', localDate: '2026-11-03', meal_group: 'g-1', meal_name: 'Breakfast'
+    }]);
+    assert.deepEqual(data.nutritionDays, [{ localDate: '2026-11-03', state: 'complete' }]);
+    assert.deepEqual(data.macroTargets, [{ macro: 'protein', target: 180, effective_date: '2026-01-01' }]);
+    assert.deepEqual(data.weights, [{ id: 7, weight: 179.4, logged_at: '2026-11-03T12:00:00.000Z', localDate: '2026-11-03', source: 'healthkit' }]);
+    assert.deepEqual(data.waists, [{ id: 3, readings: [33.5, 33.6], unit: 'in', method: 'navel_relaxed', value_cm: 85.2, notes: '', logged_at: '2026-11-04T12:00:00.000Z', localDate: '2026-11-04' }]);
+    assert.deepEqual(data.checkins, [{ id: 'c-uuid', day: '2026-11-04', notes: 'felt good' }]);
+    // Photo metadata only: object keys never leave the server.
+    assert.deepEqual(data.photos, [{ id: 'p-uuid', checkin_id: 'c-uuid', view: 'front', day: '2026-11-04' }]);
+    assert.doesNotMatch(JSON.stringify(body), /secret\/key|object_key|internal-only|healthkit_metadata|external_id|user_id/);
+    assert.deepEqual(data.weightTargets, [{ target_weight: 172, target_date: '2027-06-01', effective_date: '2026-09-01' }]);
+    assert.deepEqual(data.sleep, [{ id: 9, localDate: '2026-11-03', logged_at: '2026-11-04T04:30:00.000Z', durationHours: 7.25, wakeUps: 1, source: 'healthkit' }]);
+  } finally {
+    checkinEvidenceRows = { user: null };
+  }
+}));
+
+test('checkin evidence reports no-account, row-limit and internal errors', routeTestOptions, withWeeklySummaryEnv(weeklySummaryEnv, async () => {
+  checkinEvidenceRows = { user: null };
+  const missing = await checkinEvidence(evidenceQuery, summaryAuth);
+  assert.equal(missing.res.status, 200);
+  assert.equal(missing.body.timezone, null);
+  assert.deepEqual(missing.body.data, { status: 'no-account' });
+
+  const originalRows = fakeDb.getCheckinEvidenceRows;
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    fakeDb.getCheckinEvidenceRows = async () => {
+      const error = new Error('checkin evidence entries exceeds 5000 rows');
+      error.code = 'checkin_evidence_row_limit';
+      throw error;
+    };
+    const tooMany = await checkinEvidence(evidenceQuery, summaryAuth);
+    assert.equal(tooMany.res.status, 500);
+    assert.equal(tooMany.res.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(tooMany.body, { error: 'too-many-rows' });
+
+    fakeDb.getCheckinEvidenceRows = async () => { throw new Error('relation "secret_table" does not exist'); };
+    const failed = await checkinEvidence(evidenceQuery, summaryAuth);
+    assert.equal(failed.res.status, 500);
+    assert.deepEqual(failed.body, { error: 'internal' });
+  } finally {
+    fakeDb.getCheckinEvidenceRows = originalRows;
+    console.error = originalError;
+  }
+}));
+
+test('checkin evidence is not mounted under /api/v1', routeTestOptions, withWeeklySummaryEnv(weeklySummaryEnv, async () => {
+  resetCalls();
+  const direct = await fetch(`${baseUrl}/api/v1/checkin-evidence${evidenceQuery}`, { headers: summaryAuth });
+  assert.equal(direct.status, 404);
+  assert.equal(latestCall('getCheckinEvidenceRows'), undefined);
 }));
 
 // ── Apple Health daily metrics ──
