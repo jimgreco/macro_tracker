@@ -1241,9 +1241,11 @@ test('checkin evidence rows are read-only, bounded and Oura-free on PostgreSQL',
   assert.deepEqual(data.photos.map((p) => [p.checkin_id, p.view, p.day]), [[checkinId, 'front', '2026-11-04']]);
   assert.doesNotMatch(JSON.stringify(data), /private\//);
   assert.deepEqual(data.weightTargets, [{ target_weight: 172, target_date: '2027-06-01', effective_date: '2026-09-01' }]);
-  // Nights of Nov 3 (22:00 local) and Nov 4 (23:00 local); Oura-sourced, Oura-linked and deleted rows excluded.
+  // Nights of Nov 3 (22:00 local), Nov 4 (23:00 local) and Nov 5: the Oura app's
+  // HealthKit copy is kept (not Oura API data); source 'oura', Oura-document-linked
+  // and deleted rows are excluded.
   assert.deepEqual(data.sleep.map((s) => [s.localDate, s.durationHours, s.wakeUps, s.source]),
-    [['2026-11-03', 7.5, 1, 'healthkit'], ['2026-11-04', 6, 0, 'manual']]);
+    [['2026-11-03', 7.5, 1, 'healthkit'], ['2026-11-04', 6, 0, 'manual'], ['2026-11-05', 9, 0, 'healthkit']]);
 
   assert.deepEqual(await db.getCheckinEvidenceRows('nobody-checkin-evidence@example.test', { startDay: '2026-11-02', endDay: '2026-11-08' }), { user: null });
 });

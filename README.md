@@ -206,7 +206,8 @@ in `src/db.js` (one `READ ONLY` snapshot), registered next to the weekly summary
   `checkins`, `photos` (ready photo metadata only, never object keys or URLs),
   `weightTargets` (history to `end`) and `sleep` (the weekly summary rule: live
   `healthkit`/`manual` rows with no Oura document link).
-- Never reads `oura_documents`; rows whose `source`, `source_detail` or `external_id`
-  mentions Oura are excluded. Deleted rows are excluded. Each kind is bounded at
+- Never reads `oura_documents`; food and weight rows whose `source`, `source_detail` or
+  `external_id` mentions Oura are excluded. Sleep uses only the weekly summary rule above,
+  so Oura-app nights that arrive through Apple Health are included (they are not Oura API data). Deleted rows are excluded. Each kind is bounded at
   5,000 rows: more returns `500 {"error":"too-many-rows"}` rather than truncating.
 - Own rate-limiter bucket (30 requests / 15 minutes), its only database write.
