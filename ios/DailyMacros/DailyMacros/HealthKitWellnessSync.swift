@@ -10,6 +10,63 @@ struct HealthKitMetricSyncResult {
     static let empty = HealthKitMetricSyncResult(importedCount: 0, exportedCount: 0, skippedCount: 0)
 }
 
+/// One source's result from a manual (toolbar) sync.
+enum ManualSyncSourceResult: Equatable {
+    /// The source synced. `message` is the existing detail line, surfaced only
+    /// when another source failed in the same sync.
+    case synced(message: String, foundData: Bool)
+    case failed(message: String)
+}
+
+/// What a manual sync shows: a quiet inline status line, or the existing alert.
+enum ManualSyncOutcome: Equatable {
+    case quietSuccess(noNewData: Bool)
+    case alert(String)
+
+    /// Any failure keeps the alert with every source's line (unchanged wording);
+    /// otherwise the sync is a quiet success.
+    static func classify(_ results: [ManualSyncSourceResult]) -> ManualSyncOutcome {
+        let hasFailure = results.contains {
+            if case .failed = $0 { return true }
+            return false
+        }
+        if hasFailure {
+            let lines = results.map { result -> String in
+                switch result {
+                case .synced(let message, _), .failed(let message): return message
+                }
+            }
+            return .alert(lines.joined(separator: "\n"))
+        }
+        let foundData = results.contains {
+            if case .synced(_, true) = $0 { return true }
+            return false
+        }
+        return .quietSuccess(noNewData: !foundData)
+    }
+}
+
+/// The last successful manual sync on a screen, shown as a quiet status line.
+struct ManualSyncStatus: Equatable {
+    let syncedAt: Date
+    let noNewData: Bool
+
+    func label(now: Date = Date(), locale: Locale = .current) -> String {
+        let when: String
+        if now.timeIntervalSince(syncedAt) < 60 {
+            when = "just now"
+        } else {
+            let formatter = RelativeDateTimeFormatter()
+            formatter.locale = locale
+            formatter.unitsStyle = .full
+            formatter.dateTimeStyle = .numeric
+            when = formatter.localizedString(for: syncedAt, relativeTo: now)
+        }
+        let base = "Synced \(when)"
+        return noNewData ? "\(base) · no new data" : base
+    }
+}
+
 enum HealthKitWellnessSyncError: LocalizedError {
     case unavailable
     case missingType(String)

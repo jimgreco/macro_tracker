@@ -20,6 +20,7 @@ struct WeightView: View {
     @State private var editingEntry: WeightEntry?
     @State private var isLoading = false
     @State private var isSyncing = false
+    @State private var syncStatus: ManualSyncStatus?
     @State private var isSavingTarget = false
     @State private var weightOffset = 0
     @State private var hasMoreWeightEntries = true
@@ -40,6 +41,8 @@ struct WeightView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: AppVisualSystem.Spacing.large) {
+                    ManualSyncStatusLine(status: syncStatus)
+
                     AICoachSlot(
                         dismissals: coachDismissals,
                         suggestions: coachSuggestions,
@@ -72,6 +75,7 @@ struct WeightView: View {
                             Image(systemName: "arrow.triangle.2.circlepath")
                         }
                     }
+                    .accessibilityLabel("Sync weight from Apple Health")
                     .disabled(isSyncing)
 
                     Button {
@@ -955,11 +959,11 @@ struct WeightView: View {
 
         do {
             let result = try await healthKitSync.syncRecentWeight(api: api, access: access)
-            if result.importedCount > 0 || result.exportedCount > 0 {
-                errorMessage = "Apple Health: imported \(result.importedCount), wrote \(result.exportedCount)."
-            } else {
-                errorMessage = "Apple Health: no new weight entries from the last 30 days."
-            }
+            syncStatus = ManualSyncStatus(
+                syncedAt: Date(),
+                noNewData: result.importedCount == 0 && result.exportedCount == 0
+            )
+            ManualSyncStatusLine.announceSuccess()
             await loadEntries(reset: true)
         } catch {
             guard !isCancellation(error) else { return }

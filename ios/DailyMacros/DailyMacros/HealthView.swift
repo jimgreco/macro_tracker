@@ -95,6 +95,7 @@ struct HealthView: View {
 
     @State private var errorMessage: String?
     @State private var isSyncingSources = false
+    @State private var syncStatus: ManualSyncStatus?
 
     private let activityTypes = ["masturbation", "oral sex", "vaginal sex", "other"]
     private let activityDotPriorityTypes = ["vaginal sex", "oral sex", "other", "masturbation"]
@@ -157,6 +158,7 @@ struct HealthView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: AppVisualSystem.Spacing.xLarge) {
+                    ManualSyncStatusLine(status: syncStatus)
                     modeContent
                 }
                 .padding()
@@ -2022,22 +2024,25 @@ struct HealthView: View {
             return
         }
 
-        var messages: [String] = []
+        var results: [ManualSyncSourceResult] = []
         if syncsHealthKit {
             do {
                 let result = try await healthKitSync.syncRecentSleep(
                     api: api,
                     access: healthKitAccess
                 )
-                messages.append(
-                    syncMessage(
-                        name: "Apple Health",
-                        result: result,
-                        empty: "no new sleep entries from the last 30 days."
+                results.append(
+                    .synced(
+                        message: syncMessage(
+                            name: "Apple Health",
+                            result: result,
+                            empty: "no new sleep entries from the last 30 days."
+                        ),
+                        foundData: syncFoundData(result)
                     )
                 )
             } catch {
-                messages.append("Apple Health: \(error.localizedDescription)")
+                results.append(.failed(message: "Apple Health: \(error.localizedDescription)"))
             }
         }
 
@@ -2046,17 +2051,34 @@ struct HealthView: View {
                 let result = try await api.syncOura(days: 30)
                 let sessions = result.counts["sleep"] ?? 0
                 let scoreDays = result.counts["daily_sleep"] ?? 0
-                messages.append(
-                    "Oura: refreshed \(sessions) sleep session\(sessions == 1 ? "" : "s") and \(scoreDays) daily score\(scoreDays == 1 ? "" : "s")."
+                results.append(
+                    .synced(
+                        message: "Oura: refreshed \(sessions) sleep session\(sessions == 1 ? "" : "s") and \(scoreDays) daily score\(scoreDays == 1 ? "" : "s").",
+                        foundData: sessions + scoreDays > 0
+                    )
                 )
                 Diagnostics.shared.record(category: "oura", message: "Synced Oura sleep data")
             } catch {
-                messages.append("Oura: \(error.localizedDescription)")
+                results.append(.failed(message: "Oura: \(error.localizedDescription)"))
             }
         }
 
         await loadSleepSurface()
-        errorMessage = messages.joined(separator: "\n")
+        applyManualSyncOutcome(ManualSyncOutcome.classify(results))
+    }
+
+    private func applyManualSyncOutcome(_ outcome: ManualSyncOutcome) {
+        switch outcome {
+        case .quietSuccess(let noNewData):
+            syncStatus = ManualSyncStatus(syncedAt: Date(), noNewData: noNewData)
+            ManualSyncStatusLine.announceSuccess()
+        case .alert(let message):
+            errorMessage = message
+        }
+    }
+
+    private func syncFoundData(_ result: HealthKitMetricSyncResult) -> Bool {
+        result.importedCount > 0 || result.exportedCount > 0
     }
 
     private func syncSexualActivitySource() async {
@@ -2076,11 +2098,7 @@ struct HealthView: View {
                 api: api,
                 access: access
             )
-            errorMessage = syncMessage(
-                name: "Sexual Activity",
-                result: activityResult,
-                empty: "no new entries from the last 30 days."
-            )
+            applyManualSyncOutcome(.quietSuccess(noNewData: !syncFoundData(activityResult)))
             await loadHealth(reset: true)
         } catch {
             errorMessage = "Sexual Activity: \(error.localizedDescription)"

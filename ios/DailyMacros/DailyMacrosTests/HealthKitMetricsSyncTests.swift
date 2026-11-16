@@ -474,4 +474,50 @@ final class ActivityMetricVisibilityTests: XCTestCase {
         let loaded = response(days: [day("2026-11-14", steps: 8_000)], current: current, previous: previous)
         XCTAssertEqual(ActivityMetricVisibility.visibleMetrics(for: loaded), [.steps, .respiratoryRate, .bloodOxygen])
     }
+
+    // MARK: - Manual sync outcome
+
+    func testManualSyncWithImportsIsQuietSuccess() {
+        let outcome = ManualSyncOutcome.classify([
+            .synced(message: "Apple Health: imported 3, wrote 0.", foundData: true),
+            .synced(message: "Oura: refreshed 0 sleep sessions and 0 daily scores.", foundData: false),
+        ])
+        XCTAssertEqual(outcome, .quietSuccess(noNewData: false))
+    }
+
+    func testManualSyncWithNothingFoundIsQuietNoNewData() {
+        let outcome = ManualSyncOutcome.classify([
+            .synced(message: "Apple Health: no new sleep entries from the last 30 days.", foundData: false),
+        ])
+        XCTAssertEqual(outcome, .quietSuccess(noNewData: true))
+    }
+
+    func testManualSyncErrorKeepsAlertWording() {
+        let outcome = ManualSyncOutcome.classify([
+            .failed(message: "Apple Health: The request timed out."),
+        ])
+        XCTAssertEqual(outcome, .alert("Apple Health: The request timed out."))
+    }
+
+    func testManualSyncPartialFailureAlertsWithEverySourceLine() {
+        let outcome = ManualSyncOutcome.classify([
+            .synced(message: "Apple Health: imported 2, wrote 1.", foundData: true),
+            .failed(message: "Oura: Not connected."),
+        ])
+        XCTAssertEqual(outcome, .alert("Apple Health: imported 2, wrote 1.\nOura: Not connected."))
+    }
+
+    func testManualSyncStatusLabelUsesRelativeTimeWithoutCounts() {
+        let syncedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let locale = Locale(identifier: "en_US")
+        let status = ManualSyncStatus(syncedAt: syncedAt, noNewData: false)
+        XCTAssertEqual(status.label(now: syncedAt.addingTimeInterval(20), locale: locale), "Synced just now")
+        XCTAssertEqual(status.label(now: syncedAt.addingTimeInterval(5 * 60), locale: locale), "Synced 5 minutes ago")
+
+        let empty = ManualSyncStatus(syncedAt: syncedAt, noNewData: true)
+        XCTAssertEqual(
+            empty.label(now: syncedAt, locale: locale),
+            "Synced just now · no new data"
+        )
+    }
 }
