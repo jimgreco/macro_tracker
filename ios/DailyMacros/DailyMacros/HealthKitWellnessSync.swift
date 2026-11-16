@@ -63,7 +63,7 @@ struct ManualSyncStatus: Equatable {
             when = formatter.localizedString(for: syncedAt, relativeTo: now)
         }
         let base = "Synced \(when)"
-        return noNewData ? "\(base) · no new data in Apple Health" : base
+        return noNewData ? "\(base) · no new data" : base
     }
 }
 

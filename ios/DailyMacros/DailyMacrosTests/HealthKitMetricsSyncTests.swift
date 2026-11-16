@@ -517,7 +517,7 @@ final class ActivityMetricVisibilityTests: XCTestCase {
         let empty = ManualSyncStatus(syncedAt: syncedAt, noNewData: true)
         XCTAssertEqual(
             empty.label(now: syncedAt, locale: locale),
-            "Synced just now · no new data in Apple Health"
+            "Synced just now · no new data"
         )
     }
 }
