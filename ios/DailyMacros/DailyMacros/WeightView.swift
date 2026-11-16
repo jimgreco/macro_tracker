@@ -9,6 +9,7 @@ struct WeightView: View {
     @StateObject private var coachDismissals = CoachDismissalStore.shared
     @State private var entries: [WeightEntry] = []
     @State private var target: WeightTarget?
+    @State private var weightChartSelection: Int?
     @State private var macroDailyTotals: [DailyTotals] = []
     @State private var macroTargets: MacroTargets?
     @State private var coachSuggestions: [CoachSuggestion] = []
@@ -255,11 +256,42 @@ struct WeightView: View {
                     let chartEntries = weightChartEntries
                     let scale = weightChartScale
 
+                    let selected = weightChartSelection
+                    let callouts = chartEntries.map { entry in
+                        ChartCalloutText(
+                            value: ChartValueFormat.weight(entry.weight),
+                            date: ChartValueFormat.day(parseISO(entry.loggedAt)),
+                            spoken: "\(ChartValueFormat.oneDecimal(entry.weight)) pounds, \(ChartValueFormat.day(parseISO(entry.loggedAt)))"
+                        )
+                    }
                     Canvas { context, size in
-                        drawWeightChart(entries: chartEntries, scale: scale, context: context, size: size)
+                        drawWeightChart(entries: chartEntries, scale: scale, selectedIndex: selected, context: context, size: size)
                     }
                     .frame(height: 220)
+                    .accessibilityElement()
                     .accessibilityLabel("Weight chart with dates on the horizontal axis and pounds on the vertical axis")
+                    .accessibilityIdentifier("weight-chart")
+                    .chartSelection(
+                        $weightChartSelection,
+                        count: chartEntries.count,
+                        resetID: scope,
+                        plotRect: { WeightChartGeometry(count: chartEntries.count, scale: scale, size: $0).plotRect },
+                        anchor: { index, size in
+                            guard chartEntries.indices.contains(index) else { return nil }
+                            return WeightChartGeometry(count: chartEntries.count, scale: scale, size: size)
+                                .point(index, value: chartEntries[index].weight)
+                        },
+                        callout: { callouts.indices.contains($0) ? callouts[$0] : nil },
+                        tint: .cyan,
+                        accessibilitySummary: weightChartSummary(chartEntries),
+                        descriptor: ChartAccessibilityDescriptor(
+                            title: "Weight",
+                            yTitle: "Pounds",
+                            isContinuous: true,
+                            values: chartEntries.map { Optional($0.weight) },
+                            callouts: callouts
+                        )
+                    )
 
                     HStack(spacing: 16) {
                         legendItem("Avg: \(String(format: "%.1f", entries.map(\.weight).reduce(0, +) / Double(entries.count)))", color: .white.opacity(0.4))
@@ -293,27 +325,60 @@ struct WeightView: View {
         return (minValue, minValue + span, span)
     }
 
-    private func drawWeightChart(entries chartEntries: [WeightEntry], scale: (min: Double, max: Double, span: Double), context: GraphicsContext, size: CGSize) {
-        guard !chartEntries.isEmpty else { return }
+    private func weightChartSummary(_ chartEntries: [WeightEntry]) -> String {
+        guard let first = chartEntries.first, let last = chartEntries.last else { return "No data" }
+        let count = chartEntries.count == 1 ? "1 weigh-in" : "\(chartEntries.count) weigh-ins"
+        return "\(count). From \(ChartValueFormat.oneDecimal(first.weight)) to \(ChartValueFormat.oneDecimal(last.weight)) pounds."
+    }
 
-        let topPadding: CGFloat = 10
-        let rightPadding: CGFloat = 8
-        let bottomPadding: CGFloat = 30
-        let leftPadding: CGFloat = 46
-        let plotWidth = max(size.width - leftPadding - rightPadding, 1)
-        let plotHeight = max(size.height - topPadding - bottomPadding, 1)
-        let tickCount = 4
+    /// Plot area and point positions shared by the weight chart and tap selection.
+    private struct WeightChartGeometry {
+        static let topPadding: CGFloat = 10
+        static let rightPadding: CGFloat = 8
+        static let bottomPadding: CGFloat = 30
+        static let leftPadding: CGFloat = 46
+
+        let count: Int
+        let scale: (min: Double, max: Double, span: Double)
+        let plotWidth: CGFloat
+        let plotHeight: CGFloat
+
+        init(count: Int, scale: (min: Double, max: Double, span: Double), size: CGSize) {
+            self.count = count
+            self.scale = scale
+            plotWidth = max(size.width - Self.leftPadding - Self.rightPadding, 1)
+            plotHeight = max(size.height - Self.topPadding - Self.bottomPadding, 1)
+        }
+
+        var plotRect: CGRect {
+            CGRect(x: Self.leftPadding, y: Self.topPadding, width: plotWidth, height: plotHeight)
+        }
 
         func xPosition(_ index: Int) -> CGFloat {
-            guard chartEntries.count > 1 else {
-                return leftPadding + plotWidth / 2
-            }
-            return leftPadding + (CGFloat(index) / CGFloat(chartEntries.count - 1)) * plotWidth
+            ChartSelectionMath.xPosition(index: index, count: count, minX: Self.leftPadding, width: plotWidth, centeredInSlots: false)
         }
 
         func yPosition(_ value: Double) -> CGFloat {
-            topPadding + plotHeight - CGFloat((value - scale.min) / scale.span) * plotHeight
+            Self.topPadding + plotHeight - CGFloat((value - scale.min) / scale.span) * plotHeight
         }
+
+        func point(_ index: Int, value: Double) -> CGPoint {
+            CGPoint(x: xPosition(index), y: yPosition(value))
+        }
+    }
+
+    private func drawWeightChart(entries chartEntries: [WeightEntry], scale: (min: Double, max: Double, span: Double), selectedIndex: Int?, context: GraphicsContext, size: CGSize) {
+        guard !chartEntries.isEmpty else { return }
+
+        let geometry = WeightChartGeometry(count: chartEntries.count, scale: scale, size: size)
+        let topPadding = WeightChartGeometry.topPadding
+        let leftPadding = WeightChartGeometry.leftPadding
+        let plotWidth = geometry.plotWidth
+        let plotHeight = geometry.plotHeight
+        let tickCount = 4
+
+        func xPosition(_ index: Int) -> CGFloat { geometry.xPosition(index) }
+        func yPosition(_ value: Double) -> CGFloat { geometry.yPosition(value) }
 
         for tickIndex in 0...tickCount {
             let ratio = CGFloat(tickIndex) / CGFloat(tickCount)
@@ -390,6 +455,14 @@ struct WeightView: View {
             let x = xPosition(index)
             let y = yPosition(entry.weight)
             context.fill(Circle().path(in: CGRect(x: x - 3, y: y - 3, width: 6, height: 6)), with: .color(.cyan))
+        }
+        if let selectedIndex, chartEntries.indices.contains(selectedIndex) {
+            ChartSelectionStyle.drawSelectedDot(
+                at: geometry.point(selectedIndex, value: chartEntries[selectedIndex].weight),
+                tint: .cyan,
+                radius: 4,
+                context: context
+            )
         }
 
         let labelIndices = chartAxisLabelIndices(count: chartEntries.count, desired: 4)

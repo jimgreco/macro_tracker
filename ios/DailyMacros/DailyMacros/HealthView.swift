@@ -60,6 +60,8 @@ struct HealthView: View {
     @State private var sleepDailyTotals: [SleepDailyTotals] = []
     @State private var sleepCoachSuggestions: [CoachSuggestion] = []
     @State private var sleepScope = "week"
+    @State private var sleepChartSelection: Int?
+    @State private var activityChartSelection: Int?
     @State private var showLogSleep = false
     @State private var sleepHours = ""
     @State private var sleepWakeUps = "0"
@@ -340,9 +342,45 @@ struct HealthView: View {
             } else if healthScope == "year" {
                 activityYearOccurrenceGrid(points)
             } else {
-                Canvas { context, size in
-                    drawActivityOccurrenceCanvas(points, context: context, size: size)
+                let selected = activityChartSelection
+                let callouts = points.map { point in
+                    ChartCalloutText(
+                        value: point.active
+                            ? orderedActivityTypes(point.types).map(activityLabel).joined(separator: ", ")
+                            : "No activity",
+                        date: ChartValueFormat.day(point.date, calendar: healthCalendar)
+                    )
                 }
+                Canvas { context, size in
+                    drawActivityOccurrenceCanvas(points, selectedIndex: selected, context: context, size: size)
+                }
+                .accessibilityElement()
+                .accessibilityLabel("\(activityOccurrenceTitle) chart")
+                .chartSelection(
+                    $activityChartSelection,
+                    count: points.count,
+                    resetID: healthScope,
+                    plotRect: { size in
+                        CGRect(x: 8, y: 0, width: max(size.width - 16, 1), height: size.height)
+                    },
+                    anchor: { index, size in
+                        CGPoint(
+                            x: ChartSelectionMath.xPosition(index: index, count: points.count, minX: 8, width: max(size.width - 16, 1), centeredInSlots: false),
+                            y: size.height / 2
+                        )
+                    },
+                    markerClearance: 7,
+                    callout: { callouts.indices.contains($0) ? callouts[$0] : nil },
+                    tint: modeAccent,
+                    accessibilitySummary: "\(points.filter(\.active).count) active days",
+                    descriptor: ChartAccessibilityDescriptor(
+                        title: activityOccurrenceTitle,
+                        yTitle: "Active",
+                        isContinuous: false,
+                        values: points.map { $0.active ? 1 : 0 },
+                        callouts: callouts
+                    )
+                )
             }
         }
         .frame(height: healthScope == "year" ? nil : activityOccurrenceDotPlotHeight)
@@ -426,7 +464,7 @@ struct HealthView: View {
         return activityColor(activityOccurrencePriorityType(for: point.types))
     }
 
-    private func drawActivityOccurrenceCanvas(_ points: [ActivityOccurrencePoint], context: GraphicsContext, size: CGSize) {
+    private func drawActivityOccurrenceCanvas(_ points: [ActivityOccurrencePoint], selectedIndex: Int?, context: GraphicsContext, size: CGSize) {
         guard !points.isEmpty else { return }
 
         let padX: CGFloat = 8
@@ -448,6 +486,10 @@ struct HealthView: View {
                 let rect = CGRect(x: x - dotRadius, y: dotY - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
                 let strokeColor: Color = point.isToday ? .cyan.opacity(0.55) : .white.opacity(0.15)
                 context.stroke(Path(ellipseIn: rect), with: .color(strokeColor), lineWidth: point.isToday ? 1.5 : 1)
+            }
+            if index == selectedIndex {
+                let ring = CGRect(x: x - dotRadius - 2.5, y: dotY - dotRadius - 2.5, width: (dotRadius + 2.5) * 2, height: (dotRadius + 2.5) * 2)
+                context.stroke(Path(ellipseIn: ring), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
             }
         }
     }
@@ -655,11 +697,42 @@ struct HealthView: View {
                     .foregroundStyle(.secondary)
                     .frame(height: 120)
             } else {
+                let data = combinedSleepDailyTotals
+                let targetHours = sleepTargetHours
+                let selected = sleepChartSelection
+                let callouts = data.map { day in
+                    ChartCalloutText(
+                        value: ChartValueFormat.sleepHours(day.totalHours),
+                        date: ChartValueFormat.day(isoDay: day.day, calendar: healthCalendar),
+                        spoken: "\(ChartValueFormat.spokenSleepHours(day.totalHours)), \(ChartValueFormat.day(isoDay: day.day, calendar: healthCalendar))"
+                    )
+                }
                 Canvas { context, size in
-                    drawSleepChart(context: context, size: size)
+                    drawSleepChart(selectedIndex: selected, context: context, size: size)
                 }
                 .frame(height: 150)
+                .accessibilityElement()
                 .accessibilityLabel("Sleep chart with dates on the horizontal axis and hours on the vertical axis")
+                .accessibilityIdentifier("sleep-chart")
+                .chartSelection(
+                    $sleepChartSelection,
+                    count: data.count,
+                    resetID: sleepScope,
+                    plotRect: { SleepChartGeometry(data: data, targetHours: targetHours, size: $0).plotRect },
+                    anchor: { index, size in
+                        SleepChartGeometry(data: data, targetHours: targetHours, size: size).anchor(index)
+                    },
+                    callout: { callouts.indices.contains($0) ? callouts[$0] : nil },
+                    tint: .cyan,
+                    accessibilitySummary: sleepChartSummary(data),
+                    descriptor: ChartAccessibilityDescriptor(
+                        title: "Sleep",
+                        yTitle: "Hours",
+                        isContinuous: true,
+                        values: data.map { Optional($0.totalHours) },
+                        callouts: callouts
+                    )
+                )
             }
 
             if !combinedSleepDailyTotals.isEmpty {
@@ -687,33 +760,70 @@ struct HealthView: View {
         .appSurface(.standard)
     }
 
-    private func drawSleepChart(context: GraphicsContext, size: CGSize) {
-        let data = combinedSleepDailyTotals
-        guard !data.isEmpty else { return }
+    private func sleepChartSummary(_ data: [SleepDailyTotals]) -> String {
+        guard !data.isEmpty else { return "No data" }
+        let average = data.reduce(0.0) { $0 + $1.totalHours } / Double(data.count)
+        let nights = data.count == 1 ? "night" : "nights"
+        return "\(data.count) \(nights). Average \(ChartValueFormat.spokenSleepHours(average))."
+    }
 
-        let historicalTargets = data.compactMap(\.targetHours).filter { $0 > 0 }
-        let maxHours = max(data.map(\.totalHours).max() ?? 10, historicalTargets.max() ?? sleepTargetHours, sleepTargetHours, 10)
+    /// Scale and plot area shared by the sleep chart drawing and tap selection.
+    private struct SleepChartGeometry {
+        static let topPadding: CGFloat = 10
+        static let rightPadding: CGFloat = 8
+        static let bottomPadding: CGFloat = 30
+        static let leftPadding: CGFloat = 42
+
+        let data: [SleepDailyTotals]
+        let maxHours: Double
         let minHours: Double = 0
-        let span = max(maxHours - minHours, 1)
-        let topPadding: CGFloat = 10
-        let rightPadding: CGFloat = 8
-        let bottomPadding: CGFloat = 30
-        let leftPadding: CGFloat = 42
-        let chartW = max(size.width - leftPadding - rightPadding, 1)
-        let chartH = max(size.height - topPadding - bottomPadding, 1)
-        let tickCount = 4
+        let span: Double
+        let chartW: CGFloat
+        let chartH: CGFloat
+
+        init(data: [SleepDailyTotals], targetHours: Double, size: CGSize) {
+            self.data = data
+            let historicalTargets = data.compactMap(\.targetHours).filter { $0 > 0 }
+            maxHours = max(data.map(\.totalHours).max() ?? 10, historicalTargets.max() ?? targetHours, targetHours, 10)
+            span = max(maxHours - 0, 1)
+            chartW = max(size.width - Self.leftPadding - Self.rightPadding, 1)
+            chartH = max(size.height - Self.topPadding - Self.bottomPadding, 1)
+        }
+
+        var plotRect: CGRect {
+            CGRect(x: Self.leftPadding, y: Self.topPadding, width: chartW, height: chartH)
+        }
 
         func xPos(_ index: Int) -> CGFloat {
-            guard data.count > 1 else {
-                return leftPadding + chartW / 2
-            }
-            return leftPadding + CGFloat(index) / CGFloat(data.count - 1) * chartW
+            ChartSelectionMath.xPosition(index: index, count: data.count, minX: Self.leftPadding, width: chartW, centeredInSlots: false)
         }
 
         func yPos(_ hours: Double) -> CGFloat {
             let ratio = (hours - minHours) / span
-            return topPadding + chartH * (1 - CGFloat(ratio))
+            return Self.topPadding + chartH * (1 - CGFloat(ratio))
         }
+
+        func anchor(_ index: Int) -> CGPoint? {
+            guard data.indices.contains(index) else { return nil }
+            return CGPoint(x: xPos(index), y: yPos(data[index].totalHours))
+        }
+    }
+
+    private func drawSleepChart(selectedIndex: Int?, context: GraphicsContext, size: CGSize) {
+        let data = combinedSleepDailyTotals
+        guard !data.isEmpty else { return }
+
+        let geometry = SleepChartGeometry(data: data, targetHours: sleepTargetHours, size: size)
+        let maxHours = geometry.maxHours
+        let span = geometry.span
+        let topPadding = SleepChartGeometry.topPadding
+        let leftPadding = SleepChartGeometry.leftPadding
+        let chartW = geometry.chartW
+        let chartH = geometry.chartH
+        let tickCount = 4
+
+        func xPos(_ index: Int) -> CGFloat { geometry.xPos(index) }
+        func yPos(_ hours: Double) -> CGFloat { geometry.yPos(hours) }
 
         for tickIndex in 0...tickCount {
             let ratio = CGFloat(tickIndex) / CGFloat(tickCount)
@@ -793,6 +903,9 @@ struct HealthView: View {
             let y = yPos(d.totalHours)
             let rect = CGRect(x: x - 3, y: y - 3, width: 6, height: 6)
             context.fill(Path(ellipseIn: rect), with: .color(.cyan))
+        }
+        if let selectedIndex, let anchor = geometry.anchor(selectedIndex) {
+            ChartSelectionStyle.drawSelectedDot(at: anchor, tint: .cyan, radius: 4, context: context)
         }
 
         let labelIndices = chartAxisLabelIndices(count: data.count, desired: 4)
