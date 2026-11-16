@@ -6127,15 +6127,17 @@ const CHECKIN_EVIDENCE_QUERIES = [
        FROM weight_targets
       WHERE user_id = $1 AND effective_date <= $2::date
       ORDER BY effective_date LIMIT $3`],
-  // Same rule as the weekly summary sleepNights: Apple Health and manual
-  // sleep only, never Oura-linked rows (plus the Oura provenance backstop).
+  // Exactly the weekly summary sleepNights rule: Apple Health and manual sleep,
+  // never rows linked to an Oura document. No external_id text filter here:
+  // HealthKit external ids start with the writing app's bundle id, so Oura-app
+  // nights that arrive through Apple Health (allowed; not Oura API data, see
+  // AGENTS.md) would be dropped. source IN (...) already excludes source 'oura'.
   ['sleep', 'timed',
     `SELECT id, to_char((logged_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS "localDate",
             logged_at, duration_hours::float8 AS duration_hours, wake_ups, source
        FROM sleep_entries
       WHERE user_id = $1 AND deleted_at IS NULL
         AND source IN ('healthkit', 'manual') AND oura_document_id IS NULL
-        AND COALESCE(source, '') NOT ILIKE '%oura%' AND COALESCE(external_id, '') NOT ILIKE '%oura%'
         AND (logged_at AT TIME ZONE $2)::date BETWEEN $3::date AND $4::date
       ORDER BY logged_at, id LIMIT $5`]
 ];

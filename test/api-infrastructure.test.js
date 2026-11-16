@@ -727,10 +727,12 @@ test('checkin evidence rows come from one bounded read-only snapshot without Our
   assert.doesNotMatch(section, /oura_documents|object_key|healthkit_metadata/);
   assert.ok(section.includes('CHECKIN_EVIDENCE_ROW_LIMIT = 5000'));
   assert.ok(section.includes('rows[key].length > CHECKIN_EVIDENCE_ROW_LIMIT'));
-  // Same sleep rule as the weekly summary, plus the provenance backstop.
+  // Sleep: exactly the weekly summary rule. Food and weights keep the provenance
+  // backstop; sleep has no external_id text filter, because HealthKit external ids
+  // carry the writing app's bundle id and Oura-app HealthKit nights are allowed.
   assert.ok(section.includes("source IN ('healthkit', 'manual') AND oura_document_id IS NULL"));
   assert.ok(section.includes("COALESCE(source, '') NOT ILIKE '%oura%' AND COALESCE(source_detail, '') NOT ILIKE '%oura%'"));
-  assert.equal((section.match(/COALESCE\(external_id, ''\) NOT ILIKE '%oura%'/g) || []).length, 2);
+  assert.equal((section.match(/COALESCE\(external_id, ''\) NOT ILIKE '%oura%'/g) || []).length, 1);
   for (const table of ['entries', 'weight_entries', 'waist_entries', 'sleep_entries']) {
     assert.match(section, new RegExp(`FROM ${table}\\s+WHERE user_id = \\$1 AND deleted_at IS NULL`), table);
   }
