@@ -31,7 +31,7 @@
       "healthkitBackgroundDelivery": true
     }
   },
-  "marketingVersion": "1.4.0",
+  "marketingVersion": "1.4.1",
   "apiOrigin": "https://macrovana.com",
   "mainInfoPlist": {
     "APIBaseURL": "{apiOrigin}",
